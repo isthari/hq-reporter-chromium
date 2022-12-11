@@ -35,6 +35,7 @@ private:
     Member<V8VideoCardAudioCallback> audioCallback_;
     Member<V8VideoCardFrameCallback> frameCallback_;
     scoped_refptr<media::VideoFrame> videoFrame_;
+    scoped_refptr<media::VideoFrame> videoFrameGpu_;
     Member<VideoFrame> videoFrame;
 
     // TODO GC
@@ -73,7 +74,7 @@ private:
     std::unique_ptr<media::GpuMemoryBufferVideoFramePool> gpuPool_;
     
     void retrievedGpuVideoAcceleratorFactories(media::GpuVideoAcceleratorFactories*);
-    void frameReadyCB(scoped_refptr<media::VideoFrame>);
+    void frameReadyCB( base::WaitableEvent* waitable_event, scoped_refptr<media::VideoFrame>);
     std::unique_ptr<gfx::GpuMemoryBuffer> gpuMemoryBuffer_;
     
     scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;

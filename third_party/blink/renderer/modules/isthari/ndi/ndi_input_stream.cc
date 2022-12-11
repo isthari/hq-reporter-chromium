@@ -242,18 +242,34 @@ void NdiInputStream::processVideoFrame(NDIlib_video_frame_v2_t videoFrame, base:
 	            i420originalSizeV_,
 	            timestamp);
             //VLOG(0) << "MaybeCreateHardwareFrame";
+            /*
             gpuPool_->MaybeCreateHardwareFrame(std::move(videoFrame_), 
                 base::BindOnce(&NdiInputStream::frameReadyCB, WrapCrossThreadWeakPersistent(this)));
+*/
+
+            //InitializeGpuMemoryBufferPool();            
+            base::WaitableEvent waitable_event;
+            media_task_runner_->PostTask(
+                FROM_HERE,
+                base::BindOnce(
+                    &media::GpuMemoryBufferVideoFramePool::MaybeCreateHardwareFrame,
+                    base::Unretained(gpuPool_.get()),
+                    base::RetainedRef(videoFrame_),
+                    base::BindOnce(
+                        &NdiInputStream::frameReadyCB,
+                        base::Unretained(this), base::Unretained(&waitable_event))));
+            waitable_event.Wait();            
         }                
     }
 }
 
-void NdiInputStream::frameReadyCB(scoped_refptr<media::VideoFrame> frame) {       
+void NdiInputStream::frameReadyCB( base::WaitableEvent* waitable_event, scoped_refptr<media::VideoFrame> frame) {       
     //VLOG(0) << "frame ready CB";
     if (frame->HasTextures()){
-        //VLOG(0) << "has textures";
+        VLOG(0) << "has textures";
     }
-    videoFrame_ = std::move(frame);
+    waitable_event->Signal();
+    videoFrameGpu_ = std::move(frame);
     PostCrossThreadTask(*main_task_runner_, 
             FROM_HERE, 
             CrossThreadBindOnce(&NdiInputStream::OnVideoFrameReceived,
@@ -296,7 +312,7 @@ VideoFrame* NdiInputStream::getVideoFrame(ExecutionContext* context) {
     //    gpuPool_->MaybeCreateHardwareFrame(videoFrame_, base::BindOnce(frameReadyCaB));
         //VLOG(0) << "post post";
     //}
-    this->videoFrame = MakeGarbageCollected<VideoFrame>(videoFrame_, context);
+    this->videoFrame = MakeGarbageCollected<VideoFrame>(videoFrameGpu_, context);
     return this->videoFrame;
 }
 
