@@ -43,26 +43,15 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
     scaledY_ = (uint8_t*) malloc (scaledWidth_*1.5*scaledHeight_);
     scaledU_ = (uint8_t*) malloc (scaledWidth_/2*scaledHeight_);
     scaledV_ = (uint8_t*) malloc (scaledWidth_/2*scaledHeight_);
-    /*
-    inWidth_ = (int) selectedWidth;
-    inHeight_ = (int) selectedHeight;
-    inStY_ = (uint8_t*) malloc (inWidth_*1.5*inHeight_);
-    inStU_ = (uint8_t*) malloc (inWidth_/2*inHeight_);
-    inStV_ = (uint8_t*) malloc (inWidth_/2*inHeight_);
-    */
-
-    // TODO GC borrar esto?
-    audioBuffer_ = (uint8_t **) malloc(sizeof (uint8_t *));
-    audioBuffer_[0] = (uint8_t *) malloc (48000 * 2 * 16); // equivalente a 1 segundo 16 canales
 
     // Audio de entrada
-    inputStart_ = 0;
-    audioDataIndex_ = 0;
-    audioDataCurrent_ = NULL;
-    audioDataNext_ = NULL;
     // TODO GC
     audioDataTemp_ = (uint8_t **) malloc(sizeof (uint8_t *) );
     audioDataTemp_[0] = (uint8_t*) malloc(48000 * 2 * 2);
+
+    // TODO GC
+    // nueva parte de audio
+    rootAudio_ = NULL;
 
     deckLinkInput_->SetCallback(this);
 
@@ -170,7 +159,6 @@ HRESULT DecklinkInputStream::VideoInputFrameArrived(
     */
 
     if(videoFrame) {
-
         if (videoFrame->GetFlags() & bmdFrameHasNoInputSource) {
 	        // no data
 	    } else {        
@@ -281,163 +269,80 @@ VideoFrame* DecklinkInputStream::getVideoFrame(ExecutionContext* context) {
     return this->videoFrameBlink_;
 }
 
-void DecklinkInputStream::processAudioData(IDeckLinkAudioInputPacket* audioFrame){        
-    uint8_t** copyBuffer;
-    copyBuffer = (uint8_t **) malloc(sizeof (uint8_t *) );
-    copyBuffer[0] = (uint8_t*) malloc(48000 * 2 * 2);  // equivalente a 1 segundo de audio       
-      
-    void *frameBytes;
-    // Por redondeo pueden no tener todos los paquetes el mismo numero de samples
+#define SIZE 480
+void DecklinkInputStream::processAudioData(IDeckLinkAudioInputPacket* audioFrame){           
     int samples = (int) audioFrame->GetSampleFrameCount();
-    int size = (int) (samples * 2 * 2);
+    int size = samples * 2* 2;
+
+    // insertar en la cola
+    LinkedList *node = new LinkedList();
+    node->index = 0;
+    node->samples = samples;
+    node->audioBuffer_ = (uint8_t**) malloc(sizeof(uint8_t*));
+    node->audioBuffer_[0] = (uint8_t*) malloc(size);
+    node->timestamp = timeIn_;
+    node->next = NULL;
+    void *frameBytes;    
     audioFrame->GetBytes(&frameBytes);
-    memcpy(copyBuffer[0], frameBytes, size);
-#ifdef DEBUG_AUDIO0
-    fwrite(copyBuffer[0], 1, size, fptrOriginal);
-#endif   			
-      
-    if (audioDataCurrent_ == NULL) {        
-        audioDataCurrent_ = copyBuffer;
-        audioDataCurrent_[0] = copyBuffer[0];
-        audioSamplesCurrent_ = samples;
-        timeInCurrent_ = timeIn_;        
-        return;
-    } else if (audioDataNext_ == NULL){        
-        audioDataNext_ = copyBuffer;
-        audioDataNext_[0] = copyBuffer[0];
-        audioSamplesNext_ = samples;
-        timeInNext_ = timeIn_;
-        return;
-    } 
-  
-    VLOG(0) << "TimeIn " << timeIn_ << " samples " << samples;
-  /*
-    VLOG(0) << "6";
-    free(audioDataCurrent_[0]);
-    free(audioDataCurrent_);
-    VLOG(0) << "7";
-
-    audioDataCurrent_ = NULL;
-    audioDataNext_ = NULL;
-    */
-
-    this->inputAudioCycle();        
-  
-    // coger samples-audioDataIndex_
-    // este no lleva delay porque esta ya pasado    
-    int sent = audioSamplesCurrent_-audioDataIndex_;
-    uint8_t* audioPointer;
-    audioPointer = audioDataCurrent_[0];
-    audioPointer += (audioDataIndex_*2*2);
-    memcpy(audioDataTemp_[0], audioPointer, sent*2*2);
-    audioDataIndex_ = 0;  
-
-    int pending = 480 - sent;
-    audioPointer = audioDataTemp_[0];
-    audioPointer += (sent*2*2);
-    memcpy(audioPointer, audioDataNext_[0], pending*2*2);
-    audioDataIndex_ += pending;   
-#ifdef DEBUG_AUDIO0
-    fwrite(audioDataTemp_[0], 1, 480*2*2, fptr10ms);
-#endif
-  
-    // generar el audioData y enviarlo  
-    //base::TimeDelta delay = base::Microseconds(audioDataIndex_*1000/48);
-    base::TimeDelta delay = base::Microseconds(40000);
-    VLOG(0) << "GENERAL Time in current " << timeInCurrent_ << " delay " << delay << " timestamp " << (timeInCurrent_+delay);
-//  LOG(INFO) << "DELAY "<<delay;
-    auto frame = media::AudioBuffer::CopyFrom(media::SampleFormat::kSampleFormatS16,
-        media::ChannelLayout::CHANNEL_LAYOUT_STEREO,
-	    2, // channel count
-        48000, // sample rate
-	    480, 
-	    audioDataTemp_,
-	    timeInCurrent_ + delay);
-    PostDelayedCrossThreadTask(*main_task_runner_, FROM_HERE, CrossThreadBindOnce(&DecklinkInputStream::OnAudioFrameReceived,WrapCrossThreadWeakPersistent(this), frame), delay);
+    memcpy(node->audioBuffer_[0], frameBytes, size);        
     
-    // rotar el audio
-    free(audioDataCurrent_[0]);
-    free(audioDataCurrent_);  
-    audioDataCurrent_ = audioDataNext_;
-    audioDataCurrent_[0] = audioDataNext_[0];
-    audioSamplesCurrent_ = audioSamplesNext_;
-    audioSamplesNext_ = samples;
-    audioDataNext_ = NULL;
-    timeInCurrent_ = timeInNext_;
-  
-    audioDataNext_ = copyBuffer;
-    audioDataNext_[0] = copyBuffer[0];
-    timeInNext_ = timeIn_;    
-}
-
-void DecklinkInputStream::OnAudioFrameReceived(scoped_refptr<media::AudioBuffer> audioBuffer) {
-    if (frameCounter_ < 10){
-        return;
+    if (rootAudio_ == NULL) {     
+        rootAudio_ = node;
+    } else {
+        rootAudio_->next = node;
     }
-    LOG(INFO) << "timestamp " << audioBuffer->timestamp();
+
+    // procesar la cola
+    bool finish = false;
+    while (!finish) {
+        finish = true;     
+        uint8_t* audioPointer;
+        audioPointer = rootAudio_->audioBuffer_[0];
+        audioPointer += (rootAudio_->index*2*2);           
+        if ( (rootAudio_->samples - rootAudio_->index) > SIZE) {
+            // hay suficiente en un frame
+            finish = false;                        
+            memcpy(audioDataTemp_[0], audioPointer, SIZE*2*2);
+            rootAudio_->index = rootAudio_->index + SIZE;
+        } else if (rootAudio_->next != NULL) {
+            // hay suficiente en un frame + el siguiente
+            finish = false;            
+            int size = rootAudio_->samples - rootAudio_->index;            
+            memcpy(audioDataTemp_[0], audioPointer, size*2*2);
+            LinkedList *old = rootAudio_;
+            rootAudio_ = old->next;
+            free(old->audioBuffer_[0]);
+            free(old->audioBuffer_);
+            free(old);
+
+            // copiar el resto
+            int pending = SIZE - size;            
+            memcpy(audioDataTemp_[0], audioPointer, size*2*2);  
+            uint8_t* audioPointer2 = rootAudio_->audioBuffer_[0];            
+            rootAudio_->index = pending;
+            memcpy(audioDataTemp_[0]+(size*2*2), audioPointer2, pending*2*2);
+        }
+
+        if (!finish) {
+            auto frame = media::AudioBuffer::CopyFrom(media::SampleFormat::kSampleFormatS16,
+                media::ChannelLayout::CHANNEL_LAYOUT_STEREO,
+	            2, // channel count
+                48000, // sample rate
+	            480, 
+	            audioDataTemp_,                
+	            timeInCurrent_);
+            PostCrossThreadTask(*main_task_runner_, 
+                FROM_HERE, 
+                CrossThreadBindOnce(&DecklinkInputStream::OnAudioFrameReceived,WrapCrossThreadWeakPersistent(this), frame));    
+        }
+    }
+}    
+
+void DecklinkInputStream::OnAudioFrameReceived(scoped_refptr<media::AudioBuffer> audioBuffer) {    
+    // LOG(INFO) << "timestamp " << audioBuffer->timestamp();
     auto *frame2 = MakeGarbageCollected<AudioData>(audioBuffer);
     auto qtf = audioCallback_->handleFrame(nullptr, frame2);
     qtf.IsJust(); 
-}
-
-void DecklinkInputStream::inputAudioCycle() {
-    // Coger al audio del buffer hasta que no queden suficientes
-    while ( (audioSamplesCurrent_-audioDataIndex_) >= 480 ){
-        // TODO controlar el numero de canales que llegan
-        memcpy(audioDataTemp_[0], audioDataCurrent_[0]+(audioDataIndex_*2*2), 480*2*2);    
-#ifdef DEBUG_AUDIO0
-        fwrite(audioDataTemp_[0], 1, 480*2*2, fptr10ms);
-#endif
-
-        // generar el audioData y enviarlo
-        base::TimeDelta delay = base::Microseconds(audioDataIndex_*1000/48);
-        audioDataIndex_ += 480;
-//    LOG(INFO) << "delay " << delay " index " << audioDataIndex;
-        VLOG(0) << "AUDIO-CYCLE Time in current " << timeInCurrent_ << " delay " << delay << " timestamp " << (timeInCurrent_+delay);
-        auto frame = media::AudioBuffer::CopyFrom(media::SampleFormat::kSampleFormatS16,
-            media::ChannelLayout::CHANNEL_LAYOUT_STEREO,
-	        2, // channel count
-            48000, // sample rate
-	        480, 
-	        audioDataTemp_,
-	        timeInCurrent_ + delay);			
-        PostDelayedCrossThreadTask(*main_task_runner_, FROM_HERE, CrossThreadBindOnce(&DecklinkInputStream::OnAudioFrameReceived,WrapCrossThreadWeakPersistent(this), frame), delay);
-    }
-}
-
-void DecklinkInputStream::onAudioDataReceived(int samples) {
-    //VLOG(0) << "onAudioDataReceived";
-#ifdef DEBUG_AUDIO    
-    fwrite(audioBuffer_[0], 1, samples*2*2, fptrOriginal);
-#endif    
-    /*
-    ScriptState* callback_relevant_script_state = audioCallback_->
-    CallbackRelevantScriptStateOrThrowException("VideoCardAudioCallback", "handleFrame");
-
-    if (!IsCallbackFunctionRunnable(callback_relevant_script_state,
-                                  audioCallback_->IncumbentScriptState())) {
-        VLOG(0) << "callback is no longer available audio sdi";
-        this->disable();
-    */
-    /*    
-    if (!isAvailableAudioDataCallback(audioCallback_)) {
-        VLOG(0) << "callback is no longer available";          
-    } else { 
-        */
-        /*
-        audioBufferMedia_ = media::AudioBuffer::CopyFrom(media::SampleFormat::kSampleFormatS16,
-            media::ChannelLayout::CHANNEL_LAYOUT_STEREO,
-            2, // channel count
-            48000, // sample rate
-            samples, 
-            audioBuffer_,
-            currentFrameTime_);
-        
-        audioData_ = MakeGarbageCollected<AudioData>(audioBufferMedia_);    
-        auto qtf = audioCallback_->handleFrame(nullptr, audioData_);
-        qtf.IsJust(); 
-        */
-    //}
 }
 
 }

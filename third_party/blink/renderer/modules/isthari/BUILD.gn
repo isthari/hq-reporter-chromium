@@ -12,6 +12,8 @@ blink_modules_sources("isthari") {
   sources = [
     "dom_window_decklink.cc",
     "dom_window_decklink.h",
+    "linked_list.cc",
+    "linked_list.h",
     "video_card.cc",
     "video_card.h",
     "video_card_mode.cc",

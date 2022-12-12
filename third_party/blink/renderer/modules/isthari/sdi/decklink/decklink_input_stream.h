@@ -8,6 +8,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_audio_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_frame_callback.h"
+#include "third_party/blink/renderer/modules/isthari/linked_list.h"
 #include "third_party/blink/renderer/modules/webcodecs/audio_data.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_frame.h"
 
@@ -92,13 +93,15 @@ namespace blink {
             uint8_t** audioDataCurrent_;
             uint8_t** audioDataNext_;    
             int audioSamplesCurrent_;
-            int audioSamplesNext_;
             base::TimeDelta timeInCurrent_;
             base::TimeDelta timeInNext_;
             // Para indicar porque punto va
             int audioDataIndex_;
             // Este es el paquete de audio que se construye para el envio
             uint8_t** audioDataTemp_;
+
+            // nueva parte de audio
+            LinkedList *rootAudio_;
 
 //#define DEBUG_AUDIO audio
 #ifdef DEBUG_AUDIO
