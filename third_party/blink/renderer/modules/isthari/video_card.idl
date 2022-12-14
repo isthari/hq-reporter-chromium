@@ -11,6 +11,7 @@
     [CallWith=ExecutionContext] void enableVideoInput(
         long mode,
         long selectedWidth, long selectedHeight,
+        long channels,
     	VideoCardFrameCallback callbackVideo, 
     	VideoCardAudioCallback callbackAudio);
     void disableVideoInput();

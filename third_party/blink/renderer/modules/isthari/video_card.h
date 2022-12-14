@@ -59,6 +59,7 @@ public:
     void enableVideoInput(ExecutionContext*, 
     	long mode,
     	long selectedWidth, long selectedHeight, 
+        long channels,
     	V8VideoCardFrameCallback *, V8VideoCardAudioCallback *);
     void disableVideoInput();
     VideoFrame* getVideoFrame(ExecutionContext* context);

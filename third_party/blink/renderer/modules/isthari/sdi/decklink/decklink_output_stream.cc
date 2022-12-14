@@ -8,9 +8,10 @@
 namespace blink {
 
 DecklinkOutputStream::DecklinkOutputStream(IDeckLinkOutput *decklinkOutput,
-            IDeckLinkDisplayMode* displayMode)
+            IDeckLinkDisplayMode* displayMode, long audioChannels)
     : decklinkOutput_(decklinkOutput),
-    frameCounter_(0)
+    frameCounter_(0),
+    audioChannels_(audioChannels)
 {
     width_ = (int) displayMode->GetWidth();
     height_ = (int) displayMode->GetHeight();
@@ -57,8 +58,10 @@ DecklinkOutputStream::DecklinkOutputStream(IDeckLinkOutput *decklinkOutput,
     }
 
     // TODO sacarlo a una función a parte de inicialización
-    int audioChannels = 2;
-    HRESULT audio = decklinkOutput_->EnableAudioOutput(bmdAudioSampleRate48kHz, bmdAudioSampleType16bitInteger, (uint32_t) audioChannels, bmdAudioOutputStreamContinuous);
+    HRESULT audio = decklinkOutput_->EnableAudioOutput(bmdAudioSampleRate48kHz, 
+        bmdAudioSampleType16bitInteger, 
+        (uint32_t) audioChannels_, 
+        bmdAudioOutputStreamContinuous);
     if (audio == S_OK) {
         VLOG(0) << "enable audio output ok";        
     } else {
@@ -124,7 +127,7 @@ void DecklinkOutputStream::putVideoFrame(VideoFrame* frame) {
     if (mediaFrame->HasTextures()){
         //VLOG(0) << "Has textures";
         auto mediaFrame = frame->frame();
-        // TODO llevar el primer bloque a una funcion helper para reutilizar con NDO
+        // TODO llevar el primer bloque a una funcion helper para reutilizar con NDI
         auto wrapper = SharedGpuContext::ContextProviderWrapper();
         scoped_refptr<viz::RasterContextProvider> raster_provider = wrapper->ContextProvider()->RasterContextProvider();
         auto* ri = raster_provider->RasterInterface();
