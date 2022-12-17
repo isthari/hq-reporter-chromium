@@ -47,6 +47,8 @@ VideoCard::VideoCard(IDeckLink *deckLink)
 
     deckLinkAttributes->GetInt(BMDDeckLinkPersistentID, &persistentId_);
     deckLinkAttributes->GetInt(BMDDeckLinkSubDeviceIndex, &subDeviceIndex_);
+    deckLinkAttributes->GetInt(BMDDeckLinkMaximumAudioChannels, &audioChannels_);
+
     deckLinkAttributes->Release();
 
     this->checkIO();
@@ -128,6 +130,10 @@ void VideoCard::getDisplayModes() {
             modes_.push_back(mode);	    
 	}
     }
+}
+
+int64_t VideoCard::audioChannels() {
+    return audioChannels_;
 }
 
 VideoCardMode* VideoCard::getMode(long index) 

@@ -52,6 +52,7 @@ public:
     String identifier();
     
     // Metadata
+    int64_t audioChannels();
     long getModeCount() { return (long) modes_.size(); }
     VideoCardMode* getMode(long index); 
 
@@ -99,6 +100,7 @@ private:
     std::string modelName_;
     int64_t persistentId_;
     int64_t subDeviceIndex_;
+    int64_t audioChannels_;
     
     // no se usa de momento
     BMDTimeValue frameDuration_;

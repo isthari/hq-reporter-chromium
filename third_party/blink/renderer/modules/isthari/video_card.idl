@@ -7,6 +7,7 @@
     readonly attribute long persistentId;
     readonly attribute long subDeviceIndex;
     readonly attribute DOMString identifier;
+    readonly attribute long audioChannels;
 
     [CallWith=ExecutionContext] void enableVideoInput(
         long mode,
