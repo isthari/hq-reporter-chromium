@@ -47,6 +47,8 @@ VideoCard::VideoCard(IDeckLink *deckLink)
 
     deckLinkAttributes->GetInt(BMDDeckLinkPersistentID, &persistentId_);
     deckLinkAttributes->GetInt(BMDDeckLinkSubDeviceIndex, &subDeviceIndex_);
+    deckLinkAttributes->GetInt(BMDDeckLinkMaximumAudioChannels, &audioChannels_);
+
     deckLinkAttributes->Release();
 
     this->checkIO();
@@ -130,6 +132,10 @@ void VideoCard::getDisplayModes() {
     }
 }
 
+int64_t VideoCard::audioChannels() {
+    return audioChannels_;
+}
+
 VideoCardMode* VideoCard::getMode(long index) 
 {
 	auto l_front = modes_.begin();
@@ -142,7 +148,7 @@ void VideoCard::enableVideoOutput(long mode, long audioChannels) {
     // TODO si ya lo estaba
     IDeckLinkDisplayMode *displayMode = displayModes_[(int)mode];
     this->audioChannelsOut_=audioChannels;
-    this->decklinkOutputStream_ = MakeGarbageCollected<DecklinkOutputStream>(deckLinkOutput_, displayMode);    
+    this->decklinkOutputStream_ = MakeGarbageCollected<DecklinkOutputStream>(deckLinkOutput_, displayMode, audioChannels);    
 }
 
 void VideoCard::disableVideoInput() 
@@ -162,6 +168,7 @@ void VideoCard::enableVideoInput(ExecutionContext* executionContext,
 	long mode, 
 	long selectedWidth,
 	long selectedHeight,
+    long channels,
  	V8VideoCardFrameCallback* frameCallback, V8VideoCardAudioCallback* audioCallback) {    
 
     if (decklinkInputStream_ != nullptr){        
@@ -170,7 +177,8 @@ void VideoCard::enableVideoInput(ExecutionContext* executionContext,
     IDeckLinkDisplayMode *displayMode = displayModes_[(int)mode];
     decklinkInputStream_ = MakeGarbageCollected<DecklinkInputStream>(
             deckLinkInput_,
-            displayMode, 
+            displayMode,
+            channels, 
             frameCallback,
             audioCallback,
             main_task_runner_);            

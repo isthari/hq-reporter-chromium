@@ -19,7 +19,7 @@ namespace blink {
 class DecklinkOutputStream : public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    DecklinkOutputStream(IDeckLinkOutput*, IDeckLinkDisplayMode*);    
+    DecklinkOutputStream(IDeckLinkOutput*, IDeckLinkDisplayMode*, long);    
     void Trace(Visitor*) const override;
 
     void putVideoFrame(VideoFrame* frame); 
@@ -48,12 +48,12 @@ private:
     uint8_t* scaledU_;
     uint8_t* scaledV_;
 
-
-
     // frame que se envia directamente a la tarjeta decklink
     IDeckLinkMutableVideoFrame *playbackFrame_;
-
     media::VideoFramePool videoFramePool_;
+
+    // audio
+    long audioChannels_;
 };
 
 }

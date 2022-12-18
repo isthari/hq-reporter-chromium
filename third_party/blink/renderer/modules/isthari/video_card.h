@@ -52,6 +52,7 @@ public:
     String identifier();
     
     // Metadata
+    int64_t audioChannels();
     long getModeCount() { return (long) modes_.size(); }
     VideoCardMode* getMode(long index); 
 
@@ -59,6 +60,7 @@ public:
     void enableVideoInput(ExecutionContext*, 
     	long mode,
     	long selectedWidth, long selectedHeight, 
+        long channels,
     	V8VideoCardFrameCallback *, V8VideoCardAudioCallback *);
     void disableVideoInput();
     VideoFrame* getVideoFrame(ExecutionContext* context);
@@ -98,6 +100,7 @@ private:
     std::string modelName_;
     int64_t persistentId_;
     int64_t subDeviceIndex_;
+    int64_t audioChannels_;
     
     // no se usa de momento
     BMDTimeValue frameDuration_;
