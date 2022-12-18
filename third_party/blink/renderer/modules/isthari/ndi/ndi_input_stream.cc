@@ -342,7 +342,7 @@ void NdiInputStream::OnAudioDataReceived(scoped_refptr<media::AudioBuffer> audio
         */
     } else {
         auto *frame2 = MakeGarbageCollected<AudioData>(audioBuffer);
-        auto qtf = audioCallback_->handleFrame(nullptr, frame2);
+        auto qtf = audioCallback_->handleFrame(nullptr, frame2, 0);
         qtf.IsJust(); 
     }
 }

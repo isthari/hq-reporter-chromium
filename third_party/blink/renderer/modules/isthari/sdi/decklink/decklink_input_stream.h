@@ -18,6 +18,8 @@
 #include "third_party/decklink/win/DeckLinkAPI.h"
 #endif
 
+//#define DEBUG_AUDIO
+
 namespace blink {
     class DecklinkInputStream : public ScriptWrappable,
         IDeckLinkInputCallback
@@ -26,6 +28,7 @@ namespace blink {
         public: 
             DecklinkInputStream(IDeckLinkInput *deckLinkInput,
                 IDeckLinkDisplayMode* displayMode, 
+                long channels,
                 V8VideoCardFrameCallback* frameCallback,
                 V8VideoCardAudioCallback* audioCallback,
                 scoped_refptr<base::SingleThreadTaskRunner> main_task_runner);
@@ -47,10 +50,9 @@ namespace blink {
             void onVideoFrameReceived();            
 
             // seccion de audio
-            void processAudioData(IDeckLinkAudioInputPacket* );            
-            void OnAudioFrameReceived(scoped_refptr<media::AudioBuffer>);
-            void onAudioDataReceived(int samples);            
-            void inputAudioCycle();
+            void processAudioData(IDeckLinkAudioInputPacket* );                        
+            void processAudioBuffer(uint8_t*, int, int);
+            void OnAudioFrameReceived(scoped_refptr<media::AudioBuffer>, int);            
 
         private:
             IDeckLinkInput *deckLinkInput_;
@@ -78,6 +80,7 @@ namespace blink {
             // counters and timers
             uint64_t startTimestamp_;
             int32_t frameCounter_;
+            int32_t frameCounterAudio_;
             base::TimeDelta currentFrameTime_;
 
             // COMUN                   
@@ -86,19 +89,9 @@ namespace blink {
             uint64_t inputStart_;
 
             // audio data
-            uint8_t** audioBuffer_;
-            scoped_refptr<media::AudioBuffer> audioBufferMedia_;
-            Member<AudioData> audioData_;
-
-            uint8_t** audioDataCurrent_;
-            uint8_t** audioDataNext_;    
-            int audioSamplesCurrent_;
+            int channels_;
             base::TimeDelta timeInCurrent_;
-            base::TimeDelta timeInNext_;
-            // Para indicar porque punto va
-            int audioDataIndex_;
-            // Este es el paquete de audio que se construye para el envio
-            uint8_t** audioDataTemp_;
+            uint8_t*** audioDataTemp_;
 
             // nueva parte de audio
             LinkedList *rootAudio_;

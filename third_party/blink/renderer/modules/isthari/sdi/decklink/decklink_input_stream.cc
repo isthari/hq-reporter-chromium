@@ -16,6 +16,7 @@ namespace blink {
     
 DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput, 
             IDeckLinkDisplayMode* displayMode, 
+            long channels,
             V8VideoCardFrameCallback* frameCallback,
             V8VideoCardAudioCallback* audioCallback,
             scoped_refptr<base::SingleThreadTaskRunner> main_task_runner)
@@ -46,9 +47,14 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
 
     // Audio de entrada
     // TODO GC
-    audioDataTemp_ = (uint8_t **) malloc(sizeof (uint8_t *) );
-    audioDataTemp_[0] = (uint8_t*) malloc(48000 * 2 * 2);
-
+    channels_ = (int) channels;
+    frameCounterAudio_ = 0;
+    audioDataTemp_ = (uint8_t ***) malloc(sizeof (uint8_t *) * channels / 2);    
+    for (int i=0; i<channels/2; i++){
+        audioDataTemp_[i] = (uint8_t **) malloc(sizeof (uint8_t *));    
+        audioDataTemp_[i][0] = (uint8_t*) malloc(48000 * 2 * 2);
+    }    
+    
     // TODO GC
     // nueva parte de audio
     rootAudio_ = NULL;
@@ -85,9 +91,7 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
         }
     }    
 
-    // TODO añadir soporte para los 16 canales restantes		    	
-    int channels = 2;
-    HRESULT audio = deckLinkInput_->EnableAudioInput(bmdAudioSampleRate48kHz, bmdAudioSampleType16bitInteger, channels);
+    HRESULT audio = deckLinkInput_->EnableAudioInput(bmdAudioSampleRate48kHz, bmdAudioSampleType16bitInteger, (uint32_t) channels_);
     if (audio == S_OK) {
         VLOG(0) << "Enabled audio input";
     } else {
@@ -111,7 +115,6 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
 void DecklinkInputStream::Trace(Visitor* visitor) const {
     ScriptWrappable::Trace(visitor);
     visitor->Trace(audioCallback_);
-    visitor->Trace(audioData_);
     visitor->Trace(frameCallback_);        
     visitor->Trace(videoFrameBlink_);
 }
@@ -272,7 +275,7 @@ VideoFrame* DecklinkInputStream::getVideoFrame(ExecutionContext* context) {
 #define SIZE 480
 void DecklinkInputStream::processAudioData(IDeckLinkAudioInputPacket* audioFrame){           
     int samples = (int) audioFrame->GetSampleFrameCount();
-    int size = samples * 2* 2;
+    int size = samples * channels_ * 2;
 
     // insertar en la cola
     LinkedList *node = new LinkedList();
@@ -284,64 +287,87 @@ void DecklinkInputStream::processAudioData(IDeckLinkAudioInputPacket* audioFrame
     node->next = NULL;
     void *frameBytes;    
     audioFrame->GetBytes(&frameBytes);
-    memcpy(node->audioBuffer_[0], frameBytes, size);        
+    memcpy(node->audioBuffer_[0], frameBytes, size);     
     
     if (rootAudio_ == NULL) {     
         rootAudio_ = node;
     } else {
         rootAudio_->next = node;
-    }
+    } 
 
     // procesar la cola
     bool finish = false;
     while (!finish) {
         finish = true;     
         uint8_t* audioPointer;
-        audioPointer = rootAudio_->audioBuffer_[0];
-        audioPointer += (rootAudio_->index*2*2);           
-        if ( (rootAudio_->samples - rootAudio_->index) > SIZE) {
+        audioPointer = rootAudio_->audioBuffer_[0];        
+        audioPointer += (rootAudio_->index * channels_ * 2);            
+        if (rootAudio_ == NULL) {
+            // el ultimo ha limpiado el buffer no seguir
+            return;
+        } else if ( (rootAudio_->samples - rootAudio_->index) >= SIZE) {            
+            
             // hay suficiente en un frame
             finish = false;                        
-            memcpy(audioDataTemp_[0], audioPointer, SIZE*2*2);
             rootAudio_->index = rootAudio_->index + SIZE;
+            processAudioBuffer(audioPointer, SIZE, 0);            
         } else if (rootAudio_->next != NULL) {
-            // hay suficiente en un frame + el siguiente
             finish = false;            
-            int size = rootAudio_->samples - rootAudio_->index;            
-            memcpy(audioDataTemp_[0], audioPointer, size*2*2);
+            int sizeOld = rootAudio_->samples - rootAudio_->index;
+            processAudioBuffer(audioPointer, sizeOld, 0);
+            rootAudio_->index = rootAudio_->samples;
+
+            LinkedList* nextRootAudio = rootAudio_->next;
+            audioPointer = nextRootAudio->audioBuffer_[0];
+            int sizeNew = SIZE - sizeOld;
+            processAudioBuffer(audioPointer, sizeNew, sizeOld);
+            //VLOG(0) << "next size " << nextRootAudio->samples;
+            nextRootAudio->index = nextRootAudio->index + sizeNew;
+        } else {
+            //VLOG(0) << "no hay next";
+            return;
+        }
+ 
+        if (rootAudio_->index >= rootAudio_->samples){
+            //VLOG(0) << "clean";
             LinkedList *old = rootAudio_;
             rootAudio_ = old->next;
             free(old->audioBuffer_[0]);
             free(old->audioBuffer_);
-            free(old);
-
-            // copiar el resto
-            int pending = SIZE - size;            
-            memcpy(audioDataTemp_[0], audioPointer, size*2*2);  
-            uint8_t* audioPointer2 = rootAudio_->audioBuffer_[0];            
-            rootAudio_->index = pending;
-            memcpy(audioDataTemp_[0]+(size*2*2), audioPointer2, pending*2*2);
+            free(old);                        
         }
-
-        if (!finish) {
+      
+        frameCounterAudio_++;
+        for (int channel=0; channel<channels_/2; channel++){
             auto frame = media::AudioBuffer::CopyFrom(media::SampleFormat::kSampleFormatS16,
                 media::ChannelLayout::CHANNEL_LAYOUT_STEREO,
-	            2, // channel count
+                2, // channel count
                 48000, // sample rate
-	            480, 
-	            audioDataTemp_,                
-	            timeInCurrent_);
+                SIZE, 
+                audioDataTemp_[channel],                
+                timeIn_);            
             PostCrossThreadTask(*main_task_runner_, 
                 FROM_HERE, 
-                CrossThreadBindOnce(&DecklinkInputStream::OnAudioFrameReceived,WrapCrossThreadWeakPersistent(this), frame));    
+                CrossThreadBindOnce(&DecklinkInputStream::OnAudioFrameReceived,WrapCrossThreadWeakPersistent(this), frame, channel));
         }
     }
 }    
 
-void DecklinkInputStream::OnAudioFrameReceived(scoped_refptr<media::AudioBuffer> audioBuffer) {    
+void DecklinkInputStream::processAudioBuffer(uint8_t* audioPointer, int size, int offset) {
+    for (int i=0; i<size; i++){                
+        for (int channel=0; channel<channels_/2; channel++){
+            *(audioDataTemp_[channel][0] + (offset*2*2 + i*2*2)) = audioPointer[i*channels_*2 + channel*4];
+            *(audioDataTemp_[channel][0] + (offset*2*2 + i*2*2 + 1)) = audioPointer[i*channels_*2 + channel*4 + 1];
+            *(audioDataTemp_[channel][0] + (offset*2*2 + i*2*2 + 2)) = audioPointer[i*channels_*2 + channel*4 + 2];
+            *(audioDataTemp_[channel][0] + (offset*2*2 + i*2*2 + 3)) = audioPointer[i*channels_*2 + channel*4 + 3];
+        }
+    }
+}
+
+void DecklinkInputStream::OnAudioFrameReceived(scoped_refptr<media::AudioBuffer> audioBuffer, int index) {    
     // LOG(INFO) << "timestamp " << audioBuffer->timestamp();
     auto *frame2 = MakeGarbageCollected<AudioData>(audioBuffer);
-    auto qtf = audioCallback_->handleFrame(nullptr, frame2);
+    auto qtf = audioCallback_->handleFrame(nullptr, frame2, index);
     qtf.IsJust(); 
 }
 
