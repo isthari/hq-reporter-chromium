@@ -37,6 +37,7 @@ long DOMWindowDecklink::videoCardList(LocalDOMWindow& window, V8VideoCardGetCall
         HRESULT result = GetDeckLinkIterator(&iterator);
         if (result != S_OK){
                 VLOG(0) << "Error creating decklink iterator";
+		return 1 ;
         }
         VLOG(0) << "GetDeckLinkIterator ";
 
