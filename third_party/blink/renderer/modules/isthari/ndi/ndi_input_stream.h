@@ -68,17 +68,6 @@ private:
     scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
     bool enabled_;
 
-    // Acceso gpu
-    bool gpuPoolInitialized_;
-    std::unique_ptr<media::GpuMemoryBufferVideoFramePool> gpuPool_;
-    
-    void retrievedGpuVideoAcceleratorFactories(media::GpuVideoAcceleratorFactories*);
-    void frameReadyCB(scoped_refptr<media::VideoFrame>);
-    std::unique_ptr<gfx::GpuMemoryBuffer> gpuMemoryBuffer_;
-    
-    scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;
-    scoped_refptr<base::TaskRunner> copy_task_runner_;
-    
 };
 
 }

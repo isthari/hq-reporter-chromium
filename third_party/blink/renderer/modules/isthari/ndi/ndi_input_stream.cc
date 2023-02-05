@@ -34,9 +34,7 @@ NdiInputStream::NdiInputStream(std::string url, V8VideoCardFrameCallback* frameC
     startTimestamp_(0),
     frameCounter_(0),
     url_(url),
-    enabled_(true),
-    gpuPoolInitialized_(false)
-    //gpuPool_(nullptr)
+    enabled_(true)
 {
     main_task_runner_ = base::ThreadTaskRunnerHandle::Get();
       
@@ -184,11 +182,6 @@ void NdiInputStream::processVideoFrame(NDIlib_video_frame_v2_t videoFrame, base:
             scaledV_, scaledWidth_/2,
             scaledWidth_, scaledHeight_, 
             libyuv::FilterMode::kFilterBilinear);
-
-        if (gpuPoolInitialized_) {
-            // convertir a NV12
-
-
             gfx::Size size(width, height);
             //VLOG(0) << "WrapExternalYuvData";
             /*
@@ -223,8 +216,7 @@ void NdiInputStream::processVideoFrame(NDIlib_video_frame_v2_t videoFrame, base:
             PostCrossThreadTask(*main_task_runner_, 
                 FROM_HERE, 
                 CrossThreadBindOnce(&NdiInputStream::OnVideoFrameReceived,
-                    WrapCrossThreadWeakPersistent(this)));                              
-        }                
+                    WrapCrossThreadWeakPersistent(this)));                                              
     }
 }
 

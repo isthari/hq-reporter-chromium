@@ -89,6 +89,7 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
         } else if (result == E_ACCESSDENIED) {
           VLOG(0) << "Error E_ACCESSDENIED";
         }
+        return;
     }    
 
     HRESULT audio = deckLinkInput_->EnableAudioInput(bmdAudioSampleRate48kHz, bmdAudioSampleType16bitInteger, (uint32_t) channels_);
@@ -96,6 +97,7 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
         VLOG(0) << "Enabled audio input";
     } else {
         VLOG(0) << "AudioEnable ERROR";
+        return;
     }
 
     result = deckLinkInput_->StartStreams();
@@ -134,7 +136,7 @@ HRESULT DecklinkInputStream::VideoInputFormatChanged(BMDVideoInputFormatChangedE
 
 HRESULT DecklinkInputStream::VideoInputFrameArrived(
 		IDeckLinkVideoInputFrame *videoFrame,
-		IDeckLinkAudioInputPacket *audioData) {                   
+		IDeckLinkAudioInputPacket *audioData) {  
     if (startTimestamp_ == 0){
         startTimestamp_ = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
     } 

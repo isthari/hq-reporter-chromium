@@ -1,0 +1,7 @@
+is_component_build=false
+is_debug=false
+symbol_level=0
+enable_nacl=true
+ffmpeg_branding="Chrome"
+proprietary_codecs=true
+rtc_use_h264=true
