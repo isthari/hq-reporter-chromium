@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,12 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/media/router/providers/test/test_media_route_provider.h"
-#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/media_router/media_cast_mode.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -41,11 +40,19 @@ inline std::string PrintToString(UiForBrowserTest val) {
   }
 }
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+// Global media controls aren't supported in lacros.
+#define INSTANTIATE_MEDIA_ROUTER_INTEGRATION_BROWER_TEST_SUITE(name) \
+  INSTANTIATE_TEST_SUITE_P(/* no prefix */, name,                    \
+                           testing::Values(UiForBrowserTest::kCast), \
+                           testing::PrintToStringParamName())
+#else
 #define INSTANTIATE_MEDIA_ROUTER_INTEGRATION_BROWER_TEST_SUITE(name)    \
   INSTANTIATE_TEST_SUITE_P(                                             \
       /* no prefix */, name,                                            \
       testing::Values(UiForBrowserTest::kCast, UiForBrowserTest::kGmc), \
       testing::PrintToStringParamName())
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 // Macro used to skip tests that are only supported with the Cast dialog.
 //
@@ -179,7 +186,7 @@ class MediaRouterIntegrationBrowserTest
   void WaitUntilNoRoutes(content::WebContents* web_contents);
 
   // Test API for manipulating the UI.
-  raw_ptr<MediaRouterUiForTestBase> test_ui_ = nullptr;
+  raw_ptr<MediaRouterUiForTestBase, DanglingUntriaged> test_ui_ = nullptr;
 
   // Enabled features.
   base::test::ScopedFeatureList scoped_feature_list_;
@@ -214,7 +221,7 @@ class MediaRouterIntegrationIncognitoBrowserTest
   Browser* browser() override;
 
  private:
-  raw_ptr<Browser> incognito_browser_ = nullptr;
+  raw_ptr<Browser, DanglingUntriaged> incognito_browser_ = nullptr;
 };
 
 }  // namespace media_router

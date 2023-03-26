@@ -32,6 +32,7 @@
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/permissions_policy/permissions_policy_parser.h"
 #include "third_party/blink/renderer/core/scroll/scroll_types.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/weborigin/security_policy.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
@@ -119,6 +120,10 @@ class CORE_EXPORT HTMLFrameOwnerElement : public HTMLElement,
   bool IsDisplayNone() const override { return !embedded_content_view_; }
   mojom::blink::ColorScheme GetColorScheme() const override;
   bool ShouldLazyLoadChildren() const final;
+  void DidReportResourceTiming();
+  bool HasPendingFallbackTimingInfo() const;
+
+  void WillPerformContainerInitiatedNavigation(const KURL&);
 
   // For unit tests, manually trigger the UpdateContainerPolicy method.
   void UpdateContainerPolicyForTests() { UpdateContainerPolicy(); }
@@ -129,6 +134,10 @@ class CORE_EXPORT HTMLFrameOwnerElement : public HTMLElement,
 
   // Element overrides:
   bool IsAdRelated() const override;
+
+  // If the iframe is lazy-loaded, initiate its load, and return true if such
+  // a load was initiated.
+  bool LoadImmediatelyIfLazy();
 
   void Trace(Visitor*) const override;
 
@@ -163,6 +172,10 @@ class CORE_EXPORT HTMLFrameOwnerElement : public HTMLElement,
   // changes.
   void UpdateContainerPolicy();
 
+  // Called when the container policy changes. Typically used to sync a
+  // container policy update to the browser process.
+  virtual void DidChangeContainerPolicy();
+
   // Return a document policy required policy for this frame, based on the
   // frame attributes.
   virtual DocumentPolicyFeatureState ConstructRequiredPolicy() const {
@@ -185,6 +198,26 @@ class CORE_EXPORT HTMLFrameOwnerElement : public HTMLElement,
   bool IsCurrentlyWithinFrameLimit() const;
 
  private:
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+  // This enum represents which auto lazy-load mechanism is used.
+  enum class AutomaticLazyLoadReason {
+    // If the frame is neither embeds nor ads, or the flags are not enabled,
+    // mark it as not eligible.
+    kNotEligible = 0,
+    // For LazyEmbeds
+    kEmbeds = 1,
+    // For LazyAds
+    kAds = 2,
+    // It's possible that the frame is eligible for both LazyEmbeds and LazyAds.
+    // TOOD(crbug.com/1341892) Remove kBothEmbedsAndAds once we confirm that we
+    // can ignore
+    // this case because the impact on the analysis is minimal.
+    kBothEmbedsAndAds = 3,
+
+    kMaxValue = kBothEmbedsAndAds,
+  };
+
   // Intentionally private to prevent redundant checks when the type is
   // already HTMLFrameOwnerElement.
   bool IsLocal() const final { return true; }
@@ -193,8 +226,17 @@ class CORE_EXPORT HTMLFrameOwnerElement : public HTMLElement,
   void SetIsSwappingFrames(bool is_swapping) override {
     is_swapping_frames_ = is_swapping;
   }
-  bool IsLazyLoadableAd() const;
 
+  // Checks if the passed `url` is eligible for automatic lazy-loading.
+  // Also this method checks the url is cross-origin or not.
+  bool IsEligibleForLazyEmbeds(const KURL& url) const;
+  bool IsEligibleForLazyAds(const KURL& url);
+  void MaybeSetTimeoutToStartFrameLoading(
+      const KURL& url,
+      bool is_loading_attr_lazy,
+      AutomaticLazyLoadReason auto_lazy_load_reason);
+
+  void ReportFallbackResourceTimingIfNeeded();
   // Check if the frame should be lazy-loaded and apply when conditions are
   // passed. Return true when lazy-load is applied.
   bool LazyLoadIfPossible(const KURL&,
@@ -210,8 +252,9 @@ class CORE_EXPORT HTMLFrameOwnerElement : public HTMLElement,
   FramePolicy frame_policy_;
 
   Member<LazyLoadFrameObserver> lazy_load_frame_observer_;
+  scoped_refptr<ResourceTimingInfo> fallback_timing_info_;
   bool should_lazy_load_children_;
-  bool is_swapping_frames_;
+  bool is_swapping_frames_{false};
 };
 
 class SubframeLoadingDisabler {

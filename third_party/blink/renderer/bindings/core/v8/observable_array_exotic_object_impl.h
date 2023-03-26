@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,7 @@ class CORE_EXPORT ObservableArrayExoticObjectImpl final
  public:
   // Returns the backing list object extracted from the proxy target object
   // of type JS Array.
-  static bindings::ObservableArrayBase* ProxyTargetToObservableArrayBase(
+  static bindings::ObservableArrayBase* ProxyTargetToObservableArrayBaseOrDie(
       v8::Isolate* isolate,
       v8::Local<v8::Array> v8_proxy_target);
 

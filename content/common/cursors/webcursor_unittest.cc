@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,7 +64,7 @@ TEST(WebCursorTest, WebCursorCursorConstructorCustom) {
   webcursor.GetNativeCursor();
   EXPECT_TRUE(webcursor.has_custom_cursor_for_test());
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   // Test if the rotating custom cursor works correctly.
   display::Display display;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -120,12 +120,21 @@ TEST(WebCursorTest, SetCursor) {
   cursor.set_image_scale_factor(1000.f);
   EXPECT_FALSE(webcursor.SetCursor(cursor));
 
-  // SetCursor should return false when the image width is too large.
+  // SetCursor should return false when the unscaled bitmap width is too large.
+  cursor.set_image_scale_factor(10.f);
+  cursor.set_custom_bitmap(CreateTestBitmap(1025, 5));
+  EXPECT_FALSE(webcursor.SetCursor(cursor));
+
+  // SetCursor should return false when the unscaled bitmap height is too large.
+  cursor.set_custom_bitmap(CreateTestBitmap(5, 1025));
+  EXPECT_FALSE(webcursor.SetCursor(cursor));
+
+  // SetCursor should return false when the 1x scaled image width is too large.
   cursor.set_image_scale_factor(1.f);
   cursor.set_custom_bitmap(CreateTestBitmap(151, 3));
   EXPECT_FALSE(webcursor.SetCursor(cursor));
 
-  // SetCursor should return false when the image height is too large.
+  // SetCursor should return false when the 1x scaled image height is too large.
   cursor.set_custom_bitmap(CreateTestBitmap(3, 151));
   EXPECT_FALSE(webcursor.SetCursor(cursor));
 
@@ -155,7 +164,7 @@ TEST(WebCursorTest, CursorScaleFactor) {
   display.set_device_scale_factor(kDeviceScale);
   webcursor.SetDisplayInfo(display);
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   // In Ozone, the size of the cursor is capped at 64px unless the hardware
   // advertises support for bigger cursors.
   const gfx::Size kDefaultMaxSize = gfx::Size(64, 64);

@@ -1,12 +1,22 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// This file provides a builders for DictionaryValue and ListValue.  These
-// aren't specific to extensions and could move up to base/ if there's interest
-// from other sub-projects.
+// This file provides a builders for base::Value::Dict and base::Value::List.
+// These aren't specific to extensions and could move up to base/ if there's
+// interest from other sub-projects.
 //
 // The pattern is to write:
+//
+//  base::Value::T result(FooBuilder()
+//                   .Set(args)
+//                   .Set(args)
+//                   .BuildT());
+//
+// The BuildT() method invalidates its builder, and returns ownership of the
+// built value.
+//
+// The DEPRECATED pattern previously used was:
 //
 //  std::unique_ptr<BuiltType> result(FooBuilder()
 //                               .Set(args)
@@ -35,15 +45,18 @@ namespace extensions {
 class DictionaryBuilder {
  public:
   DictionaryBuilder();
-  explicit DictionaryBuilder(const base::DictionaryValue& init);
+  explicit DictionaryBuilder(const base::Value::Dict& init);
 
   DictionaryBuilder(const DictionaryBuilder&) = delete;
   DictionaryBuilder& operator=(const DictionaryBuilder&) = delete;
 
   ~DictionaryBuilder();
 
-  // Can only be called once, after which it's invalid to use the builder.
-  std::unique_ptr<base::DictionaryValue> Build() { return std::move(dict_); }
+  base::Value::Dict Build() {
+    base::Value::Dict result = std::move(dict_);
+    dict_ = base::Value::Dict();
+    return result;
+  }
 
   // Immediately serializes the current state to JSON. Can be called as many
   // times as you like.
@@ -51,7 +64,7 @@ class DictionaryBuilder {
 
   template <typename T>
   DictionaryBuilder& Set(base::StringPiece key, T in_value) {
-    dict_->SetKey(key, base::Value(in_value));
+    dict_.Set(key, std::move(in_value));
     return *this;
   }
 
@@ -62,12 +75,12 @@ class DictionaryBuilder {
   // a base::Value (or one of its subclasses).
   template <typename T>
   DictionaryBuilder& Set(base::StringPiece key, std::unique_ptr<T> in_value) {
-    dict_->SetKey(key, std::move(*in_value));
+    dict_.Set(key, std::move(*in_value));
     return *this;
   }
 
  private:
-  std::unique_ptr<base::DictionaryValue> dict_;
+  base::Value::Dict dict_;
 };
 
 class ListBuilder {
@@ -79,12 +92,15 @@ class ListBuilder {
 
   ~ListBuilder();
 
-  // Can only be called once, after which it's invalid to use the builder.
-  std::unique_ptr<base::ListValue> Build() { return std::move(list_); }
+  base::Value::List Build() {
+    base::Value::List result = std::move(list_);
+    list_ = base::Value::List();
+    return result;
+  }
 
   template <typename T>
   ListBuilder& Append(T in_value) {
-    list_->Append(in_value);
+    list_.Append(std::move(in_value));
     return *this;
   }
 
@@ -93,19 +109,19 @@ class ListBuilder {
   template <typename InputIt>
   ListBuilder& Append(InputIt first, InputIt last) {
     for (; first != last; ++first)
-      list_->Append(*first);
+      list_.Append(*first);
     return *this;
   }
 
   // See note on DictionaryBuilder::Set().
   template <typename T>
   ListBuilder& Append(std::unique_ptr<T> in_value) {
-    list_->Append(std::move(*in_value));
+    list_.Append(std::move(*in_value));
     return *this;
   }
 
  private:
-  std::unique_ptr<base::ListValue> list_;
+  base::Value::List list_;
 };
 
 }  // namespace extensions

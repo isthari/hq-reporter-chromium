@@ -1,4 +1,4 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -11,6 +11,7 @@ load("./fallback-cq.star", "fallback_cq")
 
 try_.defaults.set(
     bucket = "try",
+    cpu = cpu.X86_64,
     build_numbers = True,
     caches = [
         swarming.cache(
@@ -18,7 +19,6 @@ try_.defaults.set(
             path = "win_toolchain",
         ),
     ],
-    cpu = cpu.X86_64,
     cq_group = "cq",
     # Max. pending time for builds. CQ considers builds pending >2h as timed
     # out: http://shortn/_8PaHsdYmlq. Keep this in sync.
@@ -37,15 +37,15 @@ luci.bucket(
         ),
         acl.entry(
             roles = acl.BUILDBUCKET_TRIGGERER,
-            users = [
-                "findit-for-me@appspot.gserviceaccount.com",
-                "tricium-prod@appspot.gserviceaccount.com",
-            ],
             groups = [
                 "project-chromium-tryjob-access",
                 # Allow Pinpoint to trigger builds for bisection
                 "service-account-chromeperf",
                 "service-account-cq",
+            ],
+            users = [
+                "findit-for-me@appspot.gserviceaccount.com",
+                "tricium-prod@appspot.gserviceaccount.com",
             ],
             projects = [
                 "angle",
@@ -65,7 +65,6 @@ luci.bucket(
 luci.cq_group(
     name = "cq",
     retry_config = cq.RETRY_ALL_FAILURES,
-    tree_status_host = "chromium-status.appspot.com" if settings.is_main else None,
     watch = cq.refset(
         repo = "https://chromium.googlesource.com/chromium/src",
         # The chromium project's CQ covers all of the refs under refs/heads,
@@ -86,6 +85,7 @@ luci.cq_group(
     additional_modes = [
         cq.run_mode(cq.MODE_QUICK_DRY_RUN, 1, "Quick-Run", 1),
     ],
+    tree_status_host = "chromium-status.appspot.com" if settings.is_main else None,
 )
 
 # Declare a CQ group that watches all branch heads, excluding the active
@@ -119,188 +119,29 @@ branches.cq_group(
 
 consoles.list_view(
     name = "try",
-    branch_selector = branches.ALL_BRANCHES,
+    branch_selector = branches.selector.ALL_BRANCHES,
     title = "{} CQ Console".format(settings.project_title),
 )
 
 consoles.list_view(
     name = "luci.chromium.try",
-    branch_selector = branches.ALL_BRANCHES,
+    branch_selector = branches.selector.ALL_BRANCHES,
 )
 
 exec("./try/presubmit.star")
 exec("./try/tryserver.blink.star")
 exec("./try/tryserver.chromium.star")
+exec("./try/tryserver.chromium.accessibility.star")
 exec("./try/tryserver.chromium.android.star")
 exec("./try/tryserver.chromium.angle.star")
 exec("./try/tryserver.chromium.chromiumos.star")
+exec("./try/tryserver.chromium.cft.star")
 exec("./try/tryserver.chromium.dawn.star")
+exec("./try/tryserver.chromium.fuchsia.star")
 exec("./try/tryserver.chromium.linux.star")
 exec("./try/tryserver.chromium.mac.star")
 exec("./try/tryserver.chromium.packager.star")
 exec("./try/tryserver.chromium.rust.star")
+exec("./try/tryserver.chromium.tricium.star")
 exec("./try/tryserver.chromium.updater.star")
 exec("./try/tryserver.chromium.win.star")
-
-# Used for listing chrome trybots in chromium's commit-queue.cfg without also
-# adding them to chromium's cr-buildbucket.cfg. Note that the recipe these
-# builders run allow only known roller accounts when triggered via the CQ.
-def chrome_internal_verifier(
-        *,
-        builder,
-        **kwargs):
-    branches.cq_tryjob_verifier(
-        builder = "{}:try/{}".format(settings.chrome_project, builder),
-        cq_group = "cq",
-        includable_only = True,
-        owner_whitelist = [
-            "googlers",
-            "project-chromium-robot-committers",
-        ],
-        **kwargs
-    )
-
-chrome_internal_verifier(
-    builder = "android-internal-binary-size",
-)
-
-chrome_internal_verifier(
-    builder = "android-internal-rel",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-betty-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-betty-pi-arc-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-eve-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-eve-compile-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-kevin-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-kevin-compile-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-octopus-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-octopus-compile-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "fuchsia-fyi-astro",
-)
-
-chrome_internal_verifier(
-    builder = "ipad-device",
-)
-
-chrome_internal_verifier(
-    builder = "iphone-device",
-)
-
-chrome_internal_verifier(
-    builder = "lacros-amd64-generic-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "lacros-amd64-generic-chrome-skylab",
-)
-
-chrome_internal_verifier(
-    builder = "lacros-arm-generic-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "lacros-arm-generic-chrome-skylab",
-)
-
-chrome_internal_verifier(
-    builder = "linux-chrome",
-    branch_selector = branches.STANDARD_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "linux-chrome-stable",
-    branch_selector = branches.STANDARD_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "linux-chromeos-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "linux-nearby-chrome-fyi",
-)
-
-chrome_internal_verifier(
-    builder = "linux-pgo",
-    branch_selector = branches.STANDARD_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "mac-chrome",
-    branch_selector = branches.DESKTOP_EXTENDED_STABLE_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "mac-chrome-stable",
-    branch_selector = branches.DESKTOP_EXTENDED_STABLE_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "mac-arm-pgo",
-    branch_selector = branches.STANDARD_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "mac-pgo",
-    branch_selector = branches.STANDARD_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "test-o-emulator",
-)
-
-chrome_internal_verifier(
-    builder = "win-chrome",
-    branch_selector = branches.DESKTOP_EXTENDED_STABLE_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "win-chrome-stable",
-    branch_selector = branches.DESKTOP_EXTENDED_STABLE_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "win32-pgo",
-    branch_selector = branches.STANDARD_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "win64-chrome",
-    branch_selector = branches.DESKTOP_EXTENDED_STABLE_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "win64-chrome-stable",
-    branch_selector = branches.DESKTOP_EXTENDED_STABLE_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "win64-pgo",
-    branch_selector = branches.STANDARD_MILESTONE,
-)

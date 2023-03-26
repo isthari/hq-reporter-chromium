@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,11 +41,6 @@ class DownloadManagerMediator : public web::DownloadTaskObserver {
   void StartDowloading();
 
  private:
-  // Asynchronously starts download operation in the given directory.
-  void DownloadWithDestinationDir(const base::FilePath& destination_dir,
-                                  web::DownloadTask* task,
-                                  bool directory_created);
-
   // Updates consumer from web::DownloadTask.
   void UpdateConsumer();
 

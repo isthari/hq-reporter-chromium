@@ -143,12 +143,12 @@
 
 <cr-icon-button iron-icon="cr:more-vert" id="moreActionsButton"
     on-click="onMoreActionsButtonClicked_" title="$i18n{profileMenuName}"
-    aria-label="$i18n{profileMenuName}">
+    aria-label="[[moreActionsButtonAriaLabel_]]">
 </cr-icon-button>
 
 <cr-action-menu id="actionMenu" role-description="$i18n{menu}">
   <button class="dropdown-item" on-click="onCustomizeButtonClicked_">
-    <iron-icon icon="profiles:create" aria-hidden="true"></iron-icon>
+    <iron-icon icon="cr:create" aria-hidden="true"></iron-icon>
     $i18n{profileMenuCustomizeText}
   </button>
   <button class="dropdown-item" on-click="onRemoveButtonClicked_">
@@ -161,12 +161,12 @@
   <div slot="title">
     [[removeWarningTitle_]]
   </div>
-  <if expr="lacros">
+  <if expr="chromeos_lacros">
     <div id="removeWarningHeader" slot="header" class="warning-message"
         inner-h-t-m-l="[[removeWarningText_]]">
     </div>
   </if>
-  <if expr="not lacros">
+  <if expr="not chromeos_lacros">
     <div id="removeWarningHeader" slot="header" class="warning-message">
       [[removeWarningText_]]
       <span id="userName" hidden$="[[!profileState.isSyncing]]"
@@ -211,7 +211,7 @@
   </div>
 </cr-dialog>
 
-<if expr="lacros">
+<if expr="chromeos_lacros">
   <cr-dialog id="removePrimaryLacrosProfileDialog">
     <div slot="title" class="key-text">
       $i18n{lacrosPrimaryProfileDeletionWarningTitle}

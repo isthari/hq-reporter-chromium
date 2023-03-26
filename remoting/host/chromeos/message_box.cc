@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -74,8 +74,9 @@ MessageBox::Core::Core(const std::u16string& title_label,
   SetButtonLabel(ui::DIALOG_BUTTON_CANCEL, cancel_label);
 
   auto run_callback = [](MessageBox::Core* core, Result result) {
-    if (core->result_callback_)
+    if (core->result_callback_) {
       std::move(core->result_callback_).Run(result);
+    }
   };
   SetAcceptCallback(base::BindOnce(run_callback, base::Unretained(this), OK));
   SetCancelCallback(
@@ -84,8 +85,9 @@ MessageBox::Core::Core(const std::u16string& title_label,
       base::BindOnce(run_callback, base::Unretained(this), CANCEL));
   RegisterDeleteDelegateCallback(base::BindOnce(
       [](Core* dialog) {
-        if (dialog->message_box_)
+        if (dialog->message_box_) {
           dialog->message_box_->core_ = nullptr;
+        }
       },
       this));
 }

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Copyright 2021 The Chromium Authors. All rights reserved.
-     Use of this source code is governed by a BSD-style license that can be
-     found in the LICENSE file.
+<!--
+Copyright 2021 The Chromium Authors
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
 -->
 
 
@@ -12,16 +13,19 @@
     android:layout_height="wrap_content"
     android:paddingHorizontal="@dimen/ntp_header_lateral_paddings_v2"
     android:paddingVertical="@dimen/feed_options_vertical_margins"
-    android:background="@drawable/new_tab_page_multi_feed_header_background"
     android:layout_marginBottom="@dimen/feed_options_vertical_margins"
     android:orientation="vertical"
-    android:visibility="gone">
+    android:visibility="gone"
+    android:background="@macro/toolbar_background_primary"
+    android:clickable="true"
+    android:focusable="true">
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         style="@style/TextAppearance.TextAccentMediumThick.Secondary"
         android:text="@string/sort_by"
-        android:paddingVertical="@dimen/feed_options_vertical_margins" />
+        android:paddingVertical="@dimen/feed_options_vertical_margins"
+        android:focusableInTouchMode="true"/>
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

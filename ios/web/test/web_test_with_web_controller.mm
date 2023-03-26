@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,7 @@ CRWWebController* WebTestWithWebController::web_controller() {
   if (!web_state()) {
     return nullptr;
   }
-  return static_cast<web::WebStateImpl*>(web_state())->GetWebController();
+  return web::WebStateImpl::FromWebState(web_state())->GetWebController();
 }
 
 }  // namespace web

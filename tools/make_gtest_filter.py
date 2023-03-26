@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright (c) 2018 The Chromium Authors. All rights reserved.
+# Copyright 2018 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """Reads lines from files or stdin and identifies C++ tests.
@@ -11,22 +11,22 @@ Usage:
 
 Outputs filter for all test fixtures in a directory. --class-only avoids an
 overly long filter string.
-$ cat components/mycomp/**test.cc | make-gtest-filter.py --class-only
+$ cat components/mycomp/**test.cc | make_gtest_filter.py --class-only
 
 Outputs filter for all tests in a file.
-$ make-gtest-filter.py ./myfile_unittest.cc
+$ make_gtest_filter.py ./myfile_unittest.cc
 
 Outputs filter for only test at line 123
-$ make-gtest-filter.py --line=123 ./myfile_unittest.cc
+$ make_gtest_filter.py --line=123 ./myfile_unittest.cc
 
 Formats output as a GTest filter file.
-$ make-gtest-filter.py ./myfile_unittest.cc --as-filter-file
+$ make_gtest_filter.py ./myfile_unittest.cc --as-filter-file
 
 Use a JSON failure summary as the input.
-$ make-gtest-filter.py summary.json --from-failure-summary
+$ make_gtest_filter.py summary.json --from-failure-summary
 
 Elide the filter list using wildcards when possible.
-$ make-gtest-filter.py summary.json --from-failure-summary --wildcard-compress
+$ make_gtest_filter.py summary.json --from-failure-summary --wildcard-compress
 """
 
 from __future__ import print_function
@@ -172,11 +172,13 @@ def main():
   parser.add_argument('--wildcard-compress', action='store_true')
   parser.add_argument(
       '--wildcard-min-depth',
+      type=int,
       default=1,
       help="Minimum number of terms in a case before a wildcard may be " +
       "used, so that prefixes are not excessively broad.")
   parser.add_argument(
       '--wildcard-min-cases',
+      type=int,
       default=3,
       help="Minimum number of cases in a filter before folding into a " +
       "wildcard, so as to not create wildcards needlessly for small "
@@ -251,7 +253,8 @@ def main():
       test_filters = [c + '.*' for c in fixtures] + \
           ['*/' + c + '.*/*' for c in fixtures]
     else:
-      test_filters = ['*/' + c + '/*' for c in tests]
+      test_filters = [c for c in tests] + \
+          ['*/' + c + '/*' for c in tests]
 
   if args.as_exclusions:
     test_filters = ['-' + x for x in test_filters]

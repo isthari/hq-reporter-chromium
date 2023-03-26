@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,6 @@ ContentSetting DisplayCapturePermissionContext::GetPermissionStatusInternal(
 }
 
 void DisplayCapturePermissionContext::DecidePermission(
-    content::WebContents* web_contents,
     const permissions::PermissionRequestID& id,
     const GURL& requesting_origin,
     const GURL& embedding_origin,
@@ -30,7 +29,8 @@ void DisplayCapturePermissionContext::DecidePermission(
     permissions::BrowserPermissionCallback callback) {
   NotifyPermissionSet(id, requesting_origin, embedding_origin,
                       std::move(callback), /*persist=*/false,
-                      CONTENT_SETTING_DEFAULT, /*is_one_time=*/false);
+                      CONTENT_SETTING_DEFAULT, /*is_one_time=*/false,
+                      /*is_final_decision=*/true);
 }
 
 void DisplayCapturePermissionContext::UpdateContentSetting(
@@ -39,8 +39,4 @@ void DisplayCapturePermissionContext::UpdateContentSetting(
     ContentSetting content_setting,
     bool is_one_time) {
   NOTREACHED();
-}
-
-bool DisplayCapturePermissionContext::IsRestrictedToSecureOrigins() const {
-  return true;
 }

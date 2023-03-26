@@ -1,8 +1,9 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/messages/android/message_wrapper.h"
+#include <string>
 
 #include "base/android/jni_string.h"
 #include "base/logging.h"
@@ -113,6 +114,46 @@ void MessageWrapper::SetSecondaryButtonMenuText(
                                                  jsecondary_button_menu_text);
 }
 
+void MessageWrapper::SetSecondaryMenuMaxSize(SecondaryMenuMaxSize max_size) {
+  secondary_menu_max_size_ = max_size;
+}
+
+void MessageWrapper::AddSecondaryMenuItem(int item_id,
+                                          int resource_id,
+                                          const std::u16string& item_text) {
+  DCHECK(!secondary_menu_item_selected_callback_.is_null());
+  JNIEnv* env = base::android::AttachCurrentThread();
+  base::android::ScopedJavaLocalRef<jstring> jitem_text =
+      base::android::ConvertUTF16ToJavaString(env, item_text);
+  Java_MessageWrapper_addSecondaryMenuItemOCUMPM_I_I_JLS(
+      env, java_message_wrapper_, item_id, resource_id, jitem_text);
+}
+
+void MessageWrapper::AddSecondaryMenuItem(
+    int item_id,
+    int resource_id,
+    const std::u16string& item_text,
+    const std::u16string& item_description) {
+  DCHECK(secondary_menu_item_selected_callback_);
+  JNIEnv* env = base::android::AttachCurrentThread();
+  base::android::ScopedJavaLocalRef<jstring> jitem_text =
+      base::android::ConvertUTF16ToJavaString(env, item_text);
+  base::android::ScopedJavaLocalRef<jstring> jitem_desc =
+      base::android::ConvertUTF16ToJavaString(env, item_description);
+  Java_MessageWrapper_addSecondaryMenuItemOCUMPM_I_I_JLS_JLS(
+      env, java_message_wrapper_, item_id, resource_id, jitem_text, jitem_desc);
+}
+
+void MessageWrapper::ClearSecondaryMenuItems() {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  Java_MessageWrapper_clearSecondaryMenuItems(env, java_message_wrapper_);
+}
+
+void MessageWrapper::AddSecondaryMenuItemDivider() {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  Java_MessageWrapper_addSecondaryMenuItemDivider(env, java_message_wrapper_);
+}
+
 int MessageWrapper::GetIconResourceId() {
   JNIEnv* env = base::android::AttachCurrentThread();
   return Java_MessageWrapper_getIconResourceId(env, java_message_wrapper_);
@@ -164,8 +205,14 @@ void MessageWrapper::SetSecondaryIconResourceId(int resource_id) {
                                                  resource_id);
 }
 
-void MessageWrapper::SetSecondaryActionCallback(base::OnceClosure callback) {
+void MessageWrapper::SetSecondaryActionCallback(
+    base::RepeatingClosure callback) {
   secondary_action_callback_ = std::move(callback);
+}
+
+void MessageWrapper::SetSecondaryMenuItemSelectedCallback(
+    base::RepeatingCallback<void(int)> callback) {
+  secondary_menu_item_selected_callback_ = std::move(callback);
 }
 
 void MessageWrapper::SetDuration(long customDuration) {
@@ -188,7 +235,12 @@ void MessageWrapper::HandleActionClick(JNIEnv* env) {
 
 void MessageWrapper::HandleSecondaryActionClick(JNIEnv* env) {
   if (!secondary_action_callback_.is_null())
-    std::move(secondary_action_callback_).Run();
+    secondary_action_callback_.Run();
+}
+
+void MessageWrapper::HandleSecondaryMenuItemSelected(JNIEnv* env, int item_id) {
+  if (!secondary_menu_item_selected_callback_.is_null())
+    secondary_menu_item_selected_callback_.Run(item_id);
 }
 
 void MessageWrapper::HandleDismissCallback(JNIEnv* env, int dismiss_reason) {
@@ -212,6 +264,10 @@ void MessageWrapper::SetMessageEnqueued(
     const base::android::JavaRef<jobject>& java_window_android) {
   message_enqueued_ = true;
   java_window_android_ = java_window_android;
+  JNIEnv* env = base::android::AttachCurrentThread();
+  Java_MessageWrapper_initializeSecondaryMenu(
+      env, java_message_wrapper_, java_window_android_,
+      static_cast<int>(secondary_menu_max_size_));
 }
 
 const SkBitmap MessageWrapper::GetIconBitmap() {

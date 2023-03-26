@@ -1,10 +1,11 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 import("///build/config/ozone.gni")
 import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/ui.gni")
+import("//testing/libfuzzer/fuzzer_test.gni")
 
 component("clipboard_types") {
   output_name = "ui_base_clipboard_types"
@@ -34,10 +35,8 @@ component("clipboard_types") {
     sources += [ "clipboard_format_type_win.cc" ]
   }
 
-  if (use_aura) {
-    if ((!is_chromecast && is_linux) || is_chromeos_lacros || !is_win) {
-      sources += [ "clipboard_format_type_aura.cc" ]
-    }
+  if (use_aura && !is_win) {
+    sources += [ "clipboard_format_type_aura.cc" ]
   }
 
   defines = [ "IS_UI_BASE_CLIPBOARD_TYPES_IMPL" ]
@@ -50,6 +49,9 @@ component("clipboard_types") {
   }
   if (is_mac) {
     frameworks += [ "AppKit.framework" ]
+    weak_frameworks = [
+      "UniformTypeIdentifiers.framework",  # macOS 11
+    ]
   }
 }
 
@@ -62,6 +64,17 @@ component("file_info") {
   ]
 
   defines = [ "IS_UI_BASE_FILE_INFO_IMPL" ]
+
+  deps = [ "//base" ]
+}
+
+# This is a source set because it needs to be included only on the Mac for the
+# final executable, but needs to be included on any platform for the fuzzer.
+source_set("url_file_parser") {
+  sources = [
+    "url_file_parser.cc",
+    "url_file_parser.h",
+  ]
 
   deps = [ "//base" ]
 }
@@ -152,10 +165,13 @@ component("clipboard") {
   }
 
   if (is_mac) {
-    deps += [ "//third_party/mozilla" ]
+    deps += [ ":url_file_parser" ]
     frameworks = [
       "AppKit.framework",
       "CoreFoundation.framework",
+    ]
+    weak_frameworks = [
+      "UniformTypeIdentifiers.framework",  # macOS 11
     ]
   }
 }
@@ -212,6 +228,7 @@ source_set("clipboard_test") {
     sources += [
       "clipboard_mac_unittest.mm",
       "clipboard_util_mac_unittest.mm",
+      "url_file_parser_unittest.cc",
     ]
   }
 
@@ -234,6 +251,15 @@ source_set("clipboard_test") {
   ]
 
   if (is_mac) {
-    deps += [ "//third_party/mozilla" ]
+    deps += [ ":url_file_parser" ]
   }
+}
+
+fuzzer_test("url_file_parser_fuzzer") {
+  sources = [ "url_file_parser_fuzzer.cc" ]
+  deps = [
+    ":url_file_parser",
+    "//base",
+  ]
+  seed_corpus = "test/url_file_parser_fuzzer_testcases"
 }

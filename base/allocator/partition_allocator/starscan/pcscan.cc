@@ -1,13 +1,13 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/allocator/partition_allocator/starscan/pcscan.h"
 
+#include "base/allocator/partition_allocator/partition_alloc_base/compiler_specific.h"
 #include "base/allocator/partition_allocator/starscan/pcscan_internal.h"
 
-namespace base {
-namespace internal {
+namespace partition_alloc::internal {
 
 void PCScan::Initialize(InitConfig config) {
   PCScanInternal::Instance().Initialize(config);
@@ -54,7 +54,7 @@ void PCScan::PerformScanIfNeeded(InvocationMode invocation_mode) {
 
 void PCScan::PerformDelayedScan(int64_t delay_in_microseconds) {
   PCScanInternal::Instance().PerformDelayedScan(
-      Microseconds(delay_in_microseconds));
+      base::Microseconds(delay_in_microseconds));
 }
 
 void PCScan::JoinScan() {
@@ -104,11 +104,10 @@ void PCScan::FinishScanForTesting() {
   PCScanInternal::Instance().FinishScanForTesting();  // IN-TEST
 }
 
-void PCScan::RegisterStatsReporter(StatsReporter* reporter) {
+void PCScan::RegisterStatsReporter(partition_alloc::StatsReporter* reporter) {
   PCScanInternal::Instance().RegisterStatsReporter(reporter);
 }
 
-PCScan PCScan::instance_ CONSTINIT;
+PCScan PCScan::instance_ PA_CONSTINIT;
 
-}  // namespace internal
-}  // namespace base
+}  // namespace partition_alloc::internal

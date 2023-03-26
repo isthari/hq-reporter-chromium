@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,6 @@ class Version;
 namespace vr {
 
 struct Assets;
-struct KeyboardTestInput;
 struct OmniboxSuggestion;
 struct LocationBarState;
 
@@ -65,14 +64,10 @@ class VR_BASE_EXPORT BrowserUiInterface {
                                      int selection_end,
                                      int composition_start,
                                      int composition_end) = 0;
-  virtual void OnSwapContents(int new_content_id) = 0;
   virtual void SetDialogLocation(float x, float y) = 0;
   virtual void SetDialogFloating(bool floating) = 0;
   virtual void ShowPlatformToast(const std::u16string& text) = 0;
   virtual void CancelPlatformToast() = 0;
-  virtual void OnContentBoundsChanged(int width, int height) = 0;
-  virtual void PerformKeyboardInputForTesting(
-      KeyboardTestInput keyboard_input) = 0;
 
   // Shows (or hides) a notification in-headset that the user should respond to
   // a prompt on a separate display. Only one such notification is displayed at

@@ -1,10 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/message_center/views/notification_input_container.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/color/color_id.h"
 #include "ui/color/color_provider.h"
@@ -27,9 +27,9 @@ namespace {
 // This key/property allows tagging the textfield with its index.
 DEFINE_UI_CLASS_PROPERTY_KEY(int, kTextfieldIndexKey, 0U)
 
-constexpr gfx::Insets kInputTextfieldPadding(16, 16, 16, 0);
+constexpr auto kInputTextfieldPadding = gfx::Insets::TLBR(16, 16, 16, 0);
 
-constexpr gfx::Insets kInputReplyButtonPadding(0, 14, 0, 14);
+constexpr auto kInputReplyButtonPadding = gfx::Insets::TLBR(0, 14, 0, 14);
 
 // The icon size of inline reply input field.
 constexpr int kInputReplyButtonSize = 20;
@@ -220,10 +220,11 @@ void NotificationInputContainer::UpdateButtonImage() {
   auto icon_color_id = textfield_->GetText().empty()
                            ? ui::kColorNotificationInputPlaceholderForeground
                            : ui::kColorNotificationInputForeground;
-  button_->SetImage(
+  button_->SetImageModel(
       views::Button::STATE_NORMAL,
-      gfx::CreateVectorIcon(kNotificationInlineReplyIcon, kInputReplyButtonSize,
-                            GetColorProvider()->GetColor(icon_color_id)));
+      ui::ImageModel::FromVectorIcon(
+          kNotificationInlineReplyIcon,
+          GetColorProvider()->GetColor(icon_color_id), kInputReplyButtonSize));
 }
 
 }  // namespace message_center

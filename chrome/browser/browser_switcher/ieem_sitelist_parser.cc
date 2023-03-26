@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/browser_switcher/ieem_sitelist_parser.h"
 
-#include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/browser_switcher/browser_switcher_features.h"
 #include "content/public/browser/browser_thread.h"
@@ -80,8 +80,7 @@ void ParseIeFileVersionOne(const base::Value& xml,
       base::FeatureList::IsEnabled(kBrowserSwitcherNoneIsGreylist);
 
   DCHECK(data_decoder::IsXmlElementNamed(xml, kSchema1RulesElement));
-  for (const base::Value& node :
-       data_decoder::GetXmlElementChildren(xml)->GetList()) {
+  for (const base::Value& node : *data_decoder::GetXmlElementChildren(xml)) {
     // Skip over anything that is not a <emie> or <docMode> element.
     if (!data_decoder::IsXmlElementNamed(node, kSchema1EmieElement) &&
         !data_decoder::IsXmlElementNamed(node, kSchema1DocModeElement)) {
@@ -189,21 +188,20 @@ void ParseIeFileVersionTwo(const base::Value& xml,
 void RawXmlParsed(ParsingMode parsing_mode,
                   base::OnceCallback<void(ParsedXml)> callback,
                   data_decoder::DataDecoder::ValueOrError xml) {
-  if (!xml.value) {
+  if (!xml.has_value()) {
     // Copies the string, but it should only be around 20 characters.
-    std::move(callback).Run(ParsedXml({}, {}, *xml.error));
+    std::move(callback).Run(ParsedXml({}, {}, xml.error()));
     return;
   }
   DCHECK(data_decoder::IsXmlElementOfType(
-      *xml.value, data_decoder::mojom::XmlParser::kElementType));
+      *xml, data_decoder::mojom::XmlParser::kElementType));
   ParsedXml result;
-  if (data_decoder::IsXmlElementNamed(*xml.value, kSchema1RulesElement)) {
+  if (data_decoder::IsXmlElementNamed(*xml, kSchema1RulesElement)) {
     // Enterprise Mode schema v.1 has <rules> element at its top level.
-    ParseIeFileVersionOne(*xml.value, parsing_mode, &result);
-  } else if (data_decoder::IsXmlElementNamed(*xml.value,
-                                             kSchema2SiteListElement)) {
+    ParseIeFileVersionOne(*xml, parsing_mode, &result);
+  } else if (data_decoder::IsXmlElementNamed(*xml, kSchema2SiteListElement)) {
     // Enterprise Mode schema v.2 has <site-list> element at its top level.
-    ParseIeFileVersionTwo(*xml.value, parsing_mode, &result);
+    ParseIeFileVersionTwo(*xml, parsing_mode, &result);
   } else {
     result.error = kInvalidRootElement;
   }
@@ -227,7 +225,8 @@ void ParseIeemXml(const std::string& xml,
                   ParsingMode parsing_mode,
                   base::OnceCallback<void(ParsedXml)> callback) {
   data_decoder::DataDecoder::ParseXmlIsolated(
-      xml, base::BindOnce(&RawXmlParsed, parsing_mode, std::move(callback)));
+      xml, data_decoder::mojom::XmlParser::WhitespaceBehavior::kIgnore,
+      base::BindOnce(&RawXmlParsed, parsing_mode, std::move(callback)));
 }
 
 }  // namespace browser_switcher

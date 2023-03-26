@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,10 +38,6 @@ std::vector<mojom::CompositionSegmentPtr> ConvertSegments(
     mojom::CompositionSegmentPtr segment = mojom::CompositionSegment::New();
     segment->start_offset = ime_text_span.start_offset;
     segment->end_offset = ime_text_span.end_offset;
-    segment->emphasized =
-        (ime_text_span.thickness == ui::ImeTextSpan::Thickness::kThick ||
-         (composition.selection.start() == ime_text_span.start_offset &&
-          composition.selection.end() == ime_text_span.end_offset));
     segment->style = GetSegmentStyle(ime_text_span);
     segments.push_back(std::move(segment));
   }
@@ -79,7 +75,8 @@ void ArcImeBridgeImpl::SendSetCompositionText(
     return;
 
   ime_instance->SetCompositionText(base::UTF16ToUTF8(composition.text),
-                                   ConvertSegments(composition));
+                                   ConvertSegments(composition),
+                                   composition.selection);
 }
 
 void ArcImeBridgeImpl::SendConfirmCompositionText() {
@@ -149,9 +146,10 @@ void ArcImeBridgeImpl::OnTextInputTypeChanged(
                                     ConvertTextInputFlags(flags));
 }
 
-void ArcImeBridgeImpl::OnCursorRectChanged(const gfx::Rect& rect,
-                                           bool is_screen_coordinates) {
-  delegate_->OnCursorRectChanged(rect, is_screen_coordinates);
+void ArcImeBridgeImpl::OnCursorRectChanged(
+    const gfx::Rect& rect,
+    mojom::CursorCoordinateSpace coordinate_space) {
+  delegate_->OnCursorRectChanged(rect, coordinate_space);
 }
 
 void ArcImeBridgeImpl::OnCancelComposition() {
@@ -167,10 +165,10 @@ void ArcImeBridgeImpl::OnCursorRectChangedWithSurroundingText(
     const gfx::Range& text_range,
     const std::string& text_in_range,
     const gfx::Range& selection_range,
-    bool is_screen_coordinates) {
+    mojom::CursorCoordinateSpace coordinate_space) {
   delegate_->OnCursorRectChangedWithSurroundingText(
       rect, text_range, base::UTF8ToUTF16(text_in_range), selection_range,
-      is_screen_coordinates);
+      coordinate_space);
 }
 
 void ArcImeBridgeImpl::SendKeyEvent(std::unique_ptr<ui::KeyEvent> key_event,

@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,6 +44,8 @@ std::unique_ptr<GpuBlocklist> GpuBlocklist::Create(
   list->AddSupportedFeature("vulkan", GPU_FEATURE_TYPE_VULKAN);
   list->AddSupportedFeature("canvas_oop_rasterization",
                             GPU_FEATURE_TYPE_CANVAS_OOP_RASTERIZATION);
+  list->AddSupportedFeature("accelerated_webgpu",
+                            GPU_FEATURE_TYPE_ACCELERATED_WEBGPU);
   return list;
 }
 

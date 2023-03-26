@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/context_menu_matcher.h"
 
 #include "base/memory/raw_ptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/extensions/menu_manager.h"
 #include "chrome/browser/extensions/menu_manager_factory.h"
 #include "chrome/browser/extensions/test_extension_prefs.h"
@@ -27,7 +28,7 @@ class ContextMenuMatcherTest : public testing::Test {
   ContextMenuMatcherTest()
       : profile_(std::make_unique<TestingProfile>()),
         manager_(CreateMenuManager()),
-        prefs_(base::ThreadTaskRunnerHandle::Get()) {}
+        prefs_(base::SingleThreadTaskRunner::GetCurrentDefault()) {}
 
   ContextMenuMatcherTest(const ContextMenuMatcherTest&) = delete;
   ContextMenuMatcherTest& operator=(const ContextMenuMatcherTest&) = delete;

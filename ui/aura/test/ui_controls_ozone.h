@@ -1,14 +1,14 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef UI_AURA_TEST_UI_CONTROLS_OZONE_H_
 #define UI_AURA_TEST_UI_CONTROLS_OZONE_H_
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/chromeos_buildflags.h"
 #include "ui/aura/env.h"
 #include "ui/aura/test/aura_test_utils.h"
@@ -22,8 +22,7 @@
 #include "ui/events/test/events_test_utils.h"
 #include "ui/gfx/geometry/point_conversions.h"
 
-namespace aura {
-namespace test {
+namespace aura::test {
 
 class UIControlsOzone : public ui_controls::UIControlsAura {
  public:
@@ -47,19 +46,25 @@ class UIControlsOzone : public ui_controls::UIControlsAura {
                                   bool alt,
                                   bool command,
                                   base::OnceClosure closure) override;
-  bool SendMouseMove(int screen_x, int screen_y) override;
+  bool SendMouseMove(int screen_x,
+                     int screen_y,
+                     aura::Window* window_hint) override;
   bool SendMouseMoveNotifyWhenDone(int screen_x,
                                    int screen_y,
-                                   base::OnceClosure closure) override;
+                                   base::OnceClosure closure,
+                                   aura::Window* window_hint) override;
   bool SendMouseEvents(ui_controls::MouseButton type,
                        int button_state,
-                       int accelerator_state) override;
+                       int accelerator_state,
+                       aura::Window* window_hint) override;
   bool SendMouseEventsNotifyWhenDone(ui_controls::MouseButton type,
                                      int button_state,
                                      base::OnceClosure closure,
-                                     int accelerator_state) override;
-  bool SendMouseClick(ui_controls::MouseButton type) override;
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+                                     int accelerator_state,
+                                     aura::Window* window_hint) override;
+  bool SendMouseClick(ui_controls::MouseButton type,
+                      aura::Window* window_hint) override;
+#if BUILDFLAG(IS_CHROMEOS)
   bool SendTouchEvents(int action, int id, int x, int y) override;
   bool SendTouchEventsNotifyWhenDone(int action,
                                      int id,
@@ -95,14 +100,16 @@ class UIControlsOzone : public ui_controls::UIControlsAura {
                       int flags,
                       int changed_button_flags,
                       int64_t display_id,
-                      base::OnceClosure closure);
+                      base::OnceClosure closure,
+                      aura::Window* window_hint);
 
   void PostMouseEventTask(ui::EventType type,
                           const gfx::PointF& host_location,
                           int flags,
                           int changed_button_flags,
                           int64_t display_id,
-                          base::OnceClosure closure);
+                          base::OnceClosure closure,
+                          base::WeakPtr<WindowTreeHost> host_hint);
 
   void PostTouchEvent(ui::EventType type,
                       const gfx::PointF& host_location,
@@ -120,7 +127,7 @@ class UIControlsOzone : public ui_controls::UIControlsAura {
 
   // This is the default host used for events that are not scoped to a window.
   // Events scoped to a window always use the window's host.
-  WindowTreeHost* const host_;
+  const raw_ptr<WindowTreeHost> host_;
 
   // Mask of the mouse buttons currently down. This is static as it needs to
   // track the state globally for all displays. A UIControlsOzone instance is
@@ -128,7 +135,6 @@ class UIControlsOzone : public ui_controls::UIControlsAura {
   static unsigned button_down_mask_;
 };
 
-}  // namespace test
-}  // namespace aura
+}  // namespace aura::test
 
 #endif  // UI_AURA_TEST_UI_CONTROLS_OZONE_H_

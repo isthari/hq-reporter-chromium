@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,10 +12,12 @@ import android.widget.TextView;
 import androidx.annotation.MainThread;
 
 import org.chromium.base.metrics.RecordUserAction;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.components.browser_ui.settings.ManagedPreferencesUtils;
 import org.chromium.components.browser_ui.widget.RadioButtonWithDescription;
+import org.chromium.components.signin.AccountEmailDomainDisplayability;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.modaldialog.ModalDialogManager.ModalDialogType;
@@ -26,9 +28,10 @@ import org.chromium.ui.modelutil.PropertyModel;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
- * Coordinator to show a modal dialog that is displayed when the user switches account they are
+ * A coordinator to show a modal dialog that is displayed when the user switches account they are
  * syncing to. It gives the option to merge the data of the two accounts or to keep them separate.
  */
 public class ConfirmImportSyncDataDialogCoordinator {
@@ -57,21 +60,32 @@ public class ConfirmImportSyncDataDialogCoordinator {
 
     private final PropertyModel mModel;
     private final ModalDialogManager mDialogManager;
+    private final Predicate<String> mCheckIfDisplayableEmailAddress;
+
+    public ConfirmImportSyncDataDialogCoordinator(Context context, ModalDialogManager dialogManager,
+            Listener listener, String currentAccountName, String newAccountName) {
+        this(context, dialogManager, listener, currentAccountName, newAccountName,
+                AccountEmailDomainDisplayability::checkIfDisplayableEmailAddress);
+    }
 
     /**
      * Creates a new instance of ConfirmImportSyncDataDialogCoordinator and shows a dialog that
      * gives the user the option to merge data between the account they are attempting to sign in
      * to and the account they are currently signed into, or to keep the data separate. This dialog
      * is shown before signing out the current sync account.
-     * @param context                  Context to create the view.
-     * @param listener                 Callback to be called if the user completes the dialog (as
-     *                                 opposed to hitting cancel).
-     * @param currentAccountName       The current sync account name.
-     * @param newAccountName           The potential next sync account name.
+     * @param context                           Context to create the view.
+     * @param listener                          Callback to be called if the user completes the
+     *                                          dialog (as opposed to hitting cancel).
+     * @param currentAccountName                The current sync account name.
+     * @param newAccountName                    The potential next sync account name.
+     * @param checkIfDisplayableEmailAddress    Predicate testing if an email is displayable.
      */
     @MainThread
     public ConfirmImportSyncDataDialogCoordinator(Context context, ModalDialogManager dialogManager,
-            Listener listener, String currentAccountName, String newAccountName) {
+            Listener listener, String currentAccountName, String newAccountName,
+            Predicate<String> checkIfDisplayableEmailAddress) {
+        mCheckIfDisplayableEmailAddress = checkIfDisplayableEmailAddress;
+
         mListener = listener;
         mConfirmImportSyncDataView =
                 LayoutInflater.from(context).inflate(R.layout.confirm_import_sync_data, null);
@@ -106,7 +120,7 @@ public class ConfirmImportSyncDataDialogCoordinator {
     }
 
     /**
-     * Dismisses the account picker dialog.
+     * Dismisses the confirm import sync data dialog.
      */
     @MainThread
     public void dismissDialog() {
@@ -139,7 +153,6 @@ public class ConfirmImportSyncDataDialogCoordinator {
                     RecordUserAction.record("Signin_ImportDataPrompt_Cancel");
                     mListener.onCancel();
                 }
-                mDialogManager.destroy();
             }
         };
     }
@@ -147,7 +160,15 @@ public class ConfirmImportSyncDataDialogCoordinator {
     private void setUpConfirmImportSyncDataView(Context context, String currentAccountName,
             String newAccountName, boolean isCurrentAccountManaged) {
         TextView prompt = mConfirmImportSyncDataView.findViewById(R.id.sync_import_data_prompt);
-        prompt.setText(context.getString(R.string.sync_import_data_prompt, currentAccountName));
+
+        if (!mCheckIfDisplayableEmailAddress.test(currentAccountName)
+                && ChromeFeatureList.sHideNonDisplayableAccountEmail.isEnabled()) {
+            final String defaultAccountName =
+                    context.getString(R.string.default_google_account_username);
+            prompt.setText(context.getString(R.string.sync_import_data_prompt, defaultAccountName));
+        } else {
+            prompt.setText(context.getString(R.string.sync_import_data_prompt, currentAccountName));
+        }
 
         mConfirmImportOption.setDescriptionText(
                 context.getString(R.string.sync_import_existing_data_subtext, newAccountName));

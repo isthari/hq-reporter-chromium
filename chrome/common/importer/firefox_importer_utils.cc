@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,23 +27,28 @@
 namespace {
 
 // Retrieves the file system path of the profile name.
-base::FilePath GetProfilePath(const base::DictionaryValue& root,
+base::FilePath GetProfilePath(const base::Value::Dict& root,
                               const std::string& profile_name) {
-  std::u16string path16;
-  std::string is_relative;
-  if (!root.GetStringASCII(profile_name + ".IsRelative", &is_relative) ||
-      !root.GetString(profile_name + ".Path", &path16))
+  std::string path_str;
+  const std::string* is_relative =
+      root.FindStringByDottedPath(profile_name + ".IsRelative");
+  if (!is_relative)
+    return base::FilePath();
+  if (const std::string* ptr =
+          root.FindStringByDottedPath(profile_name + ".Path"))
+    path_str = *ptr;
+  else
     return base::FilePath();
 
 #if BUILDFLAG(IS_WIN)
-  base::ReplaceSubstringsAfterOffset(&path16, 0, u"/", u"\\");
+  base::ReplaceSubstringsAfterOffset(&path_str, 0, "/", "\\");
 #endif
-  base::FilePath path = base::FilePath::FromUTF16Unsafe(path16);
+  base::FilePath path = base::FilePath::FromUTF8Unsafe(path_str);
 
   // IsRelative=1 means the folder path would be relative to the
   // path of profiles.ini. IsRelative=0 refers to a custom profile
   // location.
-  if (is_relative == "1")
+  if (*is_relative == "1")
     path = GetProfilesINI().DirName().Append(path);
 
   return path;
@@ -62,26 +67,26 @@ std::vector<FirefoxDetail> GetFirefoxDetails(
 }
 
 std::vector<FirefoxDetail> GetFirefoxDetailsFromDictionary(
-    const base::DictionaryValue& root,
+    const base::Value::Dict& root,
     const std::string& firefox_install_id) {
   std::vector<FirefoxDetail> profile_details;
 
   for (int i = 0; ; ++i) {
     std::string current_profile = base::StringPrintf("Profile%d", i);
-    if (!root.FindKey(current_profile)) {
+    if (!root.Find(current_profile)) {
       // Profiles are contiguously numbered. So we exit when we can't
       // find the i-th one.
       break;
     }
 
-    if (!root.FindPath(current_profile + ".Path"))
+    if (!root.FindByDottedPath(current_profile + ".Path"))
       continue;
 
     FirefoxDetail details;
     details.path = GetProfilePath(root, current_profile);
     std::u16string name;
     if (const std::string* name_utf8 =
-            root.FindStringPath(current_profile + ".Name")) {
+            root.FindStringByDottedPath(current_profile + ".Name")) {
       name = base::UTF8ToUTF16(*name_utf8);
     }
     // Make the profile name more presentable by replacing dashes with spaces.
@@ -108,10 +113,8 @@ std::vector<FirefoxDetail> GetFirefoxDetailsFromDictionary(
 // our assumption about Firefox's root being in that path explicit.
 bool ComposeMacAppPath(const std::string& path_from_file,
                        base::FilePath* output) {
-  base::FilePath path(path_from_file);
-  typedef std::vector<base::FilePath::StringType> ComponentVector;
-  ComponentVector path_components;
-  path.GetComponents(&path_components);
+  std::vector<base::FilePath::StringType> path_components =
+      base::FilePath(path_from_file).GetComponents();
   if (path_components.empty())
     return false;
   // The first path component is special because it may be absolute. Calling
@@ -176,7 +179,7 @@ bool GetFirefoxVersionAndPathFromProfile(const base::FilePath& profile_path,
 }
 
 bool ReadPrefFile(const base::FilePath& path, std::string* content) {
-  if (content == NULL)
+  if (content == nullptr)
     return false;
 
   base::ReadFileToString(path, content);

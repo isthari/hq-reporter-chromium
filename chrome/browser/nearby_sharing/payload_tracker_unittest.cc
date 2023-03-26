@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,10 +15,17 @@
 
 namespace {
 // Total number of attachments.
-constexpr int kAttachmentCount = 4;
+constexpr int kAttachmentCount = 5;
 
 // Size of each attachment.
 constexpr int kTotalSize = 10;
+
+constexpr int kWifiCredentialsIdOk = 111;
+constexpr int kWifiCredentialsIdBad = 112;
+constexpr char kWifiSsidOk[] = "test_ssid1";
+constexpr char kWifiSsidBad[] = "test_ssid2";
+const WifiCredentialsAttachment::SecurityType kWifiSecurityType =
+    sharing::mojom::WifiCredentialsMetadata::SecurityType::kWpaPsk;
 
 }  // namespace
 
@@ -59,6 +66,22 @@ class PayloadTrackerTest : public testing::Test {
       share_target_.text_attachments.push_back(std::move(text));
     }
 
+    WifiCredentialsAttachment wifi_credentials_ok(
+        kWifiCredentialsIdOk, kWifiSecurityType, kWifiSsidOk);
+
+    AttachmentInfo info;
+    info.payload_id = 4;
+    attachment_info_map_.emplace(wifi_credentials_ok.id(), std::move(info));
+
+    share_target_.wifi_credentials_attachments.push_back(
+        std::move(wifi_credentials_ok));
+
+    // This attachment is not added to |attachment_info_map_|.
+    WifiCredentialsAttachment wifi_credentials_bad(
+        kWifiCredentialsIdBad, kWifiSecurityType, kWifiSsidBad);
+    share_target_.wifi_credentials_attachments.push_back(
+        std::move(wifi_credentials_bad));
+
     // This attachment is not added to |attachment_info_map_|.
     TextAttachment text(TextAttachment::Type::kText, "text body.",
                         /*title=*/absl::nullopt, /*mime_type=*/absl::nullopt);
@@ -71,21 +94,18 @@ class PayloadTrackerTest : public testing::Test {
   MockUpdateCallback& callback() { return callback_; }
 
   void MarkSuccessful(int payload_id) {
-    UpdatePayloadStatus(
-        payload_id,
-        location::nearby::connections::mojom::PayloadStatus::kSuccess);
+    UpdatePayloadStatus(payload_id,
+                        nearby::connections::mojom::PayloadStatus::kSuccess);
   }
 
   void MarkCancelled(int payload_id) {
-    UpdatePayloadStatus(
-        payload_id,
-        location::nearby::connections::mojom::PayloadStatus::kCanceled);
+    UpdatePayloadStatus(payload_id,
+                        nearby::connections::mojom::PayloadStatus::kCanceled);
   }
 
   void MarkFailure(int payload_id) {
-    UpdatePayloadStatus(
-        payload_id,
-        location::nearby::connections::mojom::PayloadStatus::kFailure);
+    UpdatePayloadStatus(payload_id,
+                        nearby::connections::mojom::PayloadStatus::kFailure);
   }
 
   void WaitBetweenUpdates() {
@@ -93,16 +113,14 @@ class PayloadTrackerTest : public testing::Test {
   }
 
  private:
-  void UpdatePayloadStatus(
-      int payload_id,
-      location::nearby::connections::mojom::PayloadStatus status) {
-    location::nearby::connections::mojom::PayloadTransferUpdatePtr payload =
-        location::nearby::connections::mojom::PayloadTransferUpdate::New(
+  void UpdatePayloadStatus(int payload_id,
+                           nearby::connections::mojom::PayloadStatus status) {
+    nearby::connections::mojom::PayloadTransferUpdatePtr payload =
+        nearby::connections::mojom::PayloadTransferUpdate::New(
             payload_id, status,
             /*total_bytes=*/kTotalSize, /*bytes_transferred=*/kTotalSize);
     payload_tracker_->OnStatusUpdate(
-        std::move(payload),
-        location::nearby::connections::mojom::Medium::kWebRtc);
+        std::move(payload), nearby::connections::mojom::Medium::kWebRtc);
   }
 
   content::BrowserTaskEnvironment task_environment_;
@@ -119,21 +137,28 @@ TEST_F(PayloadTrackerTest, PayloadsComplete_Successful) {
       Run(testing::_,
           MetadataMatcher(TransferMetadataBuilder()
                               .set_status(TransferMetadata::Status::kInProgress)
-                              .set_progress(25)
+                              .set_progress(20)
                               .build())));
   EXPECT_CALL(
       callback(),
       Run(testing::_,
           MetadataMatcher(TransferMetadataBuilder()
                               .set_status(TransferMetadata::Status::kInProgress)
-                              .set_progress(50)
+                              .set_progress(40)
                               .build())));
   EXPECT_CALL(
       callback(),
       Run(testing::_,
           MetadataMatcher(TransferMetadataBuilder()
                               .set_status(TransferMetadata::Status::kInProgress)
-                              .set_progress(75)
+                              .set_progress(60)
+                              .build())));
+  EXPECT_CALL(
+      callback(),
+      Run(testing::_,
+          MetadataMatcher(TransferMetadataBuilder()
+                              .set_status(TransferMetadata::Status::kInProgress)
+                              .set_progress(80)
                               .build())));
   EXPECT_CALL(
       callback(),
@@ -180,7 +205,7 @@ TEST_F(PayloadTrackerTest, PayloadsInProgress) {
       Run(testing::_,
           MetadataMatcher(TransferMetadataBuilder()
                               .set_status(TransferMetadata::Status::kInProgress)
-                              .set_progress(25)
+                              .set_progress(20)
                               .build())));
 
   MarkSuccessful(/*payload_id=*/0);
@@ -194,7 +219,7 @@ TEST_F(PayloadTrackerTest, MultipleInProgressUpdates_SamePercentage) {
       Run(testing::_,
           MetadataMatcher(TransferMetadataBuilder()
                               .set_status(TransferMetadata::Status::kInProgress)
-                              .set_progress(25)
+                              .set_progress(20)
                               .build())));
 
   MarkSuccessful(/*payload_id=*/0);
@@ -210,7 +235,7 @@ TEST_F(PayloadTrackerTest, MultipleInProgressUpdates_HighFrequency) {
       Run(testing::_,
           MetadataMatcher(TransferMetadataBuilder()
                               .set_status(TransferMetadata::Status::kInProgress)
-                              .set_progress(25)
+                              .set_progress(20)
                               .build())));
 
   MarkSuccessful(/*payload_id=*/0);
@@ -221,5 +246,5 @@ TEST_F(PayloadTrackerTest, MultipleInProgressUpdates_HighFrequency) {
 TEST_F(PayloadTrackerTest, StatusUpdateForUnknownPayload) {
   EXPECT_CALL(callback(), Run(testing::_, testing::_)).Times(0);
 
-  MarkSuccessful(/*payload_id=*/4);
+  MarkSuccessful(/*payload_id=*/5);
 }

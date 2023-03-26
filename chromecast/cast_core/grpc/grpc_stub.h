@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <grpcpp/grpcpp.h>
 
 #include "base/logging.h"
-#include "base/strings/string_piece.h"
 #include "chromecast/cast_core/grpc/grpc_server_streaming_call.h"
 #include "chromecast/cast_core/grpc/grpc_unary_call.h"
 
@@ -25,8 +24,8 @@ class GrpcStub {
 
   // Constructs a service stub on an |endpoint|. The is a fast call as gRPC
   // creates actual resources for the channel in the background thread.
-  explicit GrpcStub(base::StringPiece endpoint)
-      : GrpcStub(grpc::CreateChannel(std::string(endpoint),
+  explicit GrpcStub(const std::string& endpoint)
+      : GrpcStub(grpc::CreateChannel(endpoint,
                                      grpc::InsecureChannelCredentials())) {}
 
   // Constructs a service stub with an existing |channel|. The is a fast call

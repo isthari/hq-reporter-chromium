@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,19 +10,18 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/containers/contains.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/notreached.h"
 #include "base/process/launch.h"
 #include "base/process/process.h"
 #include "base/run_loop.h"
 #include "base/synchronization/lock.h"
-#include "base/test/scoped_feature_list.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/version.h"
 #include "chrome/browser/browser_process.h"
@@ -58,8 +57,6 @@ using ::testing::Eq;
 using ::testing::InvokeWithoutArgs;
 using ::testing::Return;
 using ::testing::SaveArg;
-
-constexpr char kSRTPromptGroup[] = "SRTGroup";
 
 class Waiter {
  public:
@@ -97,80 +94,6 @@ enum class ReporterRunnerPolicy {
   kDisabled,
 };
 
-class ReporterRunnerPolicyTest
-    : public InProcessBrowserTest,
-      public ::testing::WithParamInterface<ReporterRunnerPolicy> {
- public:
-  ReporterRunnerPolicyTest() {
-    policy_ = GetParam();
-    component_updater::SetRegisterSwReporterComponentCallbackForTesting(
-        base::BindOnce(&ReporterRunnerPolicyTest::ComponentRegistered,
-                       base::Unretained(this)));
-  }
-
-  ReporterRunnerPolicyTest(const ReporterRunnerPolicyTest&) = delete;
-  ReporterRunnerPolicyTest& operator=(const ReporterRunnerPolicyTest&) = delete;
-
-  void WaitForComponentRegistration() { waiter_.Wait(); }
-
- protected:
-  ReporterRunnerPolicy policy_;
-
- private:
-  void SetUpCommandLine(base::CommandLine* command_line) override {}
-
-  // Make sure the component will be installed during the test.
-  void SetUpDefaultCommandLine(base::CommandLine* command_line) override {
-    base::CommandLine default_command_line(base::CommandLine::NO_PROGRAM);
-    InProcessBrowserTest::SetUpDefaultCommandLine(&default_command_line);
-    test_launcher_utils::RemoveCommandLineSwitch(
-        default_command_line, switches::kDisableComponentUpdate, command_line);
-  }
-
-  void SetUpInProcessBrowserTestFixture() override {
-    policy_provider_.SetDefaultReturns(
-        /*is_initialization_complete_return=*/true,
-        /*is_first_policy_load_complete_return=*/true);
-    policy::BrowserPolicyConnector::SetPolicyProviderForTesting(
-        &policy_provider_);
-
-    // Setup polices as needed.
-    if (policy_ != ReporterRunnerPolicy::kNoPolicy) {
-      bool is_enabled = policy_ == ReporterRunnerPolicy::kEnabled;
-      policy::PolicyMap policies;
-      policies.Set(policy::key::kChromeCleanupEnabled,
-                   policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-                   policy::POLICY_SOURCE_PLATFORM, base::Value(is_enabled),
-                   nullptr);
-      policy_provider_.UpdateChromePolicy(policies);
-    }
-  }
-
-  void ComponentRegistered() { waiter_.Signal(); }
-
-  testing::NiceMock<policy::MockConfigurationPolicyProvider> policy_provider_;
-  Waiter waiter_;
-};
-
-IN_PROC_BROWSER_TEST_P(ReporterRunnerPolicyTest, CheckComponent) {
-  WaitForComponentRegistration();
-
-  // If the cleaner is disabled by policy, there should be no reporter
-  // component installed.  Otherwise it should be installed.
-  std::vector<std::string> component_ids =
-      g_browser_process->component_updater()->GetComponentIDs();
-  bool sw_component_registered =
-      base::Contains(component_ids, component_updater::kSwReporterComponentId);
-  ASSERT_EQ(policy_ != ReporterRunnerPolicy::kDisabled,
-            sw_component_registered);
-}
-
-INSTANTIATE_TEST_SUITE_P(PolicyControl,
-                         ReporterRunnerPolicyTest,
-                         ::testing::Values(ReporterRunnerPolicy::kNoPolicy,
-                                           ReporterRunnerPolicy::kEnabled,
-                                           ReporterRunnerPolicy::kDisabled));
-
 // The state of the the enterprise policy to use during tests.
 enum class PolicyState {
   kNoLogs,            // Don't set the policy for logs.
@@ -207,10 +130,6 @@ class ReporterRunnerTest
     policy::BrowserPolicyConnector::SetPolicyProviderForTesting(
         &policy_provider_);
 
-    scoped_feature_list_.InitAndEnableFeatureWithParameters(
-        kChromeCleanupInBrowserPromptFeature,
-        {{"Seed", incoming_seed_}, {"Group", kSRTPromptGroup}});
-
     switch (policy_state_) {
       case PolicyState::kNoLogs:
         break;
@@ -229,6 +148,9 @@ class ReporterRunnerTest
         break;
       }
     }
+
+    EXPECT_CALL(mock_chrome_cleaner_controller_, GetIncomingPromptSeed())
+        .WillRepeatedly(Return(incoming_seed_));
   }
 
   void SetUpOnMainThread() override {
@@ -259,9 +181,18 @@ class ReporterRunnerTest
     return base::Process::Current();
   }
 
-  int WaitForReporterExit([
-      [maybe_unused]] const base::Process& reporter_process) const {
-    return exit_code_to_report_;
+  bool WaitForReporterExit(
+      [[maybe_unused]] const base::Process& reporter_process,
+      base::TimeDelta timeout,
+      int* exit_code) override {
+    if (reporter_wait_count_++ < 2 * reporter_launch_count_) {
+      // Simulate a timeout to test the path where ReporterRunner waits more
+      // than once.
+      return false;
+    }
+    if (exit_code)
+      *exit_code = exit_code_to_report_;
+    return true;
   }
 
   // Returns the test's idea of the current time.
@@ -284,12 +215,13 @@ class ReporterRunnerTest
     // message loop. Since the test calls LaunchReporter instead of actually
     // doing a blocking reporter launch, it doesn't matter that the task runner
     // doesn't have the MayBlock trait.
-    return base::ThreadTaskRunnerHandle::Get().get();
+    return base::SingleThreadTaskRunner::GetCurrentDefault().get();
   }
 
   void ResetReporterRuns(int exit_code_to_report) {
     exit_code_to_report_ = exit_code_to_report;
     reporter_launch_count_ = 0;
+    reporter_wait_count_ = 0;
     reporter_launch_parameters_.clear();
     dialog_controller_created_ = false;
   }
@@ -584,6 +516,7 @@ class ReporterRunnerTest
 
   bool dialog_controller_created_ = false;
   int reporter_launch_count_ = 0;
+  int reporter_wait_count_ = 0;
   std::vector<SwReporterInvocation> reporter_launch_parameters_;
   int exit_code_to_report_ = kReporterNotLaunchedExitCode;
 
@@ -598,8 +531,6 @@ class ReporterRunnerTest
   // can be used to perform actions in the middle of a queue of reporters which
   // all launch on the same mock clock tick.
   base::OnceClosure first_launch_callback_;
-
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 }  // namespace

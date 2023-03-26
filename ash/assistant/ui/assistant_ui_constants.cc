@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,14 +18,6 @@ DEFINE_UI_CLASS_PROPERTY_KEY(bool, kOnlyAllowMouseClickEvents, false)
 const gfx::FontList& GetDefaultFontList() {
   static const base::NoDestructor<gfx::FontList> font_list("Google Sans, 12px");
   return *font_list;
-}
-
-int GetHorizontalMargin() {
-  return features::IsProductivityLauncherEnabled() ? 24 : 32;
-}
-
-int GetHorizontalPadding() {
-  return features::IsProductivityLauncherEnabled() ? 20 : 14;
 }
 
 }  // namespace ui

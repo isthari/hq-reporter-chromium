@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,10 @@
 #import <Foundation/Foundation.h>
 
 namespace web {
+
+// Callback that processes user's permission for a web state to asks the user
+// whether it is allowed to access certain permissions on the device.
+using WebStatePermissionDecisionHandler = void (^)(BOOL allow);
 
 // Enum specifying different data or device hardwares that the app/site needs
 // access permissions to.

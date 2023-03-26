@@ -11,11 +11,13 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     method constructor
 [Worker] interface AbortSignal : EventTarget
 [Worker]     static method abort
+[Worker]     static method timeout
 [Worker]     attribute @@toStringTag
 [Worker]     getter aborted
 [Worker]     getter onabort
 [Worker]     getter reason
 [Worker]     method constructor
+[Worker]     method throwIfAborted
 [Worker]     setter onabort
 [Worker] interface BackgroundFetchManager
 [Worker]     attribute @@toStringTag
@@ -122,6 +124,9 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     attribute @@toStringTag
 [Worker]     getter highWaterMark
 [Worker]     getter size
+[Worker]     method constructor
+[Worker] interface CropTarget
+[Worker]     attribute @@toStringTag
 [Worker]     method constructor
 [Worker] interface Crypto
 [Worker]     attribute @@toStringTag
@@ -366,7 +371,6 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     getter currentTarget
 [Worker]     getter defaultPrevented
 [Worker]     getter eventPhase
-[Worker]     getter path
 [Worker]     getter returnValue
 [Worker]     getter srcElement
 [Worker]     getter target
@@ -464,6 +468,7 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     method constructor
 [Worker]     method createWritable
 [Worker]     method getFile
+[Worker]     method move
 [Worker] interface FileSystemHandle
 [Worker]     attribute @@toStringTag
 [Worker]     getter kind
@@ -471,6 +476,7 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     method constructor
 [Worker]     method isSameEntry
 [Worker]     method queryPermission
+[Worker]     method remove
 [Worker]     method requestPermission
 [Worker] interface FileSystemWritableFileStream : WritableStream
 [Worker]     attribute @@toStringTag
@@ -703,6 +709,7 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     attribute @@toStringTag
 [Worker]     method constructor
 [Worker]     method decodingInfo
+[Worker]     method encodingInfo
 [Worker] interface MessageChannel
 [Worker]     attribute @@toStringTag
 [Worker]     getter port1
@@ -907,15 +914,6 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     method quadraticCurveTo
 [Worker]     method rect
 [Worker]     method roundRect
-[Worker] interface PaymentInstruments
-[Worker]     attribute @@toStringTag
-[Worker]     method clear
-[Worker]     method constructor
-[Worker]     method delete
-[Worker]     method get
-[Worker]     method has
-[Worker]     method keys
-[Worker]     method set
 [Worker] interface Performance : EventTarget
 [Worker]     attribute @@toStringTag
 [Worker]     getter onresourcetimingbufferfull
@@ -975,9 +973,11 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     getter nextHopProtocol
 [Worker]     getter redirectEnd
 [Worker]     getter redirectStart
+[Worker]     getter renderBlockingStatus
 [Worker]     getter requestStart
 [Worker]     getter responseEnd
 [Worker]     getter responseStart
+[Worker]     getter responseStatus
 [Worker]     getter secureConnectionStart
 [Worker]     getter serverTiming
 [Worker]     getter transferSize
@@ -1092,6 +1092,7 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     method takeRecords
 [Worker] interface Request
 [Worker]     attribute @@toStringTag
+[Worker]     getter body
 [Worker]     getter bodyUsed
 [Worker]     getter cache
 [Worker]     getter credentials
@@ -1260,6 +1261,13 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     getter readable
 [Worker]     getter writable
 [Worker]     method constructor
+[Worker] interface TransformStreamDefaultController
+[Worker]     attribute @@toStringTag
+[Worker]     getter desiredSize
+[Worker]     method constructor
+[Worker]     method enqueue
+[Worker]     method error
+[Worker]     method terminate
 [Worker] interface TrustedHTML
 [Worker]     attribute @@toStringTag
 [Worker]     method constructor
@@ -1920,8 +1928,10 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     attribute WAIT_FAILED
 [Worker]     attribute ZERO
 [Worker]     getter canvas
+[Worker]     getter drawingBufferColorSpace
 [Worker]     getter drawingBufferHeight
 [Worker]     getter drawingBufferWidth
+[Worker]     getter unpackColorSpace
 [Worker]     method activeTexture
 [Worker]     method attachShader
 [Worker]     method beginQuery
@@ -2148,6 +2158,8 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     method vertexAttribPointer
 [Worker]     method viewport
 [Worker]     method waitSync
+[Worker]     setter drawingBufferColorSpace
+[Worker]     setter unpackColorSpace
 [Worker] interface WebGLActiveInfo
 [Worker]     attribute @@toStringTag
 [Worker]     getter name
@@ -2468,8 +2480,10 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     attribute VIEWPORT
 [Worker]     attribute ZERO
 [Worker]     getter canvas
+[Worker]     getter drawingBufferColorSpace
 [Worker]     getter drawingBufferHeight
 [Worker]     getter drawingBufferWidth
+[Worker]     getter unpackColorSpace
 [Worker]     method activeTexture
 [Worker]     method attachShader
 [Worker]     method bindAttribLocation
@@ -2608,6 +2622,8 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     method vertexAttrib4fv
 [Worker]     method vertexAttribPointer
 [Worker]     method viewport
+[Worker]     setter drawingBufferColorSpace
+[Worker]     setter unpackColorSpace
 [Worker] interface WebGLSampler
 [Worker]     attribute @@toStringTag
 [Worker]     method constructor
@@ -2840,8 +2856,33 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     attribute @@toStringTag
 [Worker]     method constructor
 [Worker] [NAMESPACES]
+[Worker] namespace console
+[Worker]     attribute @@toStringTag
+[Worker]     method assert
+[Worker]     method clear
+[Worker]     method context
+[Worker]     method count
+[Worker]     method countReset
+[Worker]     method createTask
+[Worker]     method debug
+[Worker]     method dir
+[Worker]     method dirxml
+[Worker]     method error
+[Worker]     method group
+[Worker]     method groupCollapsed
+[Worker]     method groupEnd
+[Worker]     method info
+[Worker]     method log
+[Worker]     method profile
+[Worker]     method profileEnd
+[Worker]     method table
+[Worker]     method time
+[Worker]     method timeEnd
+[Worker]     method timeLog
+[Worker]     method timeStamp
+[Worker]     method trace
+[Worker]     method warn
 [Worker] [GLOBAL OBJECT]
-[Worker]     attribute console
 [Worker]     attribute globalThis
 [Worker]     attribute internals
 [Worker]     getter name

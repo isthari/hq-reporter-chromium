@@ -1,5 +1,5 @@
 # encoding: utf-8
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -26,6 +26,7 @@ from py_utils import TimeoutException
 
 from telemetry.core import exceptions
 from telemetry.util import js_template
+from telemetry.util import wpr_modes
 
 
 class _BrowsingStory(system_health_story.SystemHealthStory):
@@ -810,8 +811,10 @@ class PhotoshopWarmStartupDesktopStory2021(_MediaBrowsingStory):
   '''
 
   WARMUP_RUNS_SCRIPT = '''
+      let performance_mark = window.performance.mark;
       window.__telemetry_first_load_finished = false;
       window.performance.mark = function (label) {
+        performance_mark.call(window.performance, label);
         if (label == 'Doc.open complete') {
           window.__telemetry_first_load_finished = true;
         }
@@ -907,79 +910,6 @@ class AutoCADDesktopStory2021(_MediaBrowsingStory):
     action_runner.EnterText('-3,1')
     action_runner.PressKey('Return')
 
-    action_runner.Wait(5)
-
-
-class EarthDesktopStory2020(_MediaBrowsingStory):
-  """Load Google Earth and search for the Empire State Building. Watch the
-  Empire State Building for a few seconds.
-  """
-  NAME = 'browse:tools:earth:2020'
-  URL = 'https://earth.google.com/web/'
-  SUPPORTED_PLATFORMS = platforms.DESKTOP_ONLY
-  TAGS = [
-      story_tags.YEAR_2020, story_tags.WEBASSEMBLY, story_tags.WEBGL,
-      story_tags.KEYBOARD_INPUT
-  ]
-
-  def __init__(self, story_set, take_memory_measurement):
-    super(EarthDesktopStory2020, self).__init__(story_set,
-                                                take_memory_measurement)
-
-    # This script sets values in localStorage that suggest that Google Earth has
-    # already been visited before. Thereby we can avoid the tutorial at startup.
-    self.script_to_evaluate_on_commit = '''
-    localStorage.setItem('earth.out_of_box.url:',
-      'https://www.google.com/earth/clientassets/oobe/rev0/oobe_r0__$[hl].kml');
-    localStorage.setItem('earth.out_of_box.major_revision:', '0');
-    localStorage.setItem('earth.out_of_box.client_version:', '9.3.99.1');
-    '''
-
-  def _DidLoadDocument(self, action_runner):
-
-    CHECK_LOADED = (
-        'document.querySelector("body > earth-app").shadowRoot'
-        '.querySelector("#earthRelativeElements > earth-view-status")'
-        '.shadowRoot.querySelector("#percentageText").textContent === {{target}}'
-    )
-
-    action_runner.WaitForJavaScriptCondition(CHECK_LOADED, target="100%")
-
-    search_selector = ('(() => document.querySelector("body > earth-app")'
-                       '.shadowRoot.querySelector("#toolbar").shadowRoot'
-                       '.querySelector("#search"))()')
-    action_runner.ClickElement(element_function=search_selector)
-
-    search_text_selector = (
-        '(() => document.querySelector("body > earth-app")'
-        '.shadowRoot.querySelector("#drawerContainer").shadowRoot'
-        '.querySelector("#search").shadowRoot.querySelector("#omnibox")'
-        '.shadowRoot.querySelector("#queryInput"))()')
-
-    action_runner.WaitForElement(element_function=search_text_selector)
-    action_runner.ClickElement(element_function=search_text_selector)
-
-    action_runner.EnterText('Empire State Building')
-    action_runner.PressKey('Return')
-    # Wait for 20 seconds so that the Empire State Building is reached and fully
-    # loaded.
-    action_runner.Wait(20)
-
-    compass_selector = (
-        '(() => document.querySelector("body > earth-app").shadowRoot'
-        '.querySelector("#compass").shadowRoot'
-        '.querySelector("#compassIcon"))()')
-
-    action_runner.ClickElement(element_function=compass_selector)
-    action_runner.Wait(5)
-
-    zoom_2d_selector = (
-        '(() => document.querySelector("body > earth-app").shadowRoot'
-        '.querySelector("#hoverButton").shadowRoot'
-        '.querySelector("#hoverButton"))()')
-    action_runner.ClickElement(element_function=zoom_2d_selector)
-    # Wait for 5 seconds to load everything. We cannot wait for 100% because of
-    # the non-deterministic nature of the benchmark.
     action_runner.Wait(5)
 
 
@@ -1585,7 +1515,10 @@ class _GmailBrowsingStory(system_health_story.SystemHealthStory):
         performance_mark_and_measure=self.PERFOMANCE_MARK_AND_MEASURE)
 
   def _Login(self, action_runner):
-    google_login.NewLoginGoogleAccount(action_runner, 'googletest')
+    if self.wpr_mode == wpr_modes.WPR_OFF:
+      google_login.ManualLoginGoogleAccount(action_runner)
+    else:
+      google_login.NewLoginGoogleAccount(action_runner, 'googletest')
 
     # Navigating to http://mail.google.com immediately leads to an infinite
     # redirection loop due to a bug in WPR (see
@@ -1701,7 +1634,7 @@ class GmailSearchStory2020(_GmailBrowsingStory):
   SUPPORTED_PLATFORMS = platforms.DESKTOP_ONLY
   TAGS = [story_tags.YEAR_2020]
 
-  _SEARCH_SELECTOR = 'input[aria-label="Search mail and chat"]'
+  _SEARCH_SELECTOR = 'input[aria-label="Search mail"]'
 
   # Page event queries.
   SEARCH_BEGIN_EVENT = '''
@@ -1873,17 +1806,8 @@ class GoogleSheetsDesktopStory(system_health_story.SystemHealthStory):
   '''
 
   def __init__(self, story_set, take_memory_measurement):
-    # TODO(crbug.com/1256844): Disable the ForceSynchronousHTMLParsing and
-    # LoaderDataPipeTuning experiments, because they cause failures and
-    # flakiness for this story as-recorded in 2019.
-    extra_browser_args = [
-        '--disable-features=ForceSynchronousHTMLParsing,LoaderDataPipeTuning'
-    ]
-
-    super(GoogleSheetsDesktopStory,
-          self).__init__(story_set,
-                         take_memory_measurement,
-                         extra_browser_args=extra_browser_args)
+    super(GoogleSheetsDesktopStory, self).__init__(story_set,
+                                                   take_memory_measurement)
     self.script_to_evaluate_on_commit = js_template.Render(
         '''{{@events_reported_by_page}}
         {{@performance_mark}}
@@ -2130,15 +2054,7 @@ class TumblrStory2018(_InfiniteScrollStory):
   ]
 
   def __init__(self, story_set, take_memory_measurement):
-    # TODO(crbug.com/1256844): Disable the ForceSynchronousHTMLParsing and
-    # LoaderDataPipeTuning experiments, because they cause failures and
-    # flakiness for this story as-recorded in 2018.
-    extra_browser_args = [
-        '--disable-features=ForceSynchronousHTMLParsing,LoaderDataPipeTuning'
-    ]
-    super(TumblrStory2018, self).__init__(story_set,
-                                          take_memory_measurement,
-                                          extra_browser_args=extra_browser_args)
+    super(TumblrStory2018, self).__init__(story_set, take_memory_measurement)
 
   def _Login(self, action_runner):
     tumblr_login.LoginDesktopAccount(action_runner, 'tumblr')

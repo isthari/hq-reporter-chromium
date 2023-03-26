@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,7 @@
 #include "ui/views/view.h"
 
 namespace ash {
-namespace tray {
+
 namespace {
 
 using chromeos::network_config::mojom::DeviceStateProperties;
@@ -58,8 +58,6 @@ NetworkInfoBubble::NetworkInfoBubble(base::WeakPtr<Delegate> delegate,
                                      views::View* anchor)
     : views::BubbleDialogDelegateView(anchor, views::BubbleBorder::TOP_RIGHT),
       delegate_(delegate) {
-  DCHECK(ash::features::IsQuickSettingsNetworkRevampEnabled());
-
   SetButtons(ui::DIALOG_BUTTON_NONE);
   set_margins(gfx::Insets(kBubbleMargin));
   SetArrow(views::BubbleBorder::NONE);
@@ -153,5 +151,4 @@ std::u16string NetworkInfoBubble::ComputeInfoText() {
   return info_text;
 }
 
-}  // namespace tray
 }  // namespace ash

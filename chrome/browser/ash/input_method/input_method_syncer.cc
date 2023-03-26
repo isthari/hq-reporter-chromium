@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,10 @@
 #include <vector>
 
 #include "ash/constants/ash_features.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "base/task/task_runner.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/browser_process.h"
@@ -250,22 +249,18 @@ std::string InputMethodSyncer::AddSupportedInputMethodValues(
   if (pref_name == prefs::kLanguagePreloadEngines ||
       pref_name == prefs::kLanguageEnabledImes) {
     InputMethodManager* manager = InputMethodManager::Get();
-    std::unique_ptr<InputMethodDescriptors> supported_descriptors =
-        std::make_unique<InputMethodDescriptors>();
+    InputMethodDescriptors supported_descriptors;
 
     if (pref_name == prefs::kLanguagePreloadEngines) {
       // Add the available component extension IMEs.
       ComponentExtensionIMEManager* component_extension_manager =
           manager->GetComponentExtensionIMEManager();
-      InputMethodDescriptors component_descriptors =
+      supported_descriptors =
           component_extension_manager->GetAllIMEAsInputMethodDescriptor();
-      supported_descriptors->insert(supported_descriptors->end(),
-                                    component_descriptors.begin(),
-                                    component_descriptors.end());
     } else {
-      ime_state_->GetInputMethodExtensions(supported_descriptors.get());
+      ime_state_->GetInputMethodExtensions(&supported_descriptors);
     }
-    CheckAndResolveInputMethodIDs(*supported_descriptors, &new_token_values);
+    CheckAndResolveInputMethodIDs(supported_descriptors, &new_token_values);
   } else if (pref_name != language::prefs::kPreferredLanguages) {
     NOTREACHED() << "Attempting to merge an invalid preference.";
     // kPreferredLanguages is checked in CheckAndResolveLocales().
@@ -317,9 +312,7 @@ void InputMethodSyncer::OnIsSyncingChanged() {
   if (!prefs_->GetBoolean(prefs::kLanguageShouldMergeInputMethods))
     return;
   // Wait for the correct type of prefs to sync before merging.
-  bool is_syncing = features::IsSyncSettingsCategorizationEnabled()
-                        ? prefs_->AreOsPrefsSyncing()
-                        : prefs_->IsSyncing();
+  bool is_syncing = prefs_->AreOsPrefsSyncing();
   if (is_syncing)
     MergeSyncedPrefs();
 }

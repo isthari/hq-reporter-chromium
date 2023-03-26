@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -91,7 +91,8 @@ IN_PROC_BROWSER_TEST_F(PermissionDelegationBrowserTest, DelegatedToTwoFrames) {
       https_embedded_test_server()->GetURL("c.com", "/simple.html");
 
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_frame_url));
-  content::RenderFrameHost* main_frame = GetWebContents()->GetMainFrame();
+  content::RenderFrameHost* main_frame =
+      GetWebContents()->GetPrimaryMainFrame();
 
   // Delegate permission to both frames.
   EXPECT_TRUE(content::ExecuteScript(

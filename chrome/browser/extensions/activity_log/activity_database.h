@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "base/memory/ref_counted_memory.h"
 #include "base/sequence_checker.h"
 #include "base/synchronization/lock.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/extensions/activity_log/activity_actions.h"
 #include "extensions/common/extension.h"
@@ -179,7 +180,7 @@ class ActivityDatabase {
 
   // A reference a Delegate for policy-specific database behavior.  See the
   // top-level comment for ActivityDatabase for comments on cleanup.
-  raw_ptr<Delegate> delegate_;
+  raw_ptr<Delegate, DanglingUntriaged> delegate_;
 
   sql::Database db_;
   bool valid_db_;

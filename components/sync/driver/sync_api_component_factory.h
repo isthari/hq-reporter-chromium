@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include <string>
 
 #include "components/sync/base/model_type.h"
-#include "components/sync/base/weak_handle.h"
 #include "components/sync/driver/data_type_controller.h"
 
 namespace invalidation {
@@ -18,7 +17,6 @@ class InvalidationService;
 
 namespace syncer {
 
-class DataTypeDebugInfoListener;
 class DataTypeEncryptionHandler;
 class DataTypeManager;
 class DataTypeManagerObserver;
@@ -33,7 +31,6 @@ class SyncApiComponentFactory {
   virtual ~SyncApiComponentFactory() = default;
 
   virtual std::unique_ptr<DataTypeManager> CreateDataTypeManager(
-      const WeakHandle<DataTypeDebugInfoListener>& debug_info_listener,
       const DataTypeController::TypeMap* controllers,
       const DataTypeEncryptionHandler* encryption_handler,
       ModelTypeConfigurer* configurer,
@@ -43,12 +40,12 @@ class SyncApiComponentFactory {
   // and |sync_invalidation_service| are different invalidations. SyncEngine
   // handles incoming invalidations from both of them (if provided).
   // |sync_invalidation_service| is a new sync-specific invalidations service
-  // and it may be nullptr if it is disabled or not supported. In future, there
-  // will leave only one invalidation service.
+  // and must not be null. In future, there will be only one invalidation
+  // service.
   virtual std::unique_ptr<SyncEngine> CreateSyncEngine(
       const std::string& name,
       invalidation::InvalidationService* invalidator,
-      syncer::SyncInvalidationsService* sync_invalidation_service) = 0;
+      SyncInvalidationsService* sync_invalidation_service) = 0;
 
   // Clears all local transport data. Upon calling this, the deletion is
   // guaranteed to finish before a new engine returned by |CreateSyncEngine()|

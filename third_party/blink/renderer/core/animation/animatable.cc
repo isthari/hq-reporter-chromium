@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,11 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/v8_get_animations_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_keyframe_animation_options.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_timeline_range.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_timeline_range_offset.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_keyframeanimationoptions_unrestricteddouble.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_keyframeeffectoptions_unrestricteddouble.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_union_string_timelinerangeoffset.h"
 #include "third_party/blink/renderer/core/animation/animation.h"
 #include "third_party/blink/renderer/core/animation/document_animations.h"
 #include "third_party/blink/renderer/core/animation/document_timeline.h"
@@ -22,6 +25,7 @@
 #include "third_party/blink/renderer/core/permissions_policy/layout_animations_policy.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
+#include "third_party/blink/renderer/platform/geometry/calculation_value.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 
 namespace blink {
@@ -62,9 +66,74 @@ V8UnionKeyframeEffectOptionsOrUnrestrictedDouble* CoerceEffectOptions(
   return nullptr;
 }
 
+TimelineOffset ConvertRangeOffset(
+    const V8UnionStringOrTimelineRangeOffset* range_offset,
+    double default_percent,
+    ExceptionState& exception_state) {
+  TimelineOffset result;
+  if (range_offset->IsString()) {
+    // TODO(kevers): Implement once we have CSS support for animation-range.
+    result.name = TimelineOffset::NamedRange::kNone;
+    result.offset = Length(default_percent, Length::Type::kPercent);
+  } else {
+    TimelineRangeOffset* value = range_offset->GetAsTimelineRangeOffset();
+    result.name = value->hasRangeName() ? value->rangeName().AsEnum()
+                                        : TimelineOffset::NamedRange::kNone;
+    if (value->hasOffset()) {
+      CSSNumericValue* offset = value->offset();
+      const CSSPrimitiveValue* css_value =
+          DynamicTo<CSSPrimitiveValue>(offset->ToCSSValue());
+
+      if (!css_value || (!css_value->IsPx() && !css_value->IsPercentage() &&
+                         !css_value->IsCalculatedPercentageWithLength())) {
+        exception_state.ThrowTypeError(
+            "CSSNumericValue must be a length or percentage for animation "
+            "range.");
+        return result;
+      }
+
+      if (css_value->IsPx()) {
+        result.offset = Length::Fixed(css_value->GetDoubleValue());
+      } else if (css_value->IsPercentage()) {
+        result.offset = Length::Percent(css_value->GetDoubleValue());
+      } else {
+        // TODO(kevers): Resolve if we need to handle style-dependent lengths
+        // such as em. If so, what is the reference element for resolving the
+        // style?
+        DCHECK(css_value->IsCalculatedPercentageWithLength());
+        CSSLengthArray length_array;
+        css_value->AccumulateLengthArray(length_array);
+        double percent = 0;
+        double px = 0;
+        for (wtf_size_t i = 0; i < length_array.values.size(); ++i) {
+          double array_value = length_array.values[i];
+          if (array_value == 0) {
+            continue;
+          }
+          if (i == CSSPrimitiveValue::kUnitTypePercentage) {
+            percent = array_value;
+          } else if (i == CSSPrimitiveValue::kUnitTypePixels) {
+            px = array_value;
+          } else {
+            exception_state.ThrowDOMException(
+                DOMExceptionCode::kNotSupportedError,
+                "Unsupported range offset");
+            return result;
+          }
+        }
+        result.offset = Length(CalculationValue::Create(
+            PixelsAndPercent(px, percent), Length::ValueRange::kAll));
+      }
+    } else {
+      result.offset = Length::Percent(default_percent);
+    }
+  }
+  return result;
+}
+
 }  // namespace
 
-// https://drafts.csswg.org/web-animations/#dom-animatable-animate
+// https://w3.org/TR/web-animations-1/#dom-animatable-animate
 Animation* Animatable::animate(
     ScriptState* script_state,
     const ScriptValue& keyframes,
@@ -107,9 +176,20 @@ Animation* Animatable::animate(
     return nullptr;
 
   animation->setId(options_dict->id());
+
+  // ViewTimeline options.
+  if (options_dict->hasRangeStart()) {
+    animation->SetRangeStart(
+        ConvertRangeOffset(options_dict->rangeStart(), 0, exception_state));
+  }
+  if (options_dict->hasRangeEnd()) {
+    animation->SetRangeEnd(
+        ConvertRangeOffset(options_dict->rangeEnd(), 100, exception_state));
+  }
   return animation;
 }
 
+// https://w3.org/TR/web-animations-1/#dom-animatable-animate
 Animation* Animatable::animate(ScriptState* script_state,
                                const ScriptValue& keyframes,
                                ExceptionState& exception_state) {
@@ -133,17 +213,24 @@ Animation* Animatable::animate(ScriptState* script_state,
   return element->GetDocument().Timeline().Play(effect, exception_state);
 }
 
+// https://w3.org/TR/web-animations-1/#dom-animatable-getanimations
 HeapVector<Member<Animation>> Animatable::getAnimations(
     GetAnimationsOptions* options) {
   bool use_subtree = options && options->subtree();
+  return GetAnimationsInternal(
+      GetAnimationsOptionsResolved{.use_subtree = use_subtree});
+}
+
+HeapVector<Member<Animation>> Animatable::GetAnimationsInternal(
+    GetAnimationsOptionsResolved options) {
   Element* element = GetAnimationTarget();
-  if (use_subtree)
+  if (options.use_subtree)
     element->GetDocument().UpdateStyleAndLayoutTreeForSubtree(element);
   else
     element->GetDocument().UpdateStyleAndLayoutTreeForNode(element);
 
   HeapVector<Member<Animation>> animations;
-  if (!use_subtree && !element->HasAnimations())
+  if (!options.use_subtree && !element->HasAnimations())
     return animations;
 
   for (const auto& animation :
@@ -152,7 +239,8 @@ HeapVector<Member<Animation>> Animatable::getAnimations(
     DCHECK(animation->effect());
     // TODO(gtsteel) make this use the idl properties
     Element* target = To<KeyframeEffect>(animation->effect())->EffectTarget();
-    if (element == target || (use_subtree && element->contains(target))) {
+    if (element == target ||
+        (options.use_subtree && element->contains(target))) {
       // DocumentAnimations::getAnimations should only give us animations that
       // are either current or in effect.
       DCHECK(animation->effect()->IsCurrent() ||

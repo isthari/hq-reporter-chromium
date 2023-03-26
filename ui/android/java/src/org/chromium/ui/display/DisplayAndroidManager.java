@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,9 +19,9 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.base.annotations.MainDex;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.compat.ApiHelperForR;
+import org.chromium.build.annotations.MainDex;
 
 /**
  * DisplayAndroidManager is a class that informs its observers Display changes.
@@ -88,7 +88,6 @@ public class DisplayAndroidManager {
     private int mMainSdkDisplayId;
     private final SparseArray<DisplayAndroid> mIdMap = new SparseArray<>();
     private DisplayListenerBackend mBackend = new DisplayListenerBackend();
-    private int mNextVirtualDisplayId = VIRTUAL_DISPLAY_ID_BEGIN;
 
     /* package */ static DisplayAndroidManager getInstance() {
         ThreadUtils.assertOnUiThread();
@@ -189,29 +188,6 @@ public class DisplayAndroidManager {
         mIdMap.put(sdkDisplayId, displayAndroid);
         displayAndroid.updateFromDisplay(display);
         return displayAndroid;
-    }
-
-    private int getNextVirtualDisplayId() {
-        return mNextVirtualDisplayId++;
-    }
-
-    /* package */ VirtualDisplayAndroid addVirtualDisplay() {
-        VirtualDisplayAndroid display = new VirtualDisplayAndroid(getNextVirtualDisplayId());
-        assert mIdMap.get(display.getDisplayId()) == null;
-        mIdMap.put(display.getDisplayId(), display);
-        updateDisplayOnNativeSide(display);
-        return display;
-    }
-
-    /* package */ void removeVirtualDisplay(VirtualDisplayAndroid display) {
-        DisplayAndroid displayAndroid = mIdMap.get(display.getDisplayId());
-        assert displayAndroid == display;
-
-        if (mNativePointer != 0) {
-            DisplayAndroidManagerJni.get().removeDisplay(
-                    mNativePointer, DisplayAndroidManager.this, display.getDisplayId());
-        }
-        mIdMap.remove(display.getDisplayId());
     }
 
     /* package */ void updateDisplayOnNativeSide(DisplayAndroid displayAndroid) {

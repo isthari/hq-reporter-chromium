@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -91,10 +91,6 @@ class SyncCycleContext {
 
   base::ObserverList<SyncEngineEventListener>::Unchecked* listeners() {
     return &listeners_;
-  }
-
-  void set_hierarchy_conflict_detected(bool value) {
-    client_status_.set_hierarchy_conflict_detected(value);
   }
 
   void set_is_sync_feature_enabled(bool value) {

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/clock.h"
+#include "base/time/time.h"
 #include "chrome/browser/feature_guide/notifications/config.h"
 #include "chrome/browser/feature_guide/notifications/feature_notification_guide_service.h"
 #include "chrome/browser/feature_guide/notifications/feature_type.h"
@@ -58,17 +59,19 @@ class FeatureNotificationGuideServiceImpl
   void StartCheckingForEligibleFeatures();
   void ScheduleNotification(FeatureType feature, bool schedule_immediately);
   void CloseRedundantNotifications();
+  void CheckForLowEnagedUser();
 
   std::unique_ptr<FeatureNotificationGuideService::Delegate> delegate_;
   raw_ptr<notifications::NotificationScheduleService> notification_scheduler_;
   raw_ptr<feature_engagement::Tracker> tracker_;
   raw_ptr<segmentation_platform::SegmentationPlatformService>
       segmentation_platform_service_;
-  base::Clock* clock_;
+  raw_ptr<base::Clock> clock_;
   Config config_;
 
   std::set<std::string> scheduled_feature_guids_;
   absl::optional<base::Time> last_notification_schedule_time_;
+  bool is_low_engaged_user_{false};
 
   base::WeakPtrFactory<FeatureNotificationGuideServiceImpl> weak_ptr_factory_{
       this};

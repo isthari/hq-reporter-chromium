@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -196,7 +196,7 @@ public class ShareHelper extends org.chromium.components.browser_ui.share.ShareH
         SharedPreferencesManager.getInstance().writeString(
                 ChromePreferenceKeys.SHARING_LAST_SHARED_COMPONENT_NAME,
                 component.flattenToString());
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.SHARE_USAGE_RANKING) && profile != null) {
+        if (profile != null) {
             ShareHistoryBridge.addShareEntry(profile, component.flattenToString());
         }
     }

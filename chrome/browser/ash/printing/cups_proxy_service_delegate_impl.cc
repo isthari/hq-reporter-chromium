@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 #include <utility>
 
 #include "base/task/bind_post_task.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/ash/plugin_vm/plugin_vm_pref_names.h"
 #include "chrome/browser/ash/printing/cups_printers_manager.h"
 #include "chrome/browser/ash/printing/cups_printers_manager_factory.h"
@@ -18,7 +20,9 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 
-namespace chromeos {
+namespace ash {
+
+using ::chromeos::Printer;
 
 // TODO(crbug.com/945409): Decide on correct profile/s to use.
 CupsProxyServiceDelegateImpl::CupsProxyServiceDelegateImpl()
@@ -44,7 +48,7 @@ absl::optional<Printer> CupsProxyServiceDelegateImpl::GetPrinter(
 
 // TODO(crbug.com/945409): Incorporate printer limit workaround.
 std::vector<Printer> CupsProxyServiceDelegateImpl::GetPrinters(
-    PrinterClass printer_class) {
+    chromeos::PrinterClass printer_class) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   // TODO(crbug.com/945409): Include saved + enterprise (+ephemeral?).
@@ -83,7 +87,7 @@ void CupsProxyServiceDelegateImpl::SetupPrinter(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   // Grab current runner to post |cb| to.
-  auto cb_runner = base::SequencedTaskRunnerHandle::Get();
+  auto cb_runner = base::SequencedTaskRunner::GetCurrentDefault();
   content::GetUIThreadTaskRunner({})->PostTask(
       FROM_HERE,
       base::BindOnce(&CupsProxyServiceDelegateImpl::SetupPrinterOnUIThread,
@@ -114,4 +118,4 @@ void CupsProxyServiceDelegateImpl::OnSetupPrinter(
   std::move(cb).Run(result == PrinterSetupResult::kSuccess);
 }
 
-}  // namespace chromeos
+}  // namespace ash

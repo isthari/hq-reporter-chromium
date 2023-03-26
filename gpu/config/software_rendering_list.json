@@ -40,41 +40,6 @@
       ]
     },
     {
-      "id": 5,
-      "description": "ATI/AMD cards with older drivers in Linux are crash-prone",
-      "cr_bugs": [71381, 76428, 73910, 101225, 136240, 357314, 719213],
-      "os": {
-        "type": "linux"
-      },
-      "vendor_id": "0x1002",
-      "exceptions": [
-        {
-          "driver_vendor": ".*AMD.*",
-          "driver_version": {
-            "op": ">=",
-            "style": "lexical",
-            "value": "8.98"
-          }
-        },
-        {
-          "driver_vendor": "Mesa",
-          "driver_version": {
-            "op": ">=",
-            "value": "10.0.4"
-          }
-        },
-        {
-          "driver_vendor": ".*ANGLE.*"
-        },
-        {
-          "driver_vendor": ".*Brahma.*"
-        }
-      ],
-      "features": [
-        "all"
-      ]
-    },
-    {
       "id": 8,
       "description": "NVIDIA GeForce FX Go5200 is assumed to be buggy",
       "cr_bugs": [72938],
@@ -798,14 +763,14 @@
     {
       "id": 111,
       "description": "Apple Software Renderer used under VMWare experiences synchronization issues with GPU Raster",
-      "cr_bugs": [607829],
+      "cr_bugs": [607829, 1342540],
       "os": {
         "type": "macosx"
       },
       "vendor_id": "0x15ad",
       "multi_gpu_category": "any",
       "features": [
-        "gpu_rasterization"
+        "all"
       ]
     },
     {
@@ -989,6 +954,7 @@
       },
       "exceptions": [
         {
+          "vendor_id": "0x1002",
           "driver_version": {
             "comment": "INF_version: 21.19.384.0; date: 12/04/2016",
             "op": ">=",
@@ -1279,6 +1245,7 @@
           "value": "10"
         }
       },
+      "vendor_id": "0x1002",
       "driver_version": {
         "op": "<",
         "value": "20.19.0.32837"
@@ -1528,6 +1495,7 @@
       },
       "exceptions": [
         {
+          "vendor_id": "0x1002",
           "driver_version": {
             "op": ">=",
             "value": "8.17.10.1433"
@@ -1670,12 +1638,12 @@
     },
     {
       "id": 174,
-      "description": "Disable canvas acceleration on a specific Haswell GPU on ChromeOS",
+      "description": "Disable canvas acceleration on some Haswell GPUs on ChromeOS",
       "os": {
         "type": "chromeos"
       },
       "vendor_id": "0x8086",
-      "device_id": ["0x0a16"],
+      "device_id": ["0x0a16", "0x0a1e"],
       "features": [
         "accelerated_2d_canvas"
       ]
@@ -1695,6 +1663,47 @@
       },
       "features": [
         "accelerated_video_encode"
+      ]
+    },
+    {
+      "id": 176,
+      "description": "VMware is buggy on Linux",
+      "cr_bugs": [1327939],
+      "os": {
+        "type": "linux"
+      },
+      "vendor_id": "0x15ad",
+      "features": [
+        "all"
+      ]
+    },
+    {
+      "id": 177,
+      "description": "Apple Software Renderer used under VMWare experiences synchronization issues with GPU Raster",
+      "cr_bugs": [607829, 1342540],
+      "os": {
+        "type": "macosx"
+      },
+      "gl_renderer": ".*Apple Software Renderer.*",
+      "multi_gpu_category": "any",
+      "features": [
+        "all"
+      ]
+    },
+    {
+      "id": 178,
+      "description": "Intel IronLake only shows black in hardware decoded H264 [b/202962575, b/233244020]",
+      "os": {
+        "type": "chromeos"
+      },
+      "intel_gpu_generation": {
+        "op": "=",
+        "value": "5"
+      },
+      "driver_vendor": "Mesa",
+      "gl_vendor": "Intel.*",
+      "features": [
+        "accelerated_video_decode"
       ]
     }
   ]

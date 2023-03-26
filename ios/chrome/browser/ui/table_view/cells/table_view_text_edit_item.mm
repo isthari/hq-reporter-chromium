@@ -1,17 +1,18 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_edit_item.h"
 
-#include "base/notreached.h"
+#import "base/notreached.h"
 #import "ios/chrome/browser/ui/elements/extended_touch_target_button.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
+#import "ios/chrome/browser/ui/icons/symbols.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_edit_item_delegate.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
 #import "ios/chrome/browser/ui/util/rtl_geometry.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
+#import "ios/chrome/common/ui/table_view/table_view_cells_constants.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -19,12 +20,15 @@
 #endif
 
 namespace {
+
 // Minimum gap between the label and the text field.
 const CGFloat kLabelAndFieldGap = 5;
 // Height/width of the edit icon.
 const CGFloat kEditIconLength = 18;
 // Height/width of the error icon.
 const CGFloat kErrorIconLength = 20;
+// Size of the symbols.
+const CGFloat kSymbolSize = 15;
 
 }  // namespace
 
@@ -57,7 +61,7 @@ const CGFloat kErrorIconLength = 20;
 
   NSString* textLabelFormat = self.required ? @"%@*" : @"%@";
   cell.textLabel.text =
-      [NSString stringWithFormat:textLabelFormat, self.textFieldName];
+      [NSString stringWithFormat:textLabelFormat, self.fieldNameLabelText];
   if (self.textFieldPlaceholder) {
     cell.textField.attributedPlaceholder = [[NSAttributedString alloc]
         initWithString:self.textFieldPlaceholder
@@ -68,9 +72,9 @@ const CGFloat kErrorIconLength = 20;
   }
   cell.textField.text = self.textFieldValue;
   cell.textField.secureTextEntry = self.textFieldSecureTextEntry;
-  if (self.textFieldName.length) {
+  if (self.fieldNameLabelText.length) {
     cell.textField.accessibilityIdentifier =
-        [NSString stringWithFormat:@"%@_textField", self.textFieldName];
+        [NSString stringWithFormat:@"%@_textField", self.fieldNameLabelText];
   }
 
   if (self.textFieldBackgroundColor) {
@@ -87,9 +91,10 @@ const CGFloat kErrorIconLength = 20;
   cell.textField.enabled = self.textFieldEnabled;
 
   if (self.hideIcon) {
-    cell.textField.textColor = self.textFieldEnabled
-                                   ? [UIColor colorNamed:kBlueColor]
+    cell.textField.textColor = self.textFieldTextColor
+                                   ? self.textFieldTextColor
                                    : [UIColor colorNamed:kTextPrimaryColor];
+
     [cell setIcon:TableViewTextEditItemIconTypeNone];
   } else {
     if (self.hasValidText) {
@@ -100,15 +105,15 @@ const CGFloat kErrorIconLength = 20;
 
     if (!self.hasValidText) {
       cell.iconView.accessibilityIdentifier =
-          [NSString stringWithFormat:@"%@_errorIcon", self.textFieldName];
+          [NSString stringWithFormat:@"%@_errorIcon", self.fieldNameLabelText];
       [cell setIcon:TableViewTextEditItemIconTypeError];
     } else if (cell.textField.editing && cell.textField.text.length > 0) {
       cell.iconView.accessibilityIdentifier =
-          [NSString stringWithFormat:@"%@_noIcon", self.textFieldName];
+          [NSString stringWithFormat:@"%@_noIcon", self.fieldNameLabelText];
       [cell setIcon:TableViewTextEditItemIconTypeNone];
     } else {
       cell.iconView.accessibilityIdentifier =
-          [NSString stringWithFormat:@"%@_editIcon", self.textFieldName];
+          [NSString stringWithFormat:@"%@_editIcon", self.fieldNameLabelText];
       [cell setIcon:TableViewTextEditItemIconTypeEdit];
     }
   }
@@ -177,10 +182,10 @@ const CGFloat kErrorIconLength = 20;
 @property(nonatomic, strong) NSLayoutConstraint* iconTrailingConstraint;
 
 // When they are activated, the label and the text field are on one line.
-// They conflict with the |accessibilityConstraints|.
+// They conflict with the `accessibilityConstraints`.
 @property(nonatomic, strong) NSArray<NSLayoutConstraint*>* standardConstraints;
 // When they are activated, the label is on one line, the text field is on
-// another line. They conflict with the |standardConstraints|.
+// another line. They conflict with the `standardConstraints`.
 @property(nonatomic, strong)
     NSArray<NSLayoutConstraint*>* accessibilityConstraints;
 
@@ -398,7 +403,7 @@ const CGFloat kErrorIconLength = 20;
 #pragma mark Accessibility
 
 - (NSString*)accessibilityLabel {
-  // If |textFieldSecureTextEntry| is
+  // If `textFieldSecureTextEntry` is
   // YES, the voice over should not read the text value.
   NSString* textFieldText =
       self.textField.secureTextEntry ? @"" : self.textField.text;
@@ -410,7 +415,7 @@ const CGFloat kErrorIconLength = 20;
 
 // Updates the cell such as it is layouted correctly with regard to the
 // preferred content size category, if it is an
-// |accessibilityContentSizeCategory| or not.
+// `accessibilityContentSizeCategory` or not.
 - (void)updateForAccessibilityContentSizeCategory:
     (BOOL)accessibilityContentSizeCategory {
   if (accessibilityContentSizeCategory) {
@@ -428,14 +433,22 @@ const CGFloat kErrorIconLength = 20;
 
 // Returns the edit icon image.
 - (UIImage*)editImage {
-  return [[UIImage imageNamed:@"table_view_cell_edit_icon"]
-      imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+  if (UseSymbols()) {
+    return DefaultSymbolWithPointSize(kEditActionSymbol, kSymbolSize);
+  } else {
+    return [[UIImage imageNamed:@"table_view_cell_edit_icon"]
+        imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+  }
 }
 
 // Returns the error icon image.
 - (UIImage*)errorImage {
-  return [[UIImage imageNamed:@"table_view_cell_error_icon"]
-      imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+  if (UseSymbols()) {
+    return DefaultSymbolWithPointSize(kErrorCircleFillSymbol, kSymbolSize);
+  } else {
+    return [[UIImage imageNamed:@"table_view_cell_error_icon"]
+        imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+  }
 }
 
 @end

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,14 +25,19 @@ typedef NS_ENUM(NSInteger, TableViewTextEditItemIconType) {
 // The delegate for this table view text edit item.
 @property(nonatomic, weak) id<TableViewTextEditItemDelegate> delegate;
 
-// The name of the text field.
-@property(nonatomic, copy) NSString* textFieldName;
+// Name of the text field.
+// Displayed in a label next to the text field.
+@property(nonatomic, copy) NSString* fieldNameLabelText;
 
 // The placeholder of the text field.
 @property(nonatomic, copy) NSString* textFieldPlaceholder;
 
 // The value of the text field.
 @property(nonatomic, copy) NSString* textFieldValue;
+
+// Text color for the text field of the cell. Default is [UIColor
+// colorNamed:kTextPrimaryColor].
+@property(nonatomic, strong) UIColor* textFieldTextColor;
 
 // An icon identifying the text field or its current value, if any.
 @property(nonatomic, copy) UIImage* identifyingIcon;
@@ -44,6 +49,7 @@ typedef NS_ENUM(NSInteger, TableViewTextEditItemIconType) {
 @property(nonatomic, copy) NSString* identifyingIconAccessibilityLabel;
 
 // Whether to hide or display the trailing icon.
+// Changing this value can change the text color for the text field.
 @property(nonatomic, assign) BOOL hideIcon;
 
 // Whether this field is required. If YES, an "*" is appended to the name of the
@@ -81,25 +87,26 @@ typedef NS_ENUM(NSInteger, TableViewTextEditItemIconType) {
 // and a text field.
 @interface TableViewTextEditCell : TableViewCell
 
-// Label at the leading edge of the cell. It displays the item's textFieldName.
+// Label at the leading edge of the cell. It displays the item's
+// fieldNameLabelText.
 @property(nonatomic, strong) UILabel* textLabel;
 
 // Text field at the trailing edge of the cell. It displays the item's
-// |textFieldValue|.
+// `textFieldValue`.
 @property(nonatomic, readonly, strong) UITextField* textField;
 
 // Identifying button. UIButton containing the icon
-// identifying |textField| or its current value. It is located at the most
+// identifying `textField` or its current value. It is located at the most
 // trailing position of the Cell.
 @property(nonatomic, readonly, strong) UIButton* identifyingIconButton;
 
-// UIImageView containing the icon indicating that |textField| is editable.
+// UIImageView containing the icon indicating that `textField` is editable.
 @property(nonatomic, strong) UIImageView* iconView;
 
-// Sets |self.identifyingIconButton| icon.
+// Sets `self.identifyingIconButton` icon.
 - (void)setIdentifyingIcon:(UIImage*)icon;
 
-// Sets the icon view image to the type specified by |iconType|.
+// Sets the icon view image to the type specified by `iconType`.
 - (void)setIcon:(TableViewTextEditItemIconType)iconType;
 
 @end

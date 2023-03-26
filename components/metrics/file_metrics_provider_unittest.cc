@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,11 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
 #include "base/files/memory_mapped_file.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram.h"
@@ -23,8 +22,8 @@
 #include "base/metrics/statistics_recorder.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/test_simple_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/persistent_system_profile.h"
@@ -80,7 +79,7 @@ class FileMetricsProviderTest : public testing::TestWithParam<bool> {
   FileMetricsProviderTest()
       : create_large_files_(GetParam()),
         task_runner_(new base::TestSimpleTaskRunner()),
-        thread_task_runner_handle_(task_runner_),
+        thread_task_runner_current_default_handle_(task_runner_),
         statistics_recorder_(
             base::StatisticsRecorder::CreateTemporaryForTesting()),
         prefs_(new TestingPrefServiceSimple) {
@@ -263,7 +262,8 @@ class FileMetricsProviderTest : public testing::TestWithParam<bool> {
   }
 
   scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
-  base::ThreadTaskRunnerHandle thread_task_runner_handle_;
+  base::SingleThreadTaskRunner::CurrentDefaultHandle
+      thread_task_runner_current_default_handle_;
 
   std::unique_ptr<base::StatisticsRecorder> statistics_recorder_;
   base::ScopedTempDir temp_dir_;
@@ -371,7 +371,7 @@ TEST_P(FileMetricsProviderTest, FilterDelaysFile) {
   const FileMetricsProvider::FilterAction actions[] = {
       FileMetricsProvider::FILTER_TRY_LATER,
       FileMetricsProvider::FILTER_PROCESS_FILE};
-  SetFilterActions(&params, actions, base::size(actions));
+  SetFilterActions(&params, actions, std::size(actions));
   provider()->RegisterSource(params);
 
   // Processing the file should touch it but yield no results. File timestamp
@@ -410,7 +410,7 @@ TEST_P(FileMetricsProviderTest, FilterSkipsFile) {
       FileMetricsProvider::ASSOCIATE_CURRENT_RUN, kMetricsName);
   const FileMetricsProvider::FilterAction actions[] = {
       FileMetricsProvider::FILTER_SKIP_FILE};
-  SetFilterActions(&params, actions, base::size(actions));
+  SetFilterActions(&params, actions, std::size(actions));
   provider()->RegisterSource(params);
 
   // Processing the file should delete it.
@@ -481,7 +481,7 @@ TEST_P(FileMetricsProviderTest, AccessDirectory) {
   // Files could come out in the order: a1, c2, d4, b3. They are recognizeable
   // by the number of histograms contained within each.
   const uint32_t expect_order[] = {1, 2, 4, 3, 0};
-  for (size_t i = 0; i < base::size(expect_order); ++i) {
+  for (size_t i = 0; i < std::size(expect_order); ++i) {
     // Record embedded snapshots via snapshot-manager.
     OnDidCreateMetricsLog();
     RunTasks();
@@ -782,13 +782,13 @@ TEST_P(FileMetricsProviderTest, AccessFilteredDirectory) {
       FileMetricsProvider::FILTER_SKIP_FILE,      // d4
       FileMetricsProvider::FILTER_PROCESS_FILE,   // b3
       FileMetricsProvider::FILTER_PROCESS_FILE};  // c2 (again)
-  SetFilterActions(&params, actions, base::size(actions));
+  SetFilterActions(&params, actions, std::size(actions));
   provider()->RegisterSource(params);
 
   // Files could come out in the order: a1, b3, c2. They are recognizeable
   // by the number of histograms contained within each.
   const uint32_t expect_order[] = {1, 3, 2, 0};
-  for (size_t i = 0; i < base::size(expect_order); ++i) {
+  for (size_t i = 0; i < std::size(expect_order); ++i) {
     // Record embedded snapshots via snapshot-manager.
     OnDidCreateMetricsLog();
     RunTasks();

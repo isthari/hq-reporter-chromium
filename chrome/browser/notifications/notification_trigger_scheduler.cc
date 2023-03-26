@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,6 +80,11 @@ void NotificationTriggerScheduler::TriggerNotificationsForStoragePartition(
 void NotificationTriggerScheduler::TriggerNotificationsForProfile(
     Profile* profile) {
   auto* service = PlatformNotificationServiceFactory::GetForProfile(profile);
+  // Service might not be available for some irregular profiles, like the System
+  // Profile.
+  if (!service)
+    return;
+
   base::Time next_trigger = service->ReadNextTriggerTimestamp();
 
   // Skip this profile if there are no pending notifications.
@@ -95,9 +100,10 @@ void NotificationTriggerScheduler::TriggerNotificationsForProfile(
   profile->GetPrefs()->SetTime(prefs::kNotificationNextTriggerTime,
                                base::Time::Max());
 
-  // Unretained is safe here because BrowserContext::ForEachStoragePartition is
-  // synchronous and the profile just got fetched via GetLoadedProfiles.
-  profile->ForEachStoragePartition(base::BindRepeating(
+  // Unretained is safe here because
+  // BrowserContext::ForEachLoadedStoragePartition is synchronous and the
+  // profile just got fetched via GetLoadedProfiles.
+  profile->ForEachLoadedStoragePartition(base::BindRepeating(
       &NotificationTriggerScheduler::TriggerNotificationsForStoragePartition,
       base::Unretained(service->GetNotificationTriggerScheduler())));
 }

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,10 +34,10 @@ class PaintOpPerfTest : public testing::Test {
                kTimeCheckInterval),
         serialized_data_(static_cast<char*>(
             base::AlignedAlloc(kMaxSerializedBufferBytes,
-                               PaintOpBuffer::PaintOpAlign))),
+                               PaintOpBuffer::kPaintOpAlign))),
         deserialized_data_(static_cast<char*>(
             base::AlignedAlloc(sizeof(LargestPaintOp),
-                               PaintOpBuffer::PaintOpAlign))) {}
+                               PaintOpBuffer::kPaintOpAlign))) {}
 
   void RunTest(const std::string& name, const PaintOpBuffer& buffer) {
     TestOptionsProvider test_options_provider;
@@ -50,7 +50,7 @@ class PaintOpPerfTest : public testing::Test {
       SimpleBufferSerializer serializer(
           serialized_data_.get(), kMaxSerializedBufferBytes,
           test_options_provider.serialize_options());
-      serializer.Serialize(&buffer, nullptr, preamble);
+      serializer.Serialize(buffer, nullptr, preamble);
       bytes_written = serializer.written();
 
       // Force client paint cache entries to be written every time.
@@ -137,7 +137,7 @@ TEST_F(PaintOpPerfTest, ManyFlagsOps) {
   looper_builder.addLayer(layer_info);
   flags.setLooper(looper_builder.detach());
 
-  sk_sp<PaintShader> shader = PaintShader::MakeColor(SK_ColorTRANSPARENT);
+  sk_sp<PaintShader> shader = PaintShader::MakeColor(SkColors::kTransparent);
   flags.setShader(std::move(shader));
 
   SkPath path;

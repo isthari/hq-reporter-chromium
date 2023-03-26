@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/task/sequence_manager/task_queue.h"
 #include "base/threading/thread.h"
+#include "base/time/time.h"
 #include "content/browser/scheduler/browser_task_queues.h"
 #include "content/common/content_export.h"
 

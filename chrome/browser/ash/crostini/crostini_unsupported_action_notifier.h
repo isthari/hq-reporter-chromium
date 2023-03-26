@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,16 +47,16 @@ class CrostiniUnsupportedActionNotifier
     virtual bool IsVirtualKeyboardVisible();
 
     // Shows a toast to the user.
-    virtual void ShowToast(const ash::ToastData& toast_data);
+    virtual void ShowToast(ash::ToastData toast_data);
 
     // Gets a human-friendly name for the given input method descriptor
     // in the current display language.
     virtual std::string GetLocalizedDisplayName(
         const ash::input_method::InputMethodDescriptor& descriptor);
 
-    // How long in milliseconds toasts should be displayed for. Timing varies
-    // depending on e.g. whether screen magnification is enabled.
-    virtual int ToastTimeoutMs();
+    // How long toasts should be displayed for. Timing varies depending on
+    // e.g. whether screen magnification is enabled.
+    virtual base::TimeDelta ToastTimeout();
 
     virtual void AddFocusObserver(aura::client::FocusChangeObserver* observer);
     virtual void RemoveFocusObserver(

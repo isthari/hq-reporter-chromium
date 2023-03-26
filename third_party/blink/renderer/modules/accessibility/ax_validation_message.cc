@@ -1,15 +1,15 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/modules/accessibility/ax_validation_message.h"
 
-#include "skia/ext/skia_matrix_44.h"
 #include "third_party/blink/renderer/core/html/forms/listed_element.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/modules/accessibility/ax_object_cache_impl.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+#include "ui/gfx/geometry/transform.h"
 
 namespace blink {
 
@@ -28,12 +28,12 @@ bool AXValidationMessage::ComputeAccessibilityIsIgnored(
 void AXValidationMessage::GetRelativeBounds(
     AXObject** out_container,
     gfx::RectF& out_bounds_in_container,
-    skia::Matrix44& out_container_transform,
+    gfx::Transform& out_container_transform,
     bool* clips_children) const {
   DCHECK(out_container);
   *out_container = nullptr;
   out_bounds_in_container = gfx::RectF();
-  out_container_transform.setIdentity();
+  out_container_transform.MakeIdentity();
   if (clips_children)
     *clips_children = false;
 

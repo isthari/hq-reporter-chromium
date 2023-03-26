@@ -1,14 +1,16 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <iostream>
+#include <map>
 #include <set>
 #include <string>
 
 #include "base/at_exit.h"
 #include "base/base_paths.h"
 #include "base/command_line.h"
+#include "base/containers/span.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
@@ -21,9 +23,10 @@
 #include "build/build_config.h"
 #include "crypto/openssl_util.h"
 #include "crypto/sha2.h"
-#include "net/tools/root_store_tool/root_store.pb.h"
+#include "net/cert/root_store_proto_full/root_store.pb.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/boringssl/src/include/openssl/bio.h"
+#include "third_party/boringssl/src/include/openssl/err.h"
 #include "third_party/boringssl/src/include/openssl/pem.h"
 #include "third_party/protobuf/src/google/protobuf/text_format.h"
 
@@ -31,46 +34,58 @@ using chrome_root_store::RootStore;
 
 namespace {
 
-absl::optional<std::string> DecodePEM(base::StringPiece pem) {
+// Returns a map from hex-encoded SHA-256 hash to DER certificate, or
+// `absl::nullopt` if not found.
+absl::optional<std::map<std::string, std::string>> DecodeCerts(
+    base::StringPiece in) {
   // TODO(https://crbug.com/1216547): net/cert/pem.h has a much nicer API, but
   // it would require some build refactoring to avoid a circular dependency.
   // This is assuming that the chrome trust store code goes in
   // net/cert/internal, which it may not.
-  bssl::UniquePtr<BIO> bio(BIO_new_mem_buf(pem.data(), pem.size()));
+  bssl::UniquePtr<BIO> bio(BIO_new_mem_buf(in.data(), in.size()));
   if (!bio) {
     return absl::nullopt;
   }
-  char* name;
-  char* header;
-  unsigned char* data;
-  long len;
-  if (!PEM_read_bio(bio.get(), &name, &header, &data, &len)) {
-    LOG(ERROR) << "Could not find PEM block.";
-    return absl::nullopt;
+  std::map<std::string, std::string> certs;
+  for (;;) {
+    char* name;
+    char* header;
+    unsigned char* data;
+    long len;
+    if (!PEM_read_bio(bio.get(), &name, &header, &data, &len)) {
+      uint32_t err = ERR_get_error();
+      if (ERR_GET_LIB(err) == ERR_LIB_PEM &&
+          ERR_GET_REASON(err) == PEM_R_NO_START_LINE) {
+        // Found the last PEM block.
+        break;
+      }
+      LOG(ERROR) << "Error reading PEM.";
+      return absl::nullopt;
+    }
+    bssl::UniquePtr<char> scoped_name(name);
+    bssl::UniquePtr<char> scoped_header(header);
+    bssl::UniquePtr<unsigned char> scoped_data(data);
+    if (strcmp(name, "CERTIFICATE") != 0) {
+      LOG(ERROR) << "Found PEM block of type " << name
+                 << " instead of CERTIFICATE";
+      return absl::nullopt;
+    }
+    std::string sha256_hex = base::ToLowerASCII(
+        base::HexEncode(crypto::SHA256Hash(base::make_span(data, len))));
+    certs[sha256_hex] = std::string(data, data + len);
   }
-  bssl::UniquePtr<char> scoped_name(name);
-  bssl::UniquePtr<char> scoped_header(header);
-  bssl::UniquePtr<unsigned char> scoped_data(data);
-  if (strcmp(name, "CERTIFICATE") != 0) {
-    LOG(ERROR) << "Found PEM block of type " << name
-               << " instead of CERTIFICATE";
-    return absl::nullopt;
-  }
-  return std::string(data, data + len);
+  return std::move(certs);
 }
 
 absl::optional<RootStore> ReadTextRootStore(
-    const base::FilePath& root_store_dir,
-    std::set<base::FilePath>* deps) {
-  base::FilePath root_store_path =
-      root_store_dir.AppendASCII("root_store.textproto");
+    const base::FilePath& root_store_path,
+    const base::FilePath& certs_path) {
   std::string root_store_text;
   if (!base::ReadFileToString(base::MakeAbsoluteFilePath(root_store_path),
                               &root_store_text)) {
     LOG(ERROR) << "Could not read " << root_store_path;
     return absl::nullopt;
   }
-  deps->insert(root_store_path);
 
   RootStore root_store;
   if (!google::protobuf::TextFormat::ParseFromString(root_store_text,
@@ -79,55 +94,48 @@ absl::optional<RootStore> ReadTextRootStore(
     return absl::nullopt;
   }
 
-  // Replace the filenames with the actual certificate contents.
-  base::FilePath certs_dir = root_store_dir.AppendASCII("certs");
-  for (auto& anchor : *root_store.mutable_trust_anchors()) {
-    base::FilePath pem_path = certs_dir.AppendASCII(anchor.filename());
-
-    if (!base::PathExists(pem_path)) {
-      LOG(ERROR) << "Error file does not exist: " << pem_path;
+  std::map<std::string, std::string> certs;
+  if (!certs_path.empty()) {
+    std::string certs_data;
+    if (!base::ReadFileToString(base::MakeAbsoluteFilePath(certs_path),
+                                &certs_data)) {
+      LOG(ERROR) << "Could not read " << certs_path;
       return absl::nullopt;
     }
-
-    if (base::DirectoryExists(pem_path)) {
-      LOG(ERROR) << "Error path is a directory: " << pem_path;
+    auto certs_opt = DecodeCerts(certs_data);
+    if (!certs_opt) {
+      LOG(ERROR) << "Could not decode " << certs_path;
       return absl::nullopt;
     }
-
-    if (!base::PathIsReadable(pem_path)) {
-      LOG(ERROR) << "Error file is not readable: " << pem_path;
-      return absl::nullopt;
-    }
-
-    std::string pem;
-    if (!base::ReadFileToString(base::MakeAbsoluteFilePath(pem_path), &pem)) {
-      LOG(ERROR) << "Error reading " << pem_path;
-      return absl::nullopt;
-    }
-    absl::optional<std::string> der = DecodePEM(pem);
-    if (!der) {
-      LOG(ERROR) << "Error decoding " << pem_path;
-      return absl::nullopt;
-    }
-    anchor.clear_filename();
-    anchor.set_der(*der);
-    deps->insert(pem_path);
+    certs = std::move(*certs_opt);
   }
-  return std::move(root_store);
-}
 
-void AppendMakefilePath(std::string* out, const base::FilePath& path) {
-#if BUILDFLAG(IS_WIN)
-  std::string path_str = base::WideToUTF8(path.value());
-#else
-  std::string path_str = path.value();
-#endif
-  // Escaping for Makefiles is complex. See `DepfileParser::Parse` in Ninja,
-  // which ultimately consumes this output. We output relative paths and thus
-  // can assume no escaping is needed, even if the build directory would need to
-  // be escaped. This matches, e.g., `GenerateDepfile` in //tools/grit, which
-  // similarly does not escape output.
-  out->append(path_str);
+  // Replace the filenames with the actual certificate contents.
+  for (auto& anchor : *root_store.mutable_trust_anchors()) {
+    if (anchor.certificate_case() !=
+        chrome_root_store::TrustAnchor::kSha256Hex) {
+      continue;
+    }
+
+    auto iter = certs.find(anchor.sha256_hex());
+    if (iter == certs.end()) {
+      LOG(ERROR) << "Could not find certificate " << anchor.sha256_hex();
+      return absl::nullopt;
+    }
+
+    // Remove the certificate from `certs`. This both checks for duplicate
+    // certificates and allows us to check for unused certificates later.
+    anchor.set_der(std::move(iter->second));
+    certs.erase(iter);
+  }
+
+  if (!certs.empty()) {
+    LOG(ERROR) << "Unused certificate (SHA-256 hash " << certs.begin()->first
+               << ") in " << certs_path;
+    return absl::nullopt;
+  }
+
+  return std::move(root_store);
 }
 
 // Returns true if file was correctly written, false otherwise.
@@ -162,6 +170,9 @@ bool WriteRootCppFile(const RootStore& root_store,
     string_to_write += "}}},\n";
   }
   string_to_write += "};";
+
+  string_to_write += "\n\n\nstatic const int64_t kRootStoreVersion = " +
+                     base::NumberToString(root_store.version_major()) + ";\n";
   if (!base::WriteFile(cpp_path, string_to_write)) {
     return false;
   }
@@ -181,6 +192,12 @@ bool WriteEvCppFile(const RootStore& root_store,
   for (auto& anchor : root_store.trust_anchors()) {
     // Every trust anchor at this point should have a DER.
     CHECK(!anchor.der().empty());
+    if (anchor.ev_policy_oids_size() == 0) {
+      // The same input file is used for the Chrome Root Store and EV enabled
+      // certificates. Skip anchors that have no EV policy OIDs when generating
+      // the EV include file.
+      continue;
+    }
 
     std::string sha256_hash = crypto::SHA256HashString(anchor.der());
 
@@ -220,9 +237,6 @@ bool WriteEvCppFile(const RootStore& root_store,
     if (oids_size > kMaxPolicyOids) {
       PLOG(ERROR) << hexencode_hash << " has too many OIDs!";
       return false;
-    } else if (oids_size < 1) {
-      PLOG(ERROR) << hexencode_hash << " has no OIDs!";
-      return false;
     }
     for (int i = 0; i < kMaxPolicyOids; i++) {
       std::string oid;
@@ -244,10 +258,6 @@ bool WriteEvCppFile(const RootStore& root_store,
   return true;
 }
 
-bool ValidCppOutputFormatValue(base::StringPiece value) {
-  return (value == "root" || value == "ev");
-}
-
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -262,37 +272,29 @@ int main(int argc, char** argv) {
   crypto::EnsureOpenSSLInit();
 
   base::CommandLine& command_line = *base::CommandLine::ForCurrentProcess();
-  base::FilePath deps_path = command_line.GetSwitchValuePath("write-deps");
   base::FilePath proto_path = command_line.GetSwitchValuePath("write-proto");
-  base::FilePath cpp_path = command_line.GetSwitchValuePath("write-cpp");
-  std::string cpp_output_format =
-      command_line.GetSwitchValueASCII("cpp-output-format");
-  // Get root store directory. Assumptions:
-  //  - $(ROOT_STORE_DIR)/root_store.textproto contains the textproto definition
-  //    of the root store
-  //
-  //  - Any certificate files referenced in
-  //    $(ROOT_STORE_DIR)/root_store.textproto exist in the
-  //    $(ROOT_STORE_DIR)/certs/ subdirectory.
-  base::FilePath root_store_dir =
-      command_line.GetSwitchValuePath("root-store-dir");
+  base::FilePath root_store_cpp_path =
+      command_line.GetSwitchValuePath("write-cpp-root-store");
+  base::FilePath ev_roots_cpp_path =
+      command_line.GetSwitchValuePath("write-cpp-ev-roots");
+  base::FilePath root_store_path =
+      command_line.GetSwitchValuePath("root-store");
+  base::FilePath certs_path = command_line.GetSwitchValuePath("certs");
 
-  if ((proto_path.empty() && cpp_path.empty()) || root_store_dir.empty() ||
-      command_line.HasSwitch("help") ||
-      (!cpp_path.empty() && !ValidCppOutputFormatValue(cpp_output_format))) {
-    std::cerr << cpp_output_format << " ";
+  if ((proto_path.empty() && root_store_cpp_path.empty() &&
+       ev_roots_cpp_path.empty()) ||
+      root_store_path.empty() || command_line.HasSwitch("help")) {
     std::cerr << "Usage: root_store_tool "
-              << "--root-store-dir=<path> "
-              << "[--write-deps=DEP_FILE] "
+              << "--root-store=TEXTPROTO_FILE "
+              << "[--certs=CERTS_FILE] "
               << "[--write-proto=PROTO_FILE] "
-              << "[--write-cpp=CPP_FILE --cpp-output-format=[ev|root]] "
-              << std::endl;
+              << "[--write-cpp-root-store=CPP_FILE] "
+              << "[--write-cpp-ev-roots=CPP_FILE] " << std::endl;
     return 1;
   }
 
-  std::set<base::FilePath> deps;
   absl::optional<RootStore> root_store =
-      ReadTextRootStore(root_store_dir, &deps);
+      ReadTextRootStore(root_store_path, certs_path);
   if (!root_store) {
     return 1;
   }
@@ -314,46 +316,15 @@ int main(int argc, char** argv) {
     }
   }
 
-  if (!cpp_path.empty()) {
-    bool success;
-    if (cpp_output_format == "root") {
-      success = WriteRootCppFile(*root_store, cpp_path);
-    } else if (cpp_output_format == "ev") {
-      success = WriteEvCppFile(*root_store, cpp_path);
-    } else {
-      // Unknown format.
-      success = false;
-    }
-    if (!success) {
-      PLOG(ERROR) << "Error writing cpp include file";
-      return 1;
-    }
+  if (!root_store_cpp_path.empty() &&
+      !WriteRootCppFile(*root_store, root_store_cpp_path)) {
+    PLOG(ERROR) << "Error writing root store C++ include file";
+    return 1;
   }
-
-  if (!deps_path.empty()) {
-    // The output depends directly on the input proto and indirectly on all the
-    // files it references. Emit a depfile for Ninja to consume. This ensures
-    // dependencies are correct without needing to list every file separately
-    // in the textproto and build files.
-    //
-    // See https://gn.googlesource.com/gn/+/main/docs/reference.md#var_depfile
-    // and `DepfileParser::Parse` in Ninja, which ultimately consumes this file.
-    std::string string_to_write;
-    for (const auto& output : {cpp_path, proto_path}) {
-      if (!output.empty()) {
-        AppendMakefilePath(&string_to_write, output);
-        string_to_write.push_back(':');
-        for (const base::FilePath& dep : deps) {
-          string_to_write.push_back(' ');
-          AppendMakefilePath(&string_to_write, dep);
-        }
-        string_to_write.push_back('\n');
-      }
-    }
-    if (!base::WriteFile(deps_path, string_to_write)) {
-      PLOG(ERROR) << "Error writing deps include file";
-      return 1;
-    }
+  if (!ev_roots_cpp_path.empty() &&
+      !WriteEvCppFile(*root_store, ev_roots_cpp_path)) {
+    PLOG(ERROR) << "Error writing EV roots C++ include file";
+    return 1;
   }
 
   return 0;

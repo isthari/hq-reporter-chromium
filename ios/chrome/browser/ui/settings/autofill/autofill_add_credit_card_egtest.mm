@@ -1,23 +1,22 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/ios/ios_util.h"
+#import "base/ios/ios_util.h"
 #import "ios/chrome/browser/ui/autofill/autofill_app_interface.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/testing/earl_grey/app_launch_configuration.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#include "ui/base/l10n/l10n_util_mac.h"
+#import "ui/base/l10n/l10n_util_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-using chrome_test_util::AddPaymentMethodButton;
 using chrome_test_util::ButtonWithAccessibilityLabel;
 using chrome_test_util::ButtonWithAccessibilityLabelId;
 using chrome_test_util::IconViewForCellWithLabelId;
@@ -105,13 +104,8 @@ id<GREYMatcher> CardNumberIconView(NSString* icon_type) {
   [super setUp];
   [ChromeEarlGreyUI openSettingsMenu];
   [ChromeEarlGreyUI tapSettingsMenuButton:PaymentMethodsButton()];
-  if ([ChromeEarlGrey isAddCredentialsInSettingsEnabled]) {
-    [[EarlGrey selectElementWithMatcher:SettingsToolbarAddButton()]
-        performAction:grey_tap()];
-  } else {
-    [[EarlGrey selectElementWithMatcher:AddPaymentMethodButton()]
-        performAction:grey_tap()];
-  }
+  [[EarlGrey selectElementWithMatcher:SettingsToolbarAddButton()]
+      performAction:grey_tap()];
 }
 
 - (void)tearDown {
@@ -145,8 +139,8 @@ id<GREYMatcher> CardNumberIconView(NSString* icon_type) {
 // Tests that the 'Add' button in the top toolbar is disabled by default.
 - (void)testAddButtonDisabledOnDefault {
   [[EarlGrey selectElementWithMatcher:chrome_test_util::AddCreditCardButton()]
-      assertWithMatcher:grey_allOf(grey_sufficientlyVisible(),
-                                   grey_not(grey_enabled()), nil)];
+      assertWithMatcher:grey_allOf(grey_not(grey_enabled()),
+                                   grey_sufficientlyVisible(), nil)];
 }
 
 // Tests that the 'Cancel' button dismisses the screen.
@@ -174,8 +168,8 @@ id<GREYMatcher> CardNumberIconView(NSString* icon_type) {
       performAction:grey_replaceText(@"1234")];
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::AddCreditCardButton()]
-      assertWithMatcher:grey_allOf(grey_sufficientlyVisible(),
-                                   grey_not(grey_enabled()), nil)];
+      assertWithMatcher:grey_allOf(grey_not(grey_enabled()),
+                                   grey_sufficientlyVisible(), nil)];
 }
 
 // Tests when a user tries to add an invalid card number, the "Add" button is
@@ -189,8 +183,8 @@ id<GREYMatcher> CardNumberIconView(NSString* icon_type) {
       performAction:grey_replaceText(@"0000")];
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::AddCreditCardButton()]
-      assertWithMatcher:grey_allOf(grey_sufficientlyVisible(),
-                                   grey_not(grey_enabled()), nil)];
+      assertWithMatcher:grey_allOf(grey_not(grey_enabled()),
+                                   grey_sufficientlyVisible(), nil)];
 }
 
 // Tests when a user tries to add an invalid card nickname, the "Add" button is
@@ -206,8 +200,8 @@ id<GREYMatcher> CardNumberIconView(NSString* icon_type) {
       performAction:grey_replaceText(@"1234")];
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::AddCreditCardButton()]
-      assertWithMatcher:grey_allOf(grey_sufficientlyVisible(),
-                                   grey_not(grey_enabled()), nil)];
+      assertWithMatcher:grey_allOf(grey_not(grey_enabled()),
+                                   grey_sufficientlyVisible(), nil)];
 }
 
 // Tests when a user tries to add an empty card nickname, the "Add" button is
@@ -221,7 +215,7 @@ id<GREYMatcher> CardNumberIconView(NSString* icon_type) {
       performAction:grey_replaceText(@"2030")];
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::AddCreditCardButton()]
-      assertWithMatcher:grey_allOf(grey_sufficientlyVisible(), grey_enabled(),
+      assertWithMatcher:grey_allOf(grey_enabled(), grey_sufficientlyVisible(),
                                    nil)];
 }
 
@@ -323,12 +317,12 @@ id<GREYMatcher> CardNumberIconView(NSString* icon_type) {
   [[EarlGrey selectElementWithMatcher:YearOfExpiryTextField()]
       performAction:grey_typeText(@"299")];
   [[EarlGrey selectElementWithMatcher:chrome_test_util::AddCreditCardButton()]
-      assertWithMatcher:grey_allOf(grey_sufficientlyVisible(),
-                                   grey_not(grey_enabled()), nil)];
+      assertWithMatcher:grey_allOf(grey_not(grey_enabled()),
+                                   grey_sufficientlyVisible(), nil)];
   [[EarlGrey selectElementWithMatcher:YearOfExpiryTextField()]
       performAction:grey_typeText(@"9")];
   [[EarlGrey selectElementWithMatcher:chrome_test_util::AddCreditCardButton()]
-      assertWithMatcher:grey_allOf(grey_sufficientlyVisible(), grey_enabled(),
+      assertWithMatcher:grey_allOf(grey_enabled(), grey_sufficientlyVisible(),
                                    nil)];
 }
 

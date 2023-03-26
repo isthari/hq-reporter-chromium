@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,12 +12,15 @@
 #include "base/containers/flat_map.h"
 #include "ui/gfx/geometry/point_f.h"
 
+namespace ui {
+class PresentationTimeRecorder;
+}
+
 namespace ash {
 
 class OverviewGrid;
 class OverviewItem;
 class OverviewSession;
-class PresentationTimeRecorder;
 
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused.
@@ -115,11 +118,15 @@ class ASH_EXPORT OverviewWindowDragController {
 
   OverviewItem* item() { return item_; }
 
-  DragBehavior current_drag_behavior() { return current_drag_behavior_; }
-
   bool is_touch_dragging() const { return is_touch_dragging_; }
 
+  DragBehavior current_drag_behavior_for_testing() const {
+    return current_drag_behavior_;
+  }
+
  private:
+  class ScopedFloatDragHelper;
+
   enum NormalDragAction {
     kToGrid = 0,
     kToDesk = 1,
@@ -168,6 +175,21 @@ class ASH_EXPORT OverviewWindowDragController {
   void RecordNormalDrag(NormalDragAction action,
                         bool is_dragged_to_other_display) const;
   void RecordDragToClose(DragToCloseAction action) const;
+
+  // Creates `float_drag_helper_` if needed. The helper will temporarily stack
+  // the float container under the active desk container, so that dragging
+  // regular windows appear above overview items of floated windows.
+  void MaybeCreateFloatDragHelper();
+
+  // Called by `float_drag_helper_` to destroy itself as it may need to live
+  // after a gesture is completed if there is an animation.
+  void DestroyFloatDragHelper();
+
+  // Scale up the new desk button on the desks bar from expanded state to
+  // drag and drop state to make the new desk button a drop target for the
+  // window being dragged. It's triggered by `new_desk_button_scale_up_timer_`.
+  // Refer to `new_desk_button_scale_up_timer_` for more information.
+  void MaybeScaleUpNewDeskButton();
 
   OverviewSession* overview_session_;
 
@@ -233,9 +255,21 @@ class ASH_EXPORT OverviewWindowDragController {
   bool did_move_ = false;
 
   // Records the presentation time of window drag operation in overview mode.
-  std::unique_ptr<PresentationTimeRecorder> presentation_time_recorder_;
+  std::unique_ptr<ui::PresentationTimeRecorder> presentation_time_recorder_;
 
-  SplitViewController::SnapPosition snap_position_ = SplitViewController::NONE;
+  SplitViewController::SnapPosition snap_position_ =
+      SplitViewController::SnapPosition::kNone;
+
+  // A timer used to scale up the new desk button to make it a drop target for
+  // the window being dragged if the window is hovered on the button over a
+  // period of time.
+  base::OneShotTimer new_desk_button_scale_up_timer_;
+
+  // Helper class that encapsulates the logic needed to alter the floated
+  // windows' container during a drag. May stay alive shortly after a drag is
+  // completed to keep the float container stacked below for the drag end
+  // animation.
+  std::unique_ptr<ScopedFloatDragHelper> float_drag_helper_;
 };
 
 }  // namespace ash

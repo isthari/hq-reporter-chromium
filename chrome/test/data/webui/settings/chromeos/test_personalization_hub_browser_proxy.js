@@ -1,23 +1,17 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// #import {TestBrowserProxy} from '../../test_browser_proxy.js';
+import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
 
-cr.define('settings', function() {
-  /** @implements {settings.PersonalizationHubBrowserProxy} */
-  /* #export */ class TestPersonalizationHubBrowserProxy extends
-      TestBrowserProxy {
-    constructor() {
-      super(['openPersonalizationHub']);
-    }
-
-    /** @override */
-    openPersonalizationHub() {
-      this.methodCalled('openPersonalizationHub');
-    }
+/** @implements {PersonalizationHubBrowserProxy} */
+export class TestPersonalizationHubBrowserProxy extends TestBrowserProxy {
+  constructor() {
+    super(['openPersonalizationHub']);
   }
 
-  // #cr_define_end
-  return {TestPersonalizationHubBrowserProxy};
-});
+  /** @override */
+  openPersonalizationHub() {
+    this.methodCalled('openPersonalizationHub');
+  }
+}

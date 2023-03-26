@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,9 @@
 namespace enterprise_connectors {
 
 namespace {
+
 constexpr size_t kMaxPageSize = 50 * 1024 * 1024;
+
 }  // namespace
 
 PagePrintAnalysisRequest::PagePrintAnalysisRequest(
@@ -21,13 +23,21 @@ PagePrintAnalysisRequest::PagePrintAnalysisRequest(
     safe_browsing::BinaryUploadService::ContentAnalysisCallback callback)
     : safe_browsing::BinaryUploadService::Request(
           std::move(callback),
-          analysis_settings.analysis_url),
-      page_(std::move(page)) {}
+          analysis_settings.cloud_or_local_settings),
+      page_(std::move(page)) {
+  safe_browsing::IncrementCrashKey(
+      safe_browsing::ScanningCrashKey::PENDING_PRINTS);
+  safe_browsing::IncrementCrashKey(
+      safe_browsing::ScanningCrashKey::TOTAL_PRINTS);
+}
 
-PagePrintAnalysisRequest::~PagePrintAnalysisRequest() = default;
+PagePrintAnalysisRequest::~PagePrintAnalysisRequest() {
+  safe_browsing::DecrementCrashKey(
+      safe_browsing::ScanningCrashKey::PENDING_PRINTS);
+}
 
 void PagePrintAnalysisRequest::GetRequestData(DataCallback callback) {
-  safe_browsing::BinaryUploadService::Request::Data data;
+  Data data;
   data.size = page_.GetSize();
 
   if (data.size >= kMaxPageSize) {
@@ -37,7 +47,7 @@ void PagePrintAnalysisRequest::GetRequestData(DataCallback callback) {
     return;
   }
 
-  data.page = std::move(page_);
+  data.page = page_.Duplicate();
   std::move(callback).Run(safe_browsing::BinaryUploadService::Result::SUCCESS,
                           std::move(data));
 }

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,7 +63,10 @@ apiBridge.registerCustomHook(function(api) {
         if (e !== failureException)
           chromeTest.fail('uncaught exception: ' + message);
       });
-      $Function.call(currentTest);
+      const result = $Function.call(currentTest);
+      if (result instanceof Promise) {
+        result.catch(e => handleException(e.message, e));
+      }
     } catch (e) {
       handleException(e.message, e);
     }
@@ -296,13 +299,31 @@ apiBridge.registerCustomHook(function(api) {
     // Note: Importing scripts is different depending on if this script is
     // executing in a Service Worker context.
     const inServiceWorker = 'ServiceWorkerGlobalScope' in self;
+
+    function createError(exception) {
+      let errorStr = 'Unable to load script: "' + scriptUrl + '"';
+      if (inServiceWorker) {
+        return new Error(errorStr, { cause:exception });
+      } else {
+        return new Error(errorStr);
+      }
+    }
+
     if (inServiceWorker) {
-      importScripts(scriptUrl);
+      try {
+        importScripts(scriptUrl);
+      } catch (e) {
+        return Promise.reject(createError(e));
+      }
       return Promise.resolve();
     }
     let script = document.createElement('script');
-    let onScriptLoad = new Promise((resolve) => {
+    let onScriptLoad = new Promise((resolve, reject) => {
       script.onload = resolve;
+      function onError() {
+        reject(createError());
+      }
+      script.onerror = onError;
     });
     script.src = scriptUrl;
     document.body.appendChild(script);

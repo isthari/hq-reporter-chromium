@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,12 +11,16 @@
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
+#include "components/history/core/browser/top_sites.h"
 #include "components/omnibox/browser/actions/omnibox_pedal_provider.h"
 #include "components/omnibox/browser/autocomplete_provider_client.h"
 #include "components/omnibox/browser/autocomplete_scheme_classifier.h"
 #include "components/omnibox/browser/document_suggestions_service.h"
+#include "components/omnibox/browser/keyword_extensions_delegate.h"
 #include "components/omnibox/browser/mock_tab_matcher.h"
 #include "components/omnibox/browser/remote_suggestions_service.h"
+#include "components/omnibox/browser/shortcuts_backend.h"
+#include "components/omnibox/browser/zero_suggest_cache_service.h"
 #include "components/search_engines/template_url_service.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
@@ -38,6 +42,7 @@ class MockAutocompleteProviderClient
   // AutocompleteProviderClient:
   MOCK_CONST_METHOD0(GetPrefs, PrefService*());
   MOCK_METHOD0(GetLocalState, PrefService*());
+  MOCK_CONST_METHOD0(GetApplicationLocale, std::string());
   MOCK_CONST_METHOD0(GetSchemeClassifier,
                      const AutocompleteSchemeClassifier&());
   MOCK_METHOD0(GetAutocompleteClassifier, AutocompleteClassifier*());
@@ -66,6 +71,12 @@ class MockAutocompleteProviderClient
   DocumentSuggestionsService* GetDocumentSuggestionsService(
       bool create_if_necessary) const override {
     return document_suggestions_service_.get();
+  }
+  ZeroSuggestCacheService* GetZeroSuggestCacheService() override {
+    return zero_suggest_cache_service_.get();
+  }
+  const ZeroSuggestCacheService* GetZeroSuggestCacheService() const override {
+    return zero_suggest_cache_service_.get();
   }
   OmniboxPedalProvider* GetPedalProvider() const override {
     return pedal_provider_.get();
@@ -151,6 +162,7 @@ class MockAutocompleteProviderClient
   std::unique_ptr<TemplateURLService> template_url_service_;
   std::unique_ptr<RemoteSuggestionsService> remote_suggestions_service_;
   std::unique_ptr<DocumentSuggestionsService> document_suggestions_service_;
+  std::unique_ptr<ZeroSuggestCacheService> zero_suggest_cache_service_;
   std::unique_ptr<OmniboxPedalProvider> pedal_provider_;
   std::unique_ptr<OmniboxTriggeredFeatureService>
       omnibox_triggered_feature_service_;

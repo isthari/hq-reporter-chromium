@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,8 @@
 #include "base/strings/string_piece.h"
 #include "cc/paint/paint_export.h"
 #include "cc/paint/skottie_frame_data.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace cc {
 
@@ -30,6 +32,9 @@ class CC_PAINT_EXPORT SkottieFrameDataProvider {
   class CC_PAINT_EXPORT ImageAsset : public base::RefCounted<ImageAsset> {
    public:
     // Returns the image to use for an asset in a frame of a skottie animation.
+    // May return a blank SkottieFrameData instance with an empty |image|.
+    // Skottie handles this gracefully and simply skips the image asset while
+    // still rendering the rest of the frame.
     //
     // |t|: See skresources::ImageAsset::getFrame(). Same semantics. Specifies
     //      the frame of interest in the animation that's about to be rendered.
@@ -51,9 +56,17 @@ class CC_PAINT_EXPORT SkottieFrameDataProvider {
   // for the given |resource_id| gets re-used for the lifetime of the animation;
   // LoadImageAsset() is not called multiple times for the same |resource_id|.
   // The returned value must never be null.
+  //
+  // |size| contains this asset's dimensions as specified in the Lottie
+  // animation file. Note that the ultimate image(s) returned by GetFrameData()
+  // are not required to have dimensions that match this |size|. It's provided
+  // here as a guide that implementations can optionally use to transform
+  // their images if desired. May be null if the asset didn't have dimensions
+  // specified in the Lottie file.
   virtual scoped_refptr<ImageAsset> LoadImageAsset(
       base::StringPiece resource_id,
-      const base::FilePath& resource_path) = 0;
+      const base::FilePath& resource_path,
+      const absl::optional<gfx::Size>& size) = 0;
 };
 
 }  // namespace cc

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,20 +29,21 @@ class ASH_EXPORT DesksTextfield : public views::Textfield,
   // The max number of characters (UTF-16) allowed for the textfield.
   static constexpr size_t kMaxLength = 300;
 
-  // If this view has focus, make the view's border visible and change
-  // background to its active color. If it doesn't have focus, hide the view's
-  // border and change background to its default color.
-  void UpdateViewAppearance();
+  // Commits an on-going name change (if any) by blurring the focus away from
+  // any view on `widget`, where `widget` should be the saved desk library
+  // widget or the desk bar widget.
+  static void CommitChanges(views::Widget* widget);
 
   // views::View:
   gfx::Size CalculatePreferredSize() const override;
   void SetBorder(std::unique_ptr<views::Border> b) override;
   bool SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) override;
+  std::u16string GetTooltipText(const gfx::Point& p) const override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void OnMouseEntered(const ui::MouseEvent& event) override;
   void OnMouseExited(const ui::MouseEvent& event) override;
   void OnThemeChanged() override;
-  gfx::NativeCursor GetCursor(const ui::MouseEvent& event) override;
+  ui::Cursor GetCursor(const ui::MouseEvent& event) override;
   void OnFocus() override;
   void OnBlur() override;
   void OnDragEntered(const ui::DropTargetEvent& event) override;
@@ -51,13 +52,18 @@ class ASH_EXPORT DesksTextfield : public views::Textfield,
   // OverviewHighlightableView:
   views::View* GetView() override;
   void MaybeActivateHighlightedView() override;
-  void MaybeCloseHighlightedView() override;
+  void MaybeCloseHighlightedView(bool primary_action) override;
   void MaybeSwapHighlightedView(bool right) override;
   void OnViewHighlighted() override;
   void OnViewUnhighlighted() override;
 
  private:
   void UpdateFocusRingState();
+
+  // If this view has focus, make the view's border visible and change
+  // background to its active color. If it doesn't have focus, hide the view's
+  // border and change background to its default color.
+  void UpdateViewAppearance();
 
   // Returns the background color for this view based on whether it has focus
   // and if the mouse is entering/exiting the view.

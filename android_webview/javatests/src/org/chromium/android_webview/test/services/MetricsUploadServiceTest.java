@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,7 +38,7 @@ public class MetricsUploadServiceTest {
 
     @MediumTest
     @Test
-    public void testLogUnchagned() throws Throwable {
+    public void testLogUnchanged() throws Throwable {
         ChromeUserMetricsExtension metricsLog =
                 ChromeUserMetricsExtension.newBuilder().setClientId(123456789L).build();
 

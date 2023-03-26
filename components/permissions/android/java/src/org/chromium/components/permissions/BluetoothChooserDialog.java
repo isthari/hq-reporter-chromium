@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,6 +25,7 @@ import androidx.appcompat.content.res.AppCompatResources;
 import androidx.core.graphics.drawable.DrawableCompat;
 import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat;
 
+import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
@@ -33,8 +34,8 @@ import org.chromium.components.location.LocationUtils;
 import org.chromium.components.omnibox.AutocompleteSchemeClassifier;
 import org.chromium.components.omnibox.OmniboxUrlEmphasizer;
 import org.chromium.content_public.browser.bluetooth.BluetoothChooserEvent;
-import org.chromium.ui.base.PermissionCallback;
 import org.chromium.ui.base.WindowAndroid;
+import org.chromium.ui.permissions.PermissionCallback;
 import org.chromium.ui.text.NoUnderlineClickableSpan;
 import org.chromium.ui.text.SpanApplier;
 import org.chromium.ui.text.SpanApplier.SpanInfo;
@@ -207,8 +208,8 @@ public class BluetoothChooserDialog
         AutocompleteSchemeClassifier autocompleteSchemeClassifier =
                 mDelegate.createAutocompleteSchemeClassifier();
 
-        OmniboxUrlEmphasizer.emphasizeUrl(origin, mContext.getResources(),
-                autocompleteSchemeClassifier, mSecurityLevel, false, useDarkColors, true);
+        OmniboxUrlEmphasizer.emphasizeUrl(origin, mContext, autocompleteSchemeClassifier,
+                mSecurityLevel, useDarkColors, true);
         autocompleteSchemeClassifier.destroy();
         // Construct a full string and replace the origin text with emphasized version.
         SpannableString title =
@@ -238,7 +239,7 @@ public class BluetoothChooserDialog
                         statusIdleNoneFound, statusIdleSomeFound, positiveButton);
         mItemChooserDialog = new ItemChooserDialog(mContext, mActivity.getWindow(), this, labels);
 
-        mActivity.registerReceiver(mLocationModeBroadcastReceiver,
+        ContextUtils.registerProtectedBroadcastReceiver(mActivity, mLocationModeBroadcastReceiver,
                 new IntentFilter(LocationManager.MODE_CHANGED_ACTION));
         mIsLocationModeChangedReceiverRegistered = true;
     }
@@ -347,7 +348,7 @@ public class BluetoothChooserDialog
 
     private NoUnderlineClickableSpan createLinkSpan(@LinkType int linkType) {
         return new NoUnderlineClickableSpan(
-                mContext.getResources(), (view) -> onBluetoothLinkClick(view, linkType));
+                mContext, (view) -> onBluetoothLinkClick(view, linkType));
     }
 
     private void onBluetoothLinkClick(View view, @LinkType int linkType) {

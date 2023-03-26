@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -82,16 +82,18 @@ void PaintedScrollbarLayer::PushPropertiesTo(
     scrollbar_layer->SetThumbLength(thumb_size_.Read(*this).height());
   }
 
-  if (track_resource_.Read(*this).get())
+  if (track_resource_.Read(*this)) {
     scrollbar_layer->set_track_ui_resource_id(
         track_resource_.Read(*this)->id());
-  else
+  } else {
     scrollbar_layer->set_track_ui_resource_id(0);
-  if (thumb_resource_.Read(*this).get())
+  }
+  if (thumb_resource_.Read(*this)) {
     scrollbar_layer->set_thumb_ui_resource_id(
         thumb_resource_.Read(*this)->id());
-  else
+  } else {
     scrollbar_layer->set_thumb_ui_resource_id(0);
+  }
 
   scrollbar_layer->SetScrollbarPaintedOpacity(painted_opacity_.Read(*this));
 
@@ -120,7 +122,6 @@ gfx::Size PaintedScrollbarLayer::LayerSizeToContentSize(
 
 bool PaintedScrollbarLayer::UpdateThumbAndTrackGeometry() {
   // These properties should never change.
-  DCHECK(IsMutationAllowed());
   DCHECK_EQ(supports_drag_snap_back_,
             scrollbar_.Read(*this)->SupportsDragSnapBack());
   DCHECK_EQ(is_left_side_vertical_scrollbar(),
@@ -150,7 +151,6 @@ bool PaintedScrollbarLayer::UpdateThumbAndTrackGeometry() {
 }
 
 bool PaintedScrollbarLayer::UpdateInternalContentScale() {
-  DCHECK(IsMutationAllowed());
   gfx::Transform transform;
   transform = draw_property_utils::ScreenSpaceTransform(
       this, layer_tree_host()->property_trees()->transform_tree());
@@ -256,7 +256,7 @@ UIResourceBitmap PaintedScrollbarLayer::RasterizeScrollbarPart(
       << "Failed to allocate memory for scrollbar at dimension : " << dimension;
 
   SkiaPaintCanvas canvas(skbitmap);
-  canvas.clear(SK_ColorTRANSPARENT);
+  canvas.clear(SkColors::kTransparent);
 
   float scale_x = content_size.width() / static_cast<float>(size.width());
   float scale_y = content_size.height() / static_cast<float>(size.height());

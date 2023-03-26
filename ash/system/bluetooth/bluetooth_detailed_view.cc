@@ -1,13 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/bluetooth/bluetooth_detailed_view.h"
 
+#include "ash/constants/ash_features.h"
 #include "ash/system/bluetooth/bluetooth_detailed_view_impl.h"
+#include "ash/system/bluetooth/bluetooth_detailed_view_legacy.h"
 
 namespace ash {
-namespace tray {
 namespace {
 BluetoothDetailedView::Factory* g_test_factory = nullptr;
 }  // namespace
@@ -20,8 +21,12 @@ std::unique_ptr<BluetoothDetailedView> BluetoothDetailedView::Factory::Create(
     Delegate* delegate) {
   if (g_test_factory)
     return g_test_factory->CreateForTesting(delegate);  // IN-TEST
-  return std::make_unique<tray::BluetoothDetailedViewImpl>(
-      detailed_view_delegate, delegate);
+  if (features::IsQsRevampEnabled()) {
+    return std::make_unique<BluetoothDetailedViewImpl>(detailed_view_delegate,
+                                                       delegate);
+  }
+  return std::make_unique<BluetoothDetailedViewLegacy>(detailed_view_delegate,
+                                                       delegate);
 }
 
 void BluetoothDetailedView::Factory::SetFactoryForTesting(
@@ -29,5 +34,4 @@ void BluetoothDetailedView::Factory::SetFactoryForTesting(
   g_test_factory = test_factory;
 }
 
-}  // namespace tray
 }  // namespace ash

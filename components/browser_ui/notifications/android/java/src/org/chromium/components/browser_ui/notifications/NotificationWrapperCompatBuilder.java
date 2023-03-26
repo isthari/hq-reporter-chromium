@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -79,9 +79,7 @@ public class NotificationWrapperCompatBuilder implements NotificationWrapperBuil
 
     @Override
     public NotificationWrapperBuilder setSmallIcon(Icon icon) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            mBuilder.setSmallIcon(IconCompat.createFromIcon(mContext, icon));
-        }
+        mBuilder.setSmallIcon(IconCompat.createFromIcon(mContext, icon));
         return this;
     }
 
@@ -142,7 +140,7 @@ public class NotificationWrapperCompatBuilder implements NotificationWrapperBuil
     @Override
     public NotificationWrapperBuilder addAction(
             int icon, CharSequence title, PendingIntent intent) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && icon != 0) {
+        if (icon != 0) {
             mBuilder.addAction(
                     new NotificationCompat.Action
                             .Builder(IconCompat.createWithResource(mContext, icon), title, intent)
@@ -219,12 +217,6 @@ public class NotificationWrapperCompatBuilder implements NotificationWrapperBuil
     }
 
     @Override
-    public NotificationWrapperBuilder setContentInfo(String info) {
-        mBuilder.setContentInfo(info);
-        return this;
-    }
-
-    @Override
     public NotificationWrapperBuilder setWhen(long time) {
         mBuilder.setWhen(time);
         return this;
@@ -283,11 +275,9 @@ public class NotificationWrapperCompatBuilder implements NotificationWrapperBuil
             Bitmap bigPicture, CharSequence summaryText) {
         NotificationCompat.BigPictureStyle style =
                 new NotificationCompat.BigPictureStyle().bigPicture(bigPicture);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            // Android N doesn't show content text when expanded, so duplicate body text as a
-            // summary for the big picture.
-            style.setSummaryText(summaryText);
-        }
+        // Android N doesn't show content text when expanded, so duplicate body text as a  summary
+        // for the big picture.
+        style.setSummaryText(summaryText);
         mBuilder.setStyle(style);
         return this;
     }

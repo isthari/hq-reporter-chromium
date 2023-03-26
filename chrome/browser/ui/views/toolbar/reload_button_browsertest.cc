@@ -1,7 +1,8 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "build/build_config.h"
 #include "chrome/browser/external_protocol/external_protocol_handler.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
@@ -21,7 +22,13 @@ class ReloadButtonBrowserTest : public InProcessBrowserTest {
   }
 };
 
-IN_PROC_BROWSER_TEST_F(ReloadButtonBrowserTest, AllowExternalProtocols) {
+// TODO(crbug.com/1344763): Fix flakiness on Win and Mac.
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+#define MAYBE_AllowExternalProtocols DISABLED_AllowExternalProtocols
+#else
+#define MAYBE_AllowExternalProtocols AllowExternalProtocols
+#endif
+IN_PROC_BROWSER_TEST_F(ReloadButtonBrowserTest, MAYBE_AllowExternalProtocols) {
   const char fake_protocol[] = "fake";
 
   // Call LaunchUrl once to trigger the blocked state.
@@ -30,7 +37,8 @@ IN_PROC_BROWSER_TEST_F(ReloadButtonBrowserTest, AllowExternalProtocols) {
       url,
       base::BindRepeating(&ReloadButtonBrowserTest::GetWebContents,
                           base::Unretained(this)),
-      ui::PAGE_TRANSITION_LINK, true, url::Origin::Create(url),
+      ui::PAGE_TRANSITION_LINK, /*has_user_gesture=*/true,
+      /*is_in_fenced_frame_tree=*/false, url::Origin::Create(url),
       content::WeakDocumentPtr());
   ASSERT_EQ(ExternalProtocolHandler::BLOCK,
             ExternalProtocolHandler::GetBlockState(fake_protocol, nullptr,

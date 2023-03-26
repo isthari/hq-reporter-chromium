@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,11 @@
 #import <AuthenticationServices/AuthenticationServices.h>
 #import <UIKit/UIKit.h>
 
-#include "ios/chrome/common/app_group/app_group_constants.h"
+#import "ios/chrome/common/app_group/app_group_constants.h"
 #import "ios/chrome/common/credential_provider/constants.h"
 #import "ios/chrome/common/ui/confirmation_alert/confirmation_alert_action_handler.h"
 #import "ios/chrome/credential_provider_extension/password_util.h"
 #import "ios/chrome/credential_provider_extension/reauthentication_handler.h"
-#import "ios/chrome/credential_provider_extension/ui/consent_legacy_coordinator.h"
 #import "ios/chrome/credential_provider_extension/ui/credential_details_consumer.h"
 #import "ios/chrome/credential_provider_extension/ui/credential_details_view_controller.h"
 #import "ios/chrome/credential_provider_extension/ui/credential_list_mediator.h"
@@ -27,11 +26,10 @@
 #endif
 
 @interface CredentialListCoordinator () <ConfirmationAlertActionHandler,
-                                         ConsentLegacyCoordinatorDelegate,
                                          CredentialListUIHandler,
                                          CredentialDetailsConsumerDelegate>
 
-// Base view controller from where |viewController| is presented.
+// Base view controller from where `viewController` is presented.
 @property(nonatomic, weak) UIViewController* baseViewController;
 
 // The view controller of this coordinator.
@@ -50,15 +48,10 @@
 @property(nonatomic, strong)
     NSArray<ASCredentialServiceIdentifier*>* serviceIdentifiers;
 
-// Legacy consent coordinator that shows a view requesting device auth in order
-// to enable the extension. Will be used when
-// IsCredentialProviderExtensionPromoEnabled() == NO.
-@property(nonatomic, strong) ConsentLegacyCoordinator* consentLegacyCoordinator;
-
 // Coordinator that shows a view for the user to create a new password.
 @property(nonatomic, strong) NewPasswordCoordinator* createPasswordCoordinator;
 
-// Interface for |reauthenticationModule|, handling mostly the case when no
+// Interface for `reauthenticationModule`, handling mostly the case when no
 // hardware for authentication is available.
 @property(nonatomic, weak) ReauthenticationHandler* reauthenticationHandler;
 
@@ -102,25 +95,7 @@
   [self.baseViewController presentViewController:self.viewController
                                         animated:NO
                                       completion:nil];
-
-  if (IsCredentialProviderExtensionPromoEnabled()) {
-    [self.mediator fetchCredentials];
-  } else {
-    NSUserDefaults* user_defaults = [NSUserDefaults standardUserDefaults];
-    BOOL isConsentGiven = [user_defaults
-        boolForKey:kUserDefaultsCredentialProviderConsentVerified];
-    if (isConsentGiven) {
-      [self.mediator fetchCredentials];
-    } else {
-      self.consentLegacyCoordinator = [[ConsentLegacyCoordinator alloc]
-             initWithBaseViewController:self.viewController
-                                context:self.context
-                reauthenticationHandler:self.reauthenticationHandler
-          isInitialConfigurationRequest:NO];
-      self.consentLegacyCoordinator.delegate = self;
-      [self.consentLegacyCoordinator start];
-    }
-  }
+  [self.mediator fetchCredentials];
 }
 
 - (void)stop {
@@ -129,14 +104,6 @@
                          completion:nil];
   self.viewController = nil;
   self.mediator = nil;
-}
-
-#pragma mark - ConsentLegacyCoordinatorDelegate
-
-- (void)consentLegacyCoordinatorDidAcceptConsent:
-    (ConsentLegacyCoordinator*)consentCoordinator {
-  [consentCoordinator stop];
-  [self.mediator fetchCredentials];
 }
 
 #pragma mark - CredentialListUIHandler

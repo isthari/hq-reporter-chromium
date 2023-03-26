@@ -1,4 +1,4 @@
-# Copyright 2013 The Chromium Authors. All rights reserved.
+# Copyright 2013 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -393,7 +393,7 @@ class BlinkPerfAccessibility(_BlinkPerfBenchmark):
 
   def SetExtraBrowserOptions(self, options):
     options.AppendExtraBrowserArgs([
-        '--force-renderer-accessibility',
+        '--force-renderer-accessibility', '--disable-features=DeferredShaping'
     ])
 
 
@@ -468,13 +468,13 @@ class ServiceWorkerRequestHandler(
     normpath = path.replace('\\', '/')
     if normpath.endswith('/service_worker/resources/data/10K.txt'):
       return self.MakeResponse('c' * self._SIZE_10K, 'text/plain', False)
-    elif normpath.endswith('/service_worker/resources/data/1M.txt'):
+    if normpath.endswith('/service_worker/resources/data/1M.txt'):
       return self.MakeResponse('c' * self._SIZE_1M, 'text/plain', False)
-    elif self._FILE_NAME_PATTERN_1K.match(normpath):
+    if self._FILE_NAME_PATTERN_1K.match(normpath):
       return self.MakeResponse('c' * self._SIZE_1K, 'text/plain', False)
-    elif self._WORKER_NAME_PATTERN.match(normpath):
+    if self._WORKER_NAME_PATTERN.match(normpath):
       return self.MakeResponse(self._WORKER_BODY, 'text/javascript', False)
-    elif self._CHANGING_WORKER_NAME_PATTERN.match(normpath):
+    if self._CHANGING_WORKER_NAME_PATTERN.match(normpath):
       # Return different script content for each request.
       new_body = self._WORKER_BODY + '//' + str(self._request_count)
       return self.MakeResponse(new_body, 'text/javascript', False)
@@ -511,6 +511,18 @@ class BlinkPerfServiceWorker(_BlinkPerfBenchmark):
     return story_set
 
 
+@benchmark.Info(emails=['csharrison@chromium.org'],
+                component='Blink>Internals>WTF',
+                documentation_url='https://bit.ly/blink-perf-benchmarks')
+class BlinkPerfBase64(_BlinkPerfBenchmark):
+  SUBDIR = 'base64'
+  TAGS = _BlinkPerfBenchmark.TAGS + ['all']
+
+  @classmethod
+  def Name(cls):
+    return 'UNSCHEDULED_blink_perf.base64'
+
+
 @benchmark.Info(emails=['futhark@chromium.org', 'andruud@chromium.org'],
                 documentation_url='https://bit.ly/blink-perf-benchmarks',
                 component='Blink>CSS')
@@ -545,11 +557,6 @@ class BlinkPerfEvents(_BlinkPerfBenchmark):
   @classmethod
   def Name(cls):
     return 'blink_perf.events'
-
-  # TODO(yoichio): Migrate EventsDispatching tests to V1 and remove this flags
-  # crbug.com/937716.
-  def SetExtraBrowserOptions(self, options):
-    options.AppendExtraBrowserArgs(['--enable-blink-features=ShadowDOMV0'])
 
 
 @benchmark.Info(emails=['cblume@chromium.org'],
@@ -614,6 +621,9 @@ class BlinkPerfPaint(_BlinkPerfBenchmark):
   def Name(cls):
     return 'blink_perf.paint'
 
+  def SetExtraBrowserOptions(self, options):
+    options.AppendExtraBrowserArgs(['--disable-features=DeferredShaping'])
+
 
 @benchmark.Info(emails=['yoavweiss@chromium.org'],
                 component='Blink>PerformanceAPIs',
@@ -627,10 +637,8 @@ class BlinkPerfPerformanceAPIs(_BlinkPerfBenchmark):
     return 'UNSCHEDULED_blink_perf.performance_apis'
 
 
-@benchmark.Info(component='Blink>Bindings',
-                emails=['jbroman@chromium.org',
-                         'yukishiino@chromium.org',
-                         'haraken@chromium.org'],
+@benchmark.Info(emails=['masonf@chromium.org'],
+                component='Blink>HTML>Parser',
                 documentation_url='https://bit.ly/blink-perf-benchmarks')
 class BlinkPerfParser(_BlinkPerfBenchmark):
   SUBDIR = 'parser'
@@ -681,10 +689,6 @@ class BlinkPerfShadowDOM(_BlinkPerfBenchmark):
   def Name(cls):
     return 'blink_perf.shadow_dom'
 
-  # TODO(yoichio): Migrate shadow-style-share tests to V1 and remove this flags
-  # crbug.com/937716.
-  def SetExtraBrowserOptions(self, options):
-    options.AppendExtraBrowserArgs(['--enable-blink-features=ShadowDOMV0'])
 
 @benchmark.Info(emails=['vmpstr@chromium.org'],
                 component='Blink>Paint',
@@ -702,7 +706,7 @@ class BlinkPerfDisplayLocking(_BlinkPerfBenchmark):
       ['--enable-blink-features=DisplayLocking,CSSContentSize'])
 
 
-@benchmark.Info(emails=['hongchan@chromium.org'],
+@benchmark.Info(emails=['hongchan@chromium.org', 'mjwilson@chromium.org'],
                 component='Blink>WebAudio',
                 documentation_url='https://bit.ly/blink-perf-benchmarks')
 class BlinkPerfWebAudio(_BlinkPerfBenchmark):
@@ -723,7 +727,7 @@ class BlinkPerfWebCodecs(_BlinkPerfBenchmark):
 
   @classmethod
   def Name(cls):
-    return 'UNSCHEDULED_blink_perf.webcodecs'
+    return 'blink_perf.webcodecs'
 
 
 @benchmark.Info(

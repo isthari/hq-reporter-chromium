@@ -1,10 +1,9 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
-#include "base/win/windows_version.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/views/test/view_event_test_base.h"
 #include "chrome/test/base/testing_profile.h"
@@ -162,13 +161,6 @@ class TouchEventsViewTest : public ViewEventTestBase {
   }
 
   void DoTestOnMessageLoop() override {
-    // ui_controls::SendTouchEvents which uses InjectTouchInput API only works
-    // on Windows 8 and up.
-    if (base::win::GetVersion() <= base::win::Version::WIN7) {
-      Done();
-      return;
-    }
-
     const int touch_pointer_count = 3;
     TouchEventHandler touch_event_handler;
     window()->GetNativeWindow()->GetHost()->window()->AddPreTargetHandler(
@@ -219,13 +211,6 @@ class TouchEventsRecursiveViewTest : public TouchEventsViewTest {
       delete;
 
   void DoTestOnMessageLoop() override {
-    // ui_controls::SendTouchEvents which uses InjectTouchInput API only works
-    // on Windows 8 and up.
-    if (base::win::GetVersion() <= base::win::Version::WIN7) {
-      Done();
-      return;
-    }
-
     const int touch_pointer_count = 1;
     TouchEventHandler touch_event_handler;
     window()->GetNativeWindow()->GetHost()->window()->AddPreTargetHandler(

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,6 @@
 #include "chrome/browser/apps/app_service/app_icon/icon_key_util.h"
 #include "chrome/browser/apps/app_service/publishers/extension_apps_base.h"
 #include "components/services/app_service/public/cpp/app_types.h"
-#include "components/services/app_service/public/mojom/app_service.mojom.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
-#include "mojo/public/cpp/bindings/remote.h"
 #include "ui/gfx/native_widget_types.h"
 
 namespace extensions {
@@ -49,10 +46,8 @@ class ExtensionApps : public apps::ExtensionAppsBase {
   // ExtensionAppsBase overrides.
   bool Accepts(const extensions::Extension* extension) override;
   bool ShouldShownInLauncher(const extensions::Extension* extension) override;
-  std::unique_ptr<App> CreateApp(const extensions::Extension* extension,
-                                 Readiness readiness) override;
-  apps::mojom::AppPtr Convert(const extensions::Extension* extension,
-                              apps::mojom::Readiness readiness) override;
+  AppPtr CreateApp(const extensions::Extension* extension,
+                   Readiness readiness) override;
 };
 
 }  // namespace apps

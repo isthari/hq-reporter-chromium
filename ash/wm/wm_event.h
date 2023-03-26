@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "ash/ash_export.h"
 #include "ash/wm/window_state.h"
 #include "base/time/time.h"
+#include "chromeos/ui/frame/caption_buttons/snap_controller.h"
 #include "ui/display/display.h"
 #include "ui/display/display_observer.h"
 #include "ui/gfx/geometry/rect.h"
@@ -46,9 +47,6 @@ enum WMEventType {
 
   // Following events are compond events which may lead to different
   // states depending on the current state.
-
-  // A user requested to make a window floating.
-  WM_EVENT_TOGGLE_FLOATING,
 
   // A user requested to toggle maximized state by double clicking window
   // header.
@@ -117,6 +115,9 @@ enum WMEventType {
   // TODO(oshima): Consider consolidating this into
   // WM_EVENT_WORKAREA_BOUNDS_CHANGED
   WM_EVENT_SYSTEM_UI_AREA_CHANGED,
+
+  // A user requested to float a window.
+  WM_EVENT_FLOAT,
 };
 
 class SetBoundsWMEvent;
@@ -125,6 +126,9 @@ class DisplayMetricsChangedWMEvent;
 class ASH_EXPORT WMEvent {
  public:
   explicit WMEvent(WMEventType type);
+  // Creates a window snap event with the requested `snap_ratio`. Used only by
+  // snap events.
+  WMEvent(WMEventType type, float snap_ratio);
 
   WMEvent(const WMEvent&) = delete;
   WMEvent& operator=(const WMEvent&) = delete;
@@ -132,6 +136,8 @@ class ASH_EXPORT WMEvent {
   virtual ~WMEvent();
 
   WMEventType type() const { return type_; }
+
+  float snap_ratio() const { return snap_ratio_; }
 
   // Predicates to test the type of event.
 
@@ -155,11 +161,17 @@ class ASH_EXPORT WMEvent {
   // e.g. WM_EVENT_MAXIMIZED.
   bool IsTransitionEvent() const;
 
+  // True if the event is a window snap event.
+  bool IsSnapEvent() const;
+
   // Utility methods to downcast to specific WMEvent types.
   const DisplayMetricsChangedWMEvent* AsDisplayMetricsChangedWMEvent() const;
 
  private:
   WMEventType type_;
+
+  // The snap ratio requested by snap events.
+  float snap_ratio_ = chromeos::kDefaultSnapRatio;
 };
 
 // An WMEvent to request new bounds for the window.

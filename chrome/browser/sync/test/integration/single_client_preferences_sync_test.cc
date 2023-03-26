@@ -1,12 +1,14 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <map>
 
 #include "base/files/file_util.h"
+#include "base/path_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/values.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/sync/test/integration/preferences_helper.h"
@@ -14,11 +16,13 @@
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/browser/sync/test/integration/updated_progress_marker_checker.h"
 #include "chrome/common/chrome_constants.h"
+#include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync/driver/sync_service_impl.h"
+#include "components/sync/engine/cycle/entity_change_metric_recording.h"
 #include "components/sync/protocol/entity_specifics.pb.h"
 #include "components/sync/protocol/preference_specifics.pb.h"
 #include "content/public/test/browser_test.h"
@@ -26,7 +30,6 @@
 
 namespace {
 
-using preferences_helper::BuildPrefStoreFromPrefsFile;
 using preferences_helper::ChangeBooleanPref;
 using preferences_helper::GetPrefs;
 using preferences_helper::GetRegistry;
@@ -45,33 +48,6 @@ class SingleClientPreferencesSyncTest : public SyncTest {
       const SingleClientPreferencesSyncTest&) = delete;
 
   ~SingleClientPreferencesSyncTest() override = default;
-
-  // If non-empty, |contents| will be written to the Preferences file of the
-  // profile at |index| before that Profile object is created.
-  void SetPreexistingPreferencesFileContents(int index,
-                                             const std::string& contents) {
-    preexisting_preferences_file_contents_[index] = contents;
-  }
-
- protected:
-  void BeforeSetupClient(int index,
-                         const base::FilePath& profile_path) override {
-    const std::string& contents = preexisting_preferences_file_contents_[index];
-    if (contents.empty()) {
-      return;
-    }
-
-    base::FilePath pref_path(profile_path.Append(chrome::kPreferencesFilename));
-    ASSERT_TRUE(base::CreateDirectory(profile_path));
-    ASSERT_NE(-1,
-              base::WriteFile(pref_path, contents.c_str(), contents.size()));
-  }
-
- private:
-  // The contents to be written to a profile's Preferences file before the
-  // Profile object is created. If empty, no preexisting file will be written.
-  // The map key corresponds to the profile's index.
-  std::map<int, std::string> preexisting_preferences_file_contents_;
 };
 
 IN_PROC_BROWSER_TEST_F(SingleClientPreferencesSyncTest, Sanity) {
@@ -83,33 +59,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientPreferencesSyncTest, Sanity) {
   EXPECT_TRUE(UpdatedProgressMarkerChecker(GetSyncService(0)).Wait());
   EXPECT_THAT(GetPrefs(/*index=*/0)->GetBoolean(prefs::kHomePageIsNewTabPage),
               Ne(kDefaultValue));
-}
-
-IN_PROC_BROWSER_TEST_F(SingleClientPreferencesSyncTest,
-                       ShouldRemoveBadDataWhenRegistering) {
-  // Populate the data store with data of type boolean but register as string.
-  SetPreexistingPreferencesFileContents(
-      0, "{\"testing\":{\"my-test-preference\":true}}");
-  ASSERT_TRUE(SetupClients()) << "SetupClients() failed.";
-  PrefRegistrySyncable* registry = GetRegistry(GetProfile(0));
-  registry->RegisterStringPref("testing.my-test-preference", "default-value",
-                               user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-  const PrefService::Preference* preference =
-      GetProfile(0)->GetPrefs()->FindPreference("testing.my-test-preference");
-  ASSERT_THAT(preference, NotNull());
-  EXPECT_THAT(preference->GetType(), Eq(base::Value::Type::STRING));
-  EXPECT_THAT(preference->GetValue()->GetString(), Eq("default-value"));
-  // This might actually expose a bug: IsDefaultValue() is looking for the
-  // the store with highest priority which has a value for the preference's
-  // name. For this, no type checks are done, and hence this value is not
-  // recognized as a default value. --> file a bug!
-  EXPECT_TRUE(preference->IsDefaultValue());
-
-  // To verify the bad data has been removed, we read the JSON file from disk.
-  scoped_refptr<PrefStore> pref_store =
-      BuildPrefStoreFromPrefsFile(GetProfile(0));
-  const base::Value* result;
-  EXPECT_FALSE(pref_store->GetValue("testing.my-test-preference", &result));
 }
 
 // Regression test to verify that pagination during GetUpdates() contributes
@@ -132,9 +81,10 @@ IN_PROC_BROWSER_TEST_F(SingleClientPreferencesSyncTest,
 
   base::HistogramTester histogram_tester;
   ASSERT_TRUE(SetupSync());
-  EXPECT_EQ(kNumEntities, histogram_tester.GetBucketCount(
-                              "Sync.ModelTypeEntityChange3.PREFERENCE",
-                              /*REMOTE_INITIAL_UPDATE=*/5));
+  EXPECT_EQ(kNumEntities,
+            histogram_tester.GetBucketCount(
+                "Sync.ModelTypeEntityChange3.PREFERENCE",
+                syncer::ModelTypeEntityChange::kRemoteInitialUpdate));
 }
 
 IN_PROC_BROWSER_TEST_F(SingleClientPreferencesSyncTest,
@@ -152,7 +102,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientPreferencesSyncTest,
   ASSERT_TRUE(SetupSync());
   EXPECT_EQ(1, histogram_tester.GetBucketCount(
                    "Sync.ModelTypeEntityChange3.PREFERENCE",
-                   /*REMOTE_INITIAL_UPDATE=*/5));
+                   syncer::ModelTypeEntityChange::kRemoteInitialUpdate));
 }
 
 IN_PROC_BROWSER_TEST_F(SingleClientPreferencesSyncTest,
@@ -177,7 +127,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientPreferencesSyncTest,
 
   EXPECT_EQ(0, histogram_tester.GetBucketCount(
                    "Sync.ModelTypeEntityChange3.PREFERENCE",
-                   /*REMOTE_INITIAL_UPDATE=*/5));
+                   syncer::ModelTypeEntityChange::kRemoteInitialUpdate));
 }
 
 }  // namespace

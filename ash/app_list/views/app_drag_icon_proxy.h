@@ -1,11 +1,13 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_APP_LIST_VIEWS_APP_DRAG_ICON_PROXY_H_
 #define ASH_APP_LIST_VIEWS_APP_DRAG_ICON_PROXY_H_
 
-#include "base/callback.h"
+#include <memory>
+#include "ash/style/system_shadow.h"
+#include "base/functional/callback.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/views/widget/unique_widget_ptr.h"
@@ -40,14 +42,13 @@ class AppDragIconProxy : public ui::ImplicitAnimationObserver {
   //     location to maintain pointer offset from the drag image center.
   // `scale_factor` - The scale factor by which the `icon` should be scaled when
   //     shown as a drag image.
-  // `use_blurred_background` - whether the drag image should have blurred
-  //     background.
+  // `is_folder_icon` - whether the icon dragged is a folder.
   AppDragIconProxy(aura::Window* root_window,
                    const gfx::ImageSkia& icon,
                    const gfx::Point& pointer_location_in_screen,
                    const gfx::Vector2d& pointer_offset_from_center,
                    float scale_factor,
-                   bool use_blurred_background);
+                   bool is_folder_icon);
   AppDragIconProxy(const AppDragIconProxy&) = delete;
   AppDragIconProxy& operator=(const AppDragIconProxy&) = delete;
   ~AppDragIconProxy() override;
@@ -78,10 +79,16 @@ class AppDragIconProxy : public ui::ImplicitAnimationObserver {
   // Returns the drag image widget.
   views::Widget* GetWidgetForTesting();
 
+  gfx::Rect shadow_bounds_for_testing() const {
+    return shadow_->GetContentBounds();
+  }
+
  private:
   // Whether close animation (see `AnimateToBoundsAndCloseWidget()`) is in
   // progress.
   bool closing_widget_ = false;
+
+  std::unique_ptr<SystemShadow> shadow_;
 
   // The widget used to display the drag image.
   views::UniqueWidgetPtr drag_image_widget_;

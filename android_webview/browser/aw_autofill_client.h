@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,12 +19,13 @@
 
 namespace autofill {
 class AutocompleteHistoryManager;
+class AutofillDriver;
 class AutofillPopupDelegate;
-class CardUnmaskDelegate;
 class CreditCard;
 class FormStructure;
 class PersonalDataManager;
 class StrikeDatabase;
+struct CardUnmaskPromptOptions;
 }  // namespace autofill
 
 namespace content {
@@ -60,9 +61,11 @@ class AwAutofillClient : public autofill::AutofillClient,
   ~AwAutofillClient() override;
 
   void SetSaveFormData(bool enabled);
-  bool GetSaveFormData();
+  bool GetSaveFormData() const;
 
   // AutofillClient:
+  bool IsOffTheRecord() override;
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
   autofill::PersonalDataManager* GetPersonalDataManager() override;
   autofill::AutocompleteHistoryManager* GetAutocompleteHistoryManager()
       override;
@@ -76,14 +79,15 @@ class AwAutofillClient : public autofill::AutofillClient,
   ukm::UkmRecorder* GetUkmRecorder() override;
   ukm::SourceId GetUkmSourceId() override;
   autofill::AddressNormalizer* GetAddressNormalizer() override;
-  const GURL& GetLastCommittedURL() const override;
+  const GURL& GetLastCommittedPrimaryMainFrameURL() const override;
+  url::Origin GetLastCommittedPrimaryMainFrameOrigin() const override;
   security_state::SecurityLevel GetSecurityLevelForUmaHistograms() override;
   const translate::LanguageState* GetLanguageState() override;
   translate::TranslateDriver* GetTranslateDriver() override;
   void ShowAutofillSettings(bool show_credit_card_settings) override;
   void ShowUnmaskPrompt(
       const autofill::CreditCard& card,
-      UnmaskCardReason reason,
+      const autofill::CardUnmaskPromptOptions& card_unmask_prompt_options,
       base::WeakPtr<autofill::CardUnmaskDelegate> delegate) override;
   void OnUnmaskVerificationResult(PaymentsRpcResult result) override;
   void ConfirmAccountNameFixFlow(
@@ -111,6 +115,17 @@ class AwAutofillClient : public autofill::AutofillClient,
       AddressProfileSavePromptCallback callback) override;
   bool HasCreditCardScanFeature() override;
   void ScanCreditCard(CreditCardScanCallback callback) override;
+  bool TryToShowFastCheckout(const autofill::FormData& form,
+                             const autofill::FormFieldData& field,
+                             autofill::AutofillDriver* driver) override;
+  void HideFastCheckout(bool allow_further_runs) override;
+  bool IsFastCheckoutSupported() override;
+  bool IsShowingFastCheckoutUI() override;
+  bool IsTouchToFillCreditCardSupported() override;
+  bool ShowTouchToFillCreditCard(
+      base::WeakPtr<autofill::TouchToFillDelegate> delegate,
+      base::span<const autofill::CreditCard* const> cards_to_suggest) override;
+  void HideTouchToFillCreditCard() override;
   void ShowAutofillPopup(
       const autofill::AutofillClient::PopupOpenArgs& open_args,
       base::WeakPtr<autofill::AutofillPopupDelegate> delegate) override;
@@ -123,16 +138,18 @@ class AwAutofillClient : public autofill::AutofillClient,
   void UpdatePopup(const std::vector<autofill::Suggestion>& suggestions,
                    autofill::PopupType popup_type) override;
   void HideAutofillPopup(autofill::PopupHidingReason reason) override;
-  bool IsAutocompleteEnabled() override;
+  bool IsAutocompleteEnabled() const override;
+  bool IsPasswordManagerEnabled() override;
   void PropagateAutofillPredictions(
-      content::RenderFrameHost* rfh,
+      autofill::AutofillDriver* driver,
       const std::vector<autofill::FormStructure*>& forms) override;
   void DidFillOrPreviewField(const std::u16string& autofilled_value,
                              const std::u16string& profile_full_name) override;
   bool IsContextSecure() const override;
   bool ShouldShowSigninPromo() override;
-  bool AreServerCardsSupported() const override;
   void ExecuteCommand(int id) override;
+  void OpenPromoCodeOfferDetailsURL(const GURL& url) override;
+  autofill::FormInteractionsFlowId GetCurrentFormInteractionsFlowId() override;
 
   // RiskDataLoader:
   void LoadRiskData(

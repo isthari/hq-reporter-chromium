@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,19 +33,25 @@ class ClampedNumeric {
   template <typename Src>
   friend class ClampedNumeric;
 
+  // Strictly speaking, this is not necessary, but declaring this allows class
+  // template argument deduction to be used so that it is possible to simply
+  // write `ClampedNumeric(777)` instead of `ClampedNumeric<int>(777)`.
+  // NOLINTNEXTLINE(google-explicit-constructor)
+  constexpr ClampedNumeric(T value) : value_(value) {}
+
   // This is not an explicit constructor because we implicitly upgrade regular
   // numerics to ClampedNumerics to make them easier to use.
   template <typename Src>
-  constexpr ClampedNumeric(Src value)  // NOLINT(runtime/explicit)
-      : value_(saturated_cast<T>(value)) {
+  // NOLINTNEXTLINE(google-explicit-constructor)
+  constexpr ClampedNumeric(Src value) : value_(saturated_cast<T>(value)) {
     static_assert(UnderlyingType<Src>::is_numeric, "Argument must be numeric.");
   }
 
   // This is not an explicit constructor because we want a seamless conversion
   // from StrictNumeric types.
   template <typename Src>
-  constexpr ClampedNumeric(
-      StrictNumeric<Src> value)  // NOLINT(runtime/explicit)
+  // NOLINTNEXTLINE(google-explicit-constructor)
+  constexpr ClampedNumeric(StrictNumeric<Src> value)
       : value_(saturated_cast<T>(static_cast<Src>(value))) {}
 
   // Returns a ClampedNumeric of the specified type, cast from the current
@@ -184,8 +190,8 @@ class ClampedNumeric {
   };
 };
 
-// Convience wrapper to return a new ClampedNumeric from the provided arithmetic
-// or ClampedNumericType.
+// Convenience wrapper to return a new ClampedNumeric from the provided
+// arithmetic or ClampedNumericType.
 template <typename T>
 constexpr ClampedNumeric<typename UnderlyingType<T>::type> MakeClampedNum(
     const T value) {
@@ -234,20 +240,20 @@ BASE_NUMERIC_COMPARISON_OPERATORS(Clamped, IsNotEqual, !=)
 
 }  // namespace internal
 
+using internal::ClampAdd;
+using internal::ClampAnd;
+using internal::ClampDiv;
 using internal::ClampedNumeric;
-using internal::MakeClampedNum;
+using internal::ClampLsh;
 using internal::ClampMax;
 using internal::ClampMin;
-using internal::ClampAdd;
-using internal::ClampSub;
-using internal::ClampMul;
-using internal::ClampDiv;
 using internal::ClampMod;
-using internal::ClampLsh;
-using internal::ClampRsh;
-using internal::ClampAnd;
+using internal::ClampMul;
 using internal::ClampOr;
+using internal::ClampRsh;
+using internal::ClampSub;
 using internal::ClampXor;
+using internal::MakeClampedNum;
 
 }  // namespace base
 

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,7 +49,6 @@ class WebServiceWorkerContextProxy;
 }
 
 namespace base {
-class ListValue;
 class SingleThreadTaskRunner;
 }
 
@@ -58,6 +57,12 @@ class RenderThread;
 }  // namespace content
 
 namespace extensions {
+
+// Constant to define the default profile id for the renderer to 0.
+// Since each renderer is associated with a single context, we don't need
+// separate ids for the profile.
+const int kRendererProfileId = 0;
+
 class ContentWatcher;
 class DispatcherDelegate;
 class Extension;
@@ -169,7 +174,7 @@ class Dispatcher : public content::RenderThreadObserver,
   // Dispatches the event named |event_name| to all render views.
   void DispatchEventHelper(const std::string& extension_id,
                            const std::string& event_name,
-                           const base::ListValue& event_args,
+                           const base::Value::List& event_args,
                            mojom::EventFilteringInfoPtr filtering_info) const;
 
   // Shared implementation of the various MessageInvoke IPCs.
@@ -177,7 +182,7 @@ class Dispatcher : public content::RenderThreadObserver,
                                 const std::string& extension_id,
                                 const std::string& module_name,
                                 const std::string& function_name,
-                                const base::ListValue& args);
+                                const base::Value::List& args);
 
   void ExecuteDeclarativeScript(content::RenderFrame* render_frame,
                                 int tab_id,
@@ -224,13 +229,14 @@ class Dispatcher : public content::RenderThreadObserver,
   // mojom::Renderer implementation:
   void ActivateExtension(const std::string& extension_id) override;
   void SetActivityLoggingEnabled(bool enabled) override;
-  void LoadExtensions(std::vector<extensions::mojom::ExtensionLoadedParamsPtr>
-                          loaded_extensions) override;
+  void LoadExtensions(
+      std::vector<mojom::ExtensionLoadedParamsPtr> loaded_extensions) override;
   void UnloadExtension(const std::string& extension_id) override;
   void SuspendExtension(
       const std::string& extension_id,
       mojom::Renderer::SuspendExtensionCallback callback) override;
   void CancelSuspendExtension(const std::string& extension_id) override;
+  void SetDeveloperMode(bool current_developer_mode) override;
   void SetSessionInfo(version_info::Channel channel,
                       mojom::FeatureSessionType session_type,
                       bool lock_screen_context) override;
@@ -248,10 +254,12 @@ class Dispatcher : public content::RenderThreadObserver,
                          URLPatternSet policy_allowed_hosts,
                          bool uses_default_policy_host_restrictions) override;
   void UpdateDefaultPolicyHostRestrictions(
-      extensions::URLPatternSet default_policy_blocked_hosts,
-      extensions::URLPatternSet default_policy_allowed_hosts) override;
+      URLPatternSet default_policy_blocked_hosts,
+      URLPatternSet default_policy_allowed_hosts) override;
+  void UpdateUserHostRestrictions(URLPatternSet user_blocked_hosts,
+                                  URLPatternSet user_allowed_hosts) override;
   void UpdateTabSpecificPermissions(const std::string& extension_id,
-                                    extensions::URLPatternSet new_hosts,
+                                    URLPatternSet new_hosts,
                                     int tab_id,
                                     bool update_origin_allowlist) override;
   void UpdateUserScripts(base::ReadOnlySharedMemoryRegion shared_memory,
@@ -277,8 +285,10 @@ class Dispatcher : public content::RenderThreadObserver,
   void OnDispatchOnDisconnect(int worker_thread_id,
                               const PortId& port_id,
                               const std::string& error_message);
+
+  // mojom::EventDispatcher implementation.
   void DispatchEvent(mojom::DispatchEventParamsPtr params,
-                     base::Value event_args) override;
+                     base::Value::List event_args) override;
 
   // UserScriptSetManager::Observer implementation.
   void OnUserScriptsUpdated(const mojom::HostID& changed_host) override;
@@ -374,8 +384,9 @@ class Dispatcher : public content::RenderThreadObserver,
   // it is dependent on other messages sent on other associated channels.
   mojo::AssociatedReceiver<mojom::Renderer> receiver_;
 
-  // Extensions Dipsatch receiver. This is an associated receiver because
-  // it is dependent on other messages sent on other associated channels.
+  // Extensions mojom::EventDispatcher receiver. This is an associated receiver
+  // because it is dependent on other messages sent on other associated
+  // channels.
   mojo::AssociatedReceiver<mojom::EventDispatcher> dispatcher_;
 
   // Used to hold a service worker information which is ready to execute but the

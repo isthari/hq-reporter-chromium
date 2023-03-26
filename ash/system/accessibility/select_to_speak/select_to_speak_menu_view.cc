@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include "ash/system/accessibility/select_to_speak/select_to_speak_constants.h"
 #include "ash/system/accessibility/select_to_speak/select_to_speak_metrics_utils.h"
 #include "ash/system/tray/tray_constants.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/i18n/rtl.h"
 #include "base/metrics/histogram_functions.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -149,16 +149,15 @@ SelectToSpeakMenuView::SelectToSpeakMenuView(Delegate* delegate)
                           base::Unretained(this),
                           base::Unretained(speed_button_)))),
           views::Builder<views::Separator>()
-              .SetColor(AshColorProvider::Get()->GetContentLayerColor(
-                  AshColorProvider::ContentLayerType::kSeparatorColor))
-              .SetPreferredHeight(kSeparatorHeight)
-              .SetBorder(views::CreateEmptyBorder(
+              .SetColorId(ui::kColorAshSystemUIMenuSeparator)
+              .SetPreferredLength(kSeparatorHeight)
+              .SetBorder(views::CreateEmptyBorder(gfx::Insets::TLBR(
                   separator_spacing - kUnifiedTopShortcutSpacing, 0,
-                  separator_spacing, 0)),
+                  separator_spacing, 0))),
           views::Builder<views::BoxLayoutView>()
-              .SetInsideBorderInsets(gfx::Insets(0, kStopButtonPadding,
-                                                 kStopButtonPadding,
-                                                 kStopButtonPadding))
+              .SetInsideBorderInsets(gfx::Insets::TLBR(0, kStopButtonPadding,
+                                                       kStopButtonPadding,
+                                                       kStopButtonPadding))
               .SetBetweenChildSpacing(kStopButtonPadding)
               .AddChildren(
                   views::Builder<FloatingMenuButton>()

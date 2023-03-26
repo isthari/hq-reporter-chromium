@@ -1,10 +1,12 @@
 package(
+    default_applicable_licenses = ["//tensorflow_lite_support:license"],
     default_visibility = ["//tensorflow_lite_support:internal"],
     licenses = ["notice"],  # Apache 2.0
 )
 
 cc_library(
     name = "category",
+    srcs = ["category.cc"],
     hdrs = ["category.h"],
 )
 
@@ -39,4 +41,12 @@ cc_library(
         ":bounding_box",
         ":category",
     ],
+)
+
+cc_library(
+    name = "segmentation_result",
+    srcs = [
+        "segmentation_result.cc",
+    ],
+    hdrs = ["segmentation_result.h"],
 )

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,10 @@
 #include "chrome/app/android/chrome_main_delegate_android.h"
 #else
 #include "chrome/app/chrome_main_delegate.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "base/files/scoped_temp_dir.h"
 #endif
 
 class ChromeTestSuite;
@@ -52,6 +56,7 @@ class ChromeTestChromeMainDelegate
 
   // ChromeMainDelegateOverrides.
   content::ContentBrowserClient* CreateContentBrowserClient() override;
+  content::ContentUtilityClient* CreateContentUtilityClient() override;
 #if BUILDFLAG(IS_WIN)
   bool ShouldHandleConsoleControlEvents() override;
 #endif
@@ -85,6 +90,10 @@ class ChromeTestLauncherDelegate : public content::TestLauncherDelegate {
 #endif
 
   raw_ptr<ChromeTestSuiteRunner> runner_;
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  base::ScopedTempDir ash_processes_dir_;
+#endif
 };
 
 // Launches Chrome browser tests. |parallel_jobs| is number of test jobs to be

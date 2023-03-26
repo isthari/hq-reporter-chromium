@@ -1,14 +1,17 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/cocoa/screentime/tab_helper.h"
 
 #include "base/test/scoped_feature_list.h"
+#include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/ui/cocoa/screentime/fake_webpage_controller.h"
 #include "chrome/browser/ui/cocoa/screentime/screentime_features.h"
 #include "chrome/browser/ui/cocoa/screentime/tab_helper.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/policy/core/common/policy_pref_names.h"
+#include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_renderer_host.h"
 #include "content/public/test/web_contents_tester.h"
@@ -25,7 +28,10 @@ class ScreentimeTabHelperTest : public ::testing::Test {
     ::testing::Test::SetUp();
 
     TabHelper::UseFakeWebpageControllerForTesting();
-    features_.InitAndEnableFeature(kScreenTime);
+    // `kMediaRouter` is disabled because it has unmet dependencies and is
+    // unrelated to this unit test.
+    features_.InitWithFeatures(/*enabled=*/{kScreenTime},
+                               /*disabled=*/{media_router::kMediaRouter});
     profile_ = std::make_unique<TestingProfile>();
   }
 
@@ -88,6 +94,21 @@ TEST_F(ScreentimeTabHelperTest, OnlyHttpHttpsSchemesReported) {
             GURL("https://www.chromium.org/"));
   EXPECT_EQ(controller->visited_urls_for_testing()[1],
             GURL("http://test.chromium.org/"));
+}
+
+TEST_F(ScreentimeTabHelperTest, EnterprisePolicy) {
+  if (@available(macOS 12.1, *)) {
+    profile()->GetTestingPrefService()->SetManagedPref(
+        policy::policy_prefs::kScreenTimeEnabled,
+        std::make_unique<base::Value>(false));
+    EXPECT_FALSE(TabHelper::IsScreentimeEnabledForProfile(profile()));
+    profile()->GetTestingPrefService()->SetManagedPref(
+        policy::policy_prefs::kScreenTimeEnabled,
+        std::make_unique<base::Value>(true));
+    EXPECT_TRUE(TabHelper::IsScreentimeEnabledForProfile(profile()));
+  } else {
+    GTEST_SKIP() << "ScreenTime is only enabled on macOS 12.1 and higher";
+  }
 }
 
 }  // namespace screentime

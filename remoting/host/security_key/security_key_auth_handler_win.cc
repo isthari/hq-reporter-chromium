@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,23 +9,21 @@
 #include <memory>
 #include <string>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "base/win/win_util.h"
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_message.h"
-#include "ipc/ipc_message_macros.h"
 #include "remoting/base/logging.h"
-#include "remoting/host/chromoting_messages.h"
 #include "remoting/host/client_session_details.h"
 #include "remoting/host/security_key/security_key_ipc_constants.h"
 #include "remoting/host/security_key/security_key_ipc_server.h"

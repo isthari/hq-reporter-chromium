@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,10 @@ class SharedFileSwitchValueBuilder final {
  private:
   std::string switch_value_;
 };
+
+// Populates base::FileDescriptorStore using the information from the command
+// line.
+void PopulateFileDescriptorStoreFromGlobalDescriptors();
 
 absl::optional<std::map<int, std::string>> ParseSharedFileSwitchValue(
     const std::string& value);

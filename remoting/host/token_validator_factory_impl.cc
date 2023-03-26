@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,11 @@
 #include <utility>
 
 #include "base/base64.h"
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/check.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/json/json_reader.h"
+#include "base/strings/escape.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringize_macros.h"
 #include "base/task/single_thread_task_runner.h"
@@ -21,7 +22,6 @@
 #include "build/branding_buildflags.h"
 #include "crypto/random.h"
 #include "net/base/elements_upload_data_stream.h"
-#include "net/base/escape.h"
 #include "net/base/io_buffer.h"
 #include "net/base/request_priority.h"
 #include "net/base/upload_bytes_element_reader.h"
@@ -39,7 +39,6 @@ const size_t kNonceLength = 16;  // 128 bits.
 }  // namespace
 
 namespace remoting {
-
 
 class TokenValidatorImpl : public TokenValidatorBase {
  public:
@@ -79,12 +78,12 @@ TokenValidatorImpl::TokenValidatorImpl(
 
 // TokenValidator interface.
 void TokenValidatorImpl::StartValidateRequest(const std::string& token) {
-  post_body_ = "code=" + net::EscapeUrlEncodedData(token, true) +
-      "&client_id=" + net::EscapeUrlEncodedData(
-          key_pair_->GetPublicKey(), true) +
-      "&client_secret=" + net::EscapeUrlEncodedData(
-          key_pair_->SignMessage(token), true) +
-      "&grant_type=authorization_code";
+  post_body_ = "code=" + base::EscapeUrlEncodedData(token, true) +
+               "&client_id=" +
+               base::EscapeUrlEncodedData(key_pair_->GetPublicKey(), true) +
+               "&client_secret=" +
+               base::EscapeUrlEncodedData(key_pair_->SignMessage(token), true) +
+               "&grant_type=authorization_code";
 
   request_ = request_context_getter_->GetURLRequestContext()->CreateRequest(
       third_party_auth_config_.token_validation_url, net::DEFAULT_PRIORITY,
@@ -99,13 +98,13 @@ void TokenValidatorImpl::StartValidateRequest(const std::string& token) {
 #error VERSION is not set.
 #endif
   // Set a user-agent for logging/auditing purposes.
-  request_->SetExtraRequestHeaderByName(net::HttpRequestHeaders::kUserAgent,
-                                        app_name + " " + STRINGIZE(VERSION),
-                                        true);
-
   request_->SetExtraRequestHeaderByName(
-      net::HttpRequestHeaders::kContentType,
-      "application/x-www-form-urlencoded", true);
+      net::HttpRequestHeaders::kUserAgent,
+      app_name + " " + STRINGIZE(VERSION), true);
+
+  request_->SetExtraRequestHeaderByName(net::HttpRequestHeaders::kContentType,
+                                        "application/x-www-form-urlencoded",
+                                        true);
   request_->set_method("POST");
   std::unique_ptr<net::UploadElementReader> reader(
       new net::UploadBytesElementReader(post_body_.data(), post_body_.size()));
@@ -114,9 +113,8 @@ void TokenValidatorImpl::StartValidateRequest(const std::string& token) {
   request_->Start();
 }
 
-std::string TokenValidatorImpl::CreateScope(
-    const std::string& local_jid,
-    const std::string& remote_jid) {
+std::string TokenValidatorImpl::CreateScope(const std::string& local_jid,
+                                            const std::string& remote_jid) {
   std::string nonce_bytes;
   crypto::RandBytes(base::WriteInto(&nonce_bytes, kNonceLength + 1),
                     kNonceLength);
@@ -138,8 +136,7 @@ TokenValidatorFactoryImpl::TokenValidatorFactoryImpl(
     scoped_refptr<net::URLRequestContextGetter> request_context_getter)
     : third_party_auth_config_(third_party_auth_config),
       key_pair_(key_pair),
-      request_context_getter_(request_context_getter) {
-}
+      request_context_getter_(request_context_getter) {}
 
 TokenValidatorFactoryImpl::~TokenValidatorFactoryImpl() = default;
 

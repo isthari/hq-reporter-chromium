@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 struct UrlLoadParams;
 
 // Window activity origins.  Please add new origins at the end, to keep
-// numeric values of existing origins.
+// numeric values of existing origins, and update kMaxValue.
 // If new values are added, they must also be added to the WindowActivityOrigin
 // histogram definition in //tools/metrics/histograms/enums.xml
 typedef NS_ENUM(NSInteger, WindowActivityOrigin) {
@@ -40,42 +40,44 @@ typedef NS_ENUM(NSInteger, WindowActivityOrigin) {
   WindowActivityContentSuggestionsOrigin,
   // The command origin comes from dragging a tab to create a new window.
   WindowActivityTabDragOrigin,
+  // The command origin comes from a keyboard shortcut.
+  WindowActivityKeyCommandOrigin,
   // Size of enum.
-  kMaxValue = WindowActivityTabDragOrigin
+  kMaxValue = WindowActivityKeyCommandOrigin
 };
 
 // Helper functions to create NSUserActivity instances that encode specific
 // actions in the browser, and to decode those actions from those activities.
 
-// Create a new activity that opens a new tab, loading |url| with the referrer
-// |referrer|. |in_incognito| indicates if the new tab should be incognito.
+// Create a new activity that opens a new tab, loading `url` with the referrer
+// `referrer`. `in_incognito` indicates if the new tab should be incognito.
 NSUserActivity* ActivityToLoadURL(WindowActivityOrigin origin,
                                   const GURL& url,
                                   const web::Referrer& referrer,
                                   BOOL in_incognito);
 
 // Create a new activity that opens a new regular (non-incognito) tab, loading
-// |url|.
+// `url`.
 NSUserActivity* ActivityToLoadURL(WindowActivityOrigin origin, const GURL& url);
 
 // Create a new activity that moves a tab either between browsers, or reorders
 // within a browser.
 NSUserActivity* ActivityToMoveTab(NSString* tab_id, BOOL incognito);
 
-// Returns an activity based on |activity_to_adapt| info, changing its mode to
-// follow |incognito|.
+// Returns an activity based on `activity_to_adapt` info, changing its mode to
+// follow `incognito`.
 NSUserActivity* AdaptUserActivityToIncognito(NSUserActivity* activity_to_adapt,
                                              BOOL incognito);
 
-// true if |activity| is one that indicates a URL load (including loading the
+// true if `activity` is one that indicates a URL load (including loading the
 // new tab page in a new tab).
 BOOL ActivityIsURLLoad(NSUserActivity* activity);
 
-// true if |activity| is one that indicates a tab move.
+// true if `activity` is one that indicates a tab move.
 BOOL ActivityIsTabMove(NSUserActivity* activity);
 
-// The URLLoadParams needed to perform the load defined in |activity|, if any.
-// If |activity| is not a URL load activity, the default UrlLoadParams are
+// The URLLoadParams needed to perform the load defined in `activity`, if any.
+// If `activity` is not a URL load activity, the default UrlLoadParams are
 // returned.
 UrlLoadParams LoadParamsFromActivity(NSUserActivity* activity);
 
@@ -85,7 +87,7 @@ WindowActivityOrigin OriginOfActivity(NSUserActivity* activity);
 // Returns the tab identifier from the given activity.
 NSString* GetTabIDFromActivity(NSUserActivity* activity);
 
-// Returns |true| if the activity is a tab move activity and has the incognito
+// Returns `true` if the activity is a tab move activity and has the incognito
 // flag set.
 BOOL GetIncognitoFromTabMoveActivity(NSUserActivity* activity);
 

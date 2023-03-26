@@ -1,20 +1,22 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/webauthn/cablev2_devices.h"
 
-#include <algorithm>
 #include <array>
 #include <string>
 #include <vector>
 
 #include "base/base64.h"
+#include "base/containers/contains.h"
 #include "base/feature_list.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/time/time.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/device_info_sync_service_factory.h"
 #include "chrome/common/pref_names.h"
@@ -25,6 +27,7 @@
 #include "components/sync_device_info/device_info_sync_service.h"
 #include "components/sync_device_info/device_info_tracker.h"
 #include "device/fido/cable/cable_discovery_data.h"
+#include "device/fido/cable/v2_constants.h"
 #include "device/fido/cable/v2_handshake.h"
 #include "device/fido/features.h"
 
@@ -45,7 +48,7 @@ bool CopyBytestring(std::array<uint8_t, N>* out, const std::string* value) {
     return false;
   }
 
-  std::copy(bytes.begin(), bytes.end(), out->begin());
+  base::ranges::copy(bytes, out->begin());
   return true;
 }
 
@@ -103,40 +106,122 @@ static std::string NameForDisplay(base::StringPiece raw_name) {
 
 // DeletePairingByPublicKey erases any pairing with the given public key
 // from `list`.
-void DeletePairingByPublicKey(base::Value* list,
+void DeletePairingByPublicKey(base::Value::List& list,
                               const std::string& public_key_base64) {
-  list->EraseListValueIf([&public_key_base64](const auto& value) {
+  list.EraseIf([&public_key_base64](const auto& value) {
     if (!value.is_dict()) {
       return false;
     }
-    const base::Value* pref_public_key = value.FindKey(kPairingPrefPublicKey);
-    return pref_public_key && pref_public_key->is_string() &&
-           pref_public_key->GetString() == public_key_base64;
+    const std::string* pref_public_key =
+        value.GetDict().FindString(kPairingPrefPublicKey);
+    return pref_public_key && *pref_public_key == public_key_base64;
   });
 }
+
+std::vector<std::unique_ptr<Pairing>> GetSyncedDevices(Profile* const profile) {
+  std::vector<std::unique_ptr<Pairing>> ret;
+  syncer::DeviceInfoSyncService* const sync_service =
+      DeviceInfoSyncServiceFactory::GetForProfile(profile);
+  if (!sync_service) {
+    return ret;
+  }
+
+  syncer::DeviceInfoTracker* const tracker =
+      sync_service->GetDeviceInfoTracker();
+  std::vector<std::unique_ptr<syncer::DeviceInfo>> devices =
+      tracker->GetAllDeviceInfo();
+
+  const base::Time now = base::Time::Now();
+  for (const auto& device : devices) {
+    std::unique_ptr<Pairing> pairing =
+        PairingFromSyncedDevice(device.get(), now);
+    if (!pairing) {
+      continue;
+    }
+    ret.emplace_back(std::move(pairing));
+  }
+
+  return ret;
+}
+
+std::vector<std::unique_ptr<Pairing>> GetLinkedDevices(Profile* const profile) {
+  PrefService* const prefs = profile->GetPrefs();
+  const base::Value::List& pref_pairings =
+      prefs->GetList(kWebAuthnCablePairingsPrefName);
+
+  std::vector<std::unique_ptr<Pairing>> ret;
+  for (const auto& pairing : pref_pairings) {
+    if (!pairing.is_dict()) {
+      continue;
+    }
+
+    const base::Value::Dict& dict = pairing.GetDict();
+    auto out_pairing = std::make_unique<Pairing>();
+    if (!CopyString(&out_pairing->name, dict.FindString(kPairingPrefName)) ||
+        !CopyString(&out_pairing->tunnel_server_domain,
+                    dict.FindString(kPairingPrefTunnelServer)) ||
+        !CopyBytestring(&out_pairing->contact_id,
+                        dict.FindString(kPairingPrefContactId)) ||
+        !CopyBytestring(&out_pairing->id, dict.FindString(kPairingPrefId)) ||
+        !CopyBytestring(&out_pairing->secret,
+                        dict.FindString(kPairingPrefSecret)) ||
+        !CopyBytestring(&out_pairing->peer_public_key_x962,
+                        dict.FindString(kPairingPrefPublicKey))) {
+      continue;
+    }
+
+    out_pairing->name = NameForDisplay(out_pairing->name);
+    ret.emplace_back(std::move(out_pairing));
+  }
+
+  return ret;
+}
+
+// FindUniqueName checks whether |name| is already contained in |existing_names|
+// (after projecting with |NameForDisplay|). If so it appends a counter so that
+// it isn't.
+std::string FindUniqueName(const std::string& orig_name,
+                           base::span<const base::StringPiece> existing_names) {
+  std::string name = orig_name;
+  std::string name_for_display = NameForDisplay(name);
+  for (int i = 1;; i++) {
+    if (!base::Contains(existing_names, name_for_display, &NameForDisplay)) {
+      // The new name is unique.
+      break;
+    }
+
+    // The new name collides with an existing one. Append a counter to the
+    // original and try again. (If the original string is right-to-left then
+    // the counter will appear on the left, not the right, of the string even
+    // though the codepoints are appended here.)
+    name = orig_name + " (" + base::NumberToString(i) + ")";
+    name_for_display = NameForDisplay(name);
+  }
+
+  return name;
+}
+
+}  // namespace
 
 // PairingFromSyncedDevice extracts the caBLEv2 information from Sync's
 // DeviceInfo (if any) into a caBLEv2 pairing. It may return nullptr.
 std::unique_ptr<Pairing> PairingFromSyncedDevice(syncer::DeviceInfo* device,
                                                  const base::Time& now) {
-  if (device->last_updated_timestamp() < now) {
-    const base::TimeDelta age = now - device->last_updated_timestamp();
-    if (age.InHours() > 24 * 14) {
-      // Entries older than 14 days are dropped. If changing this, consider
-      // updating `cablev2::sync::IDIsValid` too so that the mobile-side is
-      // aligned.
-      return nullptr;
-    }
-  }
-
   const absl::optional<syncer::DeviceInfo::PhoneAsASecurityKeyInfo>&
       maybe_paask_info = device->paask_info();
   if (!maybe_paask_info) {
     return nullptr;
   }
-
   const syncer::DeviceInfo::PhoneAsASecurityKeyInfo& paask_info =
       *maybe_paask_info;
+
+  if (device::cablev2::sync::IDIsMoreThanNPeriodsOld(
+          paask_info.id, device::cablev2::kMaxSyncInfoDaysForConsumer)) {
+    // Old entries are dropped as phones won't honor linking information that is
+    // excessively old.
+    return nullptr;
+  }
+
   auto pairing = std::make_unique<Pairing>();
   pairing->from_sync_deviceinfo = true;
   pairing->name = NameForDisplay(device->client_name());
@@ -183,95 +268,6 @@ std::unique_ptr<Pairing> PairingFromSyncedDevice(syncer::DeviceInfo* device,
 
   return pairing;
 }
-
-std::vector<std::unique_ptr<Pairing>> GetSyncedDevices(Profile* const profile) {
-  std::vector<std::unique_ptr<Pairing>> ret;
-  syncer::DeviceInfoSyncService* const sync_service =
-      DeviceInfoSyncServiceFactory::GetForProfile(profile);
-  if (!sync_service) {
-    return ret;
-  }
-
-  syncer::DeviceInfoTracker* const tracker =
-      sync_service->GetDeviceInfoTracker();
-  std::vector<std::unique_ptr<syncer::DeviceInfo>> devices =
-      tracker->GetAllDeviceInfo();
-
-  const base::Time now = base::Time::Now();
-  for (const auto& device : devices) {
-    std::unique_ptr<Pairing> pairing =
-        PairingFromSyncedDevice(device.get(), now);
-    if (!pairing) {
-      continue;
-    }
-    ret.emplace_back(std::move(pairing));
-  }
-
-  return ret;
-}
-
-std::vector<std::unique_ptr<Pairing>> GetLinkedDevices(Profile* const profile) {
-  PrefService* const prefs = profile->GetPrefs();
-  const base::Value* pref_pairings =
-      prefs->GetList(kWebAuthnCablePairingsPrefName);
-
-  std::vector<std::unique_ptr<Pairing>> ret;
-  for (const auto& pairing : pref_pairings->GetList()) {
-    if (!pairing.is_dict()) {
-      continue;
-    }
-
-    auto out_pairing = std::make_unique<Pairing>();
-    if (!CopyString(&out_pairing->name,
-                    pairing.FindStringKey(kPairingPrefName)) ||
-        !CopyString(&out_pairing->tunnel_server_domain,
-                    pairing.FindStringKey(kPairingPrefTunnelServer)) ||
-        !CopyBytestring(&out_pairing->contact_id,
-                        pairing.FindStringKey(kPairingPrefContactId)) ||
-        !CopyBytestring(&out_pairing->id,
-                        pairing.FindStringKey(kPairingPrefId)) ||
-        !CopyBytestring(&out_pairing->secret,
-                        pairing.FindStringKey(kPairingPrefSecret)) ||
-        !CopyBytestring(&out_pairing->peer_public_key_x962,
-                        pairing.FindStringKey(kPairingPrefPublicKey))) {
-      continue;
-    }
-
-    out_pairing->name = NameForDisplay(out_pairing->name);
-    ret.emplace_back(std::move(out_pairing));
-  }
-
-  return ret;
-}
-
-// FindUniqueName checks whether |name| is already contained in |existing_names|
-// (after projecting with |NameForDisplay|). If so it appends a counter so that
-// it isn't.
-std::string FindUniqueName(const std::string& orig_name,
-                           base::span<const base::StringPiece> existing_names) {
-  std::string name = orig_name;
-  std::string name_for_display = NameForDisplay(name);
-  for (int i = 1;; i++) {
-    if (std::none_of(existing_names.begin(), existing_names.end(),
-                     [&name_for_display](base::StringPiece s) -> bool {
-                       return NameForDisplay(s) == name_for_display;
-                     })) {
-      // The new name is unique.
-      break;
-    }
-
-    // The new name collides with an existing one. Append a counter to the
-    // original and try again. (If the original string is right-to-left then
-    // the counter will appear on the left, not the right, of the string even
-    // though the codepoints are appended here.)
-    name = orig_name + " (" + base::NumberToString(i) + ")";
-    name_for_display = NameForDisplay(name);
-  }
-
-  return name;
-}
-
-}  // namespace
 
 void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterListPref(kWebAuthnCablePairingsPrefName,
@@ -349,49 +345,40 @@ std::vector<base::StringPiece> KnownDevices::Names() const {
   return names;
 }
 
-void AddPairing(PrefService* pref_service,
-                std::unique_ptr<Pairing> pairing,
-                base::span<const base::StringPiece> existing_names) {
+void AddPairing(Profile* profile, std::unique_ptr<Pairing> pairing) {
   // This is called when doing a QR-code pairing with a phone and the phone
   // sends long-term pairing information during the handshake. The pairing
   // information is saved in preferences for future operations.
-  if (!base::FeatureList::IsEnabled(device::kWebAuthPhoneSupport)) {
-    NOTREACHED();
-    return;
-  }
-
-  const std::string name = FindUniqueName(pairing->name, existing_names);
-
-  // For Incognito/Guest profiles, pairings will only last for the duration of
-  // that session. While an argument could be made that it's safe to persist
-  // such pairing for longer, this seems like the safe option initially.
-  ListPrefUpdate update(pref_service, kWebAuthnCablePairingsPrefName);
+  ScopedListPrefUpdate update(profile->GetPrefs(),
+                              kWebAuthnCablePairingsPrefName);
 
   // Find any existing entries with the same public key and replace them. The
   // handshake protocol requires the phone to prove possession of the public
   // key so it's not possible for an evil phone to displace another's pairing.
   std::string public_key_base64 =
       base::Base64Encode(pairing->peer_public_key_x962);
-  DeletePairingByPublicKey(update.Get(), public_key_base64);
+  DeletePairingByPublicKey(*update, public_key_base64);
 
-  base::Value dict(base::Value::Type::DICTIONARY);
-  dict.SetKey(kPairingPrefPublicKey, base::Value(std::move(public_key_base64)));
-  dict.SetKey(kPairingPrefTunnelServer,
-              base::Value(pairing->tunnel_server_domain));
-  dict.SetKey(kPairingPrefName, base::Value(std::move(name)));
-  dict.SetKey(kPairingPrefContactId,
-              base::Value(base::Base64Encode(pairing->contact_id)));
-  dict.SetKey(kPairingPrefId, base::Value(base::Base64Encode(pairing->id)));
-  dict.SetKey(kPairingPrefSecret,
-              base::Value(base::Base64Encode(pairing->secret)));
+  base::Value::Dict dict;
+  dict.Set(kPairingPrefPublicKey, std::move(public_key_base64));
+  dict.Set(kPairingPrefTunnelServer, pairing->tunnel_server_domain);
+  // `Names` is called without calling `MergeDevices` because that function will
+  // discard linked entries with duplicate public keys, which can hide some
+  // names that we would still like to avoid colliding with.
+  dict.Set(kPairingPrefName,
+           FindUniqueName(pairing->name,
+                          KnownDevices::FromProfile(profile)->Names()));
+  dict.Set(kPairingPrefContactId, base::Base64Encode(pairing->contact_id));
+  dict.Set(kPairingPrefId, base::Base64Encode(pairing->id));
+  dict.Set(kPairingPrefSecret, base::Base64Encode(pairing->secret));
 
   base::Time::Exploded now;
   base::Time::Now().UTCExplode(&now);
-  dict.SetKey(kPairingPrefTime,
-              // RFC 3339 time format.
-              base::Value(base::StringPrintf(
-                  "%04d-%02d-%02dT%02d:%02d:%02dZ", now.year, now.month,
-                  now.day_of_month, now.hour, now.minute, now.second)));
+  dict.Set(
+      kPairingPrefTime,
+      // RFC 3339 time format.
+      base::StringPrintf("%04d-%02d-%02dT%02d:%02d:%02dZ", now.year, now.month,
+                         now.day_of_month, now.hour, now.minute, now.second));
 
   update->Append(std::move(dict));
 }
@@ -401,8 +388,8 @@ void AddPairing(PrefService* pref_service,
 void DeletePairingByPublicKey(
     PrefService* pref_service,
     std::array<uint8_t, device::kP256X962Length> public_key) {
-  ListPrefUpdate update(pref_service, kWebAuthnCablePairingsPrefName);
-  DeletePairingByPublicKey(update.Get(), base::Base64Encode(public_key));
+  ScopedListPrefUpdate update(pref_service, kWebAuthnCablePairingsPrefName);
+  DeletePairingByPublicKey(*update, base::Base64Encode(public_key));
 }
 
 bool RenamePairing(
@@ -413,17 +400,17 @@ bool RenamePairing(
   const std::string name = FindUniqueName(new_name, existing_names);
   const std::string public_key_base64 = base::Base64Encode(public_key);
 
-  ListPrefUpdate update(pref_service, kWebAuthnCablePairingsPrefName);
-  base::Value::ListView list = update.Get()->GetList();
+  ScopedListPrefUpdate update(pref_service, kWebAuthnCablePairingsPrefName);
 
-  for (base::Value& value : list) {
+  for (base::Value& value : *update) {
     if (!value.is_dict()) {
       continue;
     }
-    const std::string* pref_public_key =
-        value.FindStringKey(kPairingPrefPublicKey);
+
+    base::Value::Dict& dict = value.GetDict();
+    const std::string* pref_public_key = dict.FindString(kPairingPrefPublicKey);
     if (pref_public_key && *pref_public_key == public_key_base64) {
-      value.SetKey(kPairingPrefName, base::Value(std::move(name)));
+      dict.Set(kPairingPrefName, std::move(name));
       return true;
     }
   }

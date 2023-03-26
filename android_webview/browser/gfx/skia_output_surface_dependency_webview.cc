@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include "android_webview/browser/gfx/gpu_service_webview.h"
 #include "android_webview/browser/gfx/task_forwarding_sequence.h"
 #include "android_webview/browser/gfx/task_queue_webview.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
-#include "gpu/ipc/gpu_task_scheduler_helper.h"
+#include "gpu/command_buffer/service/gpu_task_scheduler_helper.h"
 #include "ui/gl/gl_surface.h"
 
 namespace android_webview {
@@ -39,7 +39,8 @@ SkiaOutputSurfaceDependencyWebView::~SkiaOutputSurfaceDependencyWebView() =
 std::unique_ptr<gpu::SingleTaskSequence>
 SkiaOutputSurfaceDependencyWebView::CreateSequence() {
   return std::make_unique<TaskForwardingSequence>(
-      this->task_queue_, this->gpu_service_->sync_point_manager());
+      task_queue_, gpu_service_->sync_point_manager(),
+      gpu_service_->scheduler());
 }
 
 gpu::SharedImageManager*
@@ -95,13 +96,9 @@ void SkiaOutputSurfaceDependencyWebView::ScheduleGrContextCleanup() {
   // There is no way to access the gpu thread here, so leave it no-op for now.
 }
 
-void SkiaOutputSurfaceDependencyWebView::PostTaskToClientThread(
-    base::OnceClosure closure) {
-  task_queue_->ScheduleClientTask(std::move(closure));
-}
-
-gpu::ImageFactory* SkiaOutputSurfaceDependencyWebView::GetGpuImageFactory() {
-  return nullptr;
+scoped_refptr<base::TaskRunner>
+SkiaOutputSurfaceDependencyWebView::GetClientTaskRunner() {
+  return task_queue_->GetClientTaskRunner();
 }
 
 bool SkiaOutputSurfaceDependencyWebView::IsOffscreen() {
@@ -112,6 +109,12 @@ gpu::SurfaceHandle SkiaOutputSurfaceDependencyWebView::GetSurfaceHandle() {
   return gpu::kNullSurfaceHandle;
 }
 
+scoped_refptr<gl::Presenter>
+SkiaOutputSurfaceDependencyWebView::CreatePresenter(
+    base::WeakPtr<gpu::ImageTransportSurfaceDelegate> stub,
+    gl::GLSurfaceFormat format) {
+  return nullptr;
+}
 scoped_refptr<gl::GLSurface>
 SkiaOutputSurfaceDependencyWebView::CreateGLSurface(
     base::WeakPtr<gpu::ImageTransportSurfaceDelegate> stub,
@@ -119,20 +122,16 @@ SkiaOutputSurfaceDependencyWebView::CreateGLSurface(
   return gl_surface_.get();
 }
 
-base::ScopedClosureRunner SkiaOutputSurfaceDependencyWebView::CacheGLSurface(
-    gl::GLSurface* surface) {
+base::ScopedClosureRunner SkiaOutputSurfaceDependencyWebView::CachePresenter(
+    gl::Presenter* presenter) {
   NOTREACHED();
   return base::ScopedClosureRunner();
 }
 
-void SkiaOutputSurfaceDependencyWebView::RegisterDisplayContext(
-    gpu::DisplayContext* display_context) {
-  // No GpuChannelManagerDelegate here, so leave it no-op for now.
-}
-
-void SkiaOutputSurfaceDependencyWebView::UnregisterDisplayContext(
-    gpu::DisplayContext* display_context) {
-  // No GpuChannelManagerDelegate here, so leave it no-op for now.
+base::ScopedClosureRunner SkiaOutputSurfaceDependencyWebView::CacheGLSurface(
+    gl::GLSurface* surface) {
+  NOTREACHED();
+  return base::ScopedClosureRunner();
 }
 
 void SkiaOutputSurfaceDependencyWebView::DidLoseContext(
@@ -155,6 +154,11 @@ void SkiaOutputSurfaceDependencyWebView::ScheduleDelayedGPUTaskFromGPUThread(
 
 bool SkiaOutputSurfaceDependencyWebView::NeedsSupportForExternalStencil() {
   return true;
+}
+
+bool SkiaOutputSurfaceDependencyWebView::IsUsingCompositorGpuThread() {
+  // Webview never uses CompositorGpuThread aka DrDc thread.
+  return false;
 }
 
 }  // namespace android_webview

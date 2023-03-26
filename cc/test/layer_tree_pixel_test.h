@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,10 +27,6 @@ class ScopedFeatureList;
 }
 }  // namespace base
 
-namespace gfx {
-class ColorSpace;
-}
-
 namespace viz {
 class CopyOutputRequest;
 class CopyOutputResult;
@@ -55,11 +51,10 @@ class LayerTreePixelTest : public LayerTreeTest {
       override;
   std::unique_ptr<viz::DisplayCompositorMemoryAndTaskController>
   CreateDisplayControllerOnThread() override;
-  std::unique_ptr<viz::SkiaOutputSurface>
-  CreateDisplaySkiaOutputSurfaceOnThread(
+  std::unique_ptr<viz::SkiaOutputSurface> CreateSkiaOutputSurfaceOnThread(
       viz::DisplayCompositorMemoryAndTaskController*) override;
-  std::unique_ptr<viz::OutputSurface> CreateDisplayOutputSurfaceOnThread(
-      scoped_refptr<viz::ContextProvider> compositor_context_provider) override;
+  std::unique_ptr<viz::OutputSurface> CreateSoftwareOutputSurfaceOnThread()
+      override;
   void DrawLayersOnThread(LayerTreeHostImpl* host_impl) override;
   void InitializeSettings(LayerTreeSettings* settings) override;
 
@@ -103,13 +98,6 @@ class LayerTreePixelTest : public LayerTreeTest {
   void RunPixelTestWithReadbackTarget(scoped_refptr<Layer> content_root,
                                       Layer* target,
                                       base::FilePath file_name);
-
-  SkBitmap CopyMailboxToBitmap(const gfx::Size& size,
-                               const gpu::Mailbox& mailbox,
-                               const gpu::SyncToken& sync_token,
-                               const gfx::ColorSpace& color_space);
-
-  void Finish();
 
   // Allow tests to enlarge the backing texture for a non-root render pass, to
   // simulate reusing a larger texture from a previous frame for a new

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -386,8 +386,8 @@ public class ChromeTabUtils {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             normalTabModel.addObserver(new TabModelObserver() {
                 @Override
-                public void didAddTab(
-                        Tab tab, @TabLaunchType int type, @TabCreationState int creationState) {
+                public void didAddTab(Tab tab, @TabLaunchType int type,
+                        @TabCreationState int creationState, boolean markedForSelection) {
                     createdCallback.notifyCalled();
                     normalTabModel.removeObserver(this);
                 }
@@ -434,8 +434,8 @@ public class ChromeTabUtils {
         TabModel tabModel = activity.getTabModelSelector().getModel(incognito);
         TabModelObserver observer = new TabModelObserver() {
             @Override
-            public void didAddTab(
-                    Tab tab, @TabLaunchType int type, @TabCreationState int creationState) {
+            public void didAddTab(Tab tab, @TabLaunchType int type,
+                    @TabCreationState int creationState, boolean markedForSelection) {
                 createdCallback.notifyCalled();
             }
 
@@ -557,7 +557,7 @@ public class ChromeTabUtils {
         final CallbackHelper closeCallback = new CallbackHelper();
         final TabModelObserver observer = new TabModelObserver() {
             @Override
-            public void willCloseTab(Tab tab, boolean animate) {
+            public void willCloseTab(Tab tab, boolean animate, boolean didCloseAlone) {
                 closeCallback.notifyCalled();
             }
         };
@@ -750,8 +750,8 @@ public class ChromeTabUtils {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             tabModel.addObserver(new TabModelObserver() {
                 @Override
-                public void didAddTab(
-                        Tab tab, @TabLaunchType int type, @TabCreationState int creationState) {
+                public void didAddTab(Tab tab, @TabLaunchType int type,
+                        @TabCreationState int creationState, boolean markedForSelection) {
                     if (TextUtils.equals(expectedUrl, tab.getUrl().getSpec())) {
                         createdCallback.notifyCalled();
                         tabModel.removeObserver(this);
@@ -802,8 +802,8 @@ public class ChromeTabUtils {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             tabModel.addObserver(new TabModelObserver() {
                 @Override
-                public void didAddTab(
-                        Tab tab, @TabLaunchType int type, @TabCreationState int creationState) {
+                public void didAddTab(Tab tab, @TabLaunchType int type,
+                        @TabCreationState int creationState, boolean markedForSelection) {
                     if (TextUtils.equals(expectedUrl, tab.getUrl().getSpec())) {
                         createdCallback.notifyCalled();
                         tabModel.removeObserver(this);
@@ -834,13 +834,11 @@ public class ChromeTabUtils {
      * Issues a fake notification about the renderer being killed.
      *
      * @param tab {@link Tab} instance where the target renderer resides.
-     * @param wasOomProtected True if the renderer was protected from the OS out-of-memory killer
-     *                        (e.g. renderer for the currently selected tab)
      */
-    public static void simulateRendererKilledForTesting(Tab tab, boolean wasOomProtected) {
+    public static void simulateRendererKilledForTesting(Tab tab) {
         TabWebContentsObserver observer = TabWebContentsObserver.get(tab);
         if (observer != null) {
-            observer.simulateRendererKilledForTesting(wasOomProtected);
+            observer.simulateRendererKilledForTesting();
         }
     }
 

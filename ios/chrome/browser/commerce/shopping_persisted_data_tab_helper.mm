@@ -1,16 +1,16 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/commerce/shopping_persisted_data_tab_helper.h"
 
-#include "base/metrics/histogram_functions.h"
-#include "base/strings/string_number_conversions.h"
-#include "base/strings/stringprintf.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/strings/utf_string_conversions.h"
-#include "components/optimization_guide/core/optimization_metadata.h"
-#import "ios/chrome/browser/application_context.h"
+#import "base/metrics/histogram_functions.h"
+#import "base/strings/string_number_conversions.h"
+#import "base/strings/stringprintf.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/strings/utf_string_conversions.h"
+#import "components/optimization_guide/core/optimization_metadata.h"
+#import "ios/chrome/browser/application_context/application_context.h"
 #import "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/commerce/price_alert_util.h"
 #import "ios/chrome/browser/optimization_guide/optimization_guide_service.h"
@@ -79,27 +79,9 @@ ShoppingPersistedDataTabHelper::PriceDrop::PriceDrop()
 
 ShoppingPersistedDataTabHelper::PriceDrop::~PriceDrop() = default;
 
-void ShoppingPersistedDataTabHelper::CreateForWebState(
-    web::WebState* web_state) {
-  if (FromWebState(web_state))
-    return;
-  web_state->SetUserData(
-      UserDataKey(),
-      base::WrapUnique(new ShoppingPersistedDataTabHelper(web_state)));
-  OptimizationGuideService* optimization_guide_service =
-      OptimizationGuideServiceFactory::GetForBrowserState(
-          ChromeBrowserState::FromBrowserState(web_state->GetBrowserState()));
-  if (!optimization_guide_service)
-    return;
-
-  optimization_guide_service->RegisterOptimizationTypes(
-      {optimization_guide::proto::PRICE_TRACKING});
-}
-
 const ShoppingPersistedDataTabHelper::PriceDrop*
 ShoppingPersistedDataTabHelper::GetPriceDrop() {
-  if (!IsPriceAlertsEligible(web_state_->GetBrowserState()) ||
-      !IsPriceAlertsEnabled())
+  if (!IsPriceAlertsEligible(web_state_->GetBrowserState()))
     return nullptr;
   const GURL& url = web_state_->GetLastCommittedURL().is_valid()
                         ? web_state_->GetLastCommittedURL()
@@ -127,17 +109,7 @@ ShoppingPersistedDataTabHelper::GetPriceDrop() {
 }
 
 void ShoppingPersistedDataTabHelper::LogMetrics(PriceDropLogId log_id) {
-  // Approximate time the Tab was last accessed based on the last committed
-  // NavigationEntry
-  // TODO(crbug.com/1291626): Remove this once timestamp can be accessed
-  // without realizing the web state.
-  if (!web_state_->IsRealized())
-    return;
-  web::NavigationItem* navigation_item =
-      web_state_->GetNavigationManager()->GetLastCommittedItem();
-  if (!navigation_item)
-    return;
-  const char* tab_status = GetTabStatusString(navigation_item->GetTimestamp());
+  const char* tab_status = GetTabStatusString(web_state_->GetLastActiveTime());
   const char* log_id_string = GetLogIdString(log_id);
   base::UmaHistogramBoolean(
       base::StringPrintf("Commerce.PriceDrops.%s%s.ContainsPrice", tab_status,
@@ -157,6 +129,16 @@ ShoppingPersistedDataTabHelper::ShoppingPersistedDataTabHelper(
     web::WebState* web_state)
     : web_state_(web_state) {
   web_state_->AddObserver(this);
+
+  OptimizationGuideService* optimization_guide_service =
+      OptimizationGuideServiceFactory::GetForBrowserState(
+          ChromeBrowserState::FromBrowserState(web_state_->GetBrowserState()));
+
+  if (!optimization_guide_service)
+    return;
+
+  optimization_guide_service->RegisterOptimizationTypes(
+      {optimization_guide::proto::PRICE_TRACKING});
 }
 
 // static
@@ -190,8 +172,7 @@ std::u16string ShoppingPersistedDataTabHelper::FormatPrice(
 void ShoppingPersistedDataTabHelper::DidFinishNavigation(
     web::WebState* web_state,
     web::NavigationContext* navigation_context) {
-  if (!IsPriceAlertsEligible(web_state->GetBrowserState()) ||
-      !IsPriceAlertsEnabled())
+  if (!IsPriceAlertsEligible(web_state->GetBrowserState()))
     return;
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -236,7 +217,7 @@ payments::CurrencyFormatter*
 ShoppingPersistedDataTabHelper::GetCurrencyFormatter(
     const std::string& currency_code,
     const std::string& locale_name) {
-  // Create a currency formatter for |currency_code|, or if already created
+  // Create a currency formatter for `currency_code`, or if already created
   // return the cached version.
   std::pair<std::map<std::string, payments::CurrencyFormatter>::iterator, bool>
       emplace_result = currency_formatter_map_.emplace(

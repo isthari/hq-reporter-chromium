@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,8 +25,6 @@ LayerTreeHostPixelResourceTest::LayerTreeHostPixelResourceTest(
 
 const char* LayerTreeHostPixelResourceTest::GetRendererSuffix() const {
   switch (renderer_type_) {
-    case viz::RendererType::kGL:
-      return "gl";
     case viz::RendererType::kSkiaGL:
       return "skia_gl";
     case viz::RendererType::kSkiaVk:

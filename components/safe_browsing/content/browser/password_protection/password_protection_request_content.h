@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,7 +36,7 @@ class WebContents;
 
 namespace safe_browsing {
 
-class PasswordProtectionNavigationThrottle;
+class PasswordProtectionCommitDeferringCondition;
 
 using password_manager::metrics_util::PasswordType;
 
@@ -66,17 +66,25 @@ class PasswordProtectionRequestContent : public PasswordProtectionRequest {
     return base::AsWeakPtr(this);
   }
 
-  // Keeps track of created navigation throttle.
-  void AddThrottle(PasswordProtectionNavigationThrottle* throttle) {
-    throttles_.insert(throttle);
+  // Keeps track of deferred navigations.
+  void AddDeferredNavigation(
+      PasswordProtectionCommitDeferringCondition& condition) {
+    deferred_navigations_.insert(&condition);
   }
 
-  void RemoveThrottle(PasswordProtectionNavigationThrottle* throttle) {
-    throttles_.erase(throttle);
+  void RemoveDeferredNavigation(
+      PasswordProtectionCommitDeferringCondition& condition) {
+    deferred_navigations_.erase(&condition);
   }
 
-  // Cancels navigation if there is modal warning showing, resumes it otherwise.
-  void HandleDeferredNavigations();
+  // Resumes any navigations that were deferred waiting on this request or any
+  // associated modal warning dialog.
+  void ResumeDeferredNavigations();
+
+  std::set<PasswordProtectionCommitDeferringCondition*>&
+  get_deferred_navigations_for_testing() {
+    return deferred_navigations_;
+  }
 
  private:
   friend class PasswordProtectionServiceTest;
@@ -132,10 +140,9 @@ class PasswordProtectionRequestContent : public PasswordProtectionRequest {
   // Cancels the request when it is no longer valid.
   std::unique_ptr<RequestCanceler> request_canceler_;
 
-  // Navigation throttles created for this |web_contents_| during |this|'s
-  // lifetime. These throttles are owned by their corresponding
-  // NavigationHandler instances.
-  std::set<PasswordProtectionNavigationThrottle*> throttles_;
+  // Tracks navigations that are deferred on this request and any associated
+  // modal dialog.
+  std::set<PasswordProtectionCommitDeferringCondition*> deferred_navigations_;
 
   // If a request is sent, this is the token returned by the WebUI.
   int web_ui_token_;
@@ -146,11 +153,6 @@ class PasswordProtectionRequestContent : public PasswordProtectionRequest {
 
   // The Mojo pipe used for extracting DOM features from the renderer.
   mojo::Remote<safe_browsing::mojom::PhishingDetector> phishing_detector_;
-
-  // When we start extracting DOM features. Used to compute the duration of DOM
-  // feature extraction, which is logged at
-  // PasswordProtection.DomFeatureExtractionDuration.
-  base::TimeTicks dom_feature_start_time_;
 
   // Whether the DOM features collection is finished, either by timeout or by
   // successfully gathering the features.

@@ -1,8 +1,30 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-/* #js_imports_placeholder */
+import '//resources/ash/common/quick_unlock/setup_pin_keyboard.js';
+import '//resources/cr_elements/cr_input/cr_input.js';
+import '//resources/cr_elements/cr_shared_style.css.js';
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '../../components/oobe_icons.html.js';
+import '../../components/common_styles/oobe_common_styles.css.js';
+import '../../components/common_styles/oobe_dialog_host_styles.css.js';
+import '../../components/dialogs/oobe_adaptive_dialog.js';
+import '../../components/buttons/oobe_back_button.js';
+import '../../components/buttons/oobe_next_button.js';
+import '../../components/buttons/oobe_text_button.js';
+
+import {assert, assertNotReached} from '//resources/ash/common/assert.js';
+import {I18nBehavior} from '//resources/ash/common/i18n_behavior.js';
+import {recordLockScreenProgress} from '//resources/ash/common/quick_unlock/lock_screen_constants.js';
+import {dom, html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.js';
+import {MultiStepBehavior, MultiStepBehaviorInterface} from '../../components/behaviors/multi_step_behavior.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
+import {OOBE_UI_STATE, SCREEN_GAIA_SIGNIN} from '../../components/display_manager_types.js';
+import {OobeTypes} from '../../components/oobe_types.js';
+
 
 const PinSetupState = {
   START: 'start',
@@ -16,9 +38,8 @@ const PinSetupState = {
  * @implements {LoginScreenBehaviorInterface}
  * @implements {MultiStepBehaviorInterface}
  */
- const PinSetupBase = Polymer.mixinBehaviors(
-  [OobeI18nBehavior, LoginScreenBehavior, MultiStepBehavior],
-  Polymer.Element);
+const PinSetupBase = mixinBehaviors(
+    [OobeI18nBehavior, LoginScreenBehavior, MultiStepBehavior], PolymerElement);
 
 /**
  * @polymer
@@ -29,7 +50,9 @@ class PinSetup extends PinSetupBase {
     return 'pin-setup-element';
   }
 
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   static get properties() {
     return {
@@ -78,8 +101,8 @@ class PinSetup extends PinSetupBase {
       writeUma_: {
         type: Object,
         value() {
-          return settings.recordLockScreenProgress;
-        }
+          return recordLockScreenProgress;
+        },
       },
 
       /**
@@ -117,9 +140,7 @@ class PinSetup extends PinSetupBase {
 
   ready() {
     super.ready();
-    this.initializeLoginScreen('PinSetupScreen', {
-      resetAllowed: true,
-    });
+    this.initializeLoginScreen('PinSetupScreen');
   }
 
   defaultUIStep() {
@@ -165,8 +186,9 @@ class PinSetup extends PinSetupBase {
 
   /** @private */
   onIsConfirmStepChanged_() {
-    if (this.isConfirmStep_)
+    if (this.isConfirmStep_) {
       this.setUIStep(PinSetupState.CONFIRM);
+    }
   }
 
   /** @private */

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,9 +31,6 @@ class DeviceAccountsProviderImpl : public DeviceAccountsProvider {
                       const std::set<std::string>& scopes,
                       AccessTokenCallback callback) override;
   std::vector<AccountInfo> GetAllAccounts() const override;
-  AuthenticationErrorCategory GetAuthenticationErrorCategory(
-      const std::string& gaia_id,
-      NSError* error) const override;
 
  private:
   ChromeAccountManagerService* account_manager_service_ = nullptr;

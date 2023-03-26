@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -163,10 +163,6 @@ const wchar_t* GetSandboxSidPrefix();
 
 // Returns the brand-specific safe browsing client name.
 std::string GetSafeBrowsingName();
-
-// Returns the hostname of the device management server url or an empty string
-// if the brand does not restrict runtime-configured server URLs.
-const char* GetDeviceManagementServerHostName();
 
 // Returns true if usage stats collecting is enabled for this user for the
 // current executable.

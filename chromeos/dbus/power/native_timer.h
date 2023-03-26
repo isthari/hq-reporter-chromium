@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -44,6 +43,9 @@ class COMPONENT_EXPORT(DBUS_POWER) NativeTimer {
   void Start(base::TimeTicks absolute_expiration_time,
              base::OnceClosure timer_expiration_callback,
              OnStartNativeTimerCallback result_callback);
+
+  // Simulates timer creation failure in tests
+  static void SimulateTimerCreationFailureForTesting();
 
  private:
   struct StartTimerParams;
@@ -91,6 +93,9 @@ class COMPONENT_EXPORT(DBUS_POWER) NativeTimer {
   // Watches |expiration_fd_| for an event.
   std::unique_ptr<base::FileDescriptorWatcher::Controller>
       expiration_fd_watcher_;
+
+  // Indicating if the timer creation should fail. Only set by tests.
+  static bool simulate_timer_creation_failure_for_testing_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

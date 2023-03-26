@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
@@ -94,7 +94,7 @@ class UpdateService : public KeyedService,
 
   // This function is executed by the update client after an update check
   // request has completed.
-  void UpdateCheckComplete(InProgressUpdate update, update_client::Error error);
+  void UpdateCheckComplete(InProgressUpdate update);
 
   // Adds/Removes observer to/from |update_client::UpdateClient|.
   // Mainly used for browser tests.
@@ -105,7 +105,8 @@ class UpdateService : public KeyedService,
   void HandleComponentUpdateFoundEvent(const std::string& extension_id) const;
 
   // Get the extension Omaha attributes sent from update config.
-  base::Value GetExtensionOmahaAttributes(const std::string& extension_id);
+  base::Value::Dict GetExtensionOmahaAttributes(
+      const std::string& extension_id);
 
  private:
   raw_ptr<content::BrowserContext> browser_context_;

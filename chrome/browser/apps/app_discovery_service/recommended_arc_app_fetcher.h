@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,7 +28,7 @@ class RecommendedArcAppFetcher : public AppFetcher,
   void GetApps(ResultCallback callback) override;
 
   // RecommendAppsFetcherDelegate:
-  void OnLoadSuccess(const base::Value& app_list) override;
+  void OnLoadSuccess(base::Value app_list) override;
   void OnLoadError() override;
   void OnParseResponseError() override;
 

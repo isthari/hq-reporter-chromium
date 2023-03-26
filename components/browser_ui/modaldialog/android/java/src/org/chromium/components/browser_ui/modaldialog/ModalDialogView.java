@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@ package org.chromium.components.browser_ui.modaldialog;
 
 import android.content.Context;
 import android.graphics.drawable.Drawable;
-import android.os.Build;
 import android.text.TextUtils;
 import android.text.method.LinkMovementMethod;
 import android.util.AttributeSet;
@@ -22,6 +21,7 @@ import androidx.annotation.IntDef;
 import org.chromium.base.Callback;
 import org.chromium.base.Log;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.components.browser_ui.widget.BoundedLinearLayout;
 import org.chromium.components.browser_ui.widget.FadingEdgeScrollView;
 import org.chromium.ui.UiUtils;
@@ -56,8 +56,10 @@ public class ModalDialogView extends BoundedLinearLayout implements View.OnClick
     private ViewGroup mTitleContainer;
     private TextView mTitleView;
     private ImageView mTitleIcon;
-    private TextView mMessageView;
+    private TextView mMessageParagraph1;
+    private TextView mMessageParagraph2;
     private ViewGroup mCustomViewContainer;
+    private ViewGroup mCustomButtonBarViewContainer;
     private View mButtonBar;
     private Button mPositiveButton;
     private Button mNegativeButton;
@@ -66,6 +68,8 @@ public class ModalDialogView extends BoundedLinearLayout implements View.OnClick
     private boolean mFilterTouchForSecurity;
     private boolean mFilteredTouchResultRecorded;
     private Runnable mOnTouchFilteredCallback;
+    private ViewGroup mFooterContainer;
+    private TextView mFooterMessageView;
 
     /**
      * Constructor for inflating from XML.
@@ -82,15 +86,22 @@ public class ModalDialogView extends BoundedLinearLayout implements View.OnClick
         mTitleContainer = findViewById(R.id.title_container);
         mTitleView = mTitleContainer.findViewById(R.id.title);
         mTitleIcon = mTitleContainer.findViewById(R.id.title_icon);
-        mMessageView = findViewById(R.id.message);
+        mMessageParagraph1 = findViewById(R.id.message_paragraph_1);
+        mMessageParagraph2 = findViewById(R.id.message_paragraph_2);
         mCustomViewContainer = findViewById(R.id.custom);
+        mCustomButtonBarViewContainer = findViewById(R.id.custom_button_bar);
         mButtonBar = findViewById(R.id.button_bar);
         mPositiveButton = findViewById(R.id.positive_button);
         mNegativeButton = findViewById(R.id.negative_button);
+        mFooterContainer = findViewById(R.id.footer);
+        mFooterMessageView = findViewById(R.id.footer_message);
 
         mPositiveButton.setOnClickListener(this);
         mNegativeButton.setOnClickListener(this);
-        mMessageView.setMovementMethod(LinkMovementMethod.getInstance());
+        mMessageParagraph1.setMovementMethod(LinkMovementMethod.getInstance());
+        mFooterMessageView.setMovementMethod(LinkMovementMethod.getInstance());
+        mFooterContainer.setBackgroundColor(
+                ChromeColors.getSurfaceColor(getContext(), R.dimen.default_elevation_1));
         updateContentVisibility();
         updateButtonVisibility();
 
@@ -214,10 +225,6 @@ public class ModalDialogView extends BoundedLinearLayout implements View.OnClick
         Button positiveButton = getButton(ModalDialogProperties.ButtonType.POSITIVE);
         Button negativeButton = getButton(ModalDialogProperties.ButtonType.NEGATIVE);
         View.OnTouchListener onTouchListener = (View v, MotionEvent ev) -> {
-            // Filter touch events based MotionEvent.FLAG_WINDOW_IS_PARTIALLY_OBSCURED which is
-            // introduced on M+.
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false;
-
             boolean shouldBlockTouchEvent = false;
 
             try {
@@ -257,8 +264,17 @@ public class ModalDialogView extends BoundedLinearLayout implements View.OnClick
     }
 
     /** @param message The message in the dialog content. */
-    void setMessage(CharSequence message) {
-        mMessageView.setText(message);
+    void setMessageParagraph1(CharSequence message) {
+        mMessageParagraph1.setText(message);
+        updateContentVisibility();
+    }
+
+    /**
+     * @param message The message shown below the text set via
+     *         {@link #setMessageParagraph1(CharSequence)} when both are set.
+     */
+    void setMessageParagraph2(CharSequence message) {
+        mMessageParagraph2.setText(message);
         updateContentVisibility();
     }
 
@@ -273,6 +289,25 @@ public class ModalDialogView extends BoundedLinearLayout implements View.OnClick
         } else {
             mCustomViewContainer.setVisibility(View.GONE);
         }
+    }
+
+    /** @param view The customized button bar for the dialog. */
+    void setCustomButtonBar(View view) {
+        if (mCustomButtonBarViewContainer.getChildCount() > 0) {
+            mCustomButtonBarViewContainer.removeAllViews();
+        }
+
+        if (view != null) {
+            UiUtils.removeViewFromParent(view);
+            mCustomButtonBarViewContainer.addView(view);
+            mCustomButtonBarViewContainer.setVisibility(View.VISIBLE);
+            assert mCustomButtonBarViewContainer.getChildCount() > 0
+                : "The CustomButtonBar cannot be empty.";
+
+        } else {
+            mCustomButtonBarViewContainer.setVisibility(View.GONE);
+        }
+        updateButtonVisibility();
     }
 
     /**
@@ -333,27 +368,41 @@ public class ModalDialogView extends BoundedLinearLayout implements View.OnClick
         getButton(buttonType).setEnabled(enabled);
     }
 
+    /** @param message The message in the dialog footer. */
+    void setFooterMessage(CharSequence message) {
+        mFooterMessageView.setText(message);
+        updateContentVisibility();
+    }
+
     private void updateContentVisibility() {
         boolean titleVisible = !TextUtils.isEmpty(mTitleView.getText());
         boolean titleIconVisible = mTitleIcon.getDrawable() != null;
         boolean titleContainerVisible = titleVisible || titleIconVisible;
-        boolean messageVisible = !TextUtils.isEmpty(mMessageView.getText());
-        boolean scrollViewVisible = (mTitleScrollable && titleContainerVisible) || messageVisible;
+        boolean messageParagraph1Visibile = !TextUtils.isEmpty(mMessageParagraph1.getText());
+        boolean messageParagraph2Visible = !TextUtils.isEmpty(mMessageParagraph2.getText());
+        boolean scrollViewVisible = (mTitleScrollable && titleContainerVisible)
+                || messageParagraph1Visibile || messageParagraph2Visible;
+        boolean footerMessageVisible = !TextUtils.isEmpty(mFooterMessageView.getText());
 
         mTitleView.setVisibility(titleVisible ? View.VISIBLE : View.GONE);
         mTitleIcon.setVisibility(titleIconVisible ? View.VISIBLE : View.GONE);
         mTitleContainer.setVisibility(titleContainerVisible ? View.VISIBLE : View.GONE);
-        mMessageView.setVisibility(messageVisible ? View.VISIBLE : View.GONE);
+        mMessageParagraph1.setVisibility(messageParagraph1Visibile ? View.VISIBLE : View.GONE);
         mScrollView.setVisibility(scrollViewVisible ? View.VISIBLE : View.GONE);
+        mMessageParagraph2.setVisibility(messageParagraph2Visible ? View.VISIBLE : View.GONE);
+        mFooterContainer.setVisibility(footerMessageVisible ? View.VISIBLE : View.GONE);
     }
 
     private void updateButtonVisibility() {
         boolean positiveButtonVisible = !TextUtils.isEmpty(mPositiveButton.getText());
         boolean negativeButtonVisible = !TextUtils.isEmpty(mNegativeButton.getText());
-        boolean buttonBarVisible = positiveButtonVisible || negativeButtonVisible;
+        boolean customButtonBarViewVisible =
+                mCustomButtonBarViewContainer.getVisibility() == View.VISIBLE;
+        boolean defaultButtonBarVisible =
+                (positiveButtonVisible || negativeButtonVisible) && !customButtonBarViewVisible;
 
         mPositiveButton.setVisibility(positiveButtonVisible ? View.VISIBLE : View.GONE);
         mNegativeButton.setVisibility(negativeButtonVisible ? View.VISIBLE : View.GONE);
-        mButtonBar.setVisibility(buttonBarVisible ? View.VISIBLE : View.GONE);
+        mButtonBar.setVisibility(defaultButtonBarVisible ? View.VISIBLE : View.GONE);
     }
 }

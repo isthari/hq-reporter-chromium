@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,10 +40,13 @@ class AddressProfileSaveManager {
   // |allow_only_silent_updates| allows only for silent updates of profiles
   // that have either a structured name or address or both but do not fulfill
   // the import requirements.
+  // |import_metadata| is passed through, to collect metrics based on the
+  // profile import decision.
   void ImportProfileFromForm(const AutofillProfile& profile,
                              const std::string& app_locale,
                              const GURL& url,
-                             bool allow_only_silent_updates);
+                             bool allow_only_silent_updates,
+                             ProfileImportMetadata import_metadata);
 
  protected:
   // Initiates showing the prompt to the user.

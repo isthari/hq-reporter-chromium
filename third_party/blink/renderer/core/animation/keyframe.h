@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,7 +40,7 @@ class V8ObjectBuilder;
 //     underlying value. If this is 'auto', the keyframe effect composite
 //     operation is used instead.
 //
-// For spec details, refer to: https://drafts.csswg.org/web-animations/#keyframe
+// For spec details, refer to: https://w3.org/TR/web-animations-1/#keyframe
 //
 // Implementation-wise the base Keyframe class captures the offset, composite
 // operation, and timing function. It is left to subclasses to define and store
@@ -75,9 +75,8 @@ class CORE_EXPORT Keyframe : public GarbageCollected<Keyframe> {
   void SetComposite(EffectModel::CompositeOperation composite) {
     composite_ = composite;
   }
-  bool HasComposite() const { return composite_.has_value(); }
-  EffectModel::CompositeOperation Composite() const {
-    return composite_.value();
+  absl::optional<EffectModel::CompositeOperation> Composite() const {
+    return composite_;
   }
 
   void SetEasing(scoped_refptr<TimingFunction> easing) {

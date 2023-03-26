@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,16 +9,18 @@
 #include <stdint.h>
 #include <xf86drmMode.h>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <vector>
 
 #include "base/containers/flat_set.h"
-#include "base/trace_event/traced_value.h"
+#include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
 #include "ui/display/types/gamma_ramp_rgb_entry.h"
 #include "ui/ozone/platform/drm/common/scoped_drm_types.h"
 #include "ui/ozone/platform/drm/gpu/crtc_commit_request.h"
 #include "ui/ozone/platform/drm/gpu/drm_device.h"
 #include "ui/ozone/platform/drm/gpu/drm_overlay_plane.h"
+#include "ui/ozone/public/hardware_capabilities.h"
 #include "ui/ozone/public/swap_completion_callback.h"
 
 namespace gfx {
@@ -56,7 +58,8 @@ struct HardwareDisplayPlaneList {
 
   ScopedDrmAtomicReqPtr atomic_property_set;
 
-  void AsValueInto(base::trace_event::TracedValue* value) const;
+  // Adds trace records to |context|.
+  void WriteIntoTrace(perfetto::TracedValue context) const;
 };
 
 class HardwareDisplayPlaneManager {
@@ -79,6 +82,7 @@ class HardwareDisplayPlaneManager {
     DrmDevice::Property degamma_lut_size;
     DrmDevice::Property out_fence_ptr;
     DrmDevice::Property background_color;
+    DrmDevice::Property vrr_enabled;
   };
 
   struct CrtcState {
@@ -136,6 +140,10 @@ class HardwareDisplayPlaneManager {
       uint32_t crtc_id,
       const std::vector<display::GammaRampRGBEntry>& degamma_lut,
       const std::vector<display::GammaRampRGBEntry>& gamma_lut);
+
+  // Sets the variable refresh rate enabled state on the CRTC object with ID
+  // |crtc_id|.
+  virtual bool SetVrrEnabled(uint32_t crtc_id, bool vrr_enabled);
 
   // Assign hardware planes from the |planes_| list to |overlay_list| entries,
   // recording the plane IDs in the |plane_list|. Only planes compatible with
@@ -204,6 +212,11 @@ class HardwareDisplayPlaneManager {
   // caller.
   void ResetModesetStateForCrtc(uint32_t crtc_id);
 
+  // Gets `HardwareCapabilities` based on planes available to the specified
+  // CRTC. num_overlay_capable_planes counts both `DRM_PLANE_TYPE_PRIMARY` and
+  // `DRM_PLANE_TYPE_OVERLAY` planes.
+  ui::HardwareCapabilities GetHardwareCapabilities(uint32_t crtc_id);
+
  protected:
   struct ConnectorProperties {
     uint32_t id;
@@ -235,13 +248,6 @@ class HardwareDisplayPlaneManager {
                             const gfx::Rect& src_rect) = 0;
 
   virtual std::unique_ptr<HardwareDisplayPlane> CreatePlane(uint32_t plane_id);
-
-  // Finds the plane located at or after |*index| that is not in use and can
-  // be used with |crtc_id|.
-  HardwareDisplayPlane* FindNextUnusedPlane(
-      size_t* index,
-      uint32_t crtc_id,
-      const DrmOverlayPlane& overlay) const;
 
   // Convert |crtc/connector_id| into an index, returning empty if the ID
   // couldn't be found.

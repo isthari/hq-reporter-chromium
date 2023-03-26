@@ -1,26 +1,22 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/shelf/shelf_context_menu_model.h"
 
-#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/app_menu_constants.h"
 #include "ash/public/cpp/shelf_item_delegate.h"
 #include "ash/public/cpp/test/test_new_window_delegate.h"
-#include "ash/public/cpp/wallpaper/wallpaper_controller_client.h"
 #include "ash/session/test_session_controller_client.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test_shell_delegate.h"
-#include "ash/wallpaper/test_wallpaper_controller_client.h"
-#include "ash/wallpaper/wallpaper_controller_impl.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_feature_list.h"
 #include "components/user_manager/user_type.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "ui/display/display.h"
 #include "ui/views/widget/widget.h"
 
@@ -109,11 +105,11 @@ INSTANTIATE_TEST_SUITE_P(,
 TEST_P(ShelfContextMenuModelTest, Basic) {
   ShelfContextMenuModel menu(nullptr, GetPrimaryDisplay().id());
 
-  ASSERT_EQ(3, menu.GetItemCount());
+  ASSERT_EQ(3u, menu.GetItemCount());
   EXPECT_EQ(CommandId::MENU_AUTO_HIDE, menu.GetCommandIdAt(0));
   EXPECT_EQ(CommandId::MENU_ALIGNMENT_MENU, menu.GetCommandIdAt(1));
-  EXPECT_EQ(CommandId::MENU_CHANGE_WALLPAPER, menu.GetCommandIdAt(2));
-  for (int i = 0; i < menu.GetItemCount(); ++i) {
+  EXPECT_EQ(CommandId::MENU_PERSONALIZATION_HUB, menu.GetCommandIdAt(2));
+  for (size_t i = 0; i < menu.GetItemCount(); ++i) {
     EXPECT_TRUE(menu.IsEnabledAt(i));
     EXPECT_TRUE(menu.IsVisibleAt(i));
   }
@@ -122,7 +118,7 @@ TEST_P(ShelfContextMenuModelTest, Basic) {
   EXPECT_EQ(ui::MenuModel::TYPE_SUBMENU, menu.GetTypeAt(1));
   ui::MenuModel* submenu = menu.GetSubmenuModelAt(1);
   ASSERT_TRUE(submenu);
-  ASSERT_EQ(3, submenu->GetItemCount());
+  ASSERT_EQ(3u, submenu->GetItemCount());
   EXPECT_EQ(CommandId::MENU_ALIGNMENT_LEFT, submenu->GetCommandIdAt(0));
   EXPECT_EQ(CommandId::MENU_ALIGNMENT_BOTTOM, submenu->GetCommandIdAt(1));
   EXPECT_EQ(CommandId::MENU_ALIGNMENT_RIGHT, submenu->GetCommandIdAt(2));
@@ -162,32 +158,10 @@ TEST_P(ShelfContextMenuModelTest, Invocation) {
 TEST_P(ShelfContextMenuModelTest, OpensPersonalizationHubOrWallpaper) {
   int64_t display_id = GetPrimaryDisplay().id();
 
-  base::test::ScopedFeatureList scoped_feature_list;
-  // Disable personalization hub feature should open wallpaper.
-  {
-    scoped_feature_list.InitAndDisableFeature(
-        ash::features::kPersonalizationHub);
-    TestWallpaperControllerClient client;
-    Shell::Get()->wallpaper_controller()->SetClient(&client);
-    EXPECT_EQ(0u, client.open_count());
+  ShelfContextMenuModel menu(nullptr, display_id);
 
-    ShelfContextMenuModel menu_without_feature(nullptr, display_id);
-    // Click the third option, wallpaper picker. It should open.
-    menu_without_feature.ActivatedAt(2);
-    EXPECT_EQ(1u, client.open_count());
-  }
-
-  scoped_feature_list.Reset();
-  // Enable personalization hub feature should open hub.
-  {
-    EXPECT_CALL(*GetMockNewWindowDelegate(), OpenPersonalizationHub).Times(1);
-
-    scoped_feature_list.InitAndEnableFeature(
-        ash::features::kPersonalizationHub);
-
-    ShelfContextMenuModel menu_with_feature(nullptr, display_id);
-    menu_with_feature.ActivatedAt(2);
-  }
+  EXPECT_CALL(*GetMockNewWindowDelegate(), OpenPersonalizationHub).Times(1);
+  menu.ActivatedAt(2);
 }
 
 // Tests custom items in a shelf context menu for an application.
@@ -198,7 +172,7 @@ TEST_P(ShelfContextMenuModelTest, CustomItems) {
 
   // Because the delegate is valid, the context menu will not have the desktop
   // menu options (autohide, shelf position, and wallpaper picker).
-  ASSERT_EQ(0, menu.GetItemCount());
+  ASSERT_EQ(0u, menu.GetItemCount());
 
   // Add some custom items.
   menu.AddItem(203, u"item");
@@ -208,7 +182,7 @@ TEST_P(ShelfContextMenuModelTest, CustomItems) {
   menu.AddSubMenu(55, u"submenu", &submenu);
 
   // Ensure the menu contents match the items above.
-  ASSERT_EQ(4, menu.GetItemCount());
+  ASSERT_EQ(4u, menu.GetItemCount());
   EXPECT_EQ(ui::MenuModel::TYPE_COMMAND, menu.GetTypeAt(0));
   EXPECT_EQ(ui::MenuModel::TYPE_CHECK, menu.GetTypeAt(1));
   EXPECT_EQ(ui::MenuModel::TYPE_RADIO, menu.GetTypeAt(2));
@@ -232,8 +206,10 @@ TEST_P(ShelfContextMenuModelTest, AutohideShelfOptionOnExternalDisplay) {
 
   ShelfContextMenuModel primary_menu(nullptr, primary_id);
   ShelfContextMenuModel secondary_menu(nullptr, secondary_id);
-  EXPECT_EQ(-1, primary_menu.GetIndexOfCommandId(CommandId::MENU_AUTO_HIDE));
-  EXPECT_NE(-1, secondary_menu.GetIndexOfCommandId(CommandId::MENU_AUTO_HIDE));
+  EXPECT_FALSE(
+      primary_menu.GetIndexOfCommandId(CommandId::MENU_AUTO_HIDE).has_value());
+  EXPECT_TRUE(secondary_menu.GetIndexOfCommandId(CommandId::MENU_AUTO_HIDE)
+                  .has_value());
 }
 
 // Tests that the autohide and alignment menu options are not included in tablet
@@ -247,16 +223,16 @@ TEST_P(ShelfContextMenuModelTest, ExcludeClamshellOptionsOnTabletMode) {
   // options because other options are disabled.
   tablet_mode_controller->SetEnabledForTest(true);
   ShelfContextMenuModel menu1(nullptr, primary_id);
-  EXPECT_EQ(2, menu1.GetItemCount());
+  EXPECT_EQ(2u, menu1.GetItemCount());
   EXPECT_EQ(ShelfContextMenuModel::MENU_AUTO_HIDE, menu1.GetCommandIdAt(0));
-  EXPECT_EQ(ShelfContextMenuModel::MENU_CHANGE_WALLPAPER,
+  EXPECT_EQ(ShelfContextMenuModel::MENU_PERSONALIZATION_HUB,
             menu1.GetCommandIdAt(1));
 
   // Test that a menu shown out of tablet mode includes all three options:
-  // MENU_AUTO_HIDE, MENU_ALIGNMENT_MENU, and MENU_CHANGE_WALLPAPER.
+  // MENU_AUTO_HIDE, MENU_ALIGNMENT_MENU.
   tablet_mode_controller->SetEnabledForTest(false);
   ShelfContextMenuModel menu2(nullptr, primary_id);
-  EXPECT_EQ(3, menu2.GetItemCount());
+  EXPECT_EQ(3u, menu2.GetItemCount());
 
   // Test the auto hide option.
   EXPECT_EQ(ShelfContextMenuModel::MENU_AUTO_HIDE, menu2.GetCommandIdAt(0));
@@ -281,8 +257,8 @@ TEST_P(ShelfContextMenuModelTest, ExcludeClamshellOptionsOnTabletMode) {
             submenu->GetCommandIdAt(2));
   EXPECT_TRUE(submenu->IsEnabledAt(2));
 
-  // Test the wallpaper picker option.
-  EXPECT_EQ(ShelfContextMenuModel::MENU_CHANGE_WALLPAPER,
+  // Test the personalization hub option.
+  EXPECT_EQ(ShelfContextMenuModel::MENU_PERSONALIZATION_HUB,
             menu2.GetCommandIdAt(2));
   EXPECT_TRUE(menu2.IsEnabledAt(2));
 }
@@ -295,7 +271,7 @@ TEST_P(ShelfContextMenuModelTest, CommandIdsMatchEnumsForHistograms) {
   EXPECT_EQ(502, ShelfContextMenuModel::MENU_ALIGNMENT_LEFT);
   EXPECT_EQ(503, ShelfContextMenuModel::MENU_ALIGNMENT_RIGHT);
   EXPECT_EQ(504, ShelfContextMenuModel::MENU_ALIGNMENT_BOTTOM);
-  EXPECT_EQ(505, ShelfContextMenuModel::MENU_CHANGE_WALLPAPER);
+  EXPECT_EQ(506, ShelfContextMenuModel::MENU_PERSONALIZATION_HUB);
 }
 
 TEST_P(ShelfContextMenuModelTest, ShelfContextMenuOptions) {
@@ -304,7 +280,7 @@ TEST_P(ShelfContextMenuModelTest, ShelfContextMenuOptions) {
   // tools/metrics/enums.xml and that you haven't modified the order of the
   // existing enums.
   ShelfContextMenuModel menu(nullptr, GetPrimaryDisplay().id());
-  EXPECT_EQ(3, menu.GetItemCount());
+  EXPECT_EQ(3u, menu.GetItemCount());
 }
 
 TEST_P(ShelfContextMenuModelTest, NotificationContainerEnabled) {

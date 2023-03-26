@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,12 +14,11 @@
 #include "base/test/gmock_move_support.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_mock_time_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/ash/policy/reporting/install_event_log_util.h"
 #include "chrome/browser/profiles/reporting_util.h"
-#include "chromeos/system/fake_statistics_provider.h"
+#include "chromeos/ash/components/system/fake_statistics_provider.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_client.h"
 #include "components/policy/core/common/cloud/realtime_reporting_job_configuration.h"
 #include "components/policy/proto/device_management_backend.pb.h"
@@ -124,18 +123,10 @@ class ArcAppInstallEventLogUploaderTest : public testing::Test {
         .WillOnce(MoveArg<0>(callback));
   }
 
-  void ClearReportDict() {
-    base::DictionaryValue* mutable_dict;
-    if (value_report_.GetAsDictionary(&mutable_dict))
-      mutable_dict->DictClear();
-    else
-      NOTREACHED();
-  }
-
   void CompleteUpload(bool success) {
-    ClearReportDict();
-    base::Value context = reporting::GetContext(/*profile=*/nullptr);
-    base::Value events = ConvertArcAppProtoToValue(&log_, context);
+    value_report_.clear();
+    base::Value::Dict context = reporting::GetContext(/*profile=*/nullptr);
+    base::Value::List events = ConvertArcAppProtoToValue(&log_, context);
     value_report_ = RealtimeReportingJobConfiguration::BuildReport(
         std::move(events), std::move(context));
 
@@ -147,9 +138,9 @@ class ArcAppInstallEventLogUploaderTest : public testing::Test {
   }
 
   void CaptureUpload(CloudPolicyClient::StatusCallback* callback) {
-    ClearReportDict();
-    base::Value context = reporting::GetContext(/*profile=*/nullptr);
-    base::Value events = ConvertArcAppProtoToValue(&log_, context);
+    value_report_.clear();
+    base::Value::Dict context = reporting::GetContext(/*profile=*/nullptr);
+    base::Value::List events = ConvertArcAppProtoToValue(&log_, context);
     value_report_ = RealtimeReportingJobConfiguration::BuildReport(
         std::move(events), std::move(context));
 
@@ -172,14 +163,13 @@ class ArcAppInstallEventLogUploaderTest : public testing::Test {
   base::test::SingleThreadTaskEnvironment task_environment_{
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
   em::AppInstallReportRequest log_;
-  base::Value value_report_{base::Value::Type::DICTIONARY};
+  base::Value::Dict value_report_;
 
   MockCloudPolicyClient client_;
   MockArcAppInstallEventLogUploaderDelegate delegate_;
   std::unique_ptr<ArcAppInstallEventLogUploader> uploader_;
 
-  chromeos::system::ScopedFakeStatisticsProvider
-      scoped_fake_statistics_provider_;
+  ash::system::ScopedFakeStatisticsProvider scoped_fake_statistics_provider_;
 };
 
 // Make a log upload request. Have serialization and log upload succeed. Verify
@@ -498,11 +488,9 @@ TEST_F(ArcAppInstallEventLogUploaderTest, DuplicateEvents) {
   EXPECT_CALL(delegate_, OnUploadSuccess());
   uploader_->RequestUpload();
 
-  EXPECT_EQ(2u,
-            value_report_
-                .FindListKey(RealtimeReportingJobConfiguration::kEventListKey)
-                ->GetList()
-                .size());
+  EXPECT_EQ(2u, value_report_
+                    .FindList(RealtimeReportingJobConfiguration::kEventListKey)
+                    ->size());
 }
 
 }  // namespace policy

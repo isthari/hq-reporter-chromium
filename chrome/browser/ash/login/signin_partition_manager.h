@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,9 @@
 
 #include <string>
 
-#include "base/callback.h"
-#include "base/memory/ref_counted.h"
+#include "base/functional/callback.h"
 #include "base/memory/singleton.h"
-#include "components/keyed_service/content/browser_context_keyed_service_factory.h"
+#include "chrome/browser/profiles/profile_keyed_service_factory.h"
 #include "components/keyed_service/core/keyed_service.h"
 
 namespace content {
@@ -94,7 +93,7 @@ class SigninPartitionManager : public KeyedService {
   void SetOnCreateNewStoragePartitionForTesting(
       OnCreateNewStoragePartition on_create_new_storage_partition);
 
-  class Factory : public BrowserContextKeyedServiceFactory {
+  class Factory : public ProfileKeyedServiceFactory {
    public:
     static SigninPartitionManager* GetForBrowserContext(
         content::BrowserContext* browser_context);
@@ -112,8 +111,6 @@ class SigninPartitionManager : public KeyedService {
 
     // BrowserContextKeyedServiceFactory:
     KeyedService* BuildServiceInstanceFor(
-        content::BrowserContext* context) const override;
-    content::BrowserContext* GetBrowserContextToUse(
         content::BrowserContext* context) const override;
   };
 
@@ -137,13 +134,5 @@ class SigninPartitionManager : public KeyedService {
 
 }  // namespace login
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-namespace login {
-using ::ash::login::SigninPartitionManager;
-}
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_SIGNIN_PARTITION_MANAGER_H_

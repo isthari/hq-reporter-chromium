@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,15 +65,14 @@ class RenderFrameHostAndroid : public base::SupportsUserData::Data {
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>&) const;
 
-  jboolean IsRenderFrameCreated(
-      JNIEnv* env,
-      const base::android::JavaParamRef<jobject>&) const;
+  jboolean IsRenderFrameLive(JNIEnv* env,
+                             const base::android::JavaParamRef<jobject>&) const;
 
   void GetInterfaceToRendererFrame(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>&,
       const base::android::JavaParamRef<jstring>& interface_name,
-      jint message_pipe_handle) const;
+      jlong message_pipe_handle) const;
 
   void TerminateRendererDueToBadMessage(
       JNIEnv* env,
@@ -100,6 +99,10 @@ class RenderFrameHostAndroid : public base::SupportsUserData::Data {
 
   jint GetLifecycleState(JNIEnv* env,
                          const base::android::JavaParamRef<jobject>&) const;
+
+  void InsertVisualStateCallback(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& jcallback);
 
   RenderFrameHostImpl* render_frame_host() const { return render_frame_host_; }
 

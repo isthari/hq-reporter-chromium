@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,14 @@
 
 #include <utility>
 
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
+#include "base/types/optional_util.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/external_protocol/external_protocol_handler.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/browser/tab_contents/tab_util.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/common/pref_names.h"
@@ -48,19 +47,19 @@ std::u16string GetMessageTextForOrigin(
 
 }  // namespace
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
+#if !BUILDFLAG(IS_CHROMEOS)
 // static
 void ExternalProtocolHandler::RunExternalProtocolDialog(
     const GURL& url,
     WebContents* web_contents,
     ui::PageTransition ignored_page_transition,
     bool ignored_has_user_gesture,
+    bool ignored_is_in_fenced_frame_tree,
     const absl::optional<url::Origin>& initiating_origin,
-    content::WeakDocumentPtr initiator_document) {
+    content::WeakDocumentPtr initiator_document,
+    const std::u16string& program_name) {
   DCHECK(web_contents);
 
-  std::u16string program_name =
-      shell_integration::GetApplicationNameForProtocol(url);
   if (program_name.empty()) {
     // ShellExecute won't do anything. Don't bother warning the user.
     return;
@@ -70,7 +69,7 @@ void ExternalProtocolHandler::RunExternalProtocolDialog(
   new ExternalProtocolDialog(web_contents, url, program_name, initiating_origin,
                              std::move(initiator_document));
 }
-#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // !BUILDFLAG(IS_CHROMEOS)
 
 ExternalProtocolDialog::ExternalProtocolDialog(
     WebContents* web_contents,
@@ -122,7 +121,7 @@ ExternalProtocolDialog::ExternalProtocolDialog(
       profile->GetPrefs()->GetBoolean(
           prefs::kExternalProtocolDialogShowAlwaysOpenCheckbox) &&
       ExternalProtocolHandler::MayRememberAllowDecisionsForThisOrigin(
-          base::OptionalOrNullptr(initiating_origin_));
+          base::OptionalToPtr(initiating_origin_));
 
   if (show_remember_selection_checkbox) {
     message_box_view_->SetCheckBoxLabel(l10n_util::GetStringFUTF16(
@@ -134,7 +133,6 @@ ExternalProtocolDialog::ExternalProtocolDialog(
   }
 
   constrained_window::ShowWebModalDialogViews(this, web_contents);
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::EXTERNAL_PROTOCOL);
 }
 
 ExternalProtocolDialog::~ExternalProtocolDialog() = default;

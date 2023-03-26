@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,14 @@
 #include <memory>
 
 #include "base/memory/weak_ptr.h"
-// TODO(https://crbug.com/1164001): move to forward declaration
-#include "chrome/browser/ash/idle_detector.h"
 
 namespace base {
 class TickClock;
 }  // namespace base
 
 namespace ash {
+
+class IdleDetector;
 
 // Helper for ChromeVox hint idle detection.
 class ChromeVoxHintDetector {

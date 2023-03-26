@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,8 @@ import android.widget.TextView;
 import androidx.annotation.ColorRes;
 import androidx.appcompat.content.res.AppCompatResources;
 import androidx.core.graphics.drawable.DrawableCompat;
+import androidx.core.widget.ImageViewCompat;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.browser.ui.appmenu.internal.R;
 import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter;
 import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter.HighlightParams;
@@ -69,7 +69,7 @@ class AppMenuItemViewBinder {
                 // If there is no color assigned to the icon, use the default color.
                 colorResId = R.color.default_icon_color_secondary_tint_list;
             }
-            ApiCompatibilityUtils.setImageTintList(imageView,
+            ImageViewCompat.setImageTintList(imageView,
                     AppCompatResources.getColorStateList(imageView.getContext(), colorResId));
         } else if (key == AppMenuItemProperties.CLICK_HANDLER) {
             view.setOnClickListener(
@@ -126,9 +126,9 @@ class AppMenuItemViewBinder {
                 button.setVisibility(View.GONE);
                 checkbox.setVisibility(View.VISIBLE);
                 checkbox.setChecked(checked);
-                ApiCompatibilityUtils.setImageTintList(checkbox,
+                ImageViewCompat.setImageTintList(checkbox,
                         AppCompatResources.getColorStateList(
-                                checkbox.getContext(), R.color.selection_control_button_tint));
+                                checkbox.getContext(), R.color.selection_control_button_tint_list));
                 setupMenuButton(checkbox, buttonModel, appMenuClickHandler);
             } else if (subIcon != null) {
                 // Display an icon alongside the MenuItem.
@@ -181,8 +181,9 @@ class AppMenuItemViewBinder {
                 setupImageButton(buttons[i], iconList.get(i).model, appMenuClickHandler);
             }
 
-            view.setTag(
-                    R.id.menu_item_enter_anim_id, AppMenuUtil.buildIconItemEnterAnimator(buttons));
+            boolean isMenuIconAtStart = model.get(AppMenuItemProperties.MENU_ICON_AT_START);
+            view.setTag(R.id.menu_item_enter_anim_id,
+                    AppMenuUtil.buildIconItemEnterAnimator(buttons, isMenuIconAtStart));
 
             // Tint action bar's background.
             view.setBackgroundResource(R.drawable.menu_action_bar_bg);
@@ -212,7 +213,7 @@ class AppMenuItemViewBinder {
         // TODO(gangwu): Resetting this tint if we go from checked -> not checked while the menu is
         // visible.
         if (model.get(AppMenuItemProperties.CHECKED)) {
-            ApiCompatibilityUtils.setImageTintList(button,
+            ImageViewCompat.setImageTintList(button,
                     AppCompatResources.getColorStateList(
                             button.getContext(), R.color.default_icon_color_accent1_tint_list));
         }

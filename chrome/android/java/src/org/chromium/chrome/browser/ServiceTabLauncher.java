@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,11 @@ import androidx.annotation.Nullable;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
+import org.chromium.base.metrics.TimingMetric;
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.browser.browserservices.TrustedWebActivityClient;
 import org.chromium.chrome.browser.browserservices.intents.WebappConstants;
 import org.chromium.chrome.browser.browserservices.metrics.BrowserServicesTimingMetrics;
-import org.chromium.chrome.browser.notifications.WebPlatformNotificationMetrics;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.AsyncTabCreationParams;
@@ -70,8 +70,6 @@ public class ServiceTabLauncher {
     public static void launchTab(final int requestId, boolean incognito, GURL url, int disposition,
             String referrerUrl, int referrerPolicy, String extraHeaders,
             ResourceRequestBody postData) {
-        WebPlatformNotificationMetrics.getInstance().onNewTabLaunched();
-
         // Open popup window in custom tab.
         // Note that this is used by PaymentRequestEvent.openWindow().
         if (disposition == WindowOpenDisposition.NEW_POPUP) {
@@ -97,8 +95,8 @@ public class ServiceTabLauncher {
         Context context = ContextUtils.getApplicationContext();
 
         List<ResolveInfo> resolveInfos;
-        try (BrowserServicesTimingMetrics.TimingMetric t =
-                        BrowserServicesTimingMetrics.getServiceTabResolveInfoTimingContext()) {
+        try (TimingMetric t = TimingMetric.mediumUptime(
+                     BrowserServicesTimingMetrics.SERVICE_TAB_RESOLVE_TIME)) {
             resolveInfos = WebApkValidator.resolveInfosForUrl(context, url);
         }
         String webApkPackageName = WebApkValidator.findFirstWebApkPackage(context, resolveInfos);

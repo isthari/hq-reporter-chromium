@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,14 @@
 
 #include <memory>
 
-#include "base/bind.h"
 #include "base/check_op.h"
+#include "base/functional/bind.h"
 #include "base/time/default_tick_clock.h"
 #include "components/performance_manager/graph/frame_node_impl.h"
 #include "components/performance_manager/graph/graph_impl.h"
 #include "components/performance_manager/graph/graph_impl_operations.h"
 #include "components/performance_manager/graph/process_node_impl.h"
+#include "components/performance_manager/public/graph/graph_operations.h"
 
 namespace performance_manager {
 
@@ -112,6 +113,11 @@ void PageNodeImpl::RemoveFrame(base::PassKey<FrameNodeImpl>,
 void PageNodeImpl::SetLoadingState(LoadingState loading_state) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   loading_state_.SetAndMaybeNotify(this, loading_state);
+}
+
+void PageNodeImpl::SetType(PageType type) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  type_.SetAndMaybeNotify(this, type);
 }
 
 void PageNodeImpl::SetIsVisible(bool is_visible) {
@@ -216,6 +222,11 @@ PageNodeImpl::EmbeddingType PageNodeImpl::embedding_type() const {
   return embedding_type_;
 }
 
+PageType PageNodeImpl::type() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return type_.value();
+}
+
 bool PageNodeImpl::is_visible() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return is_visible_.value();
@@ -289,6 +300,11 @@ const std::string& PageNodeImpl::contents_mime_type() const {
 bool PageNodeImpl::had_form_interaction() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return had_form_interaction_.value();
+}
+
+bool PageNodeImpl::had_user_edits() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return had_user_edits_.value();
 }
 
 const absl::optional<freezing::FreezingVote>& PageNodeImpl::freezing_vote()
@@ -453,6 +469,11 @@ PageNodeImpl::EmbeddingType PageNodeImpl::GetEmbeddingType() const {
   return embedding_type();
 }
 
+PageType PageNodeImpl::GetType() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return type();
+}
+
 bool PageNodeImpl::IsVisible() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return is_visible();
@@ -539,6 +560,11 @@ bool PageNodeImpl::HadFormInteraction() const {
   return had_form_interaction();
 }
 
+bool PageNodeImpl::HadUserEdits() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return had_user_edits();
+}
+
 const WebContentsProxy& PageNodeImpl::GetContentsProxy() const {
   return contents_proxy();
 }
@@ -552,6 +578,30 @@ const absl::optional<freezing::FreezingVote>& PageNodeImpl::GetFreezingVote()
 PageState PageNodeImpl::GetPageState() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return page_state();
+}
+
+uint64_t PageNodeImpl::EstimateResidentSetSize() const {
+  uint64_t total = 0;
+  performance_manager::GraphOperations::VisitFrameTreePreOrder(
+      this, base::BindRepeating(
+                [](uint64_t* total, const FrameNode* frame_node) {
+                  *total += frame_node->GetResidentSetKbEstimate();
+                  return true;
+                },
+                &total));
+  return total;
+}
+
+uint64_t PageNodeImpl::EstimatePrivateFootprintSize() const {
+  uint64_t total = 0;
+  performance_manager::GraphOperations::VisitFrameTreePreOrder(
+      this, base::BindRepeating(
+                [](uint64_t* total, const FrameNode* frame_node) {
+                  *total += frame_node->GetPrivateFootprintKbEstimate();
+                  return true;
+                },
+                &total));
+  return total;
 }
 
 void PageNodeImpl::SetLifecycleState(LifecycleState lifecycle_state) {
@@ -572,6 +622,11 @@ void PageNodeImpl::SetIsHoldingIndexedDBLock(bool is_holding_indexeddb_lock) {
 void PageNodeImpl::SetHadFormInteraction(bool had_form_interaction) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   had_form_interaction_.SetAndMaybeNotify(this, had_form_interaction);
+}
+
+void PageNodeImpl::SetHadUserEdits(bool had_user_edits) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  had_user_edits_.SetAndMaybeNotify(this, had_user_edits);
 }
 
 }  // namespace performance_manager

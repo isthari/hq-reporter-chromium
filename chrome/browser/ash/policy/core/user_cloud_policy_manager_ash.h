@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,15 @@
 #include <memory>
 #include <string>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/scoped_observation.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/ash/policy/login/wildcard_login_checker.h"
-#include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/profiles/profile_manager_observer.h"
+#include "chrome/browser/profiles/profile_observer.h"
 #include "components/account_id/account_id.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/keyed_service/core/keyed_service_shutdown_notifier.h"
@@ -48,7 +48,6 @@ namespace policy {
 class ArcAppInstallEventLogUploader;
 class CloudExternalDataManager;
 class DeviceManagementService;
-class ExtensionInstallEventLogUploader;
 class PolicyOAuth2TokenFetcher;
 class RemoteCommandsInvalidator;
 
@@ -57,7 +56,7 @@ class UserCloudPolicyManagerAsh
     : public CloudPolicyManager,
       public CloudPolicyClient::Observer,
       public CloudPolicyService::Observer,
-      public ProfileManagerObserver,
+      public ProfileObserver,
       public session_manager::SessionManagerObserver {
  public:
   // Enum describing what behavior we want to enforce here.
@@ -105,6 +104,7 @@ class UserCloudPolicyManagerAsh
       std::unique_ptr<CloudExternalDataManager> external_data_manager,
       const base::FilePath& component_policy_cache_path,
       PolicyEnforcement enforcement_type,
+      PrefService* local_state,
       base::TimeDelta policy_refresh_timeout,
       base::OnceClosure fatal_error_callback,
       const AccountId& account_id,
@@ -119,7 +119,6 @@ class UserCloudPolicyManagerAsh
   // Initializes the cloud connection. |local_state| and
   // |device_management_service| must stay valid until this object is deleted.
   void Connect(
-      PrefService* local_state,
       DeviceManagementService* device_management_service,
       scoped_refptr<network::SharedURLLoaderFactory> system_url_loader_factory);
 
@@ -151,10 +150,6 @@ class UserCloudPolicyManagerAsh
   // Return the ArcAppInstallEventLogUploader used to send app push-install
   // event logs to the policy server.
   ArcAppInstallEventLogUploader* GetAppInstallEventLogUploader();
-
-  // Return the ExtensionInstallEventLogUploader used to send extension install
-  // event logs to the policy server.
-  ExtensionInstallEventLogUploader* GetExtensionInstallEventLogUploader();
 
   // ConfigurationPolicyProvider:
   void Shutdown() override;
@@ -251,11 +246,11 @@ class UserCloudPolicyManagerAsh
   // pend creation until all profiles are loaded in profile manager.
   void StartReportSchedulerIfReady(bool enable_delayed_creation);
 
-  // ProfileManagerObserver:
-  void OnProfileAdded(Profile* profile) override;
+  // ProfileObserver overrides:
+  void OnProfileInitializationComplete(Profile* profile) override;
 
   // Called on profile shutdown.
-  void ProfileShutdown();
+  void ShutdownRemoteCommands();
 
   // Profile associated with the current user.
   Profile* const profile_;
@@ -269,10 +264,6 @@ class UserCloudPolicyManagerAsh
   // Helper used to send app push-install event logs to the policy server.
   std::unique_ptr<ArcAppInstallEventLogUploader>
       app_install_event_log_uploader_;
-
-  // Helper used to send extension install event logs to the policy server.
-  std::unique_ptr<ExtensionInstallEventLogUploader>
-      extension_install_event_log_uploader_;
 
   // Scheduler used to report usage data to DM server periodically.
   std::unique_ptr<enterprise_reporting::ReportScheduler> report_scheduler_;
@@ -295,7 +286,7 @@ class UserCloudPolicyManagerAsh
   base::OneShotTimer policy_refresh_timeout_;
 
   // The pref service to pass to the refresh scheduler on initialization.
-  PrefService* local_state_;
+  base::raw_ptr<PrefService> local_state_ = nullptr;
 
   // Used to fetch the policy OAuth token, when necessary. This object holds
   // a callback with an unretained reference to the manager, when it exists.
@@ -334,8 +325,7 @@ class UserCloudPolicyManagerAsh
   scoped_refptr<network::SharedURLLoaderFactory>
       signin_url_loader_factory_for_tests_;
 
-  base::ScopedObservation<ProfileManager, ProfileManagerObserver>
-      observed_profile_manager_{this};
+  base::ScopedObservation<Profile, ProfileObserver> observed_profile_{this};
 
   // Refresh token used in tests instead of the user context refresh token to
   // fetch the policy OAuth token.

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/test/gtest_util.h"
 #include "base/test/mock_callback.h"
@@ -14,7 +14,6 @@
 #include "components/prefs/testing_pref_service.h"
 #include "components/signin/internal/identity_manager/account_tracker_service.h"
 #include "components/signin/internal/identity_manager/fake_profile_oauth2_token_service.h"
-#include "components/signin/internal/identity_manager/primary_account_policy_manager_impl.h"
 #include "components/signin/internal/identity_manager/profile_oauth2_token_service_delegate.h"
 #include "components/signin/public/base/signin_pref_names.h"
 #include "components/signin/public/base/test_signin_client.h"
@@ -67,8 +66,7 @@ class AccessTokenFetcherTest
         account_tracker_(std::make_unique<AccountTrackerService>()),
         primary_account_manager_(&signin_client_,
                                  &token_service_,
-                                 account_tracker_.get(),
-                                 nullptr /* policy_manager */) {
+                                 account_tracker_.get()) {
     AccountTrackerService::RegisterPrefs(pref_service_.registry());
     PrimaryAccountManager::RegisterProfilePrefs(pref_service_.registry());
 
@@ -85,7 +83,9 @@ class AccessTokenFetcherTest
                                   const std::string& email,
                                   ConsentLevel consent_level) {
     CoreAccountInfo account_info = AddAccount(gaia_id, email);
-    primary_account_manager_.SetPrimaryAccountInfo(account_info, consent_level);
+    primary_account_manager_.SetPrimaryAccountInfo(
+        account_info, consent_level,
+        signin_metrics::AccessPoint::ACCESS_POINT_UNKNOWN);
 
     return account_info.account_id;
   }

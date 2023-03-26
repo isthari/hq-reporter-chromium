@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,6 @@
 #include "chrome/browser/ash/file_system_provider/operations/operation.h"
 #include "storage/browser/file_system/async_file_util.h"
 
-namespace extensions {
-class EventRouter;
-}  // namespace extensions
-
 namespace ash {
 namespace file_system_provider {
 
@@ -26,7 +22,7 @@ namespace operations {
 // extension's unmount request. Created per request.
 class Unmount : public Operation {
  public:
-  Unmount(extensions::EventRouter* event_router,
+  Unmount(RequestDispatcher* dispatcher,
           const ProvidedFileSystemInfo& file_system_info,
           storage::AsyncFileUtil::StatusCallback callback);
 

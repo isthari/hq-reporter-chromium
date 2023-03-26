@@ -1,21 +1,23 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.js';
 import 'chrome://resources/cr_elements/cr_toolbar/cr_toolbar.js';
-import 'chrome://resources/cr_elements/hidden_style_css.m.js';
-import 'chrome://resources/cr_elements/policy/cr_tooltip_icon.m.js';
-import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import 'chrome://resources/cr_elements/cr_hidden_style.css.js';
+import 'chrome://resources/cr_elements/policy/cr_tooltip_icon.js';
+import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
 import 'chrome://resources/polymer/v3_0/paper-styles/color.js';
 import './pack_dialog.js';
 
 import {getToastManager} from 'chrome://resources/cr_elements/cr_toast/cr_toast_manager.js';
-import {CrToggleElement} from 'chrome://resources/cr_elements/cr_toggle/cr_toggle.m.js';
-import {I18nMixin} from 'chrome://resources/js/i18n_mixin.js';
-import {listenOnce} from 'chrome://resources/js/util.m.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {CrToggleElement} from 'chrome://resources/cr_elements/cr_toggle/cr_toggle.js';
+import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {listenOnce} from 'chrome://resources/js/util_ts.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {getTemplate} from './toolbar.html.js';
 
 export interface ToolbarDelegate {
   /**
@@ -53,7 +55,7 @@ export class ExtensionsToolbarElement extends ExtensionsToolbarElementBase {
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -71,7 +73,7 @@ export class ExtensionsToolbarElement extends ExtensionsToolbarElementBase {
       devModeControlledByPolicy: Boolean,
       isChildAccount: Boolean,
 
-      // <if expr="chromeos">
+      // <if expr="chromeos_ash">
       kioskEnabled: Boolean,
       // </if>
 
@@ -87,13 +89,13 @@ export class ExtensionsToolbarElement extends ExtensionsToolbarElementBase {
     };
   }
 
-  extensions: Array<chrome.developerPrivate.ExtensionInfo>;
+  extensions: chrome.developerPrivate.ExtensionInfo[];
   delegate: ToolbarDelegate;
   inDevMode: boolean;
   devModeControlledByPolicy: boolean;
   isChildAccount: boolean;
 
-  // <if expr="chromeos">
+  // <if expr="chromeos_ash">
   kioskEnabled: boolean;
   // </if>
 
@@ -103,12 +105,9 @@ export class ExtensionsToolbarElement extends ExtensionsToolbarElementBase {
   private showPackDialog_: boolean;
   private isUpdating_: boolean;
 
-  ready() {
+  override ready() {
     super.ready();
     this.setAttribute('role', 'banner');
-    this.toggleAttribute(
-        'enable-branding-update',
-        document.documentElement.hasAttribute('enable-branding-update'));
   }
 
   private fire_(eventName: string, detail?: any) {
@@ -185,7 +184,7 @@ export class ExtensionsToolbarElement extends ExtensionsToolbarElementBase {
     this.$.packExtensions.focus();
   }
 
-  // <if expr="chromeos">
+  // <if expr="chromeos_ash">
   private onKioskTap_() {
     this.fire_('kiosk-tap');
   }

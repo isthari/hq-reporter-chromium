@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,18 @@
 GEN('#include "ash/webui/personalization_app/test/personalization_app_browsertest_fixture.h"');
 
 GEN('#include "ash/constants/ash_features.h"');
+GEN('#include "ash/public/cpp/ambient/ambient_client.h"');
 GEN('#include "chromeos/constants/chromeos_features.h"');
 GEN('#include "content/public/test/browser_test.h"');
 
 const ROOT_PAGE = 'chrome://personalization/';
 const WALLPAPER_SUBPAGE = 'chrome://personalization/wallpaper';
+
+// Must be kept in sync with fake_personalization_app_wallpaper_provider.cc.
+const FAKE_ASSET_ID = 77;
+const FAKE_COLLECTION_ID = 'fake_collection_id';
+
+const DEFAULT_WALLPAPER_NAME = 'Default Wallpaper';
 
 class PersonalizationAppBrowserTest extends testing.Test {
   /** @override */
@@ -25,10 +32,8 @@ class PersonalizationAppBrowserTest extends testing.Test {
   get featureList() {
     return {
       enabled: [
-        'ash::features::kWallpaperWebUI',
-        'ash::features::kPersonalizationHub',
         'chromeos::features::kDarkLightMode',
-      ]
+      ],
     };
   }
 
@@ -38,20 +43,16 @@ class PersonalizationAppBrowserTest extends testing.Test {
   }
 
   /** @override */
-  get runAccessibilityChecks() {
-    return false;
-  }
-
-  /** @override */
   get typedefCppFixture() {
-    return 'PersonalizationAppBrowserTestFixture';
+    return 'ash::personalization_app::PersonalizationAppBrowserTestFixture';
   }
 }
 
 /**
- * Wait until |func| returns true.
- * If |timeoutMs| milliseconds elapse, will reject with |message|.
- * Polls every |intervalMs| milliseconds.
+ * Wait until `func` returns a truthy value.
+ * If `timeoutMs` milliseconds elapse, will reject with `message`.
+ * Polls every `intervalMs` milliseconds.
+ * Resolves with the final value of `func`.
  */
 function waitUntil(func, message, intervalMs = 50, timeoutMs = 1001) {
   let rejectTimer = null;
@@ -73,9 +74,10 @@ function waitUntil(func, message, intervalMs = 50, timeoutMs = 1001) {
     }, timeoutMs);
 
     pollTimer = window.setInterval(() => {
-      if (func()) {
+      const value = func();
+      if (value) {
         cleanup();
-        resolve();
+        resolve(value);
       }
     }, intervalMs);
   });
@@ -86,40 +88,28 @@ function waitUntil(func, message, intervalMs = 50, timeoutMs = 1001) {
 this[PersonalizationAppBrowserTest.name] = PersonalizationAppBrowserTest;
 
 // Tests that chrome://personalization loads the page without javascript errors
-// or a 404 or crash. Should display some text.
+// or a 404 or crash. Displays user preview, wallpaper preview, and ambient
+// preview
 TEST_F('PersonalizationAppBrowserTest', 'HasRootPageUrl', () => {
   assertEquals(document.location.href, ROOT_PAGE);
-  assertEquals(
-      'Personalization',
-      document.querySelector('personalization-router')
-          .shadowRoot.querySelector('personalization-main')
-          .shadowRoot.querySelector('h1')
-          .innerText);
+  const userPreview = document.querySelector('personalization-router')
+                          .shadowRoot.querySelector('personalization-main')
+                          .shadowRoot.querySelector('user-preview');
+  const wallpaperPreview = document.querySelector('personalization-router')
+                               .shadowRoot.querySelector('personalization-main')
+                               .shadowRoot.querySelector('wallpaper-preview');
+  assertTrue(!!userPreview);
+  assertTrue(!!wallpaperPreview);
   testDone();
 });
 
-TEST_F('PersonalizationAppBrowserTest', 'ShowsAmbientPreview', () => {
-  const preview = document.querySelector('personalization-router')
-                      .shadowRoot.querySelector('personalization-main')
-                      .shadowRoot.querySelector('ambient-preview');
-  assertTrue(!!preview);
-  testDone();
-});
-
-TEST_F('PersonalizationAppBrowserTest', 'ShowsAmbientSubpageLink', () => {
-  const ambientSubpageLink =
-      document.querySelector('personalization-router')
-          .shadowRoot.querySelector('personalization-main')
-          .shadowRoot.querySelector('#ambientSubpageLink');
-  assertTrue(!!ambientSubpageLink);
-  testDone();
-});
-
-TEST_F('PersonalizationAppBrowserTest', 'ShowsThemeButtons', () => {
+TEST_F('PersonalizationAppBrowserTest', 'ShowsThemeButtons', async () => {
   const theme = document.querySelector('personalization-router')
                     .shadowRoot.querySelector('personalization-main')
                     .shadowRoot.querySelector('personalization-theme');
-
+  await waitUntil(
+      () => theme.shadowRoot.getElementById('lightMode'),
+      'failed to find light button');
   const lightButton = theme.shadowRoot.getElementById('lightMode');
   assertTrue(!!lightButton);
   assertEquals(lightButton.getAttribute('aria-pressed'), 'true');
@@ -144,6 +134,75 @@ TEST_F('PersonalizationAppBrowserTest', 'ShowsUserInfo', async () => {
   testDone();
 });
 
+class PersonalizationAppAmbientModeAllowedBrowserTest extends
+    PersonalizationAppBrowserTest {
+  /** @override */
+  get testGenPreamble() {
+    return () => {
+      GEN('ash::AmbientClient::Get()->SetAmbientModeAllowedForTesting(true);');
+    };
+  }
+}
+
+this[PersonalizationAppAmbientModeAllowedBrowserTest.name] =
+    PersonalizationAppAmbientModeAllowedBrowserTest;
+
+TEST_F(
+    'PersonalizationAppAmbientModeAllowedBrowserTest', 'ShowsAmbientPreview',
+    () => {
+      const preview = document.querySelector('personalization-router')
+                          .shadowRoot.querySelector('personalization-main')
+                          .shadowRoot.querySelector('ambient-preview-large');
+      assertTrue(!!preview);
+      testDone();
+    });
+
+TEST_F(
+    'PersonalizationAppAmbientModeAllowedBrowserTest',
+    'ShowsAmbientSubpageLink', () => {
+      const ambientSubpageLink =
+          document.querySelector('personalization-router')
+              .shadowRoot.querySelector('personalization-main')
+              .shadowRoot.querySelector('ambient-preview-large')
+              .shadowRoot.querySelector('#ambientSubpageLink');
+      assertTrue(!!ambientSubpageLink);
+      testDone();
+    });
+
+class PersonalizationAppAmbientModeDisallowedBrowserTest extends
+    PersonalizationAppBrowserTest {
+  /** @override */
+  get testGenPreamble() {
+    return () => {
+      GEN('ash::AmbientClient::Get()->SetAmbientModeAllowedForTesting(false);');
+    };
+  }
+}
+
+this[PersonalizationAppAmbientModeDisallowedBrowserTest.name] =
+    PersonalizationAppAmbientModeDisallowedBrowserTest;
+
+TEST_F(
+    'PersonalizationAppAmbientModeDisallowedBrowserTest',
+    'NotShowAmbientPreview', () => {
+      const preview = document.querySelector('personalization-router')
+                          .shadowRoot.querySelector('personalization-main')
+                          .shadowRoot.querySelector('ambient-preview');
+      assertFalse(!!preview);
+      testDone();
+    });
+
+TEST_F(
+    'PersonalizationAppAmbientModeDisallowedBrowserTest',
+    'NotShowAmbientSubpageLink', () => {
+      const ambientSubpageLink =
+          document.querySelector('personalization-router')
+              .shadowRoot.querySelector('personalization-main')
+              .shadowRoot.querySelector('#ambientSubpageLink');
+      assertFalse(!!ambientSubpageLink);
+      testDone();
+    });
+
 class WallpaperSubpageBrowserTest extends PersonalizationAppBrowserTest {
   /** @override */
   get browsePreload() {
@@ -159,13 +218,13 @@ this[WallpaperSubpageBrowserTest.name] = WallpaperSubpageBrowserTest;
 // somewhere instead of 404ing or crashing.
 TEST_F('WallpaperSubpageBrowserTest', 'HasWallpaperSubpageUrl', () => {
   assertEquals(document.location.href, WALLPAPER_SUBPAGE);
-  
+
   const title = document.querySelector('head > title');
   assertEquals('Wallpaper', title.innerText);
   testDone();
 });
 
-TEST_F('WallpaperSubpageBrowserTest', 'LoadsCollectionsUntrustedIframe', () => {
+TEST_F('WallpaperSubpageBrowserTest', 'LoadsCollectionsGrid', () => {
   const router = document.querySelector('personalization-router');
   assertTrue(!!router, 'personalization-router should be top level element');
 
@@ -180,12 +239,67 @@ TEST_F('WallpaperSubpageBrowserTest', 'LoadsCollectionsUntrustedIframe', () => {
       !!collections,
       'wallpaper-collections should be found under wallpaper-subpage');
 
+  assertFalse(
+      collections.parentElement.hidden, 'parent element should be visible');
+  assertGT(
+      collections.offsetWidth, 0,
+      'wallpaper-collections should have visible width');
+  assertGT(
+      collections.offsetHeight, 0,
+      'wallpaper-collections grid should have visible height');
+  testDone();
+});
 
-  const iframe = collections.shadowRoot.getElementById('collections-iframe');
-  assertTrue(!!iframe, 'iframe with id collections-iframe should be visible');
+TEST_F('WallpaperSubpageBrowserTest', 'SelectWallpaper', async () => {
+  const subpage = document.querySelector('personalization-router')
+                      .shadowRoot.querySelector('wallpaper-subpage');
+
+  const wallpaperSelected =
+      subpage.shadowRoot.querySelector('wallpaper-selected');
+  const textContainer =
+      wallpaperSelected.shadowRoot.getElementById('textContainer');
+  assertEquals(
+      DEFAULT_WALLPAPER_NAME,
+      textContainer.querySelector('#imageTitle').textContent.trim(),
+      'default wallpaper is shown at first');
+
+  // Select the last wallpaper collection tile.
+  Array
+      .from(subpage.shadowRoot.querySelector('wallpaper-collections')
+                .shadowRoot.querySelectorAll(
+                    `wallpaper-grid-item[aria-disabled='false']`))
+      .at(-1)
+      .click();
+
+  const wallpaperImages = await waitUntil(
+      () => subpage.shadowRoot.querySelector('wallpaper-images'),
+      'failed selecting wallpaper-images');
+
+  assertFalse(wallpaperImages.hidden, 'wallpaper images now visible');
+  assertGT(
+      wallpaperImages.offsetWidth, 0,
+      'wallpaper-images should have visible width');
+  assertGT(
+      wallpaperImages.offsetHeight, 0,
+      'wallpaper-images should have visible height');
+
+  const gridItem = await waitUntil(
+      () => wallpaperImages.shadowRoot.querySelector(
+          'wallpaper-grid-item:not([placeholder])'),
+      'failed waiting for grid items to load');
+
+  assertFalse(gridItem.selected, 'wallpaper tile does not start selected');
+  gridItem.click();
+
+  await waitUntil(
+      () => textContainer.querySelector('#imageTitle').textContent.trim() ===
+          FAKE_COLLECTION_ID,
+      'failed waiting for text to update after selecting wallpaper');
 
   assertEquals(
-      'chrome-untrusted://personalization/untrusted/collections.html',
-      iframe.src);
+      FAKE_ASSET_ID.toString(),
+      textContainer.querySelector('span:last-of-type').textContent.trim());
+
+  assertTrue(gridItem.selected, 'wallpaper tile is selected after click');
   testDone();
 });

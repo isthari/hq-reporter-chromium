@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include "chrome/browser/ash/printing/cups_print_job.h"
 
-namespace chromeos {
+namespace ash {
 
 TestCupsPrintJobManager::TestCupsPrintJobManager(Profile* profile)
     : CupsPrintJobManager(profile) {}
@@ -61,4 +61,4 @@ void TestCupsPrintJobManager::CompletePrintJob(CupsPrintJob* job) {
   NotifyJobDone(job->GetWeakPtr());
 }
 
-}  // namespace chromeos
+}  // namespace ash

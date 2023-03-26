@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <stddef.h>
 
-#include "base/bind.h"
 #include "base/check.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/notreached.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -24,7 +24,6 @@
 #include "components/dom_distiller/core/url_constants.h"
 #include "components/dom_distiller/core/url_utils.h"
 #include "components/prefs/pref_service.h"
-#include "components/reading_list/features/reading_list_switches.h"
 #include "components/search/search.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/url_formatter.h"
@@ -40,14 +39,15 @@
 #if defined(TOOLKIT_VIEWS)
 #include "chrome/grit/theme_resources.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/base/themed_vector_icon.h"
 #include "ui/color/color_id.h"
 #include "ui/color/color_provider.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_utils.h"
+#include "ui/gfx/image/image_skia_rep.h"
 #include "ui/gfx/image/image_skia_source.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/scoped_canvas.h"
-#include "ui/native_theme/themed_vector_icon.h"
 #include "ui/resources/grit/ui_resources.h"
 #endif
 
@@ -143,12 +143,12 @@ std::u16string FormatBookmarkURLForDisplay(const GURL& url) {
   if (url.has_username())
     format_types &= ~url_formatter::kFormatUrlOmitHTTP;
 
-  return url_formatter::FormatUrl(url, format_types, net::UnescapeRule::SPACES,
+  return url_formatter::FormatUrl(url, format_types, base::UnescapeRule::SPACES,
                                   nullptr, nullptr, nullptr);
 }
 
 bool IsAppsShortcutEnabled(Profile* profile) {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   // Chrome OS uses the app list / app launcher.
   return false;
 #else
@@ -160,12 +160,6 @@ bool ShouldShowAppsShortcutInBookmarkBar(Profile* profile) {
   return IsAppsShortcutEnabled(profile) &&
          profile->GetPrefs()->GetBoolean(
              bookmarks::prefs::kShowAppsShortcutInBookmarkBar);
-}
-
-bool ShouldShowReadingListInBookmarkBar(Profile* profile) {
-  return base::FeatureList::IsEnabled(reading_list::switches::kReadLater) &&
-         profile->GetPrefs()->GetBoolean(
-             bookmarks::prefs::kShowReadingListInBookmarkBar);
 }
 
 int GetBookmarkDragOperation(content::BrowserContext* browser_context,
@@ -256,11 +250,13 @@ bool IsValidBookmarkDropLocation(Profile* profile,
       // Don't allow the drop if the user is attempting to drop on one of the
       // nodes being dragged.
       const BookmarkNode* node = nodes[i];
-      int node_index = (drop_parent == node->parent()) ?
-          drop_parent->GetIndexOf(nodes[i]) : -1;
-      if (node_index != -1 && (index == static_cast<size_t>(node_index) ||
-                               index == static_cast<size_t>(node_index) + 1))
+      absl::optional<size_t> node_index =
+          (drop_parent == node->parent()) ? drop_parent->GetIndexOf(nodes[i])
+                                          : absl::nullopt;
+      if (node_index.has_value() &&
+          (index == node_index.value() || index == node_index.value() + 1)) {
         return false;
+      }
 
       // drop_parent can't accept a child that is an ancestor.
       if (drop_parent->HasAncestor(node))

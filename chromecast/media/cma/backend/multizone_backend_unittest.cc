@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,17 +10,16 @@
 #include <memory>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_checker.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chromecast/base/task_runner_impl.h"
 #include "chromecast/media/cma/base/decoder_buffer_adapter.h"
@@ -227,7 +226,7 @@ void BufferFeeder::Start() {
   ASSERT_LE(playback_rate_, 2.0f);
   ASSERT_TRUE(backend_->Start(kStartPts));
   ASSERT_TRUE(backend_->SetPlaybackRate(playback_rate_));
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&BufferFeeder::FeedBuffer, base::Unretained(this)));
 }
@@ -320,7 +319,7 @@ void BufferFeeder::OnPushBufferComplete(BufferStatus status) {
   if (feeding_completed_)
     return;
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&BufferFeeder::FeedBuffer, base::Unretained(this)));
 }
@@ -392,7 +391,7 @@ TEST_P(MultizoneBackendTest, RateChanges) {
   const TestParams& params = GetParam();
   int sample_rate = testing::get<0>(params);
   double* sequence = testing::get<1>(params);
-  Initialize(sample_rate, sequence, base::size(kTestRateSequence1));
+  Initialize(sample_rate, sequence, std::size(kTestRateSequence1));
   AddEffectsStreams();
   Start();
 }

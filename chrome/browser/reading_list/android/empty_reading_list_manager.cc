@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -57,6 +57,9 @@ size_t EmptyReadingListManager::size() const {
 size_t EmptyReadingListManager::unread_size() const {
   return 0u;
 }
+
+void EmptyReadingListManager::SetTitle(const GURL& url,
+                                       const std::u16string& title) {}
 
 void EmptyReadingListManager::SetReadStatus(const GURL& url, bool read) {}
 

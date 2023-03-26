@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -57,10 +57,9 @@ IN_PROC_BROWSER_TEST_F(DriveNotificationManagerFactoryGuestBrowserTest,
                        NoDriveNotificationManager) {
   user_manager::UserManager* user_manager = user_manager::UserManager::Get();
   EXPECT_TRUE(user_manager->IsLoggedInAsGuest());
-  Profile* guest_profile =
-      ash::ProfileHelper::Get()
-          ->GetProfileByUserUnsafe(user_manager->GetActiveUser())
-          ->GetOriginalProfile();
+  Profile* guest_profile = ash::ProfileHelper::Get()
+                               ->GetProfileByUser(user_manager->GetActiveUser())
+                               ->GetOriginalProfile();
   Profile* signin_profile =
       ash::ProfileHelper::GetSigninProfile()->GetOriginalProfile();
   EXPECT_FALSE(DriveNotificationManagerFactory::FindForBrowserContext(

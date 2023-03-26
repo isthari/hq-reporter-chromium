@@ -1,9 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/brightness/unified_brightness_slider_controller.h"
 
+#include "ash/constants/quick_settings_catalogs.h"
 #include "ash/shell.h"
 #include "ash/system/brightness/unified_brightness_view.h"
 #include "ash/system/brightness_control_delegate.h"
@@ -11,15 +12,6 @@
 #include "base/memory/scoped_refptr.h"
 
 namespace ash {
-namespace {
-
-// We don't let the screen brightness go lower than this when it's being
-// adjusted via the slider.  Otherwise, if the user doesn't know about the
-// brightness keys, they may turn the backlight off and not know how to turn it
-// back on.
-constexpr double kMinBrightnessPercent = 5.0;
-
-}  // namespace
 
 UnifiedBrightnessSliderController::UnifiedBrightnessSliderController(
     scoped_refptr<UnifiedSystemTrayModel> model)
@@ -32,6 +24,10 @@ views::View* UnifiedBrightnessSliderController::CreateView() {
   DCHECK(!slider_);
   slider_ = new UnifiedBrightnessView(this, model_);
   return slider_;
+}
+
+QsSliderCatalogName UnifiedBrightnessSliderController::GetCatalogName() {
+  return QsSliderCatalogName::kBrightness;
 }
 
 void UnifiedBrightnessSliderController::SliderValueChanged(
@@ -52,8 +48,16 @@ void UnifiedBrightnessSliderController::SliderValueChanged(
   // we don't update the actual brightness.
   if (percent < kMinBrightnessPercent &&
       previous_percent_ < kMinBrightnessPercent) {
+    // We still need to call `OnDisplayBrightnessChanged()` to update the icon
+    // of the slider, we just don't update the brightness value.
+    brightness_control_delegate->SetBrightnessPercent(previous_percent_, true);
     return;
   }
+
+  if (previous_percent_ != percent) {
+    TrackValueChangeUMA(/*going_up=*/percent > previous_percent_);
+  }
+
   // We have to store previous manually set value because |old_value| might be
   // set by UnifiedSystemTrayModel::Observer.
   previous_percent_ = percent;

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,8 +18,8 @@ import org.junit.Test;
 import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.test.util.FlakyTest;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.autofill.AutofillEditorBase;
 import org.chromium.chrome.browser.autofill.AutofillTestHelper;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.CreditCard;
 import org.chromium.chrome.browser.settings.SettingsActivity;
@@ -128,7 +128,6 @@ public class AutofillLocalCardEditorTest {
 
     @Test
     @MediumTest
-    @FlakyTest(message = "https://crbug.com/1139488")
     public void testErrorMessageHiddenAfterNicknameIsEditedFromInvalidToValid() throws Exception {
         String guid = mAutofillTestHelper.setCreditCard(SAMPLE_LOCAL_CARD);
         SettingsActivity activity =

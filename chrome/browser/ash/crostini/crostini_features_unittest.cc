@@ -1,11 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/crostini/crostini_features.h"
 
 #include "ash/constants/ash_features.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/ash/crostini/crostini_pref_names.h"
@@ -17,7 +17,6 @@
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
-#include "components/user_manager/fake_user_manager.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -156,10 +155,10 @@ class CrostiniFeaturesAdbSideloadingTest : public testing::Test {
   void SetFeatureFlag(bool is_enabled) {
     if (is_enabled) {
       scoped_feature_list_.InitWithFeatures(
-          {chromeos::features::kArcManagedAdbSideloadingSupport}, {});
+          {ash::features::kArcManagedAdbSideloadingSupport}, {});
     } else {
       scoped_feature_list_.InitWithFeatures(
-          {}, {chromeos::features::kArcManagedAdbSideloadingSupport});
+          {}, {ash::features::kArcManagedAdbSideloadingSupport});
     }
   }
 

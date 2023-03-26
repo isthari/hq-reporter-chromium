@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,10 +18,6 @@
 #include "net/base/io_buffer.h"
 #include "storage/browser/file_system/async_file_util.h"
 
-namespace extensions {
-class EventRouter;
-}  // namespace extensions
-
 namespace ash {
 namespace file_system_provider {
 namespace operations {
@@ -31,7 +27,7 @@ namespace operations {
 // Created per request.
 class WriteFile : public Operation {
  public:
-  WriteFile(extensions::EventRouter* event_router,
+  WriteFile(RequestDispatcher* dispatcher,
             const ProvidedFileSystemInfo& file_system_info,
             int file_handle,
             scoped_refptr<net::IOBuffer> buffer,

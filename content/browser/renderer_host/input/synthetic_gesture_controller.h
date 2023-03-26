@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/containers/queue.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
@@ -155,7 +155,7 @@ class CONTENT_EXPORT SyntheticGestureController {
   // truly robust. https://crbug.com/985374.
   bool renderer_known_to_be_initialized_ = false;
 
-  base::RepeatingTimer dispatch_timer_;
+  base::MetronomeTimer dispatch_timer_;
   base::WeakPtrFactory<SyntheticGestureController> weak_ptr_factory_{this};
 };
 

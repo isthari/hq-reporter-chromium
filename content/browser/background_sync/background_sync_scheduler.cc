@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,7 @@ BackgroundSyncScheduler* BackgroundSyncScheduler::GetFor(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(browser_context);
 
-  return browser_context->impl()->background_sync_scheduler();
+  return BrowserContextImpl::From(browser_context)->background_sync_scheduler();
 }
 
 BackgroundSyncScheduler::BackgroundSyncScheduler() = default;

@@ -1,9 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/task/common/operations_controller.h"
 #include "base/check_op.h"
+#include "base/synchronization/waitable_event.h"
 
 #include <ostream>
 

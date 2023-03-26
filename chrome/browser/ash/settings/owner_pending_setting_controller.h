@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,7 +36,7 @@ namespace ash {
 // a pending write is queued that is completed as soon as the OSS is ready.
 // This write will complete even if Chrome is restarted in the meantime.
 // The caller need not care whether the write was immediate or pending, as long
-// as they also use this class to read the value of kStatsReportingPref.
+// as they also use this class to read the value of the device pref.
 // IsEnabled will return the pending value until ownership is taken and the
 // pending value is written - from then on it will return the signed, stored
 // value from CrosSettings.

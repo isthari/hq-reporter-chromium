@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,7 +40,7 @@ export const SiteSettingsMixin = dedupingMixin(
         }
 
         category: ContentSettingsTypes;
-        private contentTypes_: Array<ContentSettingsTypes>;
+        private contentTypes_: ContentSettingsTypes[];
         browserProxy: SiteSettingsPrefsBrowserProxy;
 
         constructor(...args: any[]) {
@@ -155,6 +155,7 @@ export const SiteSettingsMixin = dedupingMixin(
             isEmbargoed: exception.isEmbargoed,
             origin: origin,
             displayName: exception.displayName,
+            isolatedWebAppName: exception.isolatedWebAppName,
             setting: exception.setting,
             enforcement: enforcement,
             controlledBy: controlledBy,

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -126,14 +126,27 @@ TEST(UserAgentStringTest, BuildOSCpuInfoFromOSVersionAndCpuType) {
   }
 }
 
-TEST(UserAgentStringTest, LowEntropyCpuArchitecture) {
-  std::string arch = GetLowEntropyCpuArchitecture();
+TEST(UserAgentStringTest, GetCpuArchitecture) {
+  std::string arch = GetCpuArchitecture();
 
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || \
-    (BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID))
+#if BUILDFLAG(IS_ANDROID)
+  EXPECT_EQ("", arch);
+#elif BUILDFLAG(IS_WIN) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_POSIX)
   EXPECT_TRUE("arm" == arch || "x86" == arch);
 #else
-  EXPECT_EQ("", arch);
+#error Unsupported platform
+#endif
+}
+
+TEST(UserAgentStringTest, GetCpuBitness) {
+  std::string bitness = GetCpuBitness();
+
+#if BUILDFLAG(IS_ANDROID)
+  EXPECT_EQ("", bitness);
+#elif BUILDFLAG(IS_WIN) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_POSIX)
+  EXPECT_TRUE("32" == bitness || "64" == bitness);
+#else
+#error Unsupported platform
 #endif
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,9 +16,9 @@ namespace policy {
 
 namespace {
 
-base::WeakPtr<chromeos::PrintServersProvider> GetPrintServersProvider(
+base::WeakPtr<ash::PrintServersProvider> GetPrintServersProvider(
     const std::string& user_id) {
-  return chromeos::PrintServersProviderFactory::Get()->GetForAccountId(
+  return ash::PrintServersProviderFactory::Get()->GetForAccountId(
       CloudExternalDataPolicyHandler::GetAccountId(user_id));
 }
 
@@ -58,7 +58,7 @@ void PrintServersExternalDataHandler::OnExternalDataFetched(
 
 void PrintServersExternalDataHandler::RemoveForAccountId(
     const AccountId& account_id) {
-  chromeos::PrintServersProviderFactory::Get()->RemoveForAccountId(account_id);
+  ash::PrintServersProviderFactory::Get()->RemoveForAccountId(account_id);
 }
 
 }  // namespace policy

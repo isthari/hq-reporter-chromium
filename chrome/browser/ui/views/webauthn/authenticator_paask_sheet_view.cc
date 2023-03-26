@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,7 @@ class LinkLabelButton : public views::LabelButton {
  public:
   LinkLabelButton(PressedCallback callback, const std::u16string& text)
       : LabelButton(std::move(callback), text, views::style::CONTEXT_BUTTON) {
-    SetBorder(views::CreateEmptyBorder(0, 0, 0, 0));
+    SetBorder(views::CreateEmptyBorder(0));
     label()->SetTextStyle(views::style::STYLE_LINK);
   }
 

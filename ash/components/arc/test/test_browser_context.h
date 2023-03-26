@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,8 @@ class TestBrowserContext : public content::TestBrowserContext {
 
   ~TestBrowserContext() override;
 
-  inline PrefRegistrySimple* pref_registry() { return prefs_.registry(); }
+  PrefService* prefs() { return &prefs_; }
+  PrefRegistrySimple* pref_registry() { return prefs_.registry(); }
 
  private:
   BrowserContextDependencyManager* const browser_context_dependency_manager_;

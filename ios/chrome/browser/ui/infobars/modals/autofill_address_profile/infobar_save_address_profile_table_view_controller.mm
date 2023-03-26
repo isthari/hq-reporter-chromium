@@ -1,35 +1,38 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/infobars/modals/autofill_address_profile/infobar_save_address_profile_table_view_controller.h"
 
-#include "base/feature_list.h"
-#include "base/mac/foundation_util.h"
-#include "base/metrics/user_metrics.h"
-#include "base/metrics/user_metrics_action.h"
-#include "components/autofill/core/common/autofill_features.h"
-#include "components/strings/grit/components_strings.h"
-#include "ios/chrome/browser/infobars/infobar_metrics_recorder.h"
+#import "base/feature_list.h"
+#import "base/mac/foundation_util.h"
+#import "base/metrics/user_metrics.h"
+#import "base/metrics/user_metrics_action.h"
+#import "components/autofill/core/common/autofill_features.h"
+#import "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/infobars/infobar_metrics_recorder.h"
 #import "ios/chrome/browser/ui/autofill/autofill_ui_type.h"
 #import "ios/chrome/browser/ui/autofill/autofill_ui_type_util.h"
+#import "ios/chrome/browser/ui/icons/symbols.h"
 #import "ios/chrome/browser/ui/infobars/modals/autofill_address_profile/infobar_save_address_profile_modal_delegate.h"
 #import "ios/chrome/browser/ui/infobars/modals/infobar_modal_constants.h"
 #import "ios/chrome/browser/ui/settings/cells/settings_image_detail_text_cell.h"
 #import "ios/chrome/browser/ui/settings/cells/settings_image_detail_text_item.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_button_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_item.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/l10n/l10n_util.h"
-#include "url/gurl.h"
+#import "ios/chrome/common/ui/table_view/table_view_cells_constants.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
+
+namespace {
 
 typedef NS_ENUM(NSInteger, SectionIdentifier) {
   SectionIdentifierSaveModalFields = kSectionIdentifierEnumZero,
@@ -52,6 +55,10 @@ typedef NS_ENUM(NSInteger, ItemType) {
   ItemTypeUpdatePhoneOld,
   ItemTypeAddressProfileSaveUpdateButton,
 };
+
+const CGFloat kSymbolSize = 16;
+
+}  // namespace
 
 @interface InfobarSaveAddressProfileTableViewController ()
 
@@ -188,22 +195,18 @@ typedef NS_ENUM(NSInteger, ItemType) {
     didSelectRowAtIndexPath:(NSIndexPath*)indexPath {
   TableViewModel* model = self.tableViewModel;
   NSInteger itemType = [model itemTypeForIndexPath:indexPath];
-  if (base::FeatureList::IsEnabled(
-          autofill::features::
-              kAutofillAddressProfileSavePromptAddressVerificationSupport)) {
-    switch (itemType) {
-      case ItemTypeSaveAddress:
-      case ItemTypeSaveEmail:
-      case ItemTypeSavePhone:
-      case ItemTypeUpdateNameNew:
-      case ItemTypeUpdateAddressNew:
-      case ItemTypeUpdateEmailNew:
-      case ItemTypeUpdatePhoneNew:
-        [self ensureContextMenuShownForItemType:itemType atIndexPath:indexPath];
-        break;
-      default:
-        break;
-    }
+  switch (itemType) {
+    case ItemTypeSaveAddress:
+    case ItemTypeSaveEmail:
+    case ItemTypeSavePhone:
+    case ItemTypeUpdateNameNew:
+    case ItemTypeUpdateAddressNew:
+    case ItemTypeUpdateEmailNew:
+    case ItemTypeUpdatePhoneNew:
+      [self ensureContextMenuShownForItemType:itemType atIndexPath:indexPath];
+      break;
+    default:
+      break;
   }
 }
 
@@ -301,14 +304,26 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
   for (NSNumber* type in self.profileDataDiff) {
     if ([self.profileDataDiff[type][0] length] > 0) {
-      SettingsImageDetailTextItem* newItem =
-          [self detailItemWithType:[self modalItemTypeForAutofillUIType:
-                                             (AutofillUIType)[type intValue]
-                                                                 update:YES
-                                                                    old:NO]
-                              text:self.profileDataDiff[type][0]
-                     iconImageName:[self iconForAutofillInputTypeNumber:type]
-              imageTintColorIsGrey:NO];
+      SettingsImageDetailTextItem* newItem;
+      if (UseSymbols()) {
+        newItem = [self
+              detailItemWithType:[self modalItemTypeForAutofillUIType:
+                                           (AutofillUIType)[type intValue]
+                                                               update:YES
+                                                                  old:NO]
+                            text:self.profileDataDiff[type][0]
+                          symbol:[self symbolForAutofillInputTypeNumber:type]
+            imageTintColorIsGrey:NO];
+      } else {
+        newItem =
+            [self detailItemWithType:[self modalItemTypeForAutofillUIType:
+                                               (AutofillUIType)[type intValue]
+                                                                   update:YES
+                                                                      old:NO]
+                                text:self.profileDataDiff[type][0]
+                       iconImageName:[self iconForAutofillInputTypeNumber:type]
+                imageTintColorIsGrey:NO];
+      }
       lastAddedItem = newItem;
       [model addItem:newItem
           toSectionWithIdentifier:SectionIdentifierUpdateModalFields];
@@ -324,14 +339,26 @@ typedef NS_ENUM(NSInteger, ItemType) {
         toSectionWithIdentifier:SectionIdentifierUpdateModalFields];
     for (NSNumber* type in self.profileDataDiff) {
       if ([self.profileDataDiff[type][1] length] > 0) {
-        SettingsImageDetailTextItem* oldItem =
-            [self detailItemWithType:[self modalItemTypeForAutofillUIType:
-                                               (AutofillUIType)[type intValue]
-                                                                   update:YES
-                                                                      old:YES]
-                                text:self.profileDataDiff[type][1]
-                       iconImageName:[self iconForAutofillInputTypeNumber:type]
-                imageTintColorIsGrey:YES];
+        SettingsImageDetailTextItem* oldItem;
+        if (UseSymbols()) {
+          oldItem = [self
+                detailItemWithType:[self modalItemTypeForAutofillUIType:
+                                             (AutofillUIType)[type intValue]
+                                                                 update:YES
+                                                                    old:YES]
+                              text:self.profileDataDiff[type][1]
+                            symbol:[self symbolForAutofillInputTypeNumber:type]
+              imageTintColorIsGrey:YES];
+        } else {
+          oldItem = [self
+                detailItemWithType:[self modalItemTypeForAutofillUIType:
+                                             (AutofillUIType)[type intValue]
+                                                                 update:YES
+                                                                    old:YES]
+                              text:self.profileDataDiff[type][1]
+                     iconImageName:[self iconForAutofillInputTypeNumber:type]
+              imageTintColorIsGrey:YES];
+        }
         lastAddedItem = oldItem;
         [model addItem:oldItem
             toSectionWithIdentifier:SectionIdentifierUpdateModalFields];
@@ -422,7 +449,30 @@ typedef NS_ENUM(NSInteger, ItemType) {
   return descriptionItem;
 }
 
+- (UIImage*)symbolForAutofillUIType:(AutofillUIType)type {
+  DCHECK(UseSymbols());
+  switch (type) {
+    case AutofillUITypeNameFullWithHonorificPrefix:
+      return DefaultSymbolTemplateWithPointSize(kPersonFillSymbol, kSymbolSize);
+    case AutofillUITypeAddressHomeAddress:
+    case AutofillUITypeProfileHomeAddressStreet:
+      return DefaultSymbolTemplateWithPointSize(kPinFillSymbol, kSymbolSize);
+    case AutofillUITypeProfileEmailAddress:
+      return DefaultSymbolTemplateWithPointSize(kMailFillSymbol, kSymbolSize);
+    case AutofillUITypeProfileHomePhoneWholeNumber:
+      return DefaultSymbolTemplateWithPointSize(kPhoneFillSymbol, kSymbolSize);
+    default:
+      NOTREACHED();
+      return nil;
+  }
+}
+
+- (UIImage*)symbolForAutofillInputTypeNumber:(NSNumber*)val {
+  return [self symbolForAutofillUIType:(AutofillUIType)[val intValue]];
+}
+
 - (NSString*)iconForAutofillUIType:(AutofillUIType)type {
+  DCHECK(!UseSymbols());
   switch (type) {
     case AutofillUITypeNameFullWithHonorificPrefix:
       return @"infobar_profile_icon";
@@ -440,10 +490,11 @@ typedef NS_ENUM(NSInteger, ItemType) {
 }
 
 - (NSString*)iconForAutofillInputTypeNumber:(NSNumber*)val {
+  DCHECK(!UseSymbols());
   return [self iconForAutofillUIType:(AutofillUIType)[val intValue]];
 }
 
-// Determines the itemType for the row based on |autofillUIType|, whether the
+// Determines the itemType for the row based on `autofillUIType`, whether the
 // modal is for save/update address or belongs to the old/new section in case of
 // update modal.
 - (NSInteger)modalItemTypeForAutofillUIType:(AutofillUIType)autofillUIType
@@ -494,11 +545,20 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 #pragma mark - Item Constructors
 
-// Returns a |SettingsImageDetailTextItem| for the fields to be shown in the
+// Returns a `SettingsImageDetailTextItem` for the fields to be shown in the
 // save address modal.
 - (SettingsImageDetailTextItem*)
     detailItemForSaveModalWithText:(NSString*)text
                     autofillUIType:(AutofillUIType)autofillUIType {
+  if (UseSymbols()) {
+    return [self
+          detailItemWithType:[self modalItemTypeForAutofillUIType:autofillUIType
+                                                           update:NO
+                                                              old:NO]
+                        text:text
+                      symbol:[self symbolForAutofillUIType:autofillUIType]
+        imageTintColorIsGrey:YES];
+  }
   return [self
         detailItemWithType:[self modalItemTypeForAutofillUIType:autofillUIType
                                                          update:NO
@@ -510,8 +570,32 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 - (SettingsImageDetailTextItem*)detailItemWithType:(NSInteger)type
                                               text:(NSString*)text
+                                            symbol:(UIImage*)symbol
+                              imageTintColorIsGrey:(BOOL)imageTintColorIsGrey {
+  DCHECK(UseSymbols());
+  SettingsImageDetailTextItem* detailItem =
+      [[SettingsImageDetailTextItem alloc] initWithType:type];
+
+  detailItem.text = text;
+  detailItem.alignImageWithFirstLineOfText = YES;
+  if (symbol) {
+    detailItem.image = symbol;
+    detailItem.useCustomSeparator = YES;
+    if (imageTintColorIsGrey) {
+      detailItem.imageViewTintColor = [UIColor colorNamed:kGrey400Color];
+    } else {
+      detailItem.imageViewTintColor = [UIColor colorNamed:kBlueColor];
+    }
+  }
+
+  return detailItem;
+}
+
+- (SettingsImageDetailTextItem*)detailItemWithType:(NSInteger)type
+                                              text:(NSString*)text
                                      iconImageName:(NSString*)iconImageName
                               imageTintColorIsGrey:(BOOL)imageTintColorIsGrey {
+  DCHECK(!UseSymbols());
   SettingsImageDetailTextItem* detailItem =
       [[SettingsImageDetailTextItem alloc] initWithType:type];
 

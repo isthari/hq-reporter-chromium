@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,12 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "ash/constants/ash_switches.h"
+#include "base/command_line.h"
 #include "base/feature_list.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
@@ -57,10 +60,6 @@ media_router::MediaRouter* GetMediaRouter() {
   DCHECK(router);
   return router;
 }
-
-// "Cast for Education" extension uses this string and expects the client to
-// interpret it as "signed-in user's domain".
-constexpr char const kDefaultDomain[] = "default";
 
 }  // namespace
 
@@ -124,14 +123,6 @@ void CastDeviceCache::OnSinksReceived(const MediaSinks& sinks) {
     if (sink.name().empty())
       continue;
 
-    // Hide all sinks which have a non-default domain (ie, castouts) to meet
-    // privacy requirements. This will be enabled once UI can display the
-    // domain. See crbug.com/624016.
-    if (sink.domain() && !sink.domain()->empty() &&
-        sink.domain() != kDefaultDomain) {
-      continue;
-    }
-
     sinks_.push_back(sink);
   }
 
@@ -181,6 +172,10 @@ void CastConfigControllerMediaRouter::RemoveObserver(Observer* observer) {
   observers_.RemoveObserver(observer);
 }
 
+bool CastConfigControllerMediaRouter::HasMediaRouterForPrimaryProfile() const {
+  return !!GetMediaRouter();
+}
+
 bool CastConfigControllerMediaRouter::HasSinksAndRoutes() const {
   return !devices_.empty();
 }
@@ -197,8 +192,7 @@ bool CastConfigControllerMediaRouter::HasActiveRoute() const {
 bool CastConfigControllerMediaRouter::AccessCodeCastingEnabled() const {
   Profile* profile = GetProfile();
   return base::FeatureList::IsEnabled(::features::kAccessCodeCastUI) &&
-         profile &&
-         media_router::GetAccessCodeCastEnabledPref(profile->GetPrefs());
+         profile && media_router::GetAccessCodeCastEnabledPref(profile);
 }
 
 void CastConfigControllerMediaRouter::RequestDeviceRefresh() {
@@ -211,11 +205,18 @@ void CastConfigControllerMediaRouter::RequestDeviceRefresh() {
   // update those sinks with activity information.
   devices_.clear();
 
+#if !defined(OFFICIAL_BUILD)
+  // Optionally add fake cast devices for manual UI testing.
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          ash::switches::kQsAddFakeCastDevices)) {
+    AddFakeCastDevices();
+  }
+#endif
+
   for (const media_router::MediaSink& sink : device_cache()->sinks()) {
     ash::SinkAndRoute device;
     device.sink.id = sink.id();
     device.sink.name = sink.name();
-    device.sink.domain = sink.domain().value_or(std::string());
     device.sink.sink_icon_type =
         static_cast<ash::SinkIconType>(sink.icon_type());
     devices_.push_back(std::move(device));
@@ -271,3 +272,16 @@ void CastConfigControllerMediaRouter::OnUserProfileLoaded(
   device_cache_.reset();
   RequestDeviceRefresh();
 }
+
+#if !defined(OFFICIAL_BUILD)
+void CastConfigControllerMediaRouter::AddFakeCastDevices() {
+  // Add enough devices that the UI menu will scroll.
+  for (int i = 1; i <= 10; i++) {
+    ash::SinkAndRoute device;
+    device.sink.id = "fake_sink_id_" + base::NumberToString(i);
+    device.sink.name = "Fake Sink " + base::NumberToString(i);
+    device.sink.sink_icon_type = ash::SinkIconType::kCast;
+    devices_.push_back(std::move(device));
+  }
+}
+#endif  // defined(OFFICIAL_BUILD)

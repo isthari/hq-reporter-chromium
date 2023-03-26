@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,7 +45,8 @@ class TabContentManager : public ThumbnailCacheObserver {
                     jint compression_queue_max_size,
                     jint write_queue_max_size,
                     jboolean use_approximation_thumbnail,
-                    jboolean save_jpeg_thumbnails);
+                    jboolean save_jpeg_thumbnails,
+                    jdouble jpeg_aspect_ratio);
 
   TabContentManager(const TabContentManager&) = delete;
   TabContentManager& operator=(const TabContentManager&) = delete;
@@ -54,7 +55,8 @@ class TabContentManager : public ThumbnailCacheObserver {
 
   void Destroy(JNIEnv* env);
 
-  void SetUIResourceProvider(ui::UIResourceProvider* ui_resource_provider);
+  void SetUIResourceProvider(
+      base::WeakPtr<ui::UIResourceProvider> ui_resource_provider);
 
   // Get the live layer from the cache.
   scoped_refptr<cc::Layer> GetLiveLayer(int tab_id);
@@ -74,27 +76,25 @@ class TabContentManager : public ThumbnailCacheObserver {
                  jint tab_id);
 
   // Should be called when a tab removes a live layer because it should no
-  // longer be served by the CompositorView.  If |layer| is NULL, will
+  // longer be served by the CompositorView.  If `layer` is nullptr, will
   // make sure all live layers are detached.
   void DetachTab(JNIEnv* env,
                  const base::android::JavaParamRef<jobject>& obj,
                  const base::android::JavaParamRef<jobject>& jtab,
                  jint tab_id);
-  jboolean HasFullCachedThumbnail(
-      JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& obj,
-      jint tab_id);
   void CaptureThumbnail(JNIEnv* env,
                         const base::android::JavaParamRef<jobject>& obj,
                         const base::android::JavaParamRef<jobject>& tab,
                         jfloat thumbnail_scale,
                         jboolean write_to_cache,
+                        jdouble aspect_ratio,
                         const base::android::JavaParamRef<jobject>& j_callback);
   void CacheTabWithBitmap(JNIEnv* env,
                           const base::android::JavaParamRef<jobject>& obj,
                           const base::android::JavaParamRef<jobject>& tab,
                           const base::android::JavaParamRef<jobject>& bitmap,
-                          jfloat thumbnail_scale);
+                          jfloat thumbnail_scale,
+                          jdouble aspect_ratio);
   void InvalidateIfChanged(JNIEnv* env,
                            const base::android::JavaParamRef<jobject>& obj,
                            jint tab_id,
@@ -112,6 +112,7 @@ class TabContentManager : public ThumbnailCacheObserver {
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj,
       jint tab_id,
+      jdouble aspect_ratio,
       const base::android::JavaParamRef<jobject>& j_callback);
   void SetCaptureMinRequestTimeForTesting(
       JNIEnv* env,
@@ -126,7 +127,7 @@ class TabContentManager : public ThumbnailCacheObserver {
 
  private:
   class TabReadbackRequest;
-  // TODO(bug 714384) check sizes and consider using base::flat_map if these
+  // TODO(crbug/714384) check sizes and consider using base::flat_map if these
   // layer maps are small.
   using LayerMap = std::map<int, scoped_refptr<cc::Layer>>;
   using ThumbnailLayerMap = std::map<int, scoped_refptr<ThumbnailLayer>>;
@@ -140,12 +141,14 @@ class TabContentManager : public ThumbnailCacheObserver {
   void OnTabReadback(int tab_id,
                      base::android::ScopedJavaGlobalRef<jobject> j_callback,
                      bool write_to_cache,
+                     double aspect_ratio,
                      float thumbnail_scale,
                      const SkBitmap& bitmap);
 
   void SendThumbnailToJava(
       base::android::ScopedJavaGlobalRef<jobject> j_callback,
       bool need_downsampling,
+      double aspect_ratio,
       bool result,
       const SkBitmap& bitmap);
 

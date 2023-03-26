@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <tuple>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/test/bind.h"
@@ -59,6 +59,7 @@ class MockVideoFrameProvider : public cc::VideoFrameProvider {
   MOCK_METHOD0(HasCurrentFrame, bool());
   MOCK_METHOD0(GetCurrentFrame, scoped_refptr<media::VideoFrame>());
   MOCK_METHOD0(PutCurrentFrame, void());
+  MOCK_METHOD0(OnContextLost, void());
 
   base::TimeDelta GetPreferredRenderInterval() override {
     return preferred_interval;
@@ -161,7 +162,7 @@ class VideoFrameSubmitterTest : public testing::Test {
         begin_frame_source_(new viz::FakeExternalBeginFrameSource(0.f, false)),
         video_frame_provider_(new StrictMock<MockVideoFrameProvider>()),
         context_provider_(viz::TestContextProvider::Create()) {
-    context_provider_->BindToCurrentThread();
+    context_provider_->BindToCurrentSequence();
     MakeSubmitter();
     task_environment_.RunUntilIdle();
   }
@@ -191,8 +192,8 @@ class VideoFrameSubmitterTest : public testing::Test {
     submitter_->surface_embedder_ = std::move(embedder);
     auto surface_id = viz::SurfaceId(
         viz::FrameSinkId(1, 1),
-        viz::LocalSurfaceId(11,
-                            base::UnguessableToken::Deserialize(0x111111, 0)));
+        viz::LocalSurfaceId(
+            11, base::UnguessableToken::CreateForTesting(0x111111, 0)));
     submitter_->frame_sink_id_ = surface_id.frame_sink_id();
     submitter_->child_local_surface_id_allocator_.UpdateFromParent(
         surface_id.local_surface_id());
@@ -698,6 +699,7 @@ TEST_F(VideoFrameSubmitterTest, RecreateCompositorFrameSinkAfterContextLost) {
       .Times(0);
   EXPECT_CALL(mock_embedded_frame_sink_provider, CreateCompositorFrameSink_(_))
       .Times(1);
+  EXPECT_CALL(*video_frame_provider_, OnContextLost()).Times(1);
   submitter_->OnContextLost();
   OnReceivedContextProvider(true, context_provider_);
   task_environment_.RunUntilIdle();
@@ -719,6 +721,7 @@ TEST_F(VideoFrameSubmitterTest,
       .Times(0);
   EXPECT_CALL(mock_embedded_frame_sink_provider, CreateCompositorFrameSink_(_))
       .Times(1);
+  EXPECT_CALL(*video_frame_provider_, OnContextLost()).Times(1);
   submitter_->OnContextLost();
   OnReceivedContextProvider(false, nullptr);
   task_environment_.RunUntilIdle();

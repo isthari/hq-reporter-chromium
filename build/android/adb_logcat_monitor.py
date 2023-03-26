@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Copyright (c) 2012 The Chromium Authors. All rights reserved.
+# Copyright 2012 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -16,7 +16,6 @@ resilient across phone disconnects and reconnects and start the logcat
 early enough to not miss anything.
 """
 
-from __future__ import print_function
 
 import logging
 import os
@@ -82,7 +81,7 @@ def GetAttachedDevices(adb_cmd):
                                 stderr=subprocess.PIPE).communicate()
     if err:
       logging.warning('adb device error %s', err.strip())
-    return re.findall('^(\\S+)\tdevice$', out, re.MULTILINE)
+    return re.findall('^(\\S+)\tdevice$', out.decode('latin1'), re.MULTILINE)
   except TimeoutException:
     logging.warning('"adb devices" command timed out')
     return []
@@ -148,10 +147,11 @@ def main(base_dir, adb_cmd='adb'):
 
 
 if __name__ == '__main__':
+  logging.basicConfig(level=logging.INFO)
   if 2 <= len(sys.argv) <= 3:
     print('adb_logcat_monitor: Initializing')
     if len(sys.argv) == 2:
       sys.exit(main(sys.argv[1]))
-  sys.exit(main(sys.argv[1], sys.argv[2]))
+    sys.exit(main(sys.argv[1], sys.argv[2]))
 
   print('Usage: %s <base_dir> [<adb_binary_path>]' % sys.argv[0])

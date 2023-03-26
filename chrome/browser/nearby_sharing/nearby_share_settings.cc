@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -98,13 +98,10 @@ Visibility NearbyShareSettings::GetVisibility() const {
 
 const std::vector<std::string> NearbyShareSettings::GetAllowedContacts() const {
   std::vector<std::string> allowed_contacts;
-  const base::Value* list =
+  const base::Value::List& list =
       pref_service_->GetList(prefs::kNearbySharingAllowedContactsPrefName);
-  if (list) {
-    base::Value::ConstListView view = list->GetList();
-    for (const auto& value : view) {
-      allowed_contacts.push_back(value.GetString());
-    }
+  for (const auto& value : list) {
+    allowed_contacts.push_back(value.GetString());
   }
   return allowed_contacts;
 }
@@ -216,11 +213,12 @@ void NearbyShareSettings::GetAllowedContacts(
 
 void NearbyShareSettings::SetAllowedContacts(
     const std::vector<std::string>& allowed_contacts) {
-  base::ListValue list;
+  base::Value::List list;
   for (const auto& id : allowed_contacts) {
     list.Append(id);
   }
-  pref_service_->Set(prefs::kNearbySharingAllowedContactsPrefName, list);
+  pref_service_->SetList(prefs::kNearbySharingAllowedContactsPrefName,
+                         std::move(list));
 }
 
 void NearbyShareSettings::Bind(
@@ -246,11 +244,7 @@ void NearbyShareSettings::OnEnabledPrefChanged() {
     remote->OnEnabledChanged(enabled);
   }
 
-  if (base::FeatureList::IsEnabled(
-          features::kNearbySharingBackgroundScanning) &&
-      chromeos::features::IsBluetoothAdvertisementMonitoringEnabled()) {
-    ProcessFastInitiationNotificationParentPrefChanged(enabled);
-  }
+  ProcessFastInitiationNotificationParentPrefChanged(enabled);
 }
 
 void NearbyShareSettings::OnFastInitiationNotificationStatePrefChanged() {

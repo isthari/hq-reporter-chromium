@@ -1,11 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef SERVICES_DEVICE_PUBLIC_CPP_TEST_SCOPED_GEOLOCATION_OVERRIDER_H_
 #define SERVICES_DEVICE_PUBLIC_CPP_TEST_SCOPED_GEOLOCATION_OVERRIDER_H_
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "services/device/public/mojom/geoposition.mojom.h"
 
 namespace device {

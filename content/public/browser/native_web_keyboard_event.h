@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -52,17 +52,6 @@ struct CONTENT_EXPORT NativeWebKeyboardEvent : public blink::WebKeyboardEvent {
   // Create a legacy keypress event specified by |character|.
   NativeWebKeyboardEvent(const ui::KeyEvent& key_event, char16_t character);
 #endif
-#endif
-
-#if BUILDFLAG(IS_MAC)
-  // TODO(bokan): Temporarily added to debug https://crbug.com/1039833. This is
-  // used to allow collecting Event.Latency.OS_NO_VALIDATION only in contexts
-  // where the key event will be sent to the renderer.  The purpose is to avoid
-  // recording it for reinjected events after the renderer has already
-  // processed the event.
-  static NativeWebKeyboardEvent CreateForRenderer(
-      gfx::NativeEvent native_event);
-  NativeWebKeyboardEvent(gfx::NativeEvent native_event, bool record_debug_uma);
 #endif
 
   NativeWebKeyboardEvent(const NativeWebKeyboardEvent& event);

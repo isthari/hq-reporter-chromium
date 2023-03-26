@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <memory>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "chrome/browser/ash/printing/printer_detector.h"
 
 class GURL;
@@ -38,7 +38,7 @@ class ServerPrintersFetcher {
   using OnPrintersFetchedCallback = base::RepeatingCallback<void(
       const ServerPrintersFetcher* sender,
       const GURL& server_url,
-      std::vector<chromeos::PrinterDetector::DetectedPrinter>&& printers)>;
+      std::vector<PrinterDetector::DetectedPrinter>&& printers)>;
 
   ServerPrintersFetcher(Profile* profile,
                         const GURL& server_url,
@@ -64,11 +64,5 @@ class ServerPrintersFetcher {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when ChromeOS code migration is done.
-namespace chromeos {
-using ::ash::PrintServerQueryResult;
-using ::ash::ServerPrintersFetcher;
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_SERVER_PRINTERS_FETCHER_H_

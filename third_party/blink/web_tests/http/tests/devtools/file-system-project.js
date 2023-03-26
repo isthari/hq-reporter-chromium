@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,11 @@
   function fileSystemUISourceCodes() {
     var uiSourceCodes = [];
     var fileSystemProjects = Workspace.workspace.projectsForType(Workspace.projectTypes.FileSystem);
-    for (var project of fileSystemProjects)
-      uiSourceCodes = uiSourceCodes.concat(project.uiSourceCodes());
+    for (var project of fileSystemProjects) {
+      for (const uiSourceCode of project.uiSourceCodes()) {
+        uiSourceCodes.push(uiSourceCode);
+      }
+    }
     return uiSourceCodes;
   }
 

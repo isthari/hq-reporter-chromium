@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -102,8 +102,8 @@ void NearbyShareSchedulerBase::Reschedule() {
 
 absl::optional<base::Time> NearbyShareSchedulerBase::GetLastSuccessTime()
     const {
-  return base::ValueToTime(pref_service_->GetDictionary(pref_name_)
-                               ->FindKey(kLastSuccessTimeKeyName));
+  return base::ValueToTime(
+      pref_service_->GetDict(pref_name_).Find(kLastSuccessTimeKeyName));
 }
 
 absl::optional<base::TimeDelta>
@@ -126,14 +126,14 @@ NearbyShareSchedulerBase::GetTimeUntilNextRequest() const {
 }
 
 bool NearbyShareSchedulerBase::IsWaitingForResult() const {
-  return pref_service_->GetDictionary(pref_name_)
-      ->FindBoolKey(kIsWaitingForResultKeyName)
+  return pref_service_->GetDict(pref_name_)
+      .FindBool(kIsWaitingForResultKeyName)
       .value_or(false);
 }
 
 size_t NearbyShareSchedulerBase::GetNumConsecutiveFailures() const {
-  const std::string* str = pref_service_->GetDictionary(pref_name_)
-                               ->FindStringKey(kNumConsecutiveFailuresKeyName);
+  const std::string* str = pref_service_->GetDict(pref_name_)
+                               .FindString(kNumConsecutiveFailuresKeyName);
   if (!str)
     return 0;
 
@@ -164,50 +164,43 @@ void NearbyShareSchedulerBase::OnConnectionChanged(
 
 absl::optional<base::Time> NearbyShareSchedulerBase::GetLastAttemptTime()
     const {
-  return base::ValueToTime(pref_service_->GetDictionary(pref_name_)
-                               ->FindKey(kLastAttemptTimeKeyName));
+  return base::ValueToTime(
+      pref_service_->GetDict(pref_name_).Find(kLastAttemptTimeKeyName));
 }
 
 bool NearbyShareSchedulerBase::HasPendingImmediateRequest() const {
-  return pref_service_->GetDictionary(pref_name_)
-      ->FindBoolKey(kHasPendingImmediateRequestKeyName)
+  return pref_service_->GetDict(pref_name_)
+      .FindBool(kHasPendingImmediateRequestKeyName)
       .value_or(false);
 }
 
 void NearbyShareSchedulerBase::SetLastAttemptTime(
     base::Time last_attempt_time) {
-  DictionaryPrefUpdate(pref_service_, pref_name_)
-      .Get()
-      ->SetKey(kLastAttemptTimeKeyName, base::TimeToValue(last_attempt_time));
+  ScopedDictPrefUpdate(pref_service_, pref_name_)
+      ->Set(kLastAttemptTimeKeyName, base::TimeToValue(last_attempt_time));
 }
 
 void NearbyShareSchedulerBase::SetLastSuccessTime(
     base::Time last_success_time) {
-  DictionaryPrefUpdate(pref_service_, pref_name_)
-      .Get()
-      ->SetKey(kLastSuccessTimeKeyName, base::TimeToValue(last_success_time));
+  ScopedDictPrefUpdate(pref_service_, pref_name_)
+      ->Set(kLastSuccessTimeKeyName, base::TimeToValue(last_success_time));
 }
 
 void NearbyShareSchedulerBase::SetNumConsecutiveFailures(size_t num_failures) {
-  DictionaryPrefUpdate(pref_service_, pref_name_)
-      .Get()
-      ->SetStringKey(kNumConsecutiveFailuresKeyName,
-                     base::NumberToString(num_failures));
+  ScopedDictPrefUpdate(pref_service_, pref_name_)
+      ->Set(kNumConsecutiveFailuresKeyName, base::NumberToString(num_failures));
 }
 
 void NearbyShareSchedulerBase::SetHasPendingImmediateRequest(
     bool has_pending_immediate_request) {
-  DictionaryPrefUpdate(pref_service_, pref_name_)
-      .Get()
-      ->SetBoolKey(kHasPendingImmediateRequestKeyName,
-                   has_pending_immediate_request);
+  ScopedDictPrefUpdate(pref_service_, pref_name_)
+      ->Set(kHasPendingImmediateRequestKeyName, has_pending_immediate_request);
 }
 
 void NearbyShareSchedulerBase::SetIsWaitingForResult(
     bool is_waiting_for_result) {
-  DictionaryPrefUpdate(pref_service_, pref_name_)
-      .Get()
-      ->SetBoolKey(kIsWaitingForResultKeyName, is_waiting_for_result);
+  ScopedDictPrefUpdate(pref_service_, pref_name_)
+      ->Set(kIsWaitingForResultKeyName, is_waiting_for_result);
 }
 
 void NearbyShareSchedulerBase::InitializePersistedRequest() {

@@ -1,13 +1,3 @@
-<link rel="import" href="../../html/polymer.html">
-
-<link rel="import" href="../../html/cr/ui/focus_outline_manager.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-behaviors/paper-ripple-behavior.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-styles/color.html">
-<link rel="import" href="../hidden_style_css.html">
-<link rel="import" href="../shared_vars_css.html">
-
-<dom-module id="cr-button">
-  <template>
     <style include="cr-hidden-style">
       :host {
         --active-shadow-rgb: var(--google-grey-800-rgb);
@@ -82,8 +72,72 @@
         user-select: none;
       }
 
+      :host-context([chrome-refresh-2023]):host {
+        /* Default button colors. */
+        --border-color: var(--color-button-border,
+            var(--cr-color-token-primary-container));
+        --text-color: var(--color-button-foreground,
+            var(--cr-color-token-primary));
+
+        /* Disabled default button colors. */
+        --disabled-border-color: var(--color-button-border-disabled,
+            rgba(var(--cr-color-token-on-surface-rgb), .12));
+        --disabled-text-color: var(--color-button-foreground-disabled,
+            rgba(var(--cr-color-token-on-surface-rgb),
+                 var(--cr-disabled-opacity)));
+
+        /* Action button colors. */
+        --bg-action: var(--color-button-background-prominent,
+            var(--cr-color-token-primary));
+        --text-color-action: var(--color-button-foreground-prominent,
+            var(--cr-color-token-on-primary));
+
+        /* Disabled action button colors. */
+        --disabled-bg-action: var(--color-button-background-prominent-disabled,
+            rgba(var(--cr-color-token-on-surface-rgb), .12));
+
+        border-radius: 100px;
+        line-height: 20px;
+      }
+
+      :host([has-prefix-icon_]),
+      :host([has-suffix-icon_]) {
+        --iron-icon-height: 16px;
+        --iron-icon-width: 16px;
+        gap: 8px;
+        padding: 8px;
+      }
+
+      :host-context([chrome-refresh-2023]):host([has-prefix-icon_]),
+      :host-context([chrome-refresh-2023]):host([has-suffix-icon_]) {
+        --iron-icon-height: 20px;
+        --iron-icon-width: 20px;
+        --icon-block-padding-large: 16px;
+        --icon-block-padding-small: 12px;
+        padding-block-end: 8px;
+        padding-block-start: 8px;
+      }
+
+      :host-context([chrome-refresh-2023]):host([has-prefix-icon_]) {
+        padding-inline-end: var(--icon-block-padding-large);
+        padding-inline-start: var(--icon-block-padding-small);
+      }
+
+      :host-context([chrome-refresh-2023]):host([has-suffix-icon_]) {
+        padding-inline-end: var(--icon-block-padding-small);
+        padding-inline-start: var(--icon-block-padding-large);
+      }
+
       :host-context(.focus-outline-visible):host(:focus) {
         box-shadow: 0 0 0 2px var(--focus-shadow-color);
+      }
+
+      @media (forced-colors: active) {
+        :host-context(.focus-outline-visible):host(:focus) {
+          /* Use outline instead of box-shadow (which does not work) in Windows
+             HCM. */
+          outline: var(--cr-focus-outline-hcm);
+        }
       }
 
       :host(:active) {
@@ -152,6 +206,20 @@
         line-height: 154%;
       }
 
+      :host-context([chrome-refresh-2023]):host(.tonal-button) {
+        background-color: var(--color-button-background-tonal,
+            var(--cr-color-token-secondary-container));
+        color: var(--color-button-foreground-tonal,
+            var(--cr-color-token-on-secondary-container));
+      }
+
+      :host-context([chrome-refresh-2023]):host(.tonal-button[disabled]) {
+        background-color: var(--color-button-background-tonal-disabled,
+            rgba(var(--cr-color-token-on-surface-rgb), .12));
+        border: none;
+        color: var(--disabled-text-color);
+      }
+
       paper-ripple {
         color: var(--ink-color);
         height: var(--paper-ripple-height);
@@ -162,7 +230,11 @@
         width: var(--paper-ripple-width);
       }
     </style>
+
+    <slot id="prefixIcon" name="prefix-icon"
+        on-slotchange="onPrefixIconSlotChanged_">
+    </slot>
     <slot></slot>
-  </template>
-  <script src="cr_button.js"></script>
-</dom-module>
+    <slot id="suffixIcon" name="suffix-icon"
+        on-slotchange="onSuffixIconSlotChanged_">
+    </slot>

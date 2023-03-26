@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,7 @@ namespace {
 // Returns true if two URLs are equal after taking |replacements| into account.
 bool CompareURLsWithReplacements(const GURL& url,
                                  const GURL& other,
-                                 const url::Replacements<char>& replacements,
+                                 const GURL::Replacements& replacements,
                                  ChromeAutocompleteProviderClient* client) {
   GURL url_replaced = url.ReplaceComponents(replacements);
   GURL other_replaced = other.ReplaceComponents(replacements);
@@ -31,11 +31,6 @@ bool CompareURLsWithReplacements(const GURL& url,
 }  // namespace
 
 void ShowSingletonTab(Browser* browser, const GURL& url) {
-  NavigateParams params(GetSingletonTabNavigateParams(browser, url));
-  Navigate(&params);
-}
-
-void ShowSingletonTabRespectRef(Browser* browser, const GURL& url) {
   NavigateParams params(GetSingletonTabNavigateParams(browser, url));
   Navigate(&params);
 }
@@ -68,7 +63,7 @@ NavigateParams GetSingletonTabNavigateParams(Browser* browser,
   params.disposition = WindowOpenDisposition::SINGLETON_TAB;
   params.window_action = NavigateParams::SHOW_WINDOW;
   params.user_gesture = true;
-  params.tabstrip_add_types |= TabStripModel::ADD_INHERIT_OPENER;
+  params.tabstrip_add_types |= AddTabTypes::ADD_INHERIT_OPENER;
   return params;
 }
 
@@ -110,7 +105,7 @@ int GetIndexOfExistingTab(Browser* browser, const NavigateParams& params) {
     content::BrowserURLHandler::GetInstance()->RewriteURLIfNecessary(
         &rewritten_tab_url, browser->profile());
 
-    url::Replacements<char> replacements;
+    GURL::Replacements replacements;
     replacements.ClearRef();
     if (params.path_behavior == NavigateParams::IGNORE_AND_NAVIGATE) {
       replacements.ClearPath();
@@ -131,12 +126,7 @@ int GetIndexOfExistingTab(Browser* browser, const NavigateParams& params) {
 std::pair<Browser*, int> GetIndexAndBrowserOfExistingTab(
     Profile* profile,
     const NavigateParams& params) {
-  for (auto browser_it =
-           BrowserList::GetInstance()->begin_browsers_ordered_by_activation();
-       browser_it !=
-       BrowserList::GetInstance()->end_browsers_ordered_by_activation();
-       ++browser_it) {
-    Browser* browser = *browser_it;
+  for (Browser* browser : BrowserList::GetInstance()->OrderedByActivation()) {
     // When tab switching, only look at same profile and anonymity level.
     if (profile == browser->profile()) {
       int index = GetIndexOfExistingTab(browser, params);

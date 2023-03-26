@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/sequence_checker.h"
+#include "base/time/time.h"
 #include "components/invalidation/impl/fcm_invalidation_service_base.h"
 #include "components/invalidation/public/identity_provider.h"
 
@@ -33,8 +34,7 @@ class FCMInvalidationService : public FCMInvalidationServiceBase,
   void Init() override;
 
   void RequestDetailedStatus(
-      base::RepeatingCallback<void(const base::DictionaryValue&)> caller)
-      const override;
+      base::RepeatingCallback<void(base::Value::Dict)> caller) const override;
 
   // IdentityProvider::Observer implementation.
   void OnActiveAccountRefreshTokenUpdated() override;
@@ -44,7 +44,7 @@ class FCMInvalidationService : public FCMInvalidationServiceBase,
  protected:
   friend class FCMInvalidationServiceTestDelegate;
 
-  base::DictionaryValue CollectDebugData() const override;
+  base::Value::Dict CollectDebugData() const override;
 
  private:
   struct Diagnostics {

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,7 +42,10 @@ class MEDIA_GPU_EXPORT VaapiVideoEncodeAccelerator
 
   // VideoEncodeAccelerator implementation.
   SupportedProfiles GetSupportedProfiles() override;
-  bool Initialize(const Config& config, Client* client) override;
+  bool Initialize(const Config& config,
+                  Client* client,
+
+                  std::unique_ptr<MediaLog> media_log) override;
   void Encode(scoped_refptr<VideoFrame> frame, bool force_keyframe) override;
   void UseOutputBitstreamBuffer(BitstreamBuffer buffer) override;
   void RequestEncodingParametersChange(const Bitrate& bitrate,
@@ -175,8 +178,8 @@ class MEDIA_GPU_EXPORT VaapiVideoEncodeAccelerator
   // are available, and if so, claims them by associating them with
   // a EncodeJob, and returns the newly-created job, nullptr otherwise.
   std::unique_ptr<EncodeJob> CreateEncodeJob(
-      scoped_refptr<VideoFrame> frame,
       bool force_keyframe,
+      base::TimeDelta frame_timestamp,
       const VASurface& input_surface,
       scoped_refptr<VASurface> reconstructed_surface);
 
@@ -211,6 +214,14 @@ class MEDIA_GPU_EXPORT VaapiVideoEncodeAccelerator
   bool IsConfiguredForTesting() const {
     return !supported_profiles_for_testing_.empty();
   }
+
+  // Having too many encoder instances at once may cause us to run out of FDs
+  // and subsequently crash (crbug.com/1289465). To avoid that, we limit the
+  // maximum number of encoder instances that can exist at once.
+  // |num_instances_| tracks that number.
+  static constexpr int kMaxNumOfInstances = 10;
+  static base::AtomicRefCount num_instances_;
+  const bool can_use_encoder_;
 
   // The unchanged values are filled upon the construction. The varied values
   // are filled properly during encoding.
@@ -266,9 +277,6 @@ class MEDIA_GPU_EXPORT VaapiVideoEncodeAccelerator
   // Map of the number of allocated reconstructed surfaces for encoding
   // indexed by a layer resolution.
   EncodeSurfacesCountMap encode_surfaces_count_;
-
-  // VA buffers for coded frames.
-  std::vector<VABufferID> available_va_buffer_ids_;
 
   // Queue of input frames to be encoded.
   base::queue<std::unique_ptr<InputFrameRef>> input_queue_;

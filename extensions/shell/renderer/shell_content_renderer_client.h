@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,6 @@
 namespace blink {
 class WebURL;
 }  // namespace blink
-
-namespace guest_view {
-class GuestViewContainerDispatcher;
-}
 
 namespace extensions {
 
@@ -53,6 +49,10 @@ class ShellContentRendererClient : public content::ContentRendererClient {
   void RunScriptsAtDocumentStart(content::RenderFrame* render_frame) override;
   void RunScriptsAtDocumentEnd(content::RenderFrame* render_frame) override;
 
+  void SetClientsForTesting(std::unique_ptr<ExtensionsClient> extensions_client,
+                            std::unique_ptr<ShellExtensionsRendererClient>
+                                extensions_renderer_client);
+
  protected:
   // app_shell embedders may need custom extensions client interfaces.
   // This class takes ownership of the returned object.
@@ -61,8 +61,6 @@ class ShellContentRendererClient : public content::ContentRendererClient {
  private:
   std::unique_ptr<ExtensionsClient> extensions_client_;
   std::unique_ptr<ShellExtensionsRendererClient> extensions_renderer_client_;
-  std::unique_ptr<guest_view::GuestViewContainerDispatcher>
-      guest_view_container_dispatcher_;
 };
 
 }  // namespace extensions

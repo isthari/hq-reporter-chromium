@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include <fuchsia/media/cpp/fidl.h>
 #include <fuchsia/media/drm/cpp/fidl.h>
 
-#include "base/bind.h"
 #include "base/fuchsia/fuchsia_logging.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/decoder_buffer.h"

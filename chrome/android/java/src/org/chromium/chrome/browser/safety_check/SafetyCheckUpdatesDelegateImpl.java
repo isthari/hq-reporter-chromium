@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,8 +31,8 @@ public class SafetyCheckUpdatesDelegateImpl implements SafetyCheckUpdatesDelegat
      * {@link SafetyCheckSettingsFragment}.
      * @param context A {@link Context} object, used by Omaha.
      */
-    public SafetyCheckUpdatesDelegateImpl(Context context) {
-        mOmaha = OmahaService.getInstance(context);
+    public SafetyCheckUpdatesDelegateImpl() {
+        mOmaha = OmahaService.getInstance();
     }
 
     /**

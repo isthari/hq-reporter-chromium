@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "build/chromeos_buildflags.h"
 #include "components/sync/base/model_type.h"
@@ -52,6 +52,10 @@ class SyncUserSettingsImpl : public SyncUserSettings {
   UserSelectableOsTypeSet GetRegisteredSelectableOsTypes() const override;
 #endif
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  void SetAppsSyncEnabledByOs(bool apps_sync_enabled) override;
+#endif
+
   bool IsCustomPassphraseAllowed() const override;
   bool IsEncryptEverythingEnabled() const override;
 
@@ -76,12 +80,6 @@ class SyncUserSettingsImpl : public SyncUserSettings {
 
   ModelTypeSet GetPreferredDataTypes() const;
   bool IsEncryptedDatatypeEnabled() const;
-
-  // Converts |selected_types| to ModelTypeSet of corresponding UserTypes() by
-  // resolving pref groups (e.g. {kExtensions} becomes {EXTENSIONS,
-  // EXTENSION_SETTINGS}).
-  static ModelTypeSet ResolvePreferredTypesForTesting(
-      UserSelectableTypeSet selected_types);
 
  private:
   const raw_ptr<SyncServiceCrypto> crypto_;

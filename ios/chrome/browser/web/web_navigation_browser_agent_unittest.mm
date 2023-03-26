@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/web/web_navigation_browser_agent.h"
 
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/lens/lens_browser_agent.h"
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/main/test_browser.h"
 #import "ios/chrome/browser/web/web_navigation_ntp_delegate.h"
@@ -29,7 +30,7 @@
 @property(nonatomic, readwrite, getter=isNTPActiveForCurrentWebState)
     BOOL NTPActiveForCurrentWebState;
 
-// YES if reloadNTPForWebState was called for |webState|
+// YES if reloadNTPForWebState was called for `webState`
 - (BOOL)didReloadForWebState:(web::WebState*)webState;
 
 @end
@@ -56,6 +57,7 @@ class WebNavigationBrowserAgentTest : public PlatformTest {
     browser_state_ = TestChromeBrowserState::Builder().Build();
     browser_ = std::make_unique<TestBrowser>(browser_state_.get());
     delegate_ = [[FakeNTPDelegate alloc] init];
+    LensBrowserAgent::CreateForBrowser(browser_.get());
     WebNavigationBrowserAgent::CreateForBrowser(browser_.get());
     agent_ = WebNavigationBrowserAgent::FromBrowser(browser_.get());
     agent_->SetDelegate(delegate_);
@@ -76,7 +78,7 @@ class WebNavigationBrowserAgentTest : public PlatformTest {
   std::unique_ptr<TestBrowser> browser_;
   FakeNTPDelegate* delegate_;
   WebNavigationBrowserAgent* agent_;
-  // Navigation manager for the web state at index 0 in |browser_|'s web state
+  // Navigation manager for the web state at index 0 in `browser_`'s web state
   // list.
   web::FakeNavigationManager* navigation_manager_;
 };

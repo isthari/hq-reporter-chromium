@@ -1,12 +1,12 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-
 // <if expr="not chromeos_ash">
 import {CrActionMenuElement} from 'chrome://settings/settings.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 // </if>
 
 import {MAX_SIGNIN_PROMO_IMPRESSION, Router, SettingsSyncAccountControlElement, StatusAction, SyncBrowserProxyImpl} from 'chrome://settings/settings.js';
@@ -28,11 +28,11 @@ suite('SyncAccountControl', function() {
     // Flipping syncStatus.signedIn will force promo state to be reset.
     testElement.syncStatus = {
       signedIn: !signedIn,
-      statusAction: StatusAction.NO_ACTION
+      statusAction: StatusAction.NO_ACTION,
     };
     testElement.syncStatus = {
       signedIn: signedIn,
-      statusAction: StatusAction.NO_ACTION
+      statusAction: StatusAction.NO_ACTION,
     };
   }
 
@@ -41,12 +41,12 @@ suite('SyncAccountControl', function() {
     browserProxy = new TestSyncBrowserProxy();
     SyncBrowserProxyImpl.setInstance(browserProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     testElement = document.createElement('settings-sync-account-control');
     testElement.syncStatus = {
       signedIn: true,
       signedInUsername: 'foo@foo.com',
-      statusAction: StatusAction.NO_ACTION
+      statusAction: StatusAction.NO_ACTION,
     };
     testElement.prefs = {
       signin: {
@@ -54,6 +54,7 @@ suite('SyncAccountControl', function() {
             {type: chrome.settingsPrivate.PrefType.BOOLEAN, value: true},
       },
     };
+
     document.body.appendChild(testElement);
 
     await browserProxy.whenCalled('getStoredAccounts');
@@ -106,7 +107,7 @@ suite('SyncAccountControl', function() {
     testElement.syncStatus = {
       signedIn: false,
       signedInUsername: '',
-      statusAction: StatusAction.NO_ACTION
+      statusAction: StatusAction.NO_ACTION,
     };
     testElement.promoLabelWithNoAccount = testElement.promoLabelWithAccount =
         'title';
@@ -118,7 +119,7 @@ suite('SyncAccountControl', function() {
     testElement.syncStatus = {
       signedIn: false,
       signedInUsername: '',
-      statusAction: StatusAction.NO_ACTION
+      statusAction: StatusAction.NO_ACTION,
     };
     simulateStoredAccounts([]);
 
@@ -146,6 +147,7 @@ suite('SyncAccountControl', function() {
   // <if expr="not chromeos_ash">
   // Chrome OS users are always signed in.
   test('not signed in but has stored accounts', async function() {
+    loadTimeData.overrideValues({isSecondaryUser: true});
     testElement.syncStatus = {
       firstSetupInProgress: false,
       signedIn: false,
@@ -209,6 +211,7 @@ suite('SyncAccountControl', function() {
     assertTrue(testElement.shadowRoot!
                    .querySelector<HTMLElement>('#sync-icon-container')!.hidden);
 
+    assertTrue(isChildVisible(testElement, '#dropdown-arrow'));
     testElement.shadowRoot!.querySelector<HTMLElement>(
                                '#dropdown-arrow')!.click();
     flush();
@@ -241,6 +244,40 @@ suite('SyncAccountControl', function() {
   });
   // </if>
 
+  // <if expr="chromeos_lacros">
+  test('main profile not signed in but has stored accounts', function() {
+    loadTimeData.overrideValues({isSecondaryUser: false});
+    testElement.syncStatus = {
+      firstSetupInProgress: false,
+      signedIn: false,
+      signedInUsername: '',
+      statusAction: StatusAction.NO_ACTION,
+      hasError: false,
+      disabled: false,
+    };
+    simulateStoredAccounts([
+      {
+        fullName: 'fooName',
+        givenName: 'foo',
+        email: 'foo@foo.com',
+      },
+    ]);
+
+    const userInfo =
+        testElement.shadowRoot!.querySelector<HTMLElement>('#user-info')!;
+
+    // Avatar row shows the right account.
+    assertTrue(isChildVisible(testElement, '#promo-header'));
+    assertTrue(isChildVisible(testElement, '#avatar-row'));
+    assertTrue(userInfo.textContent!.includes('fooName'));
+    assertTrue(userInfo.textContent!.includes('foo@foo.com'));
+
+    // Menu is hidden.
+    assertFalse(!!testElement.shadowRoot!.querySelector('#menu'));
+    assertFalse(isChildVisible(testElement, '#dropdown-arrow'));
+  });
+  // </if>
+
   test('signed in, no error', function() {
     testElement.syncStatus = {
       firstSetupInProgress: false,
@@ -263,6 +300,7 @@ suite('SyncAccountControl', function() {
     // Chrome OS does not use the account switch menu.
     assertFalse(isChildVisible(testElement, 'cr-icon-button'));
     assertFalse(!!testElement.shadowRoot!.querySelector('#menu'));
+    assertFalse(isChildVisible(testElement, '#dropdown-arrow'));
     // </if>
 
     const userInfo =

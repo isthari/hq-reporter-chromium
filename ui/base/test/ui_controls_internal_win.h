@@ -1,11 +1,11 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef UI_BASE_TEST_UI_CONTROLS_INTERNAL_WIN_H_
 #define UI_BASE_TEST_UI_CONTROLS_INTERNAL_WIN_H_
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "ui/base/test/ui_controls.h"
 
 namespace ui_controls {

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,7 +42,6 @@ class MockResultLoaderDelegate : public ResultLoader::ResultLoaderDelegate {
   // ResultLoader::ResultLoaderDelegate:
   MOCK_METHOD0(OnNetworkError, void());
   MOCK_METHOD1(OnQuickAnswerReceived, void(std::unique_ptr<QuickAnswer>));
-  MOCK_METHOD1(RequestAccessToken, void(AccessTokenCallback));
 };
 
 MATCHER_P(QuickAnswerEqual, quick_answer, "") {

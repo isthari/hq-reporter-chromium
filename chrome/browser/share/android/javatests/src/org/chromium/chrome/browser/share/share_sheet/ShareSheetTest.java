@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,20 +29,17 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.MockitoAnnotations;
 
-import org.chromium.android.support.PackageManagerWrapper;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.PackageManagerWrapper;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.share.ShareHistoryBridge;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.MenuUtils;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetTestSupport;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -138,9 +135,9 @@ public class ShareSheetTest {
         final int kTileVisualWidth = kTileWidth + 2 * kTileMargin;
         final int kScreenWidth = 4 * kTileVisualWidth + 2 * kTileMargin;
 
-        ShareSheetCoordinator.FORCED_TILE_WIDTH_FOR_TEST = kTileWidth;
-        ShareSheetCoordinator.FORCED_TILE_MARGIN_FOR_TEST = kTileMargin;
-        ShareSheetCoordinator.FORCED_SCREEN_WIDTH_FOR_TEST = kScreenWidth;
+        ShareSheetUsageRankingHelper.FORCED_TILE_WIDTH_FOR_TEST = kTileWidth;
+        ShareSheetUsageRankingHelper.FORCED_TILE_MARGIN_FOR_TEST = kTileMargin;
+        ShareSheetUsageRankingHelper.FORCED_SCREEN_WIDTH_FOR_TEST = kScreenWidth;
     }
 
     @Before
@@ -289,11 +286,7 @@ public class ShareSheetTest {
 
     @Test
     @SmallTest
-    @Feature({ChromeFeatureList.SHARE_USAGE_RANKING})
-    @EnableFeatures({ChromeFeatureList.SHARE_USAGE_RANKING,
-            ChromeFeatureList.SHARE_USAGE_RANKING_FIXED_MORE})
-    public void
-    nothingFromDefaultRankingAvailable() {
+    public void nothingFromDefaultRankingAvailable() {
         replaceRecentShareHistory(defaultTestHistory());
         replaceSystemApps(defaultTestSystemApps());
 

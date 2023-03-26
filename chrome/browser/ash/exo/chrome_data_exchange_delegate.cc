@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,14 +21,15 @@
 #include "chrome/browser/ash/borealis/borealis_window_manager.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/ash/crostini/crostini_util.h"
+#include "chrome/browser/ash/extensions/file_manager/event_router.h"
+#include "chrome/browser/ash/extensions/file_manager/event_router_factory.h"
 #include "chrome/browser/ash/file_manager/app_id.h"
 #include "chrome/browser/ash/file_manager/fileapi_util.h"
 #include "chrome/browser/ash/file_manager/path_util.h"
+#include "chrome/browser/ash/guest_os/guest_os_session_tracker.h"
 #include "chrome/browser/ash/guest_os/guest_os_share_path.h"
 #include "chrome/browser/ash/plugin_vm/plugin_vm_files.h"
 #include "chrome/browser/ash/plugin_vm/plugin_vm_util.h"
-#include "chrome/browser/chromeos/extensions/file_manager/event_router.h"
-#include "chrome/browser/chromeos/extensions/file_manager/event_router_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "content/public/common/drop_data.h"
@@ -44,7 +45,6 @@
 #include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "url/gurl.h"
-#include "url/origin.h"
 
 namespace ash {
 
@@ -96,9 +96,8 @@ void SendArcUrls(exo::DataExchangeDelegate::SendDataCallback callback,
     lines.push_back(url.spec());
   }
   // Arc requires UTF16 for data.
-  std::u16string data =
-      base::UTF8ToUTF16(base::JoinString(lines, kUriListSeparator));
-  std::move(callback).Run(base::RefCountedString16::TakeString(&data));
+  std::move(callback).Run(base::MakeRefCounted<base::RefCountedString16>(
+      base::UTF8ToUTF16(base::JoinString(lines, kUriListSeparator))));
 }
 
 void SendAfterShare(ui::EndpointType target,
@@ -108,10 +107,10 @@ void SendAfterShare(ui::EndpointType target,
   scoped_refptr<base::RefCountedMemory> data;
   if (target == ui::EndpointType::kArc) {
     // Arc uses utf-16 data.
-    std::u16string utf16 = base::UTF8ToUTF16(joined);
-    data = base::RefCountedString16::TakeString(&utf16);
+    data = base::MakeRefCounted<base::RefCountedString16>(
+        base::UTF8ToUTF16(joined));
   } else {
-    data = base::RefCountedString::TakeString(&joined);
+    data = base::MakeRefCounted<base::RefCountedString>(std::move(joined));
   }
 
   std::move(callback).Run(data);
@@ -275,9 +274,18 @@ void ShareAndTranslateHostToVM(
 
   if (!paths_to_share.empty()) {
     if (!is_plugin_vm) {
+      auto vm_info =
+          guest_os::GuestOsSessionTracker::GetForProfile(primary_profile)
+              ->GetVmInfo(vm_name);
+      if (!vm_info) {
+        // VM must be running for copy-paste or drag-drop to be happening so
+        // something's gone wrong, skip trying to share and just send the data.
+        std::move(callback).Run(std::move(file_urls));
+        return;
+      }
       share_path->SharePaths(
-          vm_name, std::move(paths_to_share),
-          /*persist=*/false,
+          vm_name, vm_info->seneschal_server_handle(),
+          std::move(paths_to_share),
           base::BindOnce(
               [](base::OnceCallback<void(std::vector<std::string>)> callback,
                  std::vector<std::string> file_urls, bool success,
@@ -330,7 +338,7 @@ ui::EndpointType ChromeDataExchangeDelegate::GetDataTransferEndpointType(
     aura::Window* target) const {
   auto* top_level_window = target->GetToplevelWindow();
 
-  if (ash::IsArcWindow(top_level_window))
+  if (IsArcWindow(top_level_window))
     return ui::EndpointType::kArc;
 
   if (borealis::BorealisWindowManager::IsBorealisWindow(top_level_window))
@@ -420,8 +428,8 @@ std::vector<ui::FileInfo> ChromeDataExchangeDelegate::ParseFileSystemSources(
   std::vector<ui::FileInfo> file_info;
   // We only promote 'fs/sources' custom data pickle to be filenames which can
   // be shared and read by clients if it came from the trusted FilesApp.
-  if (!source || !source->IsSameOriginWith(ui::DataTransferEndpoint(
-                     file_manager::util::GetFilesAppOrigin()))) {
+  if (!source || !source->GetURL() ||
+      !file_manager::util::IsFileManagerURL(*source->GetURL())) {
     return file_info;
   }
 

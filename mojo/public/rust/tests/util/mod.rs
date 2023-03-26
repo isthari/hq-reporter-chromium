@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@ use std::vec::Vec;
 /// This macro sets up tests by adding in Mojo embedder
 /// initialization.
 macro_rules! tests {
-    ( $( $( #[ $attr:meta ] )* fn $i:ident() $b:block)* ) => {
+    { $( $( #[ $attr:meta ] )* fn $i:ident() $b:block)* } => {
         $(
             #[test]
             $(

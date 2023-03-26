@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -172,6 +172,7 @@ class ChromeVoxAccessibilityEventRewriterTest
  private:
   // ui::EventRewriterChromeOS::Delegate:
   bool RewriteModifierKeys() override { return true; }
+  void SuppressModifierKeyRewrites(bool should_suppress) override {}
 
   bool GetKeyboardRemappedPrefValue(const std::string& pref_name,
                                     int* value) const override {
@@ -193,7 +194,6 @@ class ChromeVoxAccessibilityEventRewriterTest
   bool IsSearchKeyAcceleratorReserved() const override { return false; }
 
   bool NotifyDeprecatedRightClickRewrite() override { return false; }
-  bool NotifyDeprecatedFKeyRewrite() override { return false; }
   bool NotifyDeprecatedSixPackKeyRewrite(ui::KeyboardCode key_code) override {
     return false;
   }
@@ -564,6 +564,7 @@ class SwitchAccessAccessibilityEventRewriterTest
  private:
   // ui::EventRewriterChromeOS::Delegate:
   bool RewriteModifierKeys() override { return true; }
+  void SuppressModifierKeyRewrites(bool should_suppress) override {}
 
   bool GetKeyboardRemappedPrefValue(const std::string& pref_name,
                                     int* value) const override {
@@ -585,7 +586,6 @@ class SwitchAccessAccessibilityEventRewriterTest
   bool IsSearchKeyAcceleratorReserved() const override { return false; }
 
   bool NotifyDeprecatedRightClickRewrite() override { return false; }
-  bool NotifyDeprecatedFKeyRewrite() override { return false; }
   bool NotifyDeprecatedSixPackKeyRewrite(ui::KeyboardCode key_code) override {
     return false;
   }

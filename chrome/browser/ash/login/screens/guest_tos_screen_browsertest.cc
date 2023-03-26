@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,7 @@
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/webui/chromeos/login/guest_tos_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/guest_tos_screen_handler.h"
 #include "content/public/test/browser_test.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -39,12 +39,13 @@ const test::UIPath kUsageLearnMorePopUpClose = {
 
 // Google EUlA Dialog
 const test::UIPath kGoogleEulaDialog = {kGuestTostId, "googleEulaDialog"};
-const test::UIPath kGoogleEulaWebview = {kGuestTostId, "googleEulaWebview"};
+const test::UIPath kGoogleEulaWebview = {kGuestTostId,
+                                         "guestTosGoogleEulaWebview"};
 const test::UIPath kGoogleEulaOkButton = {kGuestTostId, "googleEulaOkButton"};
 
 // CROS EULA Dialog
 const test::UIPath kCrosEulaDialog = {kGuestTostId, "crosEulaDialog"};
-const test::UIPath kCrosEulaWebview = {kGuestTostId, "crosEulaWebview"};
+const test::UIPath kCrosEulaWebview = {kGuestTostId, "guestTosCrosEulaWebview"};
 const test::UIPath kCrosEulaOkButton = {kGuestTostId, "crosEulaOkButton"};
 
 }  // namespace

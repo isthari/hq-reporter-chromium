@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,7 +35,7 @@
 
   TestRunner.addSniffer(SourceFrame.SourcesTextEditor.prototype, 'setGutterDecoration', decorationAdded, true);
 
-  const debuggerModel = SDK.targetManager.mainTarget().model(SDK.DebuggerModel);
+  const debuggerModel = SDK.targetManager.mainFrameTarget().model(SDK.DebuggerModel);
   const rawLocation = debuggerModel.createRawLocationByScriptId(scriptId, 0, 0);
   const uiLocation = await Bindings.debuggerWorkspaceBinding.rawLocationToUILocation(rawLocation);
   await SourcesTestRunner.showUISourceCodePromise(uiLocation.uiSourceCode);

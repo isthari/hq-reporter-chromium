@@ -1,8 +1,8 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
+import {assert, assertNotReached} from 'chrome://resources/js/assert_ts.js';
 import {dedupingMixin, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {isBrowserSigninAllowed, isForceSigninEnabled, isSignInProfileCreationSupported} from './policy_helper.js';
@@ -20,7 +20,7 @@ enum Pages {
   LOAD_SIGNIN = 3,
   LOAD_FORCE_SIGNIN = 4,
   PROFILE_SWITCH = 5,
-  // <if expr="lacros">
+  // <if expr="chromeos_lacros">
   ACCOUNT_SELECTION_LACROS = 6,
   // </if>
 }
@@ -32,7 +32,7 @@ export enum Routes {
   MAIN = 'main-view',
   NEW_PROFILE = 'new-profile',
   PROFILE_SWITCH = 'profile-switch',
-  // <if expr="lacros">
+  // <if expr="chromeos_lacros">
   ACCOUNT_SELECTION_LACROS = 'account-selection-lacros',
   // </if>
 }
@@ -62,13 +62,12 @@ function computeStep(route: Routes): string {
       return ProfileCreationSteps.PROFILE_TYPE_CHOICE;
     case Routes.PROFILE_SWITCH:
       return 'profileSwitch';
-    // <if expr="lacros">
+    // <if expr="chromeos_lacros">
     case Routes.ACCOUNT_SELECTION_LACROS:
       return 'accountSelectionLacros';
     // </if>
     default:
       assertNotReached();
-      return '';
   }
 }
 
@@ -77,11 +76,16 @@ if (!history.state || !history.state.route || !history.state.step) {
   const path = window.location.pathname.replace(/\/$/, '');
   switch (path) {
     case `/${Routes.NEW_PROFILE}`:
+      assert(history.length === 1);
+      // Enable accessing the main page when navigating back.
       history.replaceState(
+          {route: Routes.MAIN, step: computeStep(Routes.MAIN), isFirst: true},
+          '', '/');
+      history.pushState(
           {
             route: Routes.NEW_PROFILE,
             step: computeStep(Routes.NEW_PROFILE),
-            isFirst: true,
+            isFirst: false,
           },
           '', path);
       break;
@@ -90,17 +94,17 @@ if (!history.state || !history.state.route || !history.state.step) {
           {
             route: Routes.PROFILE_SWITCH,
             step: computeStep(Routes.PROFILE_SWITCH),
-            isFirst: true
+            isFirst: true,
           },
           '', path);
       break;
-    // <if expr="lacros">
+    // <if expr="chromeos_lacros">
     case `/${Routes.ACCOUNT_SELECTION_LACROS}`:
       history.replaceState(
           {
             route: Routes.ACCOUNT_SELECTION_LACROS,
             step: computeStep(Routes.ACCOUNT_SELECTION_LACROS),
-            isFirst: true
+            isFirst: true,
           },
           '', path);
       break;
@@ -134,7 +138,7 @@ export function recordPageVisited(step: string) {
     case 'profileSwitch':
       page = Pages.PROFILE_SWITCH;
       break;
-    // <if expr="lacros">
+    // <if expr="chromeos_lacros">
     case 'accountSelectionLacros':
       page = Pages.ACCOUNT_SELECTION_LACROS;
       break;
@@ -161,26 +165,21 @@ window.addEventListener('popstate', notifyObservers);
 
 export function navigateTo(route: Routes) {
   assert([
-    // <if expr="lacros">
+    // <if expr="chromeos_lacros">
     Routes.ACCOUNT_SELECTION_LACROS,
     // </if>
-    Routes.MAIN, Routes.NEW_PROFILE, Routes.PROFILE_SWITCH
+    Routes.MAIN,
+    Routes.NEW_PROFILE,
+    Routes.PROFILE_SWITCH,
   ].includes(route));
   navigateToStep(route, computeStep(route));
 }
 
 /**
- * Navigates to the previous route if it belongs to the profile picker
- * otherwise to the main route.
+ * Navigates to the previous route if it belongs to the profile picker.
  */
 export function navigateToPreviousRoute() {
-  if (hasPreviousRoute()) {
-    window.history.back();
-  } else {
-    // This can happen if the profile creation flow is opened directly from the
-    // profile menu.
-    navigateTo(Routes.MAIN);
-  }
+  window.history.back();
 }
 
 /**
@@ -208,7 +207,7 @@ export const NavigationMixin = dedupingMixin(
     <T extends Constructor<PolymerElement>>(superClass: T): T&
     Constructor<NavigationMixinInterface> => {
       class NavigationMixin extends superClass {
-        connectedCallback() {
+        override connectedCallback() {
           super.connectedCallback();
 
           assert(!routeObservers.has(this));
@@ -219,7 +218,7 @@ export const NavigationMixin = dedupingMixin(
           this.onRouteChange(history.state.route, history.state.step);
         }
 
-        disconnectedCallback() {
+        override disconnectedCallback() {
           super.disconnectedCallback();
 
           assert(routeObservers.delete(this));

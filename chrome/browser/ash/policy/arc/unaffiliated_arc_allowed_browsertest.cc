@@ -1,17 +1,17 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <set>
 
 #include "ash/components/arc/test/arc_util_test_support.h"
-#include "ash/components/settings/cros_settings_names.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
+#include "chrome/browser/ash/login/test/cryptohome_mixin.h"
 #include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/policy/affiliation/affiliation_mixin.h"
 #include "chrome/browser/ash/policy/affiliation/affiliation_test_helper.h"
@@ -20,6 +20,7 @@
 #include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "content/public/test/browser_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -44,6 +45,7 @@ class UnaffiliatedArcAllowedTest
   UnaffiliatedArcAllowedTest() {
     set_exit_when_last_browser_closes(false);
     affiliation_mixin_.set_affiliated(GetParam().affiliated);
+    cryptohome_mixin_.MarkUserAsExisting(affiliation_mixin_.account_id());
   }
 
   UnaffiliatedArcAllowedTest(const UnaffiliatedArcAllowedTest&) = delete;
@@ -60,7 +62,7 @@ class UnaffiliatedArcAllowedTest
   void TearDownOnMainThread() override {
     // If the login display is still showing, exit gracefully.
     if (ash::LoginDisplayHost::default_host()) {
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(&chrome::AttemptExit));
       RunUntilBrowserProcessQuits();
     }
@@ -86,6 +88,9 @@ class UnaffiliatedArcAllowedTest
   }
 
   AffiliationMixin affiliation_mixin_{&mixin_host_, policy_helper()};
+
+ private:
+  ash::CryptohomeMixin cryptohome_mixin_{&mixin_host_};
 };
 
 IN_PROC_BROWSER_TEST_P(UnaffiliatedArcAllowedTest, PRE_ProfileTest) {

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,11 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/trace_event/trace_event.h"
 #include "chrome/browser/autofill/manual_filling_controller.h"
 #include "chrome/browser/password_manager/android/password_accessory_controller.h"
 #include "chrome/browser/password_manager/android/password_generation_dialog_view_interface.h"
@@ -32,16 +33,8 @@ using password_manager::metrics_util::GenerationDialogChoice;
 PasswordGenerationControllerImpl::~PasswordGenerationControllerImpl() = default;
 
 // static
-bool PasswordGenerationController::AllowedForWebContents(
-    content::WebContents* web_contents) {
-  return PasswordAccessoryController::AllowedForWebContents(web_contents);
-}
-
-// static
 PasswordGenerationController* PasswordGenerationController::GetOrCreate(
     content::WebContents* web_contents) {
-  DCHECK(PasswordGenerationController::AllowedForWebContents(web_contents));
-
   PasswordGenerationControllerImpl::CreateForWebContents(web_contents);
   return PasswordGenerationControllerImpl::FromWebContents(web_contents);
 }
@@ -130,6 +123,8 @@ void PasswordGenerationControllerImpl::ShowManualGenerationDialog(
 void PasswordGenerationControllerImpl::FocusedInputChanged(
     autofill::mojom::FocusedFieldType focused_field_type,
     base::WeakPtr<password_manager::PasswordManagerDriver> driver) {
+  TRACE_EVENT0("passwords",
+               "PasswordGenerationControllerImpl::FocusedInputChanged");
   ResetState();
   if (focused_field_type == FocusedFieldType::kFillablePasswordField)
     active_frame_driver_ = std::move(driver);

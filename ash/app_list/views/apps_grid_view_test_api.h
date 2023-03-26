@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,6 @@ class View;
 namespace ash {
 
 class AppListItemView;
-class PagedViewStructure;
 
 namespace test {
 
@@ -48,7 +47,15 @@ class AppsGridViewTestApi {
 
   void PressItemAt(int index);
 
-  int TilesPerPage(int page) const;
+  // Returns the number of tiles per page in paged apps grid. It should not be
+  // called for scrollable apps grid, in which case number of tiles per page is
+  // not defined.
+  size_t TilesPerPageInPagedGrid(int page) const;
+
+  // Returns number of tiles allowed on the page for paged apps grid, or
+  // `default_value` for scrollable apps grid, for which number of tiles per
+  // page is not defined.
+  size_t TilesPerPageOr(int page, size_t default_value) const;
 
   int AppsOnPage(int page) const;
 
@@ -82,11 +89,11 @@ class AppsGridViewTestApi {
   // Returns the layer used by the app drag icon proxy.
   ui::Layer* GetDragIconLayer();
 
-  AppListItemList* GetItemList() { return view_->item_list_; }
+  // Moves the app list item at `source_index` to `target_index` by drag and
+  // drop. `source_index` and `target_index` are view indices in `view_`.
+  void ReorderItemByDragAndDrop(int source_index, int target_index);
 
-  PagedViewStructure* GetPagedViewStructure() {
-    return &view_->view_structure_;
-  }
+  AppListItemList* GetItemList() { return view_->item_list_; }
 
  private:
   AppsGridView* view_;

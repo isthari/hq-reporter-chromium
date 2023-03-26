@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,6 +27,9 @@ class GESTURE_DETECTION_EXPORT GestureConfiguration {
   bool double_tap_enabled() const { return double_tap_enabled_; }
   void set_double_tap_enabled(bool enabled) { double_tap_enabled_ = enabled; }
   int double_tap_timeout_in_ms() const { return double_tap_timeout_in_ms_; }
+  void set_double_tap_timeout_in_ms(int val) {
+    double_tap_timeout_in_ms_ = val;
+  }
   bool fling_touchpad_tap_suppression_enabled() const {
     return fling_touchpad_tap_suppression_enabled_;
   }
@@ -61,6 +64,8 @@ class GESTURE_DETECTION_EXPORT GestureConfiguration {
   void set_gesture_begin_end_types_enabled(bool val) {
     gesture_begin_end_types_enabled_ = val;
   }
+  base::TimeDelta short_press_time() const { return short_press_time_; }
+  void set_short_press_time(base::TimeDelta val) { short_press_time_ = val; }
   int long_press_time_in_ms() const { return long_press_time_in_ms_; }
   void set_long_press_time_in_ms(int val) { long_press_time_in_ms_ = val; }
   float max_distance_between_taps_for_double_tap() const {
@@ -109,6 +114,12 @@ class GESTURE_DETECTION_EXPORT GestureConfiguration {
   void set_max_touch_down_duration_for_click_in_ms(int val) {
     max_touch_down_duration_for_click_in_ms_ = val;
   }
+  float max_stylus_move_in_pixels_for_click() const {
+    return max_stylus_move_in_pixels_for_click_;
+  }
+  void set_max_stylus_move_in_pixels_for_click(float val) {
+    max_stylus_move_in_pixels_for_click_ = val;
+  }
   float max_touch_move_in_pixels_for_click() const {
     return max_touch_move_in_pixels_for_click_;
   }
@@ -147,13 +158,6 @@ class GESTURE_DETECTION_EXPORT GestureConfiguration {
   int set_scroll_debounce_interval_in_ms(int val) {
     return scroll_debounce_interval_in_ms_ = val;
   }
-  int semi_long_press_time_in_ms() const {
-    return semi_long_press_time_in_ms_;
-  }
-  void set_semi_long_press_time_in_ms(int val) {
-    semi_long_press_time_in_ms_ = val;
-    double_tap_timeout_in_ms_ = val;
-  }
   int show_press_delay_in_ms() const { return show_press_delay_in_ms_; }
   int set_show_press_delay_in_ms(int val) {
     return show_press_delay_in_ms_ = val;
@@ -181,12 +185,6 @@ class GESTURE_DETECTION_EXPORT GestureConfiguration {
   GestureConfiguration();
   virtual ~GestureConfiguration();
 
-  // The below configuration parameters are dependent on other parameters,
-  // whose setter functions will setup these values as well, so we will not
-  // provide public setter functions for them.
-  void set_double_tap_timeout_in_ms(int val) {
-    double_tap_timeout_in_ms_ = val;
-  }
   void set_min_gesture_bounds_length(float val) {
     min_gesture_bounds_length_ = val;
   }
@@ -223,6 +221,11 @@ class GESTURE_DETECTION_EXPORT GestureConfiguration {
 
   bool stylus_scale_enabled_;
   bool gesture_begin_end_types_enabled_;
+
+  base::TimeDelta short_press_time_ = base::Milliseconds(400);
+  // TODO(https://crbug.com/1294244): All time fields here should be of type
+  // |base::TimeDiff| instead of |int|.
+
   int long_press_time_in_ms_;
   float max_distance_between_taps_for_double_tap_;
 
@@ -240,6 +243,7 @@ class GESTURE_DETECTION_EXPORT GestureConfiguration {
   float max_swipe_deviation_angle_;
   int max_time_between_double_click_in_ms_;
   int max_touch_down_duration_for_click_in_ms_;
+  float max_stylus_move_in_pixels_for_click_;
   float max_touch_move_in_pixels_for_click_;
   float min_distance_for_pinch_scroll_in_pixels_;
   float min_fling_velocity_;
@@ -249,7 +253,6 @@ class GESTURE_DETECTION_EXPORT GestureConfiguration {
   float min_scaling_span_in_pixels_;
   float min_swipe_velocity_;
   int scroll_debounce_interval_in_ms_;
-  int semi_long_press_time_in_ms_;
   int show_press_delay_in_ms_;
   // When enabled, a cancel action affects only the corresponding pointer (vs
   // all pointers active at that time).

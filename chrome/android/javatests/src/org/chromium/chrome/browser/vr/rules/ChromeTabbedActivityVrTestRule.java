@@ -1,10 +1,8 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.vr.rules;
-
-import android.content.Intent;
 
 import org.junit.runner.Description;
 import org.junit.runners.model.Statement;
@@ -46,11 +44,5 @@ public class ChromeTabbedActivityVrTestRule
     @Override
     public boolean isDonEnabled() {
         return CommandLine.getInstance().hasSwitch("vr-don-enabled");
-    }
-
-    @Override
-    public Intent prepareUrlIntent(Intent intent, String url) {
-        super.prepareUrlIntent(intent, url);
-        return VrTestRuleUtils.maybeAddStandaloneIntentData(intent);
     }
 }

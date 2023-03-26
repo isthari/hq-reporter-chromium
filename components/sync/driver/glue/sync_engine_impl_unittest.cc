@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,20 +8,21 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/test/mock_callback.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_timeouts.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/invalidation/impl/invalidation_logger.h"
@@ -29,19 +30,17 @@
 #include "components/invalidation/public/invalidation_util.h"
 #include "components/invalidation/public/invalidator_state.h"
 #include "components/prefs/testing_pref_service.h"
+#include "components/sync/base/features.h"
 #include "components/sync/base/invalidation_helper.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/driver/active_devices_provider.h"
 #include "components/sync/driver/glue/sync_transport_data_prefs.h"
-#include "components/sync/driver/sync_driver_switches.h"
 #include "components/sync/engine/net/http_bridge.h"
+#include "components/sync/engine/sync_engine_host.h"
 #include "components/sync/engine/sync_manager_factory.h"
-#include "components/sync/invalidations/mock_sync_invalidations_service.h"
-#include "components/sync/invalidations/switches.h"
-#include "components/sync/invalidations/sync_invalidations_service.h"
 #include "components/sync/protocol/sync_invalidations_payload.pb.h"
-#include "components/sync/test/engine/fake_sync_manager.h"
-#include "components/sync/test/engine/sync_engine_host_stub.h"
+#include "components/sync/test/fake_sync_manager.h"
+#include "components/sync/test/mock_sync_invalidations_service.h"
 #include "services/network/test/test_network_connection_tracker.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -59,28 +58,31 @@ static const base::FilePath::CharType kTestSyncDir[] =
     FILE_PATH_LITERAL("sync-test");
 constexpr char kTestGaiaId[] = "test_gaia_id";
 
-class TestSyncEngineHost : public SyncEngineHostStub {
+class MockSyncEngineHost : public SyncEngineHost {
  public:
-  TestSyncEngineHost() = default;
-
-  void OnEngineInitialized(const WeakHandle<DataTypeDebugInfoListener>&,
-                           bool success,
-                           bool is_first_time_sync_configure) override {
-    EXPECT_EQ(expect_success_, success);
-    std::move(quit_closure_).Run();
-  }
-
-  void SetExpectSuccess(bool expect_success) {
-    expect_success_ = expect_success;
-  }
-
-  void set_quit_closure(base::OnceClosure quit_closure) {
-    quit_closure_ = std::move(quit_closure);
-  }
-
- private:
-  bool expect_success_ = false;
-  base::OnceClosure quit_closure_;
+  MOCK_METHOD(void,
+              OnEngineInitialized,
+              (bool success, bool is_first_time_sync_configure),
+              (override));
+  MOCK_METHOD(void,
+              OnSyncCycleCompleted,
+              (const SyncCycleSnapshot& snapshot),
+              (override));
+  MOCK_METHOD(void, OnProtocolEvent, (const ProtocolEvent& event), (override));
+  MOCK_METHOD(void,
+              OnConnectionStatusChange,
+              (ConnectionStatus status),
+              (override));
+  MOCK_METHOD(void,
+              OnMigrationNeededForTypes,
+              (ModelTypeSet types),
+              (override));
+  MOCK_METHOD(void,
+              OnActionableError,
+              (const SyncProtocolError& error),
+              (override));
+  MOCK_METHOD(void, OnBackedOffTypesChanged, (), (override));
+  MOCK_METHOD(void, OnInvalidationStatusChanged, (), (override));
 };
 
 class FakeSyncManagerFactory : public SyncManagerFactory {
@@ -136,6 +138,10 @@ class MockInvalidationService : public invalidation::InvalidationService {
                const invalidation::TopicSet& topics),
               (override));
   MOCK_METHOD(void,
+              UnsubscribeFromUnregisteredTopics,
+              (invalidation::InvalidationHandler * handler),
+              (override));
+  MOCK_METHOD(void,
               UnregisterInvalidationHandler,
               (invalidation::InvalidationHandler * handler),
               (override));
@@ -148,11 +154,10 @@ class MockInvalidationService : public invalidation::InvalidationService {
               GetInvalidationLogger,
               (),
               (override));
-  MOCK_METHOD(
-      void,
-      RequestDetailedStatus,
-      (base::RepeatingCallback<void(const base::DictionaryValue&)> post_caller),
-      (const override));
+  MOCK_METHOD(void,
+              RequestDetailedStatus,
+              (base::RepeatingCallback<void(base::Value::Dict)> post_caller),
+              (const override));
 };
 
 class MockActiveDevicesProvider : public ActiveDevicesProvider {
@@ -198,7 +203,7 @@ class SyncEngineImplTest : public testing::Test {
         .WillByDefault(Return(
             ByMove(ActiveDevicesInvalidationInfo::CreateUninitialized())));
     backend_ = std::make_unique<SyncEngineImpl>(
-        "dummyDebugName", &invalidator_, GetSyncInvalidationsService(),
+        "dummyDebugName", &invalidator_, &mock_sync_invalidations_service_,
         std::move(mock_active_devices_provider),
         std::make_unique<SyncTransportDataPrefs>(&pref_service_),
         temp_dir_.GetPath().Append(base::FilePath(kTestSyncDir)),
@@ -230,17 +235,17 @@ class SyncEngineImplTest : public testing::Test {
   // Synchronously initializes the backend.
   void InitializeBackend(bool expect_success = true,
                          const std::string& gaia_id = kTestGaiaId) {
-    host_.SetExpectSuccess(expect_success);
-
     SyncEngine::InitParams params;
-    params.host = &host_;
+    params.host = &mock_host_;
     params.http_factory_getter = base::BindOnce(&CreateHttpBridgeFactory);
     params.authenticated_account_info.gaia = gaia_id;
     params.authenticated_account_info.account_id = CoreAccountId("account_id");
     params.sync_manager_factory = std::move(fake_manager_factory_);
 
+    EXPECT_CALL(mock_host_, OnEngineInitialized(expect_success, _))
+        .WillOnce(
+            testing::InvokeWithoutArgs(this, &SyncEngineImplTest::QuitRunLoop));
     backend_->Initialize(std::move(params));
-
     PumpSyncThread();
     // |fake_manager_| is set on the sync thread, but we can rely on the message
     // loop barriers to guarantee that we see the updated value.
@@ -284,30 +289,30 @@ class SyncEngineImplTest : public testing::Test {
   }
 
  protected:
-  // Used to initialize SyncEngineImpl. Returns nullptr if there is no sync
-  // invalidations service enabled.
-  virtual SyncInvalidationsService* GetSyncInvalidationsService() {
-    return nullptr;
-  }
-
   void DownloadReady(ModelTypeSet succeeded_types, ModelTypeSet failed_types) {
     engine_types_.PutAll(succeeded_types);
-    std::move(quit_loop_).Run();
+
+    backend_->StartSyncingWithServer();
+    QuitRunLoop();
   }
+
+  void QuitRunLoop() { std::move(quit_loop_).Run(); }
 
   void PumpSyncThread() {
     base::RunLoop run_loop;
     quit_loop_ = run_loop.QuitClosure();
-    host_.set_quit_closure(run_loop.QuitClosure());
-    base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
-        FROM_HERE, run_loop.QuitClosure(), TestTimeouts::action_timeout());
+    base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(&SyncEngineImplTest::QuitRunLoop,
+                       weak_ptr_factory_.GetWeakPtr()),
+        TestTimeouts::action_timeout());
     run_loop.Run();
   }
 
   base::test::TaskEnvironment task_environment_;
   base::ScopedTempDir temp_dir_;
   TestingPrefServiceSimple pref_service_;
-  TestSyncEngineHost host_;
+  NiceMock<MockSyncEngineHost> mock_host_;
   NiceMock<base::MockCallback<base::RepeatingClosure>>
       sync_transport_data_cleared_cb_;
   std::unique_ptr<SyncEngineImpl> backend_;
@@ -316,25 +321,22 @@ class SyncEngineImplTest : public testing::Test {
   ModelTypeSet engine_types_;
   ModelTypeSet enabled_types_;
   base::OnceClosure quit_loop_;
-  testing::NiceMock<MockInvalidationService> invalidator_;
+  NiceMock<MockInvalidationService> invalidator_;
+  NiceMock<MockSyncInvalidationsService> mock_sync_invalidations_service_;
+
+  base::WeakPtrFactory<SyncEngineImplTest> weak_ptr_factory_{this};
 };
 
 class SyncEngineImplWithSyncInvalidationsTest : public SyncEngineImplTest {
  public:
   SyncEngineImplWithSyncInvalidationsTest() {
     override_features_.InitWithFeatures(
-        /*enabled_features=*/{switches::kSyncSendInterestedDataTypes,
-                              switches::kUseSyncInvalidations},
+        /*enabled_features=*/{kUseSyncInvalidations},
         /*disabled_features=*/{});
   }
 
  protected:
-  SyncInvalidationsService* GetSyncInvalidationsService() override {
-    return &mock_instance_id_driver_;
-  }
-
   base::test::ScopedFeatureList override_features_;
-  NiceMock<MockSyncInvalidationsService> mock_instance_id_driver_;
 };
 
 class SyncEngineImplWithSyncInvalidationsForWalletAndOfferTest
@@ -342,9 +344,8 @@ class SyncEngineImplWithSyncInvalidationsForWalletAndOfferTest
  public:
   SyncEngineImplWithSyncInvalidationsForWalletAndOfferTest() {
     override_features_.InitWithFeatures(
-        /*enabled_features=*/{switches::kSyncSendInterestedDataTypes,
-                              switches::kUseSyncInvalidations,
-                              switches::kUseSyncInvalidationsForWalletAndOffer},
+        /*enabled_features=*/{kUseSyncInvalidations,
+                              kUseSyncInvalidationsForWalletAndOffer},
         /*disabled_features=*/{});
   }
 
@@ -669,8 +670,10 @@ TEST_F(SyncEngineImplTest,
 
 TEST_F(SyncEngineImplWithSyncInvalidationsTest,
        ShouldInvalidateDataTypesOnIncomingInvalidation) {
-  EXPECT_CALL(mock_instance_id_driver_, AddListener(backend_.get()));
+  enabled_types_.PutAll({syncer::BOOKMARKS, syncer::PREFERENCES});
+
   InitializeBackend(/*expect_success=*/true);
+  ConfigureDataTypes();
 
   sync_pb::SyncInvalidationsPayload payload;
   sync_pb::SyncInvalidationsPayload::DataTypeInvalidation*
@@ -682,6 +685,8 @@ TEST_F(SyncEngineImplWithSyncInvalidationsTest,
   preferences_invalidation->set_data_type_id(
       GetSpecificsFieldNumberFromModelType(ModelType::PREFERENCES));
 
+  EXPECT_CALL(mock_sync_invalidations_service_, GetInterestedDataTypes())
+      .WillOnce(Return(enabled_types_));
   backend_->OnInvalidationReceived(payload.SerializeAsString());
 
   fake_manager_->WaitForSyncThread();
@@ -690,9 +695,46 @@ TEST_F(SyncEngineImplWithSyncInvalidationsTest,
 }
 
 TEST_F(SyncEngineImplWithSyncInvalidationsTest,
+       ShouldInvalidateOnlyEnabledDataTypes) {
+  enabled_types_.Remove(syncer::BOOKMARKS);
+  enabled_types_.Put(syncer::PREFERENCES);
+
+  InitializeBackend(/*expect_success=*/true);
+  ConfigureDataTypes();
+
+  sync_pb::SyncInvalidationsPayload payload;
+  sync_pb::SyncInvalidationsPayload::DataTypeInvalidation*
+      bookmarks_invalidation = payload.add_data_type_invalidations();
+  bookmarks_invalidation->set_data_type_id(
+      GetSpecificsFieldNumberFromModelType(ModelType::BOOKMARKS));
+  sync_pb::SyncInvalidationsPayload::DataTypeInvalidation*
+      preferences_invalidation = payload.add_data_type_invalidations();
+  preferences_invalidation->set_data_type_id(
+      GetSpecificsFieldNumberFromModelType(ModelType::PREFERENCES));
+
+  EXPECT_CALL(mock_sync_invalidations_service_, GetInterestedDataTypes())
+      .WillOnce(Return(enabled_types_));
+  backend_->OnInvalidationReceived(payload.SerializeAsString());
+
+  fake_manager_->WaitForSyncThread();
+  EXPECT_EQ(0, fake_manager_->GetInvalidationCount(ModelType::BOOKMARKS));
+  EXPECT_EQ(1, fake_manager_->GetInvalidationCount(ModelType::PREFERENCES));
+}
+
+TEST_F(SyncEngineImplWithSyncInvalidationsForWalletAndOfferTest,
+       ShouldStartHandlingInvalidations) {
+  ON_CALL(mock_sync_invalidations_service_, GetInterestedDataTypes())
+      .WillByDefault(Return(enabled_types_));
+  EXPECT_CALL(mock_sync_invalidations_service_, AddListener(backend_.get()));
+  backend_->StartHandlingInvalidations();
+}
+
+TEST_F(SyncEngineImplWithSyncInvalidationsTest,
        UseOldInvalidationsOnlyForWalletAndOffer) {
   enabled_types_.PutAll({AUTOFILL_WALLET_DATA, AUTOFILL_WALLET_OFFER});
 
+  EXPECT_CALL(mock_sync_invalidations_service_, GetInterestedDataTypes())
+      .WillRepeatedly(Return(enabled_types_));
   InitializeBackend(/*expect_success=*/true);
   EXPECT_CALL(
       invalidator_,
@@ -716,10 +758,37 @@ TEST_F(SyncEngineImplWithSyncInvalidationsForWalletAndOfferTest,
   // an empty TopicSet upon initialization.
   EXPECT_CALL(invalidator_,
               UpdateInterestedTopics(_, invalidation::TopicSet()));
+  EXPECT_CALL(invalidator_, UnsubscribeFromUnregisteredTopics);
+  EXPECT_CALL(mock_sync_invalidations_service_, GetInterestedDataTypes())
+      .WillRepeatedly(Return(enabled_types_));
   InitializeBackend(/*expect_success=*/true);
 
   EXPECT_CALL(invalidator_, UpdateInterestedTopics).Times(0);
   ConfigureDataTypes();
+}
+
+TEST_F(SyncEngineImplWithSyncInvalidationsForWalletAndOfferTest,
+       ShouldEnableInvalidationsWhenInitialized) {
+  EXPECT_CALL(mock_sync_invalidations_service_, GetFCMRegistrationToken)
+      .WillRepeatedly(Return("fcm_token"));
+  InitializeBackend(/*expect_success=*/true);
+  fake_manager_->WaitForSyncThread();
+  EXPECT_TRUE(fake_manager_->IsInvalidatorEnabled());
+}
+
+TEST_F(SyncEngineImplWithSyncInvalidationsForWalletAndOfferTest,
+       ShouldEnableInvalidationsOnTokenUpdate) {
+  EXPECT_CALL(mock_sync_invalidations_service_, GetFCMRegistrationToken)
+      .WillRepeatedly(Return(absl::nullopt));
+  InitializeBackend(/*expect_success=*/true);
+  fake_manager_->WaitForSyncThread();
+  EXPECT_FALSE(fake_manager_->IsInvalidatorEnabled());
+
+  EXPECT_CALL(mock_sync_invalidations_service_, GetFCMRegistrationToken)
+      .WillRepeatedly(Return("fcm_token"));
+  backend_->OnFCMRegistrationTokenChanged();
+  fake_manager_->WaitForSyncThread();
+  EXPECT_TRUE(fake_manager_->IsInvalidatorEnabled());
 }
 
 TEST_F(SyncEngineImplTest, GenerateCacheGUID) {

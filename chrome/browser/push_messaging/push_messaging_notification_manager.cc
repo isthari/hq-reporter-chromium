@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,12 @@
 #include <bitset>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/notifications/platform_notification_service_factory.h"
@@ -213,7 +212,7 @@ bool PushMessagingNotificationManager::IsTabVisible(
     Profile* profile,
     WebContents* active_web_contents,
     const GURL& origin) {
-  if (!active_web_contents || !active_web_contents->GetMainFrame())
+  if (!active_web_contents || !active_web_contents->GetPrimaryMainFrame())
     return false;
 
   // Don't leak information from other profiles.
@@ -221,7 +220,7 @@ bool PushMessagingNotificationManager::IsTabVisible(
     return false;
 
   // Ignore minimized windows.
-  switch (active_web_contents->GetMainFrame()->GetVisibilityState()) {
+  switch (active_web_contents->GetPrimaryMainFrame()->GetVisibilityState()) {
     case content::PageVisibilityState::kHidden:
     case content::PageVisibilityState::kHiddenButPainting:
       return false;
@@ -298,7 +297,7 @@ bool PushMessagingNotificationManager::ShouldSkipUserVisibleOnlyRequirements(
   // This is a short-term exception to user visible only enforcement added
   // to support for "Messages for Web" integration on ChromeOS.
 
-  chromeos::multidevice_setup::MultiDeviceSetupClient* multidevice_setup_client;
+  ash::multidevice_setup::MultiDeviceSetupClient* multidevice_setup_client;
   if (test_multidevice_setup_client_) {
     multidevice_setup_client = test_multidevice_setup_client_;
   } else {
@@ -312,8 +311,8 @@ bool PushMessagingNotificationManager::ShouldSkipUserVisibleOnlyRequirements(
 
   // Check if messages feature is enabled
   if (multidevice_setup_client->GetFeatureState(
-          chromeos::multidevice_setup::mojom::Feature::kMessages) !=
-      chromeos::multidevice_setup::mojom::FeatureState::kEnabledByUser) {
+          ash::multidevice_setup::mojom::Feature::kMessages) !=
+      ash::multidevice_setup::mojom::FeatureState::kEnabledByUser) {
     return false;
   }
 
@@ -341,8 +340,7 @@ bool PushMessagingNotificationManager::ShouldSkipUserVisibleOnlyRequirements(
 }
 
 void PushMessagingNotificationManager::SetTestMultiDeviceSetupClient(
-    chromeos::multidevice_setup::MultiDeviceSetupClient*
-        multidevice_setup_client) {
+    ash::multidevice_setup::MultiDeviceSetupClient* multidevice_setup_client) {
   test_multidevice_setup_client_ = multidevice_setup_client;
 }
 

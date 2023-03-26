@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@
 #include <string>
 
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/process/launch.h"
@@ -25,7 +24,6 @@
 #include "base/win/scoped_handle.h"
 #include "base/win/scoped_process_information.h"
 #include "base/win/win_util.h"
-#include "base/win/windows_version.h"
 #include "build/build_config.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/chrome_version.h"
@@ -226,10 +224,6 @@ bool ShouldRunUserExperiment(const InstallerState& installer_state) {
   if (!install_static::SupportsRetentionExperiments())
     return false;
 
-  // The current experiment only applies to Windows 10 and newer.
-  if (base::win::GetVersion() < base::win::Version::WIN10)
-    return false;
-
   // Installs originating from the MSI and domain joined machines are excluded.
   if (IsEnterpriseInstall(installer_state))
     return false;
@@ -279,7 +273,7 @@ void BeginUserExperiment(const InstallerState& installer_state,
       kExperimentRetryDelay,
   };
   setup_command.CopySwitchesFrom(*base::CommandLine::ForCurrentProcess(),
-                                 kSwitchesToCopy, base::size(kSwitchesToCopy));
+                                 kSwitchesToCopy, std::size(kSwitchesToCopy));
 
   if (user_context) {
     // This is either a per-user install or a per-machine install run via

@@ -1,11 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/device_reauth/android/biometric_authenticator_bridge_impl.h"
 
 #include "base/android/jni_android.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "chrome/browser/device_reauth/android/biometric_authenticator_android.h"
 #include "chrome/browser/device_reauth/android/jni_headers/BiometricAuthenticatorBridge_jni.h"
 #include "components/device_reauth/biometric_authenticator.h"
@@ -24,10 +24,17 @@ BiometricAuthenticatorBridgeImpl::~BiometricAuthenticatorBridgeImpl() {
                                             java_object_);
 }
 
-BiometricsAvailability BiometricAuthenticatorBridgeImpl::CanAuthenticate() {
+BiometricsAvailability
+BiometricAuthenticatorBridgeImpl::CanAuthenticateWithBiometric() {
   return static_cast<BiometricsAvailability>(
-      Java_BiometricAuthenticatorBridge_canAuthenticate(AttachCurrentThread(),
-                                                        java_object_));
+      Java_BiometricAuthenticatorBridge_canAuthenticateWithBiometric(
+          AttachCurrentThread(), java_object_));
+}
+
+bool BiometricAuthenticatorBridgeImpl::
+    CanAuthenticateWithBiometricOrScreenLock() {
+  return Java_BiometricAuthenticatorBridge_canAuthenticateWithBiometricOrScreenLock(
+      AttachCurrentThread(), java_object_);
 }
 
 void BiometricAuthenticatorBridgeImpl::Authenticate(

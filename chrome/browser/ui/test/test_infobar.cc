@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <iterator>
 
+#include "base/ranges/algorithm.h"
 #include "chrome/browser/infobars/infobar_observer.h"
 #include "chrome/browser/ui/browser.h"
 #include "components/infobars/content/content_infobar_manager.h"
@@ -28,11 +29,10 @@ bool TestInfoBar::VerifyUi() {
   }
 
   bool expected_infobars_found =
-      std::equal(infobars->begin(), infobars->end(),
-                 expected_identifiers_.begin(), expected_identifiers_.end(),
-                 [](infobars::InfoBar* infobar, InfoBarDelegateIdentifier id) {
-                   return infobar->delegate()->GetIdentifier() == id;
-                 });
+      base::ranges::equal(*infobars, expected_identifiers_, std::equal_to<>(),
+                          [](infobars::InfoBar* infobar) {
+                            return infobar->delegate()->GetIdentifier();
+                          });
   if (!expected_infobars_found)
     ADD_FAILURE() << "Found unexpected infobars.";
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -150,5 +150,5 @@ export const MENU_TEXT_COLOR_DARK = '#333';
  */
 export const UnitLabelAlign = {
   LEFT: 0,
-  RIGHT: 1
+  RIGHT: 1,
 };

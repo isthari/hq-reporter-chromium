@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,7 +33,9 @@ TestPaintArtifact& TestPaintArtifact::Chunk(int id) {
   // invalidation rects of chunks. The actual values don't matter. If the chunk
   // has display items, we will recalculate the bounds from the display items
   // when constructing the PaintArtifact.
-  Bounds(gfx::Rect(id * 110, id * 220, id * 220 + 200, id * 110 + 200));
+  gfx::Rect bounds(id * 110, id * 220, id * 220 + 200, id * 110 + 200);
+  Bounds(bounds);
+  DrawableBounds(bounds);
   return *this;
 }
 
@@ -88,7 +90,7 @@ TestPaintArtifact& TestPaintArtifact::RectDrawing(DisplayItemClient& client,
                                                   const gfx::Rect& bounds,
                                                   Color color) {
   PaintRecorder recorder;
-  cc::PaintCanvas* canvas = recorder.beginRecording(gfx::RectToSkRect(bounds));
+  cc::PaintCanvas* canvas = recorder.beginRecording();
   if (!bounds.IsEmpty()) {
     cc::PaintFlags flags;
     flags.setColor(color.Rgb());
@@ -102,6 +104,9 @@ TestPaintArtifact& TestPaintArtifact::RectDrawing(DisplayItemClient& client,
           client.GetPaintInvalidationReason());
   paint_artifact_->RecordDebugInfo(client.Id(), client.DebugName(),
                                    client.OwnerNodeId());
+  auto& chunk = paint_artifact_->PaintChunks().back();
+  chunk.background_color = color;
+  chunk.background_color_area = bounds.size().GetArea();
   DidAddDisplayItem();
   return *this;
 }
@@ -153,7 +158,6 @@ TestPaintArtifact& TestPaintArtifact::EffectivelyInvisible() {
 TestPaintArtifact& TestPaintArtifact::Bounds(const gfx::Rect& bounds) {
   auto& chunk = paint_artifact_->PaintChunks().back();
   chunk.bounds = bounds;
-  chunk.drawable_bounds = bounds;
   return *this;
 }
 

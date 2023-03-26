@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/login/screens/multidevice_setup_screen.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "chrome/browser/ash/login/screen_manager.h"
 #include "chrome/browser/ash/login/test/js_checker.h"
@@ -15,17 +15,12 @@
 #include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/multidevice_setup_screen_handler.h"
-#include "chromeos/services/multidevice_setup/public/cpp/fake_multidevice_setup_client.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/multidevice_setup_screen_handler.h"
+#include "chromeos/ash/services/multidevice_setup/public/cpp/fake_multidevice_setup_client.h"
 #include "content/public/test/browser_test.h"
 
 namespace ash {
-
-// TODO(https://crbug.com/1164001): remove when migrated to ash::
-namespace multidevice_setup {
-namespace mojom = ::chromeos::multidevice_setup::mojom;
-}
 
 constexpr test::UIPath kMultideviceSetupPath = {"multidevice-setup-screen",
                                                 "multideviceSetup"};

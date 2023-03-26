@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
+#include "base/sequence_checker.h"
 #include "chrome/browser/share/core/share_targets_observer.h"
 #include "ui/gfx/image/image_skia.h"
 
@@ -70,7 +71,8 @@ class SharingHubModel : public sharing::ShareTargetsObserver {
                                std::vector<SharingHubAction>* list);
   // Populates the vector with third party Sharing Hub actions, ordered by
   // appearance in the dialog.
-  void GetThirdPartyActionList(std::vector<SharingHubAction>* list);
+  void GetThirdPartyActionList(content::WebContents* web_contents,
+                               std::vector<SharingHubAction>* list);
 
   // Executes the third party action indicated by |id|, i.e. opens a popup to
   // the corresponding webpage. The |url| is the URL to share, and the |title|
@@ -105,6 +107,8 @@ class SharingHubModel : public sharing::ShareTargetsObserver {
   raw_ptr<content::BrowserContext> context_;
 
   std::unique_ptr<sharing::mojom::ShareTargets> third_party_targets_;
+
+  SEQUENCE_CHECKER(sequence_checker_);
 };
 
 }  // namespace sharing_hub

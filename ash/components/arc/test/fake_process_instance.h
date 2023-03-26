@@ -1,13 +1,17 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_COMPONENTS_ARC_TEST_FAKE_PROCESS_INSTANCE_H_
 #define ASH_COMPONENTS_ARC_TEST_FAKE_PROCESS_INSTANCE_H_
 
+#include <deque>
+#include <utility>
+
 #include "ash/components/arc/mojom/process.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace arc {
 
@@ -26,14 +30,20 @@ class FakeProcessInstance : public mojom::ProcessInstance {
   void RequestSystemProcessMemoryInfo(
       const std::vector<uint32_t>& nspids,
       RequestSystemProcessMemoryInfoCallback callback) override;
-  void ApplyHostMemoryPressure(
+  void ApplyHostMemoryPressureDeprecated(
       mojom::ProcessState level,
       int64_t reclaim_target,
       ApplyHostMemoryPressureCallback callback) override;
+  void ApplyHostMemoryPressure(
+      mojom::PressureLevel level,
+      int64_t reclaim_target,
+      ApplyHostMemoryPressureCallback callback) override;
+  void RequestLowMemoryKillCounts(
+      RequestLowMemoryKillCountsCallback callback) override;
 
   // Returns true if the last call to HostMemoryPressure had matching level and
   // reclaim_target arguments.
-  bool CheckLastHostMemoryPressure(mojom::ProcessState level,
+  bool CheckLastHostMemoryPressure(mojom::PressureLevel level,
                                    int64_t reclaim_target);
 
   // Returns false when there is a call to HostMemoryPressue not followed by
@@ -42,15 +52,28 @@ class FakeProcessInstance : public mojom::ProcessInstance {
     return host_memory_pressure_checked_;
   }
 
-  // Executes the callback from the last call to HostMemoryPressure.
-  void RunHostMemoryPressureCallback(uint32_t killed, uint64_t reclaimed);
+  void set_apply_host_memory_pressure_response(uint32_t killed,
+                                               uint64_t reclaimed) {
+    host_memory_pressure_response_ = std::pair(killed, reclaimed);
+  }
+
+  void set_request_low_memory_kill_counts_response(
+      arc::mojom::LowMemoryKillCountsPtr response) {
+    low_memory_kill_counts_response_ = std::move(response);
+  }
 
  private:
   // State to save the most recent call to HostMemoryPressure.
   bool host_memory_pressure_checked_ = true;
-  mojom::ProcessState host_memory_pressure_level_;
+  mojom::PressureLevel host_memory_pressure_level_;
   int64_t host_memory_pressure_reclaim_target_;
-  ApplyHostMemoryPressureCallback host_memory_pressure_callback_;
+
+  // Response to next call to  ApplyHostMemoryPressure.
+  absl::optional<std::pair<uint32_t, uint64_t>> host_memory_pressure_response_;
+
+  // Response to next call to RequestLowMemoryKillCounts.
+  absl::optional<arc::mojom::LowMemoryKillCountsPtr>
+      low_memory_kill_counts_response_;
 };
 
 }  // namespace arc

@@ -1,9 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/public/common/interest_group/interest_group.h"
 
+#include <stdint.h>
+
+#include <cmath>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -12,7 +15,7 @@
 #include "base/time/time.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/common_export.h"
-#include "third_party/blink/public/mojom/interest_group/interest_group_types.mojom-forward.h"
+#include "third_party/blink/public/mojom/interest_group/interest_group_types.mojom.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 #include "url/url_constants.h"
@@ -42,6 +45,15 @@ bool IsUrlAllowed(const GURL& url, const InterestGroup& group) {
   return IsUrlAllowedForRenderUrls(url) && !url.has_ref();
 }
 
+size_t EstimateFlatMapSize(
+    const base::flat_map<std::string, double>& flat_map) {
+  size_t result = 0;
+  for (const auto& pair : flat_map) {
+    result += pair.first.length() + sizeof(pair.second);
+  }
+  return result;
+}
+
 }  // namespace
 
 InterestGroup::Ad::Ad() = default;
@@ -69,9 +81,18 @@ InterestGroup::InterestGroup(
     base::Time expiry,
     url::Origin owner,
     std::string name,
+    double priority,
+    bool enable_bidding_signals_prioritization,
+    absl::optional<base::flat_map<std::string, double>> priority_vector,
+    absl::optional<base::flat_map<std::string, double>>
+        priority_signals_overrides,
+    absl::optional<base::flat_map<url::Origin, SellerCapabilitiesType>>
+        seller_capabilities,
+    SellerCapabilitiesType all_sellers_capabilities,
+    blink::mojom::InterestGroup::ExecutionMode execution_mode,
     absl::optional<GURL> bidding_url,
     absl::optional<GURL> bidding_wasm_helper_url,
-    absl::optional<GURL> update_url,
+    absl::optional<GURL> daily_update_url,
     absl::optional<GURL> trusted_bidding_signals_url,
     absl::optional<std::vector<std::string>> trusted_bidding_signals_keys,
     absl::optional<std::string> user_bidding_signals,
@@ -80,9 +101,17 @@ InterestGroup::InterestGroup(
     : expiry(expiry),
       owner(std::move(owner)),
       name(std::move(name)),
+      priority(priority),
+      enable_bidding_signals_prioritization(
+          enable_bidding_signals_prioritization),
+      priority_vector(std::move(priority_vector)),
+      priority_signals_overrides(std::move(priority_signals_overrides)),
+      seller_capabilities(std::move(seller_capabilities)),
+      all_sellers_capabilities(all_sellers_capabilities),
+      execution_mode(execution_mode),
       bidding_url(std::move(bidding_url)),
       bidding_wasm_helper_url(std::move(bidding_wasm_helper_url)),
-      update_url(std::move(update_url)),
+      daily_update_url(std::move(daily_update_url)),
       trusted_bidding_signals_url(std::move(trusted_bidding_signals_url)),
       trusted_bidding_signals_keys(std::move(trusted_bidding_signals_keys)),
       user_bidding_signals(std::move(user_bidding_signals)),
@@ -98,6 +127,23 @@ bool InterestGroup::IsValid() const {
   if (owner.scheme() != url::kHttpsScheme)
     return false;
 
+  if (!std::isfinite(priority))
+    return false;
+
+  if (seller_capabilities) {
+    for (const auto& [seller_origin, flags] : *seller_capabilities) {
+      if (seller_origin.scheme() != url::kHttpsScheme)
+        return false;
+    }
+  }
+
+  if (execution_mode !=
+          blink::mojom::InterestGroup::ExecutionMode::kCompatibilityMode &&
+      execution_mode !=
+          blink::mojom::InterestGroup::ExecutionMode::kGroupedByOriginMode) {
+    return false;
+  }
+
   if (bidding_url && !IsUrlAllowed(*bidding_url, *this))
     return false;
 
@@ -106,7 +152,7 @@ bool InterestGroup::IsValid() const {
     return false;
   }
 
-  if (update_url && !IsUrlAllowed(*update_url, *this))
+  if (daily_update_url && !IsUrlAllowed(*daily_update_url, *this))
     return false;
 
   if (trusted_bidding_signals_url) {
@@ -140,12 +186,28 @@ size_t InterestGroup::EstimateSize() const {
   size_t size = 0u;
   size += owner.Serialize().size();
   size += name.size();
+
+  size += sizeof(priority);
+  size += sizeof(execution_mode);
+  size += sizeof(enable_bidding_signals_prioritization);
+
+  if (priority_vector)
+    size += EstimateFlatMapSize(*priority_vector);
+  if (priority_signals_overrides)
+    size += EstimateFlatMapSize(*priority_signals_overrides);
+  if (seller_capabilities) {
+    for (const auto& [seller_origin, flags] : *seller_capabilities) {
+      size +=
+          seller_origin.Serialize().size() + sizeof(decltype(flags)::EnumType);
+    }
+  }
+  size += sizeof(decltype(all_sellers_capabilities)::EnumType);
   if (bidding_url)
     size += bidding_url->spec().length();
   if (bidding_wasm_helper_url)
     size += bidding_wasm_helper_url->spec().length();
-  if (update_url)
-    size += update_url->spec().length();
+  if (daily_update_url)
+    size += daily_update_url->spec().length();
   if (trusted_bidding_signals_url)
     size += trusted_bidding_signals_url->spec().length();
   if (trusted_bidding_signals_keys) {
@@ -166,12 +228,19 @@ size_t InterestGroup::EstimateSize() const {
 }
 
 bool InterestGroup::IsEqualForTesting(const InterestGroup& other) const {
-  return std::tie(expiry, owner, name, bidding_url, bidding_wasm_helper_url,
-                  update_url, trusted_bidding_signals_url,
-                  trusted_bidding_signals_keys, user_bidding_signals, ads,
-                  ad_components) ==
-         std::tie(other.expiry, other.owner, other.name, other.bidding_url,
-                  other.bidding_wasm_helper_url, other.update_url,
+  return std::tie(expiry, owner, name, priority,
+                  enable_bidding_signals_prioritization, priority_vector,
+                  priority_signals_overrides, seller_capabilities,
+                  all_sellers_capabilities, execution_mode, bidding_url,
+                  bidding_wasm_helper_url, daily_update_url,
+                  trusted_bidding_signals_url, trusted_bidding_signals_keys,
+                  user_bidding_signals, ads, ad_components) ==
+         std::tie(other.expiry, other.owner, other.name, other.priority,
+                  other.enable_bidding_signals_prioritization,
+                  other.priority_vector, other.priority_signals_overrides,
+                  other.seller_capabilities, other.all_sellers_capabilities,
+                  other.execution_mode, other.bidding_url,
+                  other.bidding_wasm_helper_url, other.daily_update_url,
                   other.trusted_bidding_signals_url,
                   other.trusted_bidding_signals_keys,
                   other.user_bidding_signals, other.ads, other.ad_components);

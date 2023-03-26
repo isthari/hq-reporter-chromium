@@ -5,12 +5,11 @@
 #include "sdi/decklink/decklink_output_stream.h"
 
 #include <list>
-#include <map>
 #include <string>
 
-//#include "third_party/ffmpeg/libswresample/swresample.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "media/base/audio_buffer.h"
+#include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_frame_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_audio_callback.h"
@@ -91,7 +90,7 @@ private:
     IDeckLinkOutput *deckLinkOutput_;
     IDeckLinkInput *deckLinkInput_;        
 
-    std::map<int, IDeckLinkDisplayMode*> displayModes_;
+    WTF::HashMap<int, IDeckLinkDisplayMode*> displayModes_;
     std::list<VideoCardMode *> modes_;
 
     // atributos solo lectura

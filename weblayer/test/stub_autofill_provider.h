@@ -1,11 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef WEBLAYER_TEST_STUB_AUTOFILL_PROVIDER_H_
 #define WEBLAYER_TEST_STUB_AUTOFILL_PROVIDER_H_
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "components/android_autofill/browser/test_autofill_provider.h"
 #include "content/public/browser/web_contents.h"
 
@@ -30,11 +30,13 @@ class StubAutofillProvider : public autofill::TestAutofillProvider {
   // AutofillProvider:
   void OnAskForValuesToFill(
       autofill::AndroidAutofillManager* manager,
-      int32_t id,
       const autofill::FormData& form,
       const autofill::FormFieldData& field,
       const gfx::RectF& bounding_box,
-      bool /*unused_autoselect_first_suggestion*/) override;
+      autofill::
+          AutoselectFirstSuggestion /*unused_autoselect_first_suggestion*/,
+      autofill::FormElementWasClicked /*unused_form_element_was_clicked*/)
+      override;
 
  private:
   base::RepeatingCallback<void(const autofill::FormData&)>

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,11 @@
 #include <wayland-server-core.h>
 #include <wayland-server-protocol-core.h>
 
+#include "ash/constants/ash_features.h"
+#include "base/feature_list.h"
 #include "base/logging.h"
 #include "components/exo/wayland/server_util.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/events/devices/haptic_touchpad_effects.h"
 #include "ui/ozone/public/input_controller.h"
 #include "ui/ozone/public/ozone_platform.h"
@@ -20,12 +23,14 @@ namespace {
 
 class WaylandTouchpadHapticsDelegate {
  public:
-  WaylandTouchpadHapticsDelegate(wl_resource* resource) : resource_{resource} {
-    zcr_touchpad_haptics_v1_send_activated(resource_);
-  }
+  explicit WaylandTouchpadHapticsDelegate(wl_resource* resource)
+      : resource_{resource} {}
   ~WaylandTouchpadHapticsDelegate() = default;
 
   void UpdateTouchpadHapticsState() {
+    if (!base::FeatureList::IsEnabled(ash::features::kExoHapticFeedbackSupport))
+      return;
+
     ui::InputController* controller =
         ui::OzonePlatform::GetInstance()->GetInputController();
     if (!controller) {
@@ -58,7 +63,7 @@ class WaylandTouchpadHapticsDelegate {
 
  private:
   wl_resource* const resource_;
-  std::optional<bool> last_activation_state_;
+  absl::optional<bool> last_activation_state_;
 };
 
 void touchpad_haptics_destroy(wl_client* client, wl_resource* resource) {
@@ -69,6 +74,8 @@ void touchpad_haptics_play(wl_client* client,
                            wl_resource* resource,
                            uint32_t effect,
                            int32_t strength) {
+  if (!base::FeatureList::IsEnabled(ash::features::kExoHapticFeedbackSupport))
+    return;
   GetUserDataAs<WaylandTouchpadHapticsDelegate>(resource)->Play(effect,
                                                                 strength);
 }

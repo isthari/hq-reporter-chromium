@@ -1,14 +1,16 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "media/gpu/gpu_video_encode_accelerator_helpers.h"
 
 #include <algorithm>
+#include <ostream>
 
 #include "base/check_op.h"
 #include "base/notreached.h"
 #include "base/numerics/safe_conversions.h"
+#include "media/base/bitrate.h"
 
 namespace media {
 namespace {
@@ -58,9 +60,12 @@ size_t GetMaxEncodeBitstreamBufferSize(const gfx::Size& size) {
   return kMaxBitstreamBufferSizeInBytes;
 }
 
+// This function sets the peak equal to the target. The peak can then be
+// updated by callers.
 VideoBitrateAllocation AllocateBitrateForDefaultEncodingWithBitrates(
     const std::vector<uint32_t>& sl_bitrates,
-    const size_t num_temporal_layers) {
+    const size_t num_temporal_layers,
+    const bool uses_vbr) {
   CHECK(!sl_bitrates.empty());
   CHECK_LE(sl_bitrates.size(), kMaxSpatialLayers);
 
@@ -73,10 +78,12 @@ VideoBitrateAllocation AllocateBitrateForDefaultEncodingWithBitrates(
   };
 
   CHECK_GT(num_temporal_layers, 0u);
-  CHECK_LE(num_temporal_layers, base::size(kTemporalLayersBitrateScaleFactors));
-  DCHECK_EQ(base::size(kTemporalLayersBitrateScaleFactors), kMaxTemporalLayers);
+  CHECK_LE(num_temporal_layers, std::size(kTemporalLayersBitrateScaleFactors));
+  DCHECK_EQ(std::size(kTemporalLayersBitrateScaleFactors), kMaxTemporalLayers);
 
   VideoBitrateAllocation bitrate_allocation;
+  bitrate_allocation = VideoBitrateAllocation(
+      uses_vbr ? Bitrate::Mode::kVariable : Bitrate::Mode::kConstant);
   for (size_t spatial_id = 0; spatial_id < sl_bitrates.size(); ++spatial_id) {
     const uint32_t bitrate_bps = sl_bitrates[spatial_id];
     for (size_t temporal_id = 0; temporal_id < num_temporal_layers;
@@ -156,10 +163,16 @@ std::vector<uint8_t> GetFpsAllocation(size_t num_temporal_layers) {
 
 VideoBitrateAllocation AllocateBitrateForDefaultEncoding(
     const VideoEncodeAccelerator::Config& config) {
+  VideoBitrateAllocation allocation;
+  const bool use_vbr = config.bitrate.mode() == Bitrate::Mode::kVariable;
   if (config.spatial_layers.empty()) {
-    return AllocateBitrateForDefaultEncodingWithBitrates(
-        {config.bitrate.target()},
-        /*num_temporal_layers=*/1u);
+    allocation = AllocateBitrateForDefaultEncodingWithBitrates(
+        {config.bitrate.target_bps()},
+        /*num_temporal_layers=*/1u, use_vbr);
+    if (use_vbr) {
+      allocation.SetPeakBps(config.bitrate.peak_bps());
+    }
+    return allocation;
   }
 
   const size_t num_temporal_layers =
@@ -171,14 +184,18 @@ VideoBitrateAllocation AllocateBitrateForDefaultEncoding(
     bitrates.push_back(spatial_layer.bitrate_bps);
   }
 
-  return AllocateBitrateForDefaultEncodingWithBitrates(bitrates,
-                                                       num_temporal_layers);
+  allocation = AllocateBitrateForDefaultEncodingWithBitrates(
+      bitrates, num_temporal_layers, use_vbr);
+  if (use_vbr) {
+    allocation.SetPeakBps(config.bitrate.peak_bps());
+  }
+  return allocation;
 }
 
 VideoBitrateAllocation AllocateDefaultBitrateForTesting(
     const size_t num_spatial_layers,
     const size_t num_temporal_layers,
-    const uint32_t bitrate) {
+    const Bitrate& bitrate) {
   // Higher spatial layers (those to the right) get more bitrate.
   constexpr double kSpatialLayersBitrateScaleFactors[][kMaxSpatialLayers] = {
       {1.00, 0.00, 0.00},  // For one spatial layer.
@@ -187,18 +204,22 @@ VideoBitrateAllocation AllocateDefaultBitrateForTesting(
   };
 
   CHECK_GT(num_spatial_layers, 0u);
-  CHECK_LE(num_spatial_layers, base::size(kSpatialLayersBitrateScaleFactors));
-  DCHECK_EQ(base::size(kSpatialLayersBitrateScaleFactors), kMaxSpatialLayers);
+  CHECK_LE(num_spatial_layers, std::size(kSpatialLayersBitrateScaleFactors));
+  DCHECK_EQ(std::size(kSpatialLayersBitrateScaleFactors), kMaxSpatialLayers);
 
   std::vector<uint32_t> bitrates(num_spatial_layers);
   for (size_t sid = 0; sid < num_spatial_layers; ++sid) {
     const double bitrate_factor =
         kSpatialLayersBitrateScaleFactors[num_spatial_layers - 1][sid];
-    bitrates[sid] = bitrate * bitrate_factor;
+    bitrates[sid] = bitrate.target_bps() * bitrate_factor;
   }
 
-  return AllocateBitrateForDefaultEncodingWithBitrates(bitrates,
-                                                       num_temporal_layers);
+  const bool use_vbr = bitrate.mode() == Bitrate::Mode::kVariable;
+  auto allocation = AllocateBitrateForDefaultEncodingWithBitrates(
+      bitrates, num_temporal_layers, use_vbr);
+  if (use_vbr)
+    allocation.SetPeakBps(bitrate.peak_bps());
+  return allocation;
 }
 
 }  // namespace media

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -62,6 +62,14 @@ class BaseState : public WindowState::State {
   gfx::Rect GetSnappedWindowBoundsInParent(
       aura::Window* window,
       const chromeos::WindowStateType state_type);
+
+  // Returns the window bounds for snapped window state for given `snap_ratio`.
+  // Note that even when `snap_ratio` is provided, it might get ignored to meet
+  // the window's minimum size requirement.
+  gfx::Rect GetSnappedWindowBoundsInParent(
+      aura::Window* window,
+      const chromeos::WindowStateType state_type,
+      float snap_ratio);
 
   // Prepares for the window snap event. Check if the window can be snapped in
   // split screen and if so, SplitViewController will start observe this window.

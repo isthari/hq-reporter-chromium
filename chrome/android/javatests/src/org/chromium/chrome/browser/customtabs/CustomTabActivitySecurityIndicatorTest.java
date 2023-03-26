@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@ import android.view.View;
 import android.widget.ImageView;
 
 import androidx.appcompat.content.res.AppCompatResources;
+import androidx.core.widget.ImageViewCompat;
 import androidx.test.filters.MediumTest;
 
 import org.junit.After;
@@ -24,7 +25,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
@@ -80,7 +80,7 @@ public class CustomTabActivitySecurityIndicatorTest {
         Context context = InstrumentationRegistry.getInstrumentation()
                                   .getTargetContext()
                                   .getApplicationContext();
-        Intent intent = CustomTabsTestUtils.createMinimalCustomTabIntent(context, mTestPage);
+        Intent intent = CustomTabsIntentTestUtils.createMinimalCustomTabIntent(context, mTestPage);
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(intent);
 
         // Check that tab has loaded the expected URL.
@@ -101,7 +101,7 @@ public class CustomTabActivitySecurityIndicatorTest {
         ImageView expectedSecurityButton =
                 new ImageView(InstrumentationRegistry.getTargetContext());
         expectedSecurityButton.setImageResource(expectedSecurityIcon);
-        ApiCompatibilityUtils.setImageTintList(expectedSecurityButton, colorStateList);
+        ImageViewCompat.setImageTintList(expectedSecurityButton, colorStateList);
 
         BitmapDrawable expectedDrawable = (BitmapDrawable) expectedSecurityButton.getDrawable();
         BitmapDrawable actualDrawable = (BitmapDrawable) securityButton.getDrawable();
@@ -118,7 +118,7 @@ public class CustomTabActivitySecurityIndicatorTest {
         Context context = InstrumentationRegistry.getInstrumentation()
                                   .getTargetContext()
                                   .getApplicationContext();
-        Intent intent = CustomTabsTestUtils.createMinimalCustomTabIntent(context, mTestPage);
+        Intent intent = CustomTabsIntentTestUtils.createMinimalCustomTabIntent(context, mTestPage);
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(intent);
 
         // Check that tab has loaded the expected URL.
@@ -139,7 +139,7 @@ public class CustomTabActivitySecurityIndicatorTest {
         ImageView expectedSecurityButton =
                 new ImageView(InstrumentationRegistry.getTargetContext());
         expectedSecurityButton.setImageResource(expectedSecurityIcon);
-        ApiCompatibilityUtils.setImageTintList(expectedSecurityButton, colorStateList);
+        ImageViewCompat.setImageTintList(expectedSecurityButton, colorStateList);
 
         BitmapDrawable expectedDrawable = (BitmapDrawable) expectedSecurityButton.getDrawable();
         BitmapDrawable actualDrawable = (BitmapDrawable) securityButton.getDrawable();

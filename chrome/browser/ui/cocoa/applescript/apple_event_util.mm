@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -94,7 +94,7 @@ NSAppleEventDescriptor* ValueToAppleEventDescriptor(const base::Value* value) {
       NOTREACHED();
       break;
 
-    case base::Value::Type::DICTIONARY: {
+    case base::Value::Type::DICT: {
       NSAppleEventDescriptor* keyValuePairs =
           [NSAppleEventDescriptor listDescriptor];
       for (auto iter : value->DictItems()) {

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,6 +50,7 @@ bool PopupBlockedMessageDelegate::ShowMessage(
   message->SetPrimaryButtonText(l10n_util::GetStringUTF16(button_text_id));
   messages::MessageDispatcherBridge* message_dispatcher_bridge =
       messages::MessageDispatcherBridge::Get();
+  DCHECK(message_dispatcher_bridge->IsMessagesEnabledForEmbedder());
   message->SetIconResourceId(message_dispatcher_bridge->MapToJavaDrawableId(
       IDR_ANDROID_INFOBAR_BLOCKED_POPUPS));
 

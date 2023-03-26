@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "base/notreached.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "gpu/config/gpu_preferences.h"
@@ -14,7 +15,7 @@
 #include "gpu/ipc/common/gpu_preferences.mojom-shared.h"
 #include "ui/gfx/mojom/buffer_types_mojom_traits.h"
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 #include "base/message_loop/message_pump_type.h"
 #include "mojo/public/cpp/base/message_pump_type_mojom_traits.h"
 #endif
@@ -89,6 +90,38 @@ struct GPU_EXPORT EnumTraits<gpu::mojom::VulkanImplementationName,
         return true;
       case gpu::mojom::VulkanImplementationName::kSwiftshader:
         *out = gpu::VulkanImplementationName::kSwiftshader;
+        return true;
+    }
+    return false;
+  }
+};
+
+template <>
+struct GPU_EXPORT
+    EnumTraits<gpu::mojom::WebGPUAdapterName, gpu::WebGPUAdapterName> {
+  static gpu::mojom::WebGPUAdapterName ToMojom(gpu::WebGPUAdapterName input) {
+    switch (input) {
+      case gpu::WebGPUAdapterName::kDefault:
+        return gpu::mojom::WebGPUAdapterName::kDefault;
+      case gpu::WebGPUAdapterName::kCompat:
+        return gpu::mojom::WebGPUAdapterName::kCompat;
+      case gpu::WebGPUAdapterName::kSwiftShader:
+        return gpu::mojom::WebGPUAdapterName::kSwiftShader;
+    }
+    NOTREACHED();
+    return gpu::mojom::WebGPUAdapterName::kDefault;
+  }
+  static bool FromMojom(gpu::mojom::WebGPUAdapterName input,
+                        gpu::WebGPUAdapterName* out) {
+    switch (input) {
+      case gpu::mojom::WebGPUAdapterName::kDefault:
+        *out = gpu::WebGPUAdapterName::kDefault;
+        return true;
+      case gpu::mojom::WebGPUAdapterName::kCompat:
+        *out = gpu::WebGPUAdapterName::kCompat;
+        return true;
+      case gpu::mojom::WebGPUAdapterName::kSwiftShader:
+        *out = gpu::WebGPUAdapterName::kSwiftShader;
         return true;
     }
     return false;
@@ -189,7 +222,6 @@ struct GPU_EXPORT
     }
 
     out->ignore_gpu_blocklist = prefs.ignore_gpu_blocklist();
-    out->enable_oop_rasterization_ddl = prefs.enable_oop_rasterization_ddl();
     out->watchdog_starts_backgrounded = prefs.watchdog_starts_backgrounded();
     if (!prefs.ReadGrContextType(&out->gr_context_type))
       return false;
@@ -207,7 +239,8 @@ struct GPU_EXPORT
         prefs.enable_gpu_benchmarking_extension();
     out->enable_webgpu = prefs.enable_webgpu();
     out->enable_unsafe_webgpu = prefs.enable_unsafe_webgpu();
-    out->force_webgpu_compat = prefs.force_webgpu_compat();
+    if (!prefs.ReadUseWebgpuAdapter(&out->use_webgpu_adapter))
+      return false;
     if (!prefs.ReadEnableDawnBackendValidation(
             &out->enable_dawn_backend_validation))
       return false;
@@ -220,7 +253,7 @@ struct GPU_EXPORT
         prefs.enable_gpu_blocked_time_metric();
     out->enable_perf_data_collection = prefs.enable_perf_data_collection();
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
     if (!prefs.ReadMessagePumpType(&out->message_pump_type))
       return false;
 #endif
@@ -350,9 +383,6 @@ struct GPU_EXPORT
   static bool ignore_gpu_blocklist(const gpu::GpuPreferences& prefs) {
     return prefs.ignore_gpu_blocklist;
   }
-  static bool enable_oop_rasterization_ddl(const gpu::GpuPreferences& prefs) {
-    return prefs.enable_oop_rasterization_ddl;
-  }
   static bool watchdog_starts_backgrounded(const gpu::GpuPreferences& prefs) {
     return prefs.watchdog_starts_backgrounded;
   }
@@ -393,8 +423,9 @@ struct GPU_EXPORT
   static bool enable_unsafe_webgpu(const gpu::GpuPreferences& prefs) {
     return prefs.enable_unsafe_webgpu;
   }
-  static bool force_webgpu_compat(const gpu::GpuPreferences& prefs) {
-    return prefs.force_webgpu_compat;
+  static gpu::WebGPUAdapterName use_webgpu_adapter(
+      const gpu::GpuPreferences& prefs) {
+    return prefs.use_webgpu_adapter;
   }
   static gpu::DawnBackendValidationLevel enable_dawn_backend_validation(
       const gpu::GpuPreferences& prefs) {
@@ -414,7 +445,7 @@ struct GPU_EXPORT
   static bool enable_perf_data_collection(const gpu::GpuPreferences& prefs) {
     return prefs.enable_perf_data_collection;
   }
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   static base::MessagePumpType message_pump_type(
       const gpu::GpuPreferences& prefs) {
     return prefs.message_pump_type;

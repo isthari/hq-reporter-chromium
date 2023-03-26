@@ -1,22 +1,23 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ANDROID_WEBVIEW_BROWSER_TRACING_AW_BACKGROUND_TRACING_METRICS_PROVIDER_H_
 #define ANDROID_WEBVIEW_BROWSER_TRACING_AW_BACKGROUND_TRACING_METRICS_PROVIDER_H_
 
-#include <vector>
+#include "components/tracing/common/background_tracing_metrics_provider.h"
 
-#include "components/metrics/metrics_provider.h"
+#include "base/memory/weak_ptr.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace tracing {
 
-// Provides trace log metrics collected using BackgroundTracingManager to UMA
-// proto. Background tracing uploads metrics of larger size compared to UMA
-// histograms and it is better to upload them as independent metrics rather
-// than part of UMA histograms log. The background tracing manager will make
-// sure the traces are small when uploading over data.
-class AwBackgroundTracingMetricsProvider : public metrics::MetricsProvider {
+// Only upload traces under 512 KB to decrease the risk of filling up
+// the app's IPC binder buffer (1 MB) and causing crashes.
+constexpr static int kCompressedUploadLimitBytes = 512 * 1024;
+
+class AwBackgroundTracingMetricsProvider
+    : public BackgroundTracingMetricsProvider {
  public:
   AwBackgroundTracingMetricsProvider();
 
@@ -29,15 +30,22 @@ class AwBackgroundTracingMetricsProvider : public metrics::MetricsProvider {
 
   // metrics::MetricsProvider:
   void Init() override;
-  bool HasIndependentMetrics() override;
-  void ProvideIndependentMetrics(
-      base::OnceCallback<void(bool)> done_callback,
-      metrics::ChromeUserMetricsExtension* uma_proto,
-      base::HistogramSnapshotManager* snapshot_manager) override;
 
  private:
-  std::vector<std::unique_ptr<metrics::MetricsProvider>>
-      system_profile_providers_;
+  // BackgroundTracingMetricsProvider:
+  void ProvideEmbedderMetrics(
+      metrics::ChromeUserMetricsExtension& uma_proto,
+      std::string&& serialized_trace,
+      metrics::TraceLog& log,
+      base::HistogramSnapshotManager* snapshot_manager,
+      base::OnceCallback<void(bool)> done_callback) override;
+
+  void OnTraceCompressed(metrics::ChromeUserMetricsExtension& uma_proto,
+                         metrics::TraceLog& log,
+                         base::OnceCallback<void(bool)> done_callback,
+                         absl::optional<std::string> serialized_trace);
+
+  base::WeakPtrFactory<AwBackgroundTracingMetricsProvider> weak_factory_{this};
 };
 
 }  // namespace tracing

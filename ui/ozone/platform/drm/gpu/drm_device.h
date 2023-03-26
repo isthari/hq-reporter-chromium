@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,13 @@
 #include <memory>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
-#include "base/trace_event/traced_value.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/linux/gbm_device.h"
@@ -194,7 +195,7 @@ class DrmDevice : public base::RefCountedThreadSafe<DrmDevice> {
                                  uint32_t property_value);
 
   // Can be used to query device/driver |capability|. Sets the value of
-  // |capability| to |value|. Returns true in case of a succesful query.
+  // |capability| to |value|. Returns true in case of a successful query.
   virtual bool GetCapability(uint64_t capability, uint64_t* value);
 
   // Set the cursor to be displayed in CRTC |crtc_id|. (width, height) is the
@@ -230,11 +231,14 @@ class DrmDevice : public base::RefCountedThreadSafe<DrmDevice> {
   virtual bool SetGammaRamp(uint32_t crtc_id,
                             const std::vector<display::GammaRampRGBEntry>& lut);
 
+  virtual absl::optional<std::string> GetDriverName() const;
+
   // Drm master related
   virtual bool SetMaster();
   virtual bool DropMaster();
 
-  void AsValueInto(base::trace_event::TracedValue* value) const;
+  // Adds trace records to |context|.
+  void WriteIntoTrace(perfetto::TracedValue context) const;
 
   int modeset_sequence_id() const { return modeset_sequence_id_; }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,11 +16,16 @@ class OfferNotificationBubbleController;
 class SaveUpdateAddressProfileBubbleController;
 class EditAddressProfileDialogController;
 class SaveCardBubbleController;
+class SaveIbanBubbleController;
 class SaveUPIBubble;
 class SaveUPIBubbleController;
 class VirtualCardManualFallbackBubbleController;
 class VirtualCardEnrollBubbleController;
 
+// TODO(crbug.com/1337392): consider removing this class and give the logic back
+// to each bubble's controller. This class serves also the avatar button /
+// personal data manager observer for saving feedback. If we end up not doing it
+// the same way, this class may be unnecessary.
 // Responsible for receiving calls from controllers and showing autofill
 // bubbles.
 class AutofillBubbleHandler {
@@ -40,6 +45,11 @@ class AutofillBubbleHandler {
   virtual AutofillBubbleBase* ShowLocalCardMigrationBubble(
       content::WebContents* web_contents,
       LocalCardMigrationBubbleController* controller,
+      bool is_user_gesture) = 0;
+
+  virtual AutofillBubbleBase* ShowSaveIbanBubble(
+      content::WebContents* web_contents,
+      SaveIbanBubbleController* controller,
       bool is_user_gesture) = 0;
 
   virtual AutofillBubbleBase* ShowOfferNotificationBubble(

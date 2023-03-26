@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,12 +19,15 @@ void GPUSupportedFeatures::AddFeatureName(const String& feature_name) {
   features_.insert(feature_name);
 }
 
+bool GPUSupportedFeatures::has(const String& feature) const {
+  return features_.Contains(feature);
+}
+
 bool GPUSupportedFeatures::hasForBinding(
     ScriptState* script_state,
     const String& feature,
     ExceptionState& exception_state) const {
-  DCHECK(feature);
-  return features_.find(feature) != features_.end();
+  return has(feature);
 }
 
 GPUSupportedFeatures::IterationSource::IterationSource(
@@ -36,16 +39,15 @@ GPUSupportedFeatures::IterationSource::IterationSource(
   iter_ = features_.begin();
 }
 
-bool GPUSupportedFeatures::IterationSource::Next(
+bool GPUSupportedFeatures::IterationSource::FetchNextItem(
     ScriptState* script_state,
-    String& key,
     String& value,
     ExceptionState& exception_state) {
   if (iter_ == features_.end()) {
     return false;
   }
 
-  key = value = *iter_;
+  value = *iter_;
   ++iter_;
 
   return true;

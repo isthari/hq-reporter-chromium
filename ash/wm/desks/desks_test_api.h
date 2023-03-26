@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,25 @@
 #include "base/time/clock.h"
 #include "third_party/skia/include/core/SkColor.h"
 
+namespace aura {
+class Window;
+}  // namespace aura
+
 namespace views {
+class LabelButton;
 class ScrollView;
+class View;
 }  // namespace views
+
+namespace ui {
+class LayerTreeOwner;
+class SimpleMenuModel;
+}  // namespace ui
 
 namespace ash {
 
 class Desk;
+class DeskActionContextMenu;
 class DeskMiniView;
 class PersistentDesksBarContextMenu;
 class PersistentDesksBarDeskButton;
@@ -27,6 +39,9 @@ class ScrollArrowButton;
 // PersistentDesksBarView.
 class DesksTestApi {
  public:
+  // Don't instantiate, just use the static helpers below.
+  DesksTestApi() = delete;
+
   // Getters for elements inside the desks.
   static ScrollArrowButton* GetDesksBarLeftScrollButton();
   static ScrollArrowButton* GetDesksBarRightScrollButton();
@@ -37,7 +52,17 @@ class DesksTestApi {
   static PersistentDesksBarContextMenu* GetPersistentDesksBarContextMenu();
   static const std::vector<PersistentDesksBarDeskButton*>
   GetPersistentDesksBarDeskButtons();
+  static DeskActionContextMenu* GetContextMenuForDesk(int index);
+  static views::LabelButton* GetCloseAllUndoToastDismissButton();
+  static const ui::SimpleMenuModel& GetContextMenuModelForDesk(int index);
+  static views::View* GetHighlightOverlayForDeskPreview(int index);
+  static ui::LayerTreeOwner* GetMirroredContentsLayerTreeForRootAndDesk(
+      aura::Window* root,
+      Desk* desk);
   static bool HasVerticalDotsButton();
+  static bool DesksControllerHasDesk(Desk* desk);
+  static bool DesksControllerCanUndoDeskRemoval();
+  static bool IsContextMenuRunningForDesk(int index);
 
   static bool IsDesksBarLeftGradientVisible();
   static bool IsDesksBarRightGradientVisible();
@@ -45,12 +70,6 @@ class DesksTestApi {
   // Resets `first_day_visited_` and `last_day_visited_` of `desk` for testing
   // to the current date.
   static void ResetDeskVisitedMetrics(Desk* desk);
-
- private:
-  DesksTestApi() = default;
-  DesksTestApi(const DesksTestApi&) = delete;
-  DesksTestApi& operator=(const DesksTestApi&) = delete;
-  ~DesksTestApi() = default;
 };
 
 }  // namespace ash

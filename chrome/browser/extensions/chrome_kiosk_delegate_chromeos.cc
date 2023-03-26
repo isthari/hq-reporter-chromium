@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,11 @@
 
 namespace extensions {
 
-ChromeKioskDelegate::ChromeKioskDelegate() {}
-
-ChromeKioskDelegate::~ChromeKioskDelegate() {}
-
 bool ChromeKioskDelegate::IsAutoLaunchedKioskApp(const ExtensionId& id) const {
+  if (!ash::KioskAppManager::IsInitialized()) {
+    return false;
+  }
+
   ash::KioskAppManager::App app_info;
   return ash::KioskAppManager::Get()->GetApp(id, &app_info) &&
          app_info.was_auto_launched_with_zero_delay;

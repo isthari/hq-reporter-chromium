@@ -1,9 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/optimization_guide/chrome_hints_manager.h"
 
+#include "base/command_line.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
@@ -14,6 +15,7 @@
 #include "components/optimization_guide/content/browser/optimization_guide_decider.h"
 #include "components/optimization_guide/core/hints_fetcher.h"
 #include "components/optimization_guide/core/optimization_guide_features.h"
+#include "components/optimization_guide/core/optimization_guide_logger.h"
 #include "components/optimization_guide/core/optimization_guide_prefs.h"
 #include "components/optimization_guide/core/optimization_guide_store.h"
 #include "components/optimization_guide/core/optimization_guide_switches.h"
@@ -96,7 +98,7 @@ class ChromeHintsManagerFetchingTest
 
     hint_store_ = std::make_unique<optimization_guide::OptimizationGuideStore>(
         db_provider_.get(), temp_dir(),
-        task_environment_.GetMainThreadTaskRunner());
+        task_environment_.GetMainThreadTaskRunner(), /*pref_service=*/nullptr);
 
     tab_url_provider_ = std::make_unique<FakeTabUrlProvider>();
 
@@ -105,7 +107,8 @@ class ChromeHintsManagerFetchingTest
         /*top_host_provider=*/nullptr, tab_url_provider_.get(),
         url_loader_factory_,
         OptimizationGuideKeyedService::MaybeCreatePushNotificationManager(
-            &testing_profile_));
+            &testing_profile_),
+        &optimization_guide_logger_);
     hints_manager_->SetClockForTesting(task_environment_.GetMockClock());
 
     // Run until hint cache is initialized and the ChromeHintsManager is ready
@@ -177,6 +180,7 @@ class ChromeHintsManagerFetchingTest
   std::unique_ptr<sync_preferences::TestingPrefServiceSyncable> pref_service_;
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
   network::TestURLLoaderFactory test_url_loader_factory_;
+  OptimizationGuideLogger optimization_guide_logger_;
 };
 
 TEST_F(ChromeHintsManagerFetchingTest, HintsFetched_AtSRP_DuplicatesRemoved) {
@@ -346,12 +350,8 @@ class ChromeHintsManagerPushEnabledTest
   base::test::ScopedFeatureList scoped_feature_list_;
 };
 
-TEST_F(ChromeHintsManagerPushEnabledTest, PushManagerSetOnAndroid) {
-#if BUILDFLAG(IS_ANDROID)
+TEST_F(ChromeHintsManagerPushEnabledTest, PushManagerSet) {
   EXPECT_TRUE(hints_manager()->push_notification_manager());
-#else
-  EXPECT_FALSE(hints_manager()->push_notification_manager());
-#endif
 }
 
 class ChromeHintsManagerPushDisabledTest
@@ -366,7 +366,7 @@ class ChromeHintsManagerPushDisabledTest
   base::test::ScopedFeatureList scoped_feature_list_;
 };
 
-TEST_F(ChromeHintsManagerPushDisabledTest, PushManagerSetOnAndroid) {
+TEST_F(ChromeHintsManagerPushDisabledTest, PushManagerSet) {
   EXPECT_FALSE(hints_manager()->push_notification_manager());
 }
 

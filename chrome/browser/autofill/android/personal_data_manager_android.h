@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -143,8 +143,7 @@ class PersonalDataManagerAndroid : public PersonalDataManagerObserver {
   // PersonalDataManager::GetCreditCardsToSuggest for more details.
   base::android::ScopedJavaLocalRef<jobjectArray> GetCreditCardGUIDsToSuggest(
       JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& unused_obj,
-      bool include_server_cards);
+      const base::android::JavaParamRef<jobject>& unused_obj);
 
   // Returns the credit card with the specified |jguid|, or NULL if there is
   // no credit card with the specified |jguid|.

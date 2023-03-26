@@ -1,17 +1,23 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.notifications.channels;
 
-import android.annotation.TargetApi;
+import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.os.Build;
+import android.os.Build.VERSION;
+import android.os.Build.VERSION_CODES;
 import android.text.TextUtils;
 
+import androidx.annotation.RequiresApi;
 import androidx.annotation.StringDef;
 
+import org.chromium.base.ContextUtils;
 import org.chromium.chrome.browser.notifications.R;
+import org.chromium.components.browser_ui.notifications.NotificationManagerProxy;
+import org.chromium.components.browser_ui.notifications.NotificationManagerProxyImpl;
 import org.chromium.components.browser_ui.notifications.channels.ChannelDefinitions;
 
 import java.lang.annotation.Retention;
@@ -36,14 +42,14 @@ import java.util.Set;
  * <br/>
  * See the README.md in this directory for more information before adding or changing any channels.
  */
-@TargetApi(Build.VERSION_CODES.O)
+@RequiresApi(Build.VERSION_CODES.O)
 public class ChromeChannelDefinitions extends ChannelDefinitions {
     /**
      * Version number identifying the current set of channels. This must be incremented whenever the
      * set of channels returned by {@link #getStartupChannelIds()} or {@link #getLegacyChannelIds()}
      * changes.
      */
-    static final int CHANNELS_VERSION = 2;
+    static final int CHANNELS_VERSION = 4;
 
     private static class LazyHolder {
         private static ChromeChannelDefinitions sInstance = new ChromeChannelDefinitions();
@@ -70,10 +76,12 @@ public class ChromeChannelDefinitions extends ChannelDefinitions {
      */
     @StringDef({ChannelId.BROWSER, ChannelId.DOWNLOADS, ChannelId.INCOGNITO,
             ChannelId.MEDIA_PLAYBACK, ChannelId.SCREEN_CAPTURE, ChannelId.CONTENT_SUGGESTIONS,
-            ChannelId.WEBAPP_ACTIONS, ChannelId.SITES, ChannelId.SHARING, ChannelId.UPDATES,
-            ChannelId.COMPLETED_DOWNLOADS, ChannelId.PERMISSION_REQUESTS,
+            ChannelId.WEBAPP_ACTIONS, ChannelId.SITES, ChannelId.VR, ChannelId.SHARING,
+            ChannelId.UPDATES, ChannelId.COMPLETED_DOWNLOADS, ChannelId.PERMISSION_REQUESTS,
             ChannelId.PERMISSION_REQUESTS_HIGH, ChannelId.ANNOUNCEMENT, ChannelId.WEBAPPS,
-            ChannelId.WEBAPPS_QUIET, ChannelId.PRICE_DROP})
+            ChannelId.WEBAPPS_QUIET, ChannelId.WEBRTC_CAM_AND_MIC, ChannelId.PRICE_DROP,
+            ChannelId.PRICE_DROP_DEFAULT, ChannelId.SECURITY_KEY, ChannelId.CHROME_TIPS,
+            ChannelId.BLUETOOTH, ChannelId.USB})
     @Retention(RetentionPolicy.SOURCE)
     public @interface ChannelId {
         String BROWSER = "browser";
@@ -95,8 +103,17 @@ public class ChromeChannelDefinitions extends ChannelDefinitions {
         String WEBAPPS = "twa_disclosure_initial";
         String WEBAPPS_QUIET = "twa_disclosure_subsequent";
         String WEBRTC_CAM_AND_MIC = "webrtc_cam_and_mic";
+        // TODO(crbug.com/1380966): This PRICE_DROP channel is initialized with IMPORTANCE_LOW in
+        // M107. To update the initial importance level to DEFAULT, we have to introduce a new
+        // channel PRICE_DROP_DEFAULT and deprecate this one. Since we want to initialize the new
+        // channel based on this old channel's status to keep users' experience consistent, this old
+        // channel will be kept for one or two milestones and then be cleaned up.
         String PRICE_DROP = "shopping_price_drop_alerts";
+        String PRICE_DROP_DEFAULT = "shopping_price_drop_alerts_default";
         String SECURITY_KEY = "security_key";
+        String CHROME_TIPS = "chrome_tips";
+        String BLUETOOTH = "bluetooth";
+        String USB = "usb";
     }
 
     @StringDef({ChannelGroupId.GENERAL, ChannelGroupId.SITES})
@@ -107,7 +124,6 @@ public class ChromeChannelDefinitions extends ChannelDefinitions {
     }
 
     // Map defined in static inner class so it's only initialized lazily.
-    @TargetApi(Build.VERSION_CODES.N) // for NotificationManager.IMPORTANCE_* constants
     private static class PredefinedChannels {
         /**
          * Definitions for predefined channels. Any channel listed in STARTUP must have an entry in
@@ -227,7 +243,28 @@ public class ChromeChannelDefinitions extends ChannelDefinitions {
             map.put(ChannelId.PRICE_DROP,
                     PredefinedChannel.create(ChannelId.PRICE_DROP,
                             R.string.notification_category_price_drop,
-                            NotificationManager.IMPORTANCE_LOW, ChannelGroupId.GENERAL));
+                            NotificationManager.IMPORTANCE_DEFAULT, ChannelGroupId.GENERAL));
+            // TODO(crbug.com/1380966): Make the new channel's behavior consistent with the old
+            // channel's if it's created and modified by the user. Clean this up after one or two
+            // milestones.
+            int priceDropDefaultChannelImportance = NotificationManager.IMPORTANCE_DEFAULT;
+            if (VERSION.SDK_INT >= VERSION_CODES.O) {
+                NotificationManagerProxy notificationManager =
+                        new NotificationManagerProxyImpl(ContextUtils.getApplicationContext());
+                NotificationChannel priceDropChannel =
+                        notificationManager.getNotificationChannel(ChannelId.PRICE_DROP);
+                if (priceDropChannel != null) {
+                    startup.add(ChannelId.PRICE_DROP_DEFAULT);
+                    if (priceDropChannel.getImportance() != NotificationManager.IMPORTANCE_LOW) {
+                        priceDropDefaultChannelImportance = priceDropChannel.getImportance();
+                    }
+                    notificationManager.deleteNotificationChannel(ChannelId.PRICE_DROP);
+                }
+            }
+            map.put(ChannelId.PRICE_DROP_DEFAULT,
+                    PredefinedChannel.create(ChannelId.PRICE_DROP_DEFAULT,
+                            R.string.notification_category_price_drop,
+                            priceDropDefaultChannelImportance, ChannelGroupId.GENERAL));
 
             // The security key notification channel will only appear for users
             // who use this feature.
@@ -235,6 +272,26 @@ public class ChromeChannelDefinitions extends ChannelDefinitions {
                     PredefinedChannel.create(ChannelId.SECURITY_KEY,
                             R.string.notification_category_security_key,
                             NotificationManager.IMPORTANCE_HIGH, ChannelGroupId.GENERAL));
+
+            // The chrome tips notification channel will only appear for users
+            // who are targeted for this feature.
+            map.put(ChannelId.CHROME_TIPS,
+                    PredefinedChannel.create(ChannelId.CHROME_TIPS,
+                            R.string.notification_category_feature_guide,
+                            NotificationManager.IMPORTANCE_HIGH, ChannelGroupId.GENERAL));
+
+            // The bluetooth notification channel will only appear for users
+            // who are targeted for this feature.
+            map.put(ChannelId.BLUETOOTH,
+                    PredefinedChannel.create(ChannelId.BLUETOOTH,
+                            R.string.notification_category_bluetooth,
+                            NotificationManager.IMPORTANCE_LOW, ChannelGroupId.GENERAL));
+
+            // The usb notification channel will only appear for users
+            // who are targeted for this feature.
+            map.put(ChannelId.USB,
+                    PredefinedChannel.create(ChannelId.USB, R.string.notification_category_usb,
+                            NotificationManager.IMPORTANCE_LOW, ChannelGroupId.GENERAL));
 
             MAP = Collections.unmodifiableMap(map);
             STARTUP = Collections.unmodifiableSet(startup);

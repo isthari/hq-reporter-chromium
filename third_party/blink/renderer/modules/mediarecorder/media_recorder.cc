@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/dictionary.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/fileapi/blob.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/modules/event_target_modules.h"
@@ -84,23 +85,23 @@ void AllocateVideoAndAudioBitrates(ExceptionState& exception_state,
                                    ExecutionContext* context,
                                    const MediaRecorderOptions* options,
                                    MediaStream* stream,
-                                   int* audio_bits_per_second,
-                                   int* video_bits_per_second) {
-  const bool use_video = !stream->getVideoTracks().IsEmpty();
-  const bool use_audio = !stream->getAudioTracks().IsEmpty();
+                                   uint32_t* audio_bits_per_second,
+                                   uint32_t* video_bits_per_second) {
+  const bool use_video = !stream->getVideoTracks().empty();
+  const bool use_audio = !stream->getAudioTracks().empty();
 
   // Clamp incoming values into a signed integer's range.
   // TODO(mcasas): This section would no be needed if the bit rates are signed
   // or double, see https://github.com/w3c/mediacapture-record/issues/48.
-  const unsigned kMaxIntAsUnsigned = std::numeric_limits<int>::max();
+  constexpr uint32_t kMaxIntAsUnsigned = std::numeric_limits<int>::max();
 
-  int overall_bps = 0;
+  uint32_t overall_bps = 0;
   if (options->hasBitsPerSecond())
     overall_bps = std::min(options->bitsPerSecond(), kMaxIntAsUnsigned);
-  int video_bps = 0;
+  uint32_t video_bps = 0;
   if (options->hasVideoBitsPerSecond() && use_video)
     video_bps = std::min(options->videoBitsPerSecond(), kMaxIntAsUnsigned);
-  int audio_bps = 0;
+  uint32_t audio_bps = 0;
   if (options->hasAudioBitsPerSecond() && use_audio)
     audio_bps = std::min(options->audioBitsPerSecond(), kMaxIntAsUnsigned);
 
@@ -141,7 +142,8 @@ void AllocateVideoAndAudioBitrates(ExceptionState& exception_state,
   if (use_video) {
     // Allocate the remaining |overallBps|, if any, to video.
     if (options->hasBitsPerSecond())
-      video_bps = overall_bps - audio_bps;
+      video_bps = overall_bps >= audio_bps ? overall_bps - audio_bps : 0u;
+
     // Clamp the video bit rate. Avoid clamping if the user has not set it
     // explicitly.
     if (options->hasVideoBitsPerSecond() || options->hasBitsPerSecond()) {
@@ -187,17 +189,13 @@ MediaRecorder::MediaRecorder(ExecutionContext* context,
                              ExceptionState& exception_state)
     : ExecutionContextLifecycleObserver(context),
       stream_(stream),
-      mime_type_(options->mimeType()),
-      audio_bits_per_second_(0),
-      video_bits_per_second_(0),
-      state_(State::kInactive) {
+      mime_type_(options->mimeType()) {
   if (context->IsContextDestroyed()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kNotAllowedError,
                                       "Execution context is detached.");
     return;
   }
-  recorder_handler_ = MakeGarbageCollected<MediaRecorderHandler>(
-      context->GetTaskRunner(TaskType::kInternalMediaRealTime));
+  recorder_handler_ = MakeGarbageCollected<MediaRecorderHandler>();
   if (!recorder_handler_) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNotSupportedError,
@@ -347,8 +345,7 @@ void MediaRecorder::requestData(ExceptionState& exception_state) {
 
 bool MediaRecorder::isTypeSupported(ExecutionContext* context,
                                     const String& type) {
-  MediaRecorderHandler* handler = MakeGarbageCollected<MediaRecorderHandler>(
-      context->GetTaskRunner(TaskType::kInternalMediaRealTime));
+  MediaRecorderHandler* handler = MakeGarbageCollected<MediaRecorderHandler>();
   if (!handler)
     return false;
 
@@ -360,7 +357,7 @@ bool MediaRecorder::isTypeSupported(ExecutionContext* context,
   ContentType content_type(type);
   bool result = handler->CanSupportMimeType(content_type.GetType(),
                                             content_type.Parameter("codecs"));
-  if (IdentifiabilityStudySettings::Get()->ShouldSample(
+  if (IdentifiabilityStudySettings::Get()->ShouldSampleType(
           blink::IdentifiableSurface::Type::kMediaRecorder_IsTypeSupported)) {
     blink::IdentifiabilityMetricBuilder(context->UkmSourceID())
         .Add(blink::IdentifiableSurface::FromTypeAndToken(
@@ -397,7 +394,7 @@ void MediaRecorder::ContextDestroyed() {
   recorder_handler_ = nullptr;
 }
 
-void MediaRecorder::WriteData(const char* data,
+void MediaRecorder::WriteData(const void* data,
                               size_t length,
                               bool last_in_slice,
                               double timecode) {
@@ -456,10 +453,10 @@ void MediaRecorder::StopRecording() {
     return;
   }
   // Make sure that starting the recorder again yields an onstart event.
-  first_write_received_ = false;
   state_ = State::kInactive;
 
   recorder_handler_->Stop();
+  first_write_received_ = false;
 
   WriteData(nullptr /* data */, 0 /* length */, true /* lastInSlice */,
             base::Time::Now().ToDoubleT() * 1000.0);
@@ -475,8 +472,8 @@ void MediaRecorder::ScheduleDispatchEvent(Event* event) {
       // https://www.w3.org/TR/mediastream-recording/
       context->GetTaskRunner(TaskType::kDOMManipulation)
           ->PostTask(FROM_HERE,
-                     WTF::Bind(&MediaRecorder::DispatchScheduledEvent,
-                               WrapPersistent(this)));
+                     WTF::BindOnce(&MediaRecorder::DispatchScheduledEvent,
+                                   WrapPersistent(this)));
     }
   }
 }

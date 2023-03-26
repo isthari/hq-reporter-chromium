@@ -1,16 +1,16 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
 import 'chrome://settings/lazy_load.js';
 
-import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
+import {webUIListenerCallback} from 'chrome://resources/js/cr.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {SettingsSyncControlsElement} from 'chrome://settings/lazy_load.js';
 import {CrRadioButtonElement, CrToggleElement, Router, StatusAction, SyncBrowserProxyImpl, SyncPrefs} from 'chrome://settings/settings.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {waitBeforeNextRender} from 'chrome://webui-test/test_util.js';
+import {waitBeforeNextRender} from 'chrome://webui-test/polymer_test_util.js';
 
 import {getSyncAllPrefs, setupRouterWithSyncRoutes, SyncRoutes} from './sync_test_util.js';
 import {TestSyncBrowserProxy} from './test_sync_browser_proxy.js';
@@ -28,7 +28,7 @@ suite('SyncControlsTest', async function() {
     browserProxy = new TestSyncBrowserProxy();
     SyncBrowserProxyImpl.setInstance(browserProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     syncControls = document.createElement('settings-sync-controls');
     document.body.appendChild(syncControls);
 
@@ -101,7 +101,7 @@ suite('SyncControlsTest', async function() {
       disabled: false,
       hasError: false,
       signedIn: true,
-      statusAction: StatusAction.NO_ACTION
+      statusAction: StatusAction.NO_ACTION,
     };
     // Controls are available when signed in and there is no error.
     assertFalse(syncControls.hidden);
@@ -112,7 +112,7 @@ suite('SyncControlsTest', async function() {
       disabled: true,
       hasError: false,
       signedIn: true,
-      statusAction: StatusAction.NO_ACTION
+      statusAction: StatusAction.NO_ACTION,
     };
     // Controls are hidden when sync is disabled.
     assertTrue(syncControls.hidden);
@@ -123,7 +123,7 @@ suite('SyncControlsTest', async function() {
       disabled: false,
       hasError: true,
       signedIn: true,
-      statusAction: StatusAction.NO_ACTION
+      statusAction: StatusAction.NO_ACTION,
     };
     // Controls are hidden when there is an error but it's not a
     // passphrase error.
@@ -148,7 +148,7 @@ suite('SyncControlsSubpageTest', function() {
     browserProxy = new TestSyncBrowserProxy();
     SyncBrowserProxyImpl.setInstance(browserProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
 
     syncControls = document.createElement('settings-sync-controls');
     const router = Router.getInstance();
@@ -190,7 +190,7 @@ suite('SyncControlsSubpageTest', function() {
       disabled: false,
       hasError: true,
       signedIn: true,
-      statusAction: StatusAction.ENTER_PASSPHRASE
+      statusAction: StatusAction.ENTER_PASSPHRASE,
     };
     const router = Router.getInstance();
     assertEquals(
@@ -203,7 +203,7 @@ suite('SyncControlsSubpageTest', function() {
       disabled: false,
       hasError: true,
       signedIn: true,
-      statusAction: StatusAction.REAUTHENTICATE
+      statusAction: StatusAction.REAUTHENTICATE,
     };
     const router = Router.getInstance();
     assertEquals(

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/files/file_path.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/process/process.h"
 #include "base/threading/thread_checker.h"
@@ -136,7 +137,7 @@ class AppShimHost : public chrome::mojom::AppShimHost {
   void OpenAppWithOverrideUrl(const GURL& override_url) override;
 
   // Weak, owns |this|.
-  Client* const client_;
+  const raw_ptr<Client> client_;
 
   mojo::Receiver<chrome::mojom::AppShimHost> host_receiver_{this};
   mojo::Remote<chrome::mojom::AppShim> app_shim_;

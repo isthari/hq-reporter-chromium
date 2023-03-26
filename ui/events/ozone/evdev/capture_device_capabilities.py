@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2014 The Chromium Authors. All rights reserved.
+# Copyright 2014 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -138,7 +138,7 @@ def dump_capabilities(out, dev, identifier=None):
 
   if has_abs:
     out.write('    %s,\n' % absinfo_identifier)
-    out.write('    base::size(%s),\n' % absinfo_identifier)
+    out.write('    std::size(%s),\n' % absinfo_identifier)
   else:
     out.write('    /* abs_axis */ nullptr,\n')
     out.write('    /* abs_axis_count */ 0,\n')

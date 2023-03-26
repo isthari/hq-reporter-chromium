@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,6 +26,7 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_select_file_policy.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
 #include "chrome/browser/ui/search/omnibox_utils.h"
 #include "chrome/browser/ui/search/search_ipc_router_policy_impl.h"
@@ -59,6 +60,7 @@
 #include "extensions/common/constants.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/vector_icon_types.h"
 #include "url/gurl.h"
 
@@ -89,7 +91,7 @@ bool InInstantProcess(const InstantService* instant_service,
     return false;
 
   return instant_service->IsInstantProcess(
-      contents->GetMainFrame()->GetProcess()->GetID());
+      contents->GetPrimaryMainFrame()->GetProcess()->GetID());
 }
 
 // Called when an NTP finishes loading. If the load start time was noted,
@@ -260,7 +262,13 @@ void SearchTabHelper::NavigationEntryCommitted(
     ipc_router_.OnNavigationEntryCommitted();
 }
 
-void SearchTabHelper::NtpThemeChanged(const NtpTheme& theme) {
+void SearchTabHelper::NtpThemeChanged(NtpTheme theme) {
+  // Populate theme colors for this tab.
+  const auto& color_provider = web_contents()->GetColorProvider();
+  theme.background_color = color_provider.GetColor(kColorNewTabPageBackground);
+  theme.text_color = color_provider.GetColor(kColorNewTabPageText);
+  theme.text_color_light = color_provider.GetColor(kColorNewTabPageTextLight);
+
   ipc_router_.SendNtpTheme(theme);
 }
 

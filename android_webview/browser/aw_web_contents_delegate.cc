@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,25 +6,29 @@
 
 #include <utility>
 
+#include "android_webview/browser/aw_browser_context.h"
 #include "android_webview/browser/aw_contents.h"
 #include "android_webview/browser/aw_contents_io_thread_client.h"
 #include "android_webview/browser/aw_javascript_dialog_manager.h"
+#include "android_webview/browser/aw_permission_manager.h"
 #include "android_webview/browser/find_helper.h"
 #include "android_webview/browser/permission/media_access_permission_request.h"
 #include "android_webview/browser/permission/permission_request_handler.h"
 #include "android_webview/browser_jni_headers/AwWebContentsDelegate_jni.h"
+#include "android_webview/common/aw_features.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/navigation_interception/intercept_navigation_delegate.h"
 #include "content/public/browser/file_select_listener.h"
+#include "content/public/browser/permission_controller_delegate.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -32,7 +36,8 @@
 #include "content/public/browser/web_contents.h"
 #include "net/base/filename_util.h"
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
-#include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
+#include "third_party/blink/public/common/permissions/permission_utils.h"
+#include "third_party/blink/public/mojom/mediastream/media_stream.mojom.h"
 
 using base::android::AttachCurrentThread;
 using base::android::ConvertUTF16ToJavaString;
@@ -45,15 +50,6 @@ using blink::mojom::FileChooserParams;
 using content::WebContents;
 
 namespace android_webview {
-
-namespace {
-
-// WARNING: these constants are exposed in the public interface Java side, so
-// must remain in sync with what clients are expecting.
-const int kFileChooserModeOpenMultiple = 1 << 0;
-const int kFileChooserModeOpenFolder = 1 << 1;
-
-}
 
 AwWebContentsDelegate::AwWebContentsDelegate(JNIEnv* env, jobject obj)
     : WebContentsDelegateAndroid(env, obj), is_fullscreen_(false) {}
@@ -123,11 +119,10 @@ void AwWebContentsDelegate::RunFileChooser(
   }
 
   int mode_flags = 0;
-  if (params.mode == FileChooserParams::Mode::kOpenMultiple) {
-    mode_flags |= kFileChooserModeOpenMultiple;
-  } else if (params.mode == FileChooserParams::Mode::kUploadFolder) {
+  if (params.mode == FileChooserParams::Mode::kUploadFolder ||
+      params.mode == FileChooserParams::Mode::kOpenMultiple) {
     // Folder implies multiple in Chrome.
-    mode_flags |= kFileChooserModeOpenMultiple | kFileChooserModeOpenFolder;
+    mode_flags = static_cast<int>(FileChooserParams::Mode::kOpenMultiple);
   } else if (params.mode == FileChooserParams::Mode::kSave) {
     // Save not supported, so cancel it.
     listener->FileSelectionCanceled();
@@ -156,7 +151,7 @@ void AwWebContentsDelegate::AddNewContents(
     std::unique_ptr<WebContents> new_contents,
     const GURL& target_url,
     WindowOpenDisposition disposition,
-    const gfx::Rect& initial_rect,
+    const blink::mojom::WindowFeatures& window_features,
     bool user_gesture,
     bool* was_blocked) {
   JNIEnv* env = AttachCurrentThread();
@@ -190,8 +185,8 @@ void AwWebContentsDelegate::AddNewContents(
     // window, so we're done with the WebContents now. We use
     // DeleteSoon as WebContentsImpl may call methods on |new_contents|
     // after this method returns.
-    base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE,
-                                                    std::move(new_contents));
+    base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(
+        FROM_HERE, std::move(new_contents));
   }
 
   if (was_blocked) {
@@ -220,7 +215,7 @@ void AwWebContentsDelegate::WebContentsCreated(
     const std::string& frame_name,
     const GURL& target_url,
     content::WebContents* new_contents) {
-  AwContentsIoThreadClient::RegisterPendingContents(new_contents);
+  // Intentionally left empty to override implementation in superclasses.
 }
 
 void AwWebContentsDelegate::CloseContents(WebContents* source) {
@@ -267,14 +262,40 @@ void AwWebContentsDelegate::RequestMediaAccessPermission(
   AwContents* aw_contents = AwContents::FromWebContents(web_contents);
   if (!aw_contents) {
     std::move(callback).Run(
-        blink::MediaStreamDevices(),
+        blink::mojom::StreamDevicesSet(),
         blink::mojom::MediaStreamRequestResult::FAILED_DUE_TO_SHUTDOWN,
         nullptr);
     return;
   }
   aw_contents->GetPermissionRequestHandler()->SendRequest(
-      std::make_unique<MediaAccessPermissionRequest>(request,
-                                                     std::move(callback)));
+      std::make_unique<MediaAccessPermissionRequest>(
+          request, std::move(callback),
+          *AwBrowserContext::FromWebContents(web_contents)
+               ->GetPermissionControllerDelegate()));
+}
+
+bool AwWebContentsDelegate::CheckMediaAccessPermission(
+    content::RenderFrameHost* render_frame_host,
+    const GURL& security_origin,
+    blink::mojom::MediaStreamType type) {
+  if (!base::FeatureList::IsEnabled(features::kWebViewEnumerateDevicesCache)) {
+    return false;
+  }
+  WebContents* web_contents =
+      WebContents::FromRenderFrameHost(render_frame_host);
+  if (!web_contents) {
+    return false;
+  }
+  AwPermissionManager* pm = AwBrowserContext::FromWebContents(web_contents)
+                                ->GetPermissionControllerDelegate();
+  switch (type) {
+    case blink::mojom::MediaStreamType::DEVICE_AUDIO_CAPTURE:
+      return pm->ShouldShowEnumerateDevicesAudioLabels(security_origin);
+    case blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE:
+      return pm->ShouldShowEnumerateDevicesVideoLabels(security_origin);
+    default:
+      return false;
+  }
 }
 
 void AwWebContentsDelegate::EnterFullscreenModeForTab(
@@ -298,6 +319,14 @@ void AwWebContentsDelegate::ExitFullscreenModeForTab(
 bool AwWebContentsDelegate::IsFullscreenForTabOrPending(
     const content::WebContents* web_contents) {
   return is_fullscreen_;
+}
+
+void AwWebContentsDelegate::UpdateUserGestureCarryoverInfo(
+    content::WebContents* web_contents) {
+  auto* intercept_navigation_delegate =
+      navigation_interception::InterceptNavigationDelegate::Get(web_contents);
+  if (intercept_navigation_delegate)
+    intercept_navigation_delegate->OnResourceRequestWithGesture();
 }
 
 scoped_refptr<content::FileSelectListener>
@@ -340,8 +369,11 @@ static void JNI_AwWebContentsDelegate_FilesSelectedInChooser(
   files.reserve(file_path_str.size());
   for (size_t i = 0; i < file_path_str.size(); ++i) {
     GURL url(file_path_str[i]);
-    if (!url.is_valid())
+    if (!url.is_valid()) {
+      LOG(ERROR) << "The file choice request has an invalid Uri: "
+                 << file_path_str[i];
       continue;
+    }
     base::FilePath path;
     if (url.SchemeIsFile()) {
       if (!net::FileURLToFilePath(url, &path))
@@ -357,11 +389,9 @@ static void JNI_AwWebContentsDelegate_FilesSelectedInChooser(
   }
   base::FilePath base_dir;
   FileChooserParams::Mode mode;
-  if (mode_flags & kFileChooserModeOpenFolder) {
-    mode = FileChooserParams::Mode::kUploadFolder;
-    // We'd like to set |base_dir| to a folder which a user selected. But it's
-    // impossible with WebChromeClient API in the current Android.
-  } else if (mode_flags & kFileChooserModeOpenMultiple) {
+  // We'd like to set |base_dir| to a folder which a user selected. But it's
+  // impossible with WebChromeClient API in the current Android.
+  if (mode_flags == static_cast<int>(FileChooserParams::Mode::kOpenMultiple)) {
     mode = FileChooserParams::Mode::kOpenMultiple;
   } else {
     mode = FileChooserParams::Mode::kOpen;

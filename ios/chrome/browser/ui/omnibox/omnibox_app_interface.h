@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,9 @@
 // Forces a variation to be used on the current HTTP header provider. Returns
 // YES if the forcing was successful.
 + (BOOL)forceVariationID:(int)variationID;
+
+// Blocks `URL` from most visited sites.
++ (void)blockURLFromTopSites:(NSString*)URL;
 
 @end
 

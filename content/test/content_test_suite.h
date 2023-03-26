@@ -1,11 +1,9 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CONTENT_TEST_CONTENT_TEST_SUITE_H_
 #define CONTENT_TEST_CONTENT_TEST_SUITE_H_
-
-#include <memory>
 
 #include "base/test/test_discardable_memory_allocator.h"
 #include "build/build_config.h"
@@ -16,8 +14,6 @@
 #endif
 
 namespace content {
-
-class TestContentClientInitializer;
 
 class ContentTestSuite : public ContentTestSuiteBase {
  public:
@@ -30,11 +26,8 @@ class ContentTestSuite : public ContentTestSuiteBase {
 
  protected:
   void Initialize() override;
-  void Shutdown() override;
 
  private:
-  std::unique_ptr<TestContentClientInitializer>
-      test_content_client_initializer_;
   base::TestDiscardableMemoryAllocator discardable_memory_allocator_;
 
 #if BUILDFLAG(IS_WIN)

@@ -1,8 +1,9 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/memory/raw_ptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/test_timeouts.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -33,7 +34,7 @@ namespace {
 
 void RunLoopWithTimeout() {
   base::RunLoop run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, run_loop.QuitClosure(), TestTimeouts::tiny_timeout());
   run_loop.Run();
 }
@@ -172,7 +173,7 @@ IN_PROC_BROWSER_TEST_F(IndexedDBFeatureObserverBrowserTest,
   if (!CheckShouldRunTestAndNavigate())
     return;
 
-  RenderFrameHost* rfh = shell()->web_contents()->GetMainFrame();
+  RenderFrameHost* rfh = shell()->web_contents()->GetPrimaryMainFrame();
   GlobalRenderFrameHostId rfh_id = rfh->GetGlobalId();
 
   {
@@ -220,7 +221,7 @@ IN_PROC_BROWSER_TEST_F(IndexedDBFeatureObserverBrowserTest,
   if (!CheckShouldRunTestAndNavigate())
     return;
 
-  RenderFrameHost* rfh = shell()->web_contents()->GetMainFrame();
+  RenderFrameHost* rfh = shell()->web_contents()->GetPrimaryMainFrame();
   GlobalRenderFrameHostId rfh_id = rfh->GetGlobalId();
 
   {
@@ -279,7 +280,7 @@ IN_PROC_BROWSER_TEST_F(IndexedDBFeatureObserverBrowserTest, ObserverNavigate) {
   if (!CheckShouldRunTestAndNavigate())
     return;
 
-  RenderFrameHost* rfh = shell()->web_contents()->GetMainFrame();
+  RenderFrameHost* rfh = shell()->web_contents()->GetPrimaryMainFrame();
   GlobalRenderFrameHostId rfh_id = rfh->GetGlobalId();
 
   {
@@ -320,7 +321,7 @@ IN_PROC_BROWSER_TEST_F(IndexedDBFeatureObserverBrowserTest,
   if (!CheckShouldRunTestAndNavigate())
     return;
 
-  RenderFrameHost* rfh = shell()->web_contents()->GetMainFrame();
+  RenderFrameHost* rfh = shell()->web_contents()->GetPrimaryMainFrame();
 
   // Use EvalJs() instead of ExecJs() to ensure that this doesn't return before
   // the lock is acquired and released by the worker.
@@ -345,7 +346,7 @@ IN_PROC_BROWSER_TEST_F(IndexedDBFeatureObserverBrowserTest,
   if (!CheckShouldRunTestAndNavigate())
     return;
 
-  RenderFrameHost* rfh = shell()->web_contents()->GetMainFrame();
+  RenderFrameHost* rfh = shell()->web_contents()->GetPrimaryMainFrame();
 
   // Use EvalJs() instead of ExecJs() to ensure that this doesn't return before
   // the lock is acquired and released by the worker.
@@ -369,7 +370,7 @@ IN_PROC_BROWSER_TEST_F(IndexedDBFeatureObserverBrowserTest,
   if (!CheckShouldRunTestAndNavigate())
     return;
 
-  RenderFrameHost* rfh = shell()->web_contents()->GetMainFrame();
+  RenderFrameHost* rfh = shell()->web_contents()->GetPrimaryMainFrame();
 
   // Use EvalJs() instead of ExecJs() to ensure that this doesn't return before
   // the lock is acquired and released by the worker.

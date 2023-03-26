@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 #include <set>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "content/browser/payments/payment_app_context_impl.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
@@ -206,7 +206,8 @@ PaymentManager* PaymentAppContentUnitTestBase::CreatePaymentManager(
       sw_script_url, key, registration_opt,
       blink::mojom::FetchClientSettingsObject::New(),
       base::BindOnce(&RegisterServiceWorkerCallback, &called, &registration_id),
-      /*requesting_frame_id=*/GlobalRenderFrameHostId());
+      /*requesting_frame_id=*/GlobalRenderFrameHostId(),
+      PolicyContainerPolicies());
 
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(called);

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -100,6 +100,13 @@ TestWidgetBuilder& TestWidgetBuilder::SetWindowId(int window_id) {
   return *this;
 }
 
+TestWidgetBuilder& TestWidgetBuilder::SetWindowTitle(
+    const std::u16string& title) {
+  DCHECK(!built_);
+  window_title_ = title;
+  return *this;
+}
+
 TestWidgetBuilder& TestWidgetBuilder::SetShow(bool show) {
   DCHECK(!built_);
   show_ = show;
@@ -121,6 +128,9 @@ std::unique_ptr<views::Widget> TestWidgetBuilder::BuildOwnsNativeWidget() {
   widget->Init(std::move(widget_init_params_));
   if (window_id_ != aura::Window::kInitialId)
     widget->GetNativeWindow()->SetId(window_id_);
+  if (!window_title_.empty()) {
+    widget->GetNativeWindow()->SetTitle(window_title_);
+  }
   if (show_)
     widget->Show();
   return widget;
@@ -136,6 +146,9 @@ views::Widget* TestWidgetBuilder::BuildOwnedByNativeWidget() {
   widget->Init(std::move(widget_init_params_));
   if (window_id_ != aura::Window::kInitialId)
     widget->GetNativeWindow()->SetId(window_id_);
+  if (!window_title_.empty()) {
+    widget->GetNativeWindow()->SetTitle(window_title_);
+  }
   if (show_)
     widget->Show();
   return widget;

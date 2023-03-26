@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 namespace device {
 
+#if BUILDFLAG(IS_MAC)
 GeolocationManager::GeolocationManager()
     : observers_(base::MakeRefCounted<PermissionObserverList>()),
       position_observers_(base::MakeRefCounted<PositionObserverList>()) {}
@@ -46,5 +47,6 @@ scoped_refptr<GeolocationManager::PermissionObserverList>
 GeolocationManager::GetObserverList() const {
   return observers_;
 }
+#endif
 
 }  // namespace device

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,27 +6,28 @@
 #error "This file requires ARC support."
 #endif
 
-#include <vector>
+#import <vector>
 
-#include "base/files/file_path.h"
-#include "base/run_loop.h"
-#include "base/test/bind.h"
-#include "base/test/metrics/histogram_tester.h"
-#include "components/enterprise/browser/reporting/report_request.h"
-#include "components/policy/core/common/cloud/cloud_policy_util.h"
-#include "components/policy/core/common/mock_policy_service.h"
-#include "components/policy/core/common/policy_map.h"
-#include "components/policy/core/common/schema_registry.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state_manager.h"
+#import "base/files/file_path.h"
+#import "base/run_loop.h"
+#import "base/test/bind.h"
+#import "base/test/metrics/histogram_tester.h"
+#import "components/enterprise/browser/reporting/report_request.h"
+#import "components/policy/core/common/cloud/cloud_policy_util.h"
+#import "components/policy/core/common/mock_policy_service.h"
+#import "components/policy/core/common/policy_map.h"
+#import "components/policy/core/common/schema_registry.h"
+#import "ios/chrome/browser/application_context/application_context.h"
+#import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/browser_state/test_chrome_browser_state_manager.h"
 #import "ios/chrome/browser/policy/browser_state_policy_connector_mock.h"
-#include "ios/chrome/browser/policy/reporting/reporting_delegate_factory_ios.h"
-#include "ios/chrome/browser/signin/authentication_service_factory.h"
-#import "ios/chrome/browser/signin/authentication_service_fake.h"
-#include "ios/chrome/test/ios_chrome_scoped_testing_chrome_browser_state_manager.h"
-#include "ios/web/public/test/web_task_environment.h"
-#include "testing/gtest/include/gtest/gtest.h"
-#include "testing/platform_test.h"
+#import "ios/chrome/browser/policy/reporting/reporting_delegate_factory_ios.h"
+#import "ios/chrome/browser/signin/authentication_service_factory.h"
+#import "ios/chrome/browser/signin/fake_authentication_service_delegate.h"
+#import "ios/chrome/test/ios_chrome_scoped_testing_chrome_browser_state_manager.h"
+#import "ios/web/public/test/web_task_environment.h"
+#import "testing/gtest/include/gtest/gtest.h"
+#import "testing/platform_test.h"
 
 namespace em = enterprise_management;
 
@@ -45,8 +46,7 @@ class ReportGeneratorIOSTest : public PlatformTest {
     builder.SetPath(kProfilePath);
     builder.AddTestingFactory(
         AuthenticationServiceFactory::GetInstance(),
-        base::BindRepeating(
-            &AuthenticationServiceFake::CreateAuthenticationService));
+        AuthenticationServiceFactory::GetDefaultFactory());
     InitMockPolicyService();
     builder.SetPolicyConnector(
         std::make_unique<BrowserStatePolicyConnectorMock>(
@@ -58,6 +58,11 @@ class ReportGeneratorIOSTest : public PlatformTest {
         std::make_unique<IOSChromeScopedTestingChromeBrowserStateManager>(
             std::make_unique<TestChromeBrowserStateManager>(
                 std::move(browser_state)));
+    AuthenticationServiceFactory::CreateAndInitializeForBrowserState(
+        GetApplicationContext()
+            ->GetChromeBrowserStateManager()
+            ->GetLastUsedBrowserState(),
+        std::make_unique<FakeAuthenticationServiceDelegate>());
   }
 
   ReportGeneratorIOSTest(const ReportGeneratorIOSTest&) = delete;
@@ -76,12 +81,11 @@ class ReportGeneratorIOSTest : public PlatformTest {
   void InitPolicyMap() {
     policy_map_.Set("kPolicyName1", policy::POLICY_LEVEL_MANDATORY,
                     policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
-                    base::Value(std::vector<base::Value>()), nullptr);
+                    base::Value(base::Value::List()), nullptr);
     policy_map_.Set("kPolicyName2", policy::POLICY_LEVEL_RECOMMENDED,
                     policy::POLICY_SCOPE_MACHINE, policy::POLICY_SOURCE_MERGED,
                     base::Value(true), nullptr);
   }
-
 
   std::vector<std::unique_ptr<ReportRequest>> GenerateRequests() {
     histogram_tester_ = std::make_unique<base::HistogramTester>();

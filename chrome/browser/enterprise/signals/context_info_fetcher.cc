@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_split.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
@@ -15,6 +16,7 @@
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/enterprise/connectors/connectors_service.h"
+#include "chrome/browser/enterprise/identifiers/profile_id_service_factory.h"
 #include "chrome/browser/enterprise/signals/signals_utils.h"
 #include "chrome/browser/enterprise/util/affiliation.h"
 #include "chrome/browser/policy/chrome_browser_policy_connector.h"
@@ -22,6 +24,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "components/component_updater/pref_names.h"
+#include "components/enterprise/browser/identifiers/profile_id_service.h"
 #include "components/policy/content/policy_blocklist_service.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/site_isolation_policy.h"
@@ -52,6 +55,14 @@ namespace enterprise_signals {
 
 namespace {
 
+absl::optional<std::string> GetEnterpriseProfileId(Profile* profile) {
+  auto* profile_id_service =
+      enterprise::ProfileIdServiceFactory::GetForProfile(profile);
+  if (profile_id_service)
+    return profile_id_service->GetProfileId();
+  return absl::nullopt;
+}
+
 #if BUILDFLAG(IS_LINUX)
 const char** GetUfwConfigPath() {
   static const char* path = "/etc/ufw/ufw.conf";
@@ -68,9 +79,8 @@ SettingValue GetUfwStatus() {
     return SettingValue::UNKNOWN;
   }
   base::SplitStringIntoKeyValuePairs(file_content, '=', '\n', &values);
-  auto is_ufw_enabled = std::find_if(values.begin(), values.end(), [](auto v) {
-    return v.first == "ENABLED";
-  });
+  auto is_ufw_enabled = base::ranges::find(
+      values, "ENABLED", &std::pair<std::string, std::string>::first);
   if (is_ufw_enabled == values.end())
     return SettingValue::UNKNOWN;
 
@@ -101,7 +111,7 @@ SettingValue GetWinOSFirewall() {
   // The most restrictive active profile takes precedence.
   constexpr NET_FW_PROFILE_TYPE2 kProfileTypes[] = {
       NET_FW_PROFILE2_PUBLIC, NET_FW_PROFILE2_PRIVATE, NET_FW_PROFILE2_DOMAIN};
-  for (size_t i = 0; i < base::size(kProfileTypes); ++i) {
+  for (size_t i = 0; i < std::size(kProfileTypes); ++i) {
     if ((profile_types & kProfileTypes[i]) != 0) {
       VARIANT_BOOL enabled = VARIANT_TRUE;
       hr = firewall_policy->get_FirewallEnabled(kProfileTypes[i], &enabled);
@@ -204,6 +214,8 @@ void ContextInfoFetcher::Fetch(ContextInfoCallback callback) {
       GetAnalysisConnectorProviders(enterprise_connectors::FILE_DOWNLOADED);
   info.on_bulk_data_entry_providers =
       GetAnalysisConnectorProviders(enterprise_connectors::BULK_DATA_ENTRY);
+  info.on_print_providers =
+      GetAnalysisConnectorProviders(enterprise_connectors::PRINT);
   info.realtime_url_check_mode = GetRealtimeUrlCheckMode();
   info.on_security_event_providers = GetOnSecurityEventProviders();
   info.browser_version = version_info::GetVersionNumber();
@@ -224,6 +236,7 @@ void ContextInfoFetcher::Fetch(ContextInfoCallback callback) {
       utils::GetSafeBrowsingProtectionLevel(profile->GetPrefs());
   info.password_protection_warning_trigger =
       utils::GetPasswordProtectionWarningTrigger(profile->GetPrefs());
+  info.enterprise_profile_id = GetEnterpriseProfileId(profile);
 
 #if BUILDFLAG(IS_WIN)
   base::ThreadPool::CreateCOMSTATaskRunner({base::MayBlock()})

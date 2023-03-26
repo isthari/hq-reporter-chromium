@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,18 +64,6 @@ TEST_F(ArcStorageManagerTest, GetApplicationsSize) {
   EXPECT_TRUE(bridge()->GetApplicationsSize(base::BindLambdaForTesting(
       [&called](bool, mojom::ApplicationsSizePtr) { called = true; })));
   EXPECT_EQ(1u, storage_manager_instance()->num_get_applications_size_called());
-  EXPECT_TRUE(called);
-}
-
-// Tests that calling DeleteApplicationsCache() ends up calling the mojo
-// instance Also verifies that the bridge passes the callback to the instance.
-TEST_F(ArcStorageManagerTest, DeleteApplicationsCache) {
-  ASSERT_NE(nullptr, bridge());
-  bool called = false;
-  EXPECT_TRUE(bridge()->DeleteApplicationsCache(
-      base::BindLambdaForTesting([&called]() { called = true; })));
-  EXPECT_EQ(1u,
-            storage_manager_instance()->num_delete_applications_cache_called());
   EXPECT_TRUE(called);
 }
 

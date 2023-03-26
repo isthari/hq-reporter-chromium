@@ -1,10 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/services/app_service/public/cpp/instance_update.h"
 
 #include "base/strings/string_util.h"
+#include "base/time/time.h"
 #include "base/unguessable_token.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/services/app_service/public/cpp/instance.h"

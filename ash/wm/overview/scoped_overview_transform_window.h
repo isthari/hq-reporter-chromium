@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -99,8 +99,7 @@ class ASH_EXPORT ScopedOverviewTransformWindow
   // If |reset_transform| equals false, the window's transform will not be reset
   // to identity transform when exiting the overview mode. See
   // OverviewItem::RestoreWindow() for details why we need this.
-  void RestoreWindow(bool reset_transform,
-                     bool was_desk_templates_grid_showing);
+  void RestoreWindow(bool reset_transform, bool was_saved_desk_grid_showing);
 
   // Prepares for overview mode by doing any necessary actions before entering.
   void PrepareForOverview();
@@ -127,6 +126,8 @@ class ASH_EXPORT ScopedOverviewTransformWindow
   // Closes the transient root of the window managed by |this|.
   void Close();
 
+  // TODO(sammiequon): Rename this function as tucked floated windows behave the
+  // same way as minimized windows.
   bool IsMinimized() const;
 
   // Ensures that a window is visible by setting its opacity to 1.
@@ -153,6 +154,7 @@ class ASH_EXPORT ScopedOverviewTransformWindow
                              const gfx::Rect& old_bounds,
                              const gfx::Rect& new_bounds,
                              ui::PropertyChangeReason reason) override;
+  void OnWindowDestroying(aura::Window* window) override;
 
   aura::Window* window() const { return window_; }
 

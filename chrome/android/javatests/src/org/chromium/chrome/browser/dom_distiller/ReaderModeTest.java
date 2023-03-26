@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,6 +53,7 @@ import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.CriteriaNotSatisfiedException;
 import org.chromium.base.test.util.DisableIf;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
@@ -63,7 +64,6 @@ import org.chromium.chrome.browser.download.DownloadTestRule.CustomMainActivityS
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.incognito.IncognitoNotificationServiceImpl;
-import org.chromium.chrome.browser.infobar.ReaderModeInfoBar;
 import org.chromium.chrome.browser.offlinepages.OfflinePageUtils;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
@@ -75,7 +75,11 @@ import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.dom_distiller.core.DistilledPagePrefs;
 import org.chromium.components.dom_distiller.core.DomDistillerService;
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtils;
-import org.chromium.components.infobars.InfoBar;
+import org.chromium.components.messages.MessageDispatcher;
+import org.chromium.components.messages.MessageDispatcherProvider;
+import org.chromium.components.messages.MessageIdentifier;
+import org.chromium.components.messages.MessageStateHandler;
+import org.chromium.components.messages.MessagesTestHelper;
 import org.chromium.content_public.browser.test.util.TestCallbackHelperContainer;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.NetworkChangeNotifier;
@@ -83,6 +87,7 @@ import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.ui.test.util.UiRestriction;
 import org.chromium.ui.test.util.ViewUtils;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -124,10 +129,9 @@ public class ReaderModeTest implements CustomMainActivityStart {
 
     @Test
     @MediumTest
-    // TODO(crbug.com/1225333): Implement corresponding test for messages.
-    @DisableFeatures(ChromeFeatureList.MESSAGES_FOR_ANDROID_READER_MODE)
-    public void testReaderModeInfobarShown() {
-        waitForReaderModeInfobar();
+    @DisabledTest(message = "crbug.com/1402815")
+    public void testReaderModePromptShown() {
+        waitForReaderModeMessage();
     }
 
     @Test
@@ -184,6 +188,7 @@ public class ReaderModeTest implements CustomMainActivityStart {
     @Test
     @MediumTest
     @EnableFeatures({ChromeFeatureList.READER_MODE_IN_CCT, ChromeFeatureList.CCT_INCOGNITO})
+    @DisabledTest(message = "https://crbug.com/1338273")
     public void testCloseAllIncognitoNotification_ClosesCCT()
             throws PendingIntent.CanceledException, TimeoutException {
         CustomTabActivity customTabActivity = openReaderModeInIncognitoCCT();
@@ -448,14 +453,17 @@ public class ReaderModeTest implements CustomMainActivityStart {
     }
 
     /**
-     * Wait until a {@link ReaderModeInfoBar} shows up.
+     * Wait until a Reader Mode message shows up.
      */
-    private void waitForReaderModeInfobar() {
+    private void waitForReaderModeMessage() {
         CriteriaHelper.pollUiThread(() -> {
-            for (InfoBar infobar : mDownloadTestRule.getInfoBars()) {
-                if (infobar instanceof ReaderModeInfoBar) return true;
-            }
-            return false;
+            MessageDispatcher messageDispatcher = TestThreadUtils.runOnUiThreadBlocking(
+                    ()
+                            -> MessageDispatcherProvider.from(
+                                    mDownloadTestRule.getActivity().getWindowAndroid()));
+            List<MessageStateHandler> messages = MessagesTestHelper.getEnqueuedMessages(
+                    messageDispatcher, MessageIdentifier.READER_MODE);
+            return messages.size() > 0;
         });
     }
 

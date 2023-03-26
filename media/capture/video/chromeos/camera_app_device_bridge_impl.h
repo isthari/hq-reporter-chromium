@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/memory/singleton.h"
+#include "base/task/single_thread_task_runner.h"
 #include "media/capture/capture_export.h"
 #include "media/capture/video/chromeos/camera_app_device_impl.h"
 #include "media/capture/video/chromeos/mojom/camera_app.mojom.h"
@@ -73,10 +74,10 @@ class CAPTURE_EXPORT CameraAppDeviceBridgeImpl
 
   void IsSupported(IsSupportedCallback callback) override;
 
-  void SetMultipleStreamsEnabled(
+  void SetVirtualDeviceEnabled(
       const std::string& device_id,
       bool enabled,
-      SetMultipleStreamsEnabledCallback callback) override;
+      SetVirtualDeviceEnabledCallback callback) override;
 
  private:
   friend struct base::DefaultSingletonTraits<CameraAppDeviceBridgeImpl>;

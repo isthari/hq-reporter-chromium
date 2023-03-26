@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,8 +43,7 @@ public class GSAAccountChangeListenerTest {
         context.sendBroadcast(intent);
 
         CriteriaHelper.pollUiThread(() -> {
-            String currentAccount =
-                    GSAState.getInstance(context.getApplicationContext()).getGsaAccount();
+            String currentAccount = GSAState.getInstance().getGsaAccount();
             Criteria.checkThat(currentAccount, Matchers.is(ACCOUNT_NAME));
         });
 
@@ -58,8 +57,7 @@ public class GSAAccountChangeListenerTest {
 
         // This is ugly, but so is checking that some asynchronous call was never received.
         CriteriaHelper.pollUiThread(() -> {
-            String currentAccount =
-                    GSAState.getInstance(context.getApplicationContext()).getGsaAccount();
+            String currentAccount = GSAState.getInstance().getGsaAccount();
             Criteria.checkThat(currentAccount, Matchers.is(ACCOUNT_NAME2));
         }, 1000, 100);
     }

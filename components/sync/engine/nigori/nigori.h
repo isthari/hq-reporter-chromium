@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,8 +20,7 @@ namespace syncer {
 
 class KeyDerivationParams;
 
-// TODO(crbug.com/922900): inline kNigoriKeyName into Nigori::Permute().
-constexpr inline char kNigoriKeyName[] = "nigori-key";
+inline constexpr char kNigoriKeyName[] = "nigori-key";
 
 // A (partial) implementation of Nigori, a protocol to securely store secrets in
 // the cloud. This implementation does not support server authentication or
@@ -58,11 +57,12 @@ class Nigori {
   // |username| and |password| are kept constant, a given |type| and |name| pair
   // always yields the same |permuted| value. Note that |permuted| will be
   // Base64 encoded.
+  // TODO(crbug.com/1407696): inline |type| and |name|, they are hardcoded
+  // constants.
   bool Permute(Type type, const std::string& name, std::string* permuted) const;
 
-  // Encrypts |value|. Note that on success, |encrypted| will be Base64
-  // encoded.
-  bool Encrypt(const std::string& value, std::string* encrypted) const;
+  // Encrypts |value|. Note that the returned value is Base64 encoded.
+  std::string Encrypt(const std::string& value) const;
 
   // Decrypts |value| into |decrypted|. It is assumed that |value| is Base64
   // encoded.

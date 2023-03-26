@@ -1,10 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {assert} from 'chrome://resources/ash/common/assert.js';
+import {CrosNetworkConfig} from 'chrome://resources/mojo/chromeos/services/network_config/public/mojom/cros_network_config.mojom-webui.js';
 
-import {fakeCalibrationComponents, fakeChromeVersion, fakeComponents, fakeDeviceRegions, fakeDeviceSkus, fakeDeviceWhiteLabels, fakeLog, fakeRsuChallengeCode, fakeRsuChallengeQrCode, fakeStates} from './fake_data.js';
+import {fakeCalibrationComponentsWithFails, fakeChromeVersion, fakeComponents, fakeDeviceRegions, fakeDeviceSkus, fakeDeviceWhiteLabels, fakeLog, fakeLogSavePath, fakeRsuChallengeCode, fakeRsuChallengeQrCode, fakeStates} from './fake_data.js';
 import {FakeShimlessRmaService} from './fake_shimless_rma_service.js';
 import {CalibrationSetupInstruction, NetworkConfigServiceInterface, RmadErrorCode, ShimlessRmaService, ShimlessRmaServiceInterface, WriteProtectDisableCompleteAction} from './shimless_rma_types.js';
 
@@ -47,8 +48,8 @@ function setupFakeShimlessRmaService_() {
   service.automaticallyTriggerHardwareVerificationStatusObservation();
 
   service.setGetCurrentOsVersionResult(fakeChromeVersion[0]);
-  service.setCheckForOsUpdatesResult(true, 'fake version 1.2.3.4');
-  service.setUpdateOsResult(false);
+  service.setCheckForOsUpdatesResult('99.0.4844.74');
+  service.setUpdateOsResult(true);
   service.automaticallyTriggerOsUpdateObservation();
 
   service.setGetComponentListResult(fakeComponents);
@@ -64,9 +65,6 @@ function setupFakeShimlessRmaService_() {
   service.setGetWriteProtectDisableCompleteAction(
       WriteProtectDisableCompleteAction.kCompleteAssembleDevice);
 
-  service.setGetWriteProtectManuallyDisabledInstructionsResult(
-      'g.co/help', fakeRsuChallengeQrCode);
-
   service.setGetOriginalSerialNumberResult('serial# 0001');
   service.setGetRegionListResult(fakeDeviceRegions);
   service.setGetOriginalRegionResult(1);
@@ -78,13 +76,16 @@ function setupFakeShimlessRmaService_() {
 
   service.setGetCalibrationSetupInstructionsResult(
       CalibrationSetupInstruction.kCalibrationInstructionPlaceLidOnFlatSurface);
-  service.setGetCalibrationComponentListResult(fakeCalibrationComponents);
+  service.setGetCalibrationComponentListResult(
+      fakeCalibrationComponentsWithFails);
 
   service.automaticallyTriggerProvisioningObservation();
   service.automaticallyTriggerFinalizationObservation();
 
   service.automaticallyTriggerPowerCableStateObservation();
   service.setGetLogResult(fakeLog);
+  service.setSaveLogResult({'path': fakeLogSavePath});
+  service.setGetPowerwashRequiredResult(true);
 
   // Set the fake service.
   setShimlessRmaServiceForTesting(service);
@@ -125,26 +126,9 @@ export function setNetworkConfigServiceForTesting(testService) {
  */
 export function getNetworkConfigService() {
   if (!networkConfigService) {
-    networkConfigService =
-        chromeos.networkConfig.mojom.CrosNetworkConfig.getRemote();
+    networkConfigService = CrosNetworkConfig.getRemote();
   }
 
   assert(!!networkConfigService);
   return networkConfigService;
-}
-
-/**
- * @param {number} error
- * @return {string}
- */
-export function rmadErrorString(error) {
-  if (error === RmadErrorCode.kOk) {
-    return '';
-  }
-  for (const [k, v] of Object.entries(RmadErrorCode)) {
-    if (v === error) {
-      return 'Error: ' + k + '(' + error + ')';
-    }
-  }
-  return 'Error: unknown (' + error + ')';
 }

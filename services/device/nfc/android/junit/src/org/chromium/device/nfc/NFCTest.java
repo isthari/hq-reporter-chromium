@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,6 @@ import android.nfc.NfcManager;
 import android.nfc.Tag;
 import android.nfc.TagLostException;
 import android.nfc.tech.TagTechnology;
-import android.os.Build;
 import android.os.Bundle;
 
 import org.junit.Before;
@@ -45,6 +44,7 @@ import org.robolectric.annotation.Config;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
+import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Feature;
 import org.chromium.device.mojom.NdefError;
 import org.chromium.device.mojom.NdefErrorType;
@@ -56,7 +56,6 @@ import org.chromium.device.mojom.Nfc.MakeReadOnly_Response;
 import org.chromium.device.mojom.Nfc.Push_Response;
 import org.chromium.device.mojom.Nfc.Watch_Response;
 import org.chromium.device.mojom.NfcClient;
-import org.chromium.testing.local.LocalRobolectricTestRunner;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -70,8 +69,8 @@ import java.util.List;
 /**
  * Unit tests for NfcImpl and NdefMessageUtils classes.
  */
-@RunWith(LocalRobolectricTestRunner.class)
-@Config(sdk = Build.VERSION_CODES.M, manifest = Config.NONE)
+@RunWith(BaseRobolectricTestRunner.class)
+@Config(manifest = Config.NONE)
 public class NFCTest {
     private TestNfcDelegate mDelegate;
     private int mNextWatchId;

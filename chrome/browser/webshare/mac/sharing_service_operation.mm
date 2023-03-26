@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/guid.h"
 #include "base/i18n/file_util_icu.h"
 #include "base/mac/scoped_nsobject.h"
@@ -123,9 +123,9 @@ void SharingServiceOperation::OnPrepareDirectory(
   }
 
   for (const auto& file : shared_files_) {
-    std::string file_name = file->name;
-    // Protecting against including paths in a file name.
-    base::ReplaceSubstringsAfterOffset(&file_name, 0, "/", "_");
+    // SafeBaseName protects against including paths in a file name.
+    std::string file_name = file->name.path().value();
+    DCHECK_EQ(file_name.find('/'), std::string::npos);
     base::i18n::ReplaceIllegalCharactersInPath(&file_name, '_');
     file_paths_.push_back(
         GenerateUniqueSubDirectory(directory_).Append(file_name));

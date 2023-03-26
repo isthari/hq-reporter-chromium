@@ -1,12 +1,12 @@
-// Copyright (c) 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "gpu/vulkan/android/vulkan_implementation_android.h"
 
 #include "base/android/android_hardware_buffer_compat.h"
-#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "gpu/ipc/common/vulkan_ycbcr_info.h"
 #include "gpu/vulkan/vulkan_device_queue.h"
@@ -31,16 +31,8 @@ bool VulkanImplementationAndroid::InitializeVulkanInstance(bool using_surface) {
       VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME,
       VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME};
 
-  VulkanFunctionPointers* vulkan_function_pointers =
-      gpu::GetVulkanFunctionPointers();
-
-  base::NativeLibraryLoadError native_library_load_error;
-  vulkan_function_pointers->vulkan_loader_library = base::LoadNativeLibrary(
-      base::FilePath("libvulkan.so"), &native_library_load_error);
-  if (!vulkan_function_pointers->vulkan_loader_library)
-    return false;
-
-  return vulkan_instance_.Initialize(required_extensions, {});
+  return vulkan_instance_.Initialize(base::FilePath("libvulkan.so"),
+                                     required_extensions, {});
 }
 
 VulkanInstance* VulkanImplementationAndroid::GetVulkanInstance() {
@@ -94,6 +86,7 @@ VulkanImplementationAndroid::GetOptionalDeviceExtensions() {
       VK_KHR_SWAPCHAIN_EXTENSION_NAME,
       VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
       VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME,
+      VK_EXT_MEMORY_BUDGET_EXTENSION_NAME,
   };
 }
 
@@ -137,6 +130,7 @@ VulkanImplementationAndroid::GetExternalImageHandleType() {
 }
 
 bool VulkanImplementationAndroid::CanImportGpuMemoryBuffer(
+    VulkanDeviceQueue* device_queue,
     gfx::GpuMemoryBufferType memory_buffer_type) {
   return false;
 }
@@ -146,7 +140,8 @@ VulkanImplementationAndroid::CreateImageFromGpuMemoryHandle(
     VulkanDeviceQueue* device_queue,
     gfx::GpuMemoryBufferHandle gmb_handle,
     gfx::Size size,
-    VkFormat vk_formae) {
+    VkFormat vk_format,
+    const gfx::ColorSpace& color_space) {
   // TODO(sergeyu): Move code from CreateVkImageAndImportAHB() here and remove
   // CreateVkImageAndImportAHB().
   NOTIMPLEMENTED();

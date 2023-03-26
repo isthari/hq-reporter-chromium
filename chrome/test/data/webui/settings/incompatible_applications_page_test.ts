@@ -1,9 +1,9 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
+import {webUIListenerCallback} from 'chrome://resources/js/cr.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {ActionTypes, IncompatibleApplication, IncompatibleApplicationItemElement, IncompatibleApplicationsBrowserProxy, IncompatibleApplicationsBrowserProxyImpl, SettingsIncompatibleApplicationsPageElement} from 'chrome://settings/lazy_load.js';
 import {loadTimeData} from 'chrome://settings/settings.js';
@@ -20,7 +20,7 @@ class TestIncompatibleApplicationsBrowserProxy extends TestBrowserProxy
     super([
       'requestIncompatibleApplicationsList',
       'startApplicationUninstallation',
-      'openURL',
+      'openUrl',
       'getSubtitlePluralString',
       'getSubtitleNoAdminRightsPluralString',
       'getListTitlePluralString',
@@ -36,8 +36,8 @@ class TestIncompatibleApplicationsBrowserProxy extends TestBrowserProxy
     this.methodCalled('startApplicationUninstallation', applicationName);
   }
 
-  openURL(url: string) {
-    this.methodCalled('openURL', url);
+  openUrl(url: string) {
+    this.methodCalled('openUrl', url);
   }
 
   getSubtitlePluralString(numApplications: number) {
@@ -122,9 +122,9 @@ suite('incompatibleApplicationsHandler', function() {
         incompatibleApplicationsBrowserProxy);
   });
 
-  function initPage(hasAdminRights: boolean): Promise<void> {
+  async function initPage(hasAdminRights: boolean): Promise<void> {
     incompatibleApplicationsBrowserProxy.reset();
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
 
     loadTimeData.overrideValues({
       hasAdminRights: hasAdminRights,
@@ -133,14 +133,12 @@ suite('incompatibleApplicationsHandler', function() {
     incompatibleApplicationsPage =
         document.createElement('settings-incompatible-applications-page');
     document.body.appendChild(incompatibleApplicationsPage);
-    return incompatibleApplicationsBrowserProxy
-        .whenCalled('requestIncompatibleApplicationsList')
-        .then(function() {
-          flush();
-        });
+    await incompatibleApplicationsBrowserProxy.whenCalled(
+        'requestIncompatibleApplicationsList');
+    flush();
   }
 
-  test('openMultipleIncompatibleApplications', function() {
+  test('openMultipleIncompatibleApplications', async function() {
     const multipleIncompatibleApplicationsTestList = [
       incompatibleApplication1,
       incompatibleApplication2,
@@ -150,12 +148,11 @@ suite('incompatibleApplicationsHandler', function() {
     incompatibleApplicationsBrowserProxy.setIncompatibleApplications(
         multipleIncompatibleApplicationsTestList);
 
-    return initPage(true).then(function() {
-      validateList(multipleIncompatibleApplicationsTestList);
-    });
+    await initPage(true);
+    validateList(multipleIncompatibleApplicationsTestList);
   });
 
-  test('startApplicationUninstallation', function() {
+  test('startApplicationUninstallation', async function() {
     const singleIncompatibleApplicationTestList = [
       incompatibleApplication1,
     ];
@@ -163,27 +160,24 @@ suite('incompatibleApplicationsHandler', function() {
     incompatibleApplicationsBrowserProxy.setIncompatibleApplications(
         singleIncompatibleApplicationTestList);
 
-    return initPage(true /* hasAdminRights */)
-        .then(function() {
-          validateList(singleIncompatibleApplicationTestList);
+    await initPage(true /* hasAdminRights */);
 
-          // Retrieve the incompatible-application-item and tap it. It should be
-          // visible.
-          const item = incompatibleApplicationsPage.shadowRoot!
-                           .querySelector<IncompatibleApplicationItemElement>(
-                               '.incompatible-application:not([hidden])')!;
-          item.shadowRoot!.querySelector<HTMLElement>(
-                              '.action-button')!.click();
+    validateList(singleIncompatibleApplicationTestList);
 
-          return incompatibleApplicationsBrowserProxy.whenCalled(
-              'startApplicationUninstallation');
-        })
-        .then(function(applicationName) {
-          assertEquals(incompatibleApplication1.name, applicationName);
-        });
+    // Retrieve the incompatible-application-item and tap it. It should be
+    // visible.
+    const item = incompatibleApplicationsPage.shadowRoot!
+                     .querySelector<IncompatibleApplicationItemElement>(
+                         '.incompatible-application:not([hidden])')!;
+    item.shadowRoot!.querySelector<HTMLElement>('.action-button')!.click();
+
+    const applicationName =
+        await incompatibleApplicationsBrowserProxy.whenCalled(
+            'startApplicationUninstallation');
+    assertEquals(incompatibleApplication1.name, applicationName);
   });
 
-  test('learnMore', function() {
+  test('learnMore', async function() {
     const singleUpdateIncompatibleApplicationTestList = [
       learnMoreIncompatibleApplication,
     ];
@@ -191,26 +185,23 @@ suite('incompatibleApplicationsHandler', function() {
     incompatibleApplicationsBrowserProxy.setIncompatibleApplications(
         singleUpdateIncompatibleApplicationTestList);
 
-    return initPage(true /* hasAdminRights */)
-        .then(function() {
-          validateList(singleUpdateIncompatibleApplicationTestList);
+    await initPage(true /* hasAdminRights */);
 
-          // Retrieve the incompatible-application-item and tap it. It should be
-          // visible.
-          const item = incompatibleApplicationsPage.shadowRoot!
-                           .querySelector<IncompatibleApplicationItemElement>(
-                               '.incompatible-application:not([hidden])')!;
-          item.shadowRoot!.querySelector<HTMLElement>(
-                              '.action-button')!.click();
+    validateList(singleUpdateIncompatibleApplicationTestList);
 
-          return incompatibleApplicationsBrowserProxy.whenCalled('openURL');
-        })
-        .then(function(url) {
-          assertEquals(updateIncompatibleApplication.url, url);
-        });
+    // Retrieve the incompatible-application-item and tap it. It should be
+    // visible.
+    const item = incompatibleApplicationsPage.shadowRoot!
+                     .querySelector<IncompatibleApplicationItemElement>(
+                         '.incompatible-application:not([hidden])')!;
+    item.shadowRoot!.querySelector<HTMLElement>('.action-button')!.click();
+
+    const url =
+        await incompatibleApplicationsBrowserProxy.whenCalled('openUrl');
+    assertEquals(updateIncompatibleApplication.url, url);
   });
 
-  test('noAdminRights', function() {
+  test('noAdminRights', async function() {
     const eachTypeIncompatibleApplicationsTestList: IncompatibleApplication[] =
         [
           incompatibleApplication1,
@@ -221,25 +212,24 @@ suite('incompatibleApplicationsHandler', function() {
     incompatibleApplicationsBrowserProxy.setIncompatibleApplications(
         eachTypeIncompatibleApplicationsTestList);
 
-    return initPage(false /* hasAdminRights */).then(function() {
-      validateList(eachTypeIncompatibleApplicationsTestList);
+    await initPage(false /* hasAdminRights */);
+    validateList(eachTypeIncompatibleApplicationsTestList);
 
-      const items = incompatibleApplicationsPage.shadowRoot!.querySelectorAll(
-          '.incompatible-application:not([hidden])');
+    const items = incompatibleApplicationsPage.shadowRoot!.querySelectorAll(
+        '.incompatible-application:not([hidden])');
 
-      assertEquals(items.length, 3);
+    assertEquals(items.length, 3);
 
-      items.forEach(function(item, index) {
-        // Just the name of the incompatible application is displayed inside a
-        // div node. The <incompatible-application-item> component is not used.
-        item.textContent!.includes(
-            eachTypeIncompatibleApplicationsTestList[index]!.name);
-        assertNotEquals(item.nodeName, 'INCOMPATIBLE-APPLICATION-ITEM');
-      });
+    items.forEach(function(item, index) {
+      // Just the name of the incompatible application is displayed inside a
+      // div node. The <incompatible-application-item> component is not used.
+      item.textContent!.includes(
+          eachTypeIncompatibleApplicationsTestList[index]!.name);
+      assertNotEquals(item.nodeName, 'INCOMPATIBLE-APPLICATION-ITEM');
     });
   });
 
-  test('removeSingleApplication', function() {
+  test('removeSingleApplication', async function() {
     const incompatibleApplicationsTestList = [
       incompatibleApplication1,
     ];
@@ -247,25 +237,24 @@ suite('incompatibleApplicationsHandler', function() {
     incompatibleApplicationsBrowserProxy.setIncompatibleApplications(
         incompatibleApplicationsTestList);
 
-    return initPage(true /* hasAdminRights */).then(function() {
-      validateList(incompatibleApplicationsTestList);
+    await initPage(true /* hasAdminRights */);
+    validateList(incompatibleApplicationsTestList);
 
 
-      const isDoneSection =
-          incompatibleApplicationsPage.shadowRoot!.querySelector<HTMLElement>(
-              '#is-done-section')!;
-      assertTrue(isDoneSection.hidden);
+    const isDoneSection =
+        incompatibleApplicationsPage.shadowRoot!.querySelector<HTMLElement>(
+            '#is-done-section')!;
+    assertTrue(isDoneSection.hidden);
 
-      // Send the event.
-      webUIListenerCallback(
-          'incompatible-application-removed', incompatibleApplication1.name);
-      flush();
+    // Send the event.
+    webUIListenerCallback(
+        'incompatible-application-removed', incompatibleApplication1.name);
+    flush();
 
-      // Make sure the list is now empty.
-      validateList([]);
+    // Make sure the list is now empty.
+    validateList([]);
 
-      // The "Done!" text is visible.
-      assertFalse(isDoneSection.hidden);
-    });
+    // The "Done!" text is visible.
+    assertFalse(isDoneSection.hidden);
   });
 });

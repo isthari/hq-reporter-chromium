@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@ import org.junit.Test;
 import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.metrics.AwMetricsServiceClient;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.MetricsUtils;
 import org.chromium.blink.mojom.WebFeature;
@@ -30,6 +31,7 @@ import java.util.concurrent.Callable;
 /**
  * Integration test for PageLoadMetrics.
  */
+@Batch(Batch.PER_CLASS)
 public class AwPageLoadMetricsTest {
     private static final String MAIN_FRAME_FILE = "/main_frame.html";
 
@@ -37,7 +39,6 @@ public class AwPageLoadMetricsTest {
     public AwActivityTestRule mRule = new AwActivityTestRule();
 
     private AwTestContainerView mTestContainerView;
-    private AwContents mAwContents;
     private TestAwContentsClient mContentsClient;
     private TestWebServer mWebServer;
 
@@ -45,7 +46,7 @@ public class AwPageLoadMetricsTest {
     public void setUp() throws Exception {
         mContentsClient = new TestAwContentsClient();
         mTestContainerView = mRule.createAwTestContainerViewOnMainSync(mContentsClient);
-        mAwContents = mTestContainerView.getAwContents();
+        AwContents mAwContents = mTestContainerView.getAwContents();
         AwActivityTestRule.enableJavaScriptOnUiThread(mAwContents);
         mWebServer = TestWebServer.start();
     }
@@ -128,7 +129,18 @@ public class AwPageLoadMetricsTest {
                 "PageLoad.InteractiveTiming.FirstInputDelay4");
         loadUrlSync(url);
         executeJavaScriptAndWaitForResult("document.getElementById('text1').select();");
-        dispatchDownAndUpKeyEvents(KeyEvent.KEYCODE_A);
+
+        // On emulator, the page might not ready for accepting the input, multiple endeavor is
+        // needed.
+        AwActivityTestRule.pollInstrumentationThread(() -> {
+            try {
+                dispatchDownAndUpKeyEvents(KeyEvent.KEYCODE_A);
+                return !"\"\"".equals(executeJavaScriptAndWaitForResult(
+                        "document.getElementById('text1').value;"));
+            } catch (Throwable e) {
+                return false;
+            }
+        });
         AwActivityTestRule.pollInstrumentationThread(
                 () -> (1 + firstInputDelay4
                         == RecordHistogram.getHistogramTotalCountForTesting(
@@ -144,7 +156,7 @@ public class AwPageLoadMetricsTest {
         int foregroundDuration = RecordHistogram.getHistogramTotalCountForTesting(
                 "PageLoad.PageTiming.ForegroundDuration");
         TestThreadUtils.runOnUiThreadBlocking(
-                () -> { AwMetricsServiceClient.setConsentSetting(mRule.getActivity(), true); });
+                () -> { AwMetricsServiceClient.setConsentSetting(true); });
         loadUrlSync(url);
         // Remove the WebView from the container, to simulate app going to background.
         TestThreadUtils.runOnUiThreadBlocking(() -> { mRule.getActivity().removeAllViews(); });

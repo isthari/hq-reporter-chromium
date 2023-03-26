@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef IOS_CHROME_BROWSER_BOOKMARKS_BOOKMARK_REMOVER_HELPER_H_
 #define IOS_CHROME_BROWSER_BOOKMARKS_BOOKMARK_REMOVER_HELPER_H_
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/sequence_checker.h"
 #include "components/bookmarks/browser/base_bookmark_model_observer.h"
 
@@ -27,7 +27,7 @@ class BookmarkRemoverHelper : public bookmarks::BaseBookmarkModelObserver {
 
   ~BookmarkRemoverHelper() override;
 
-  // Removes all bookmarks and asynchronously invoke |completion| with
+  // Removes all bookmarks and asynchronously invoke `completion` with
   // boolean indicating success or failure.
   void RemoveAllUserBookmarksIOS(Callback completion);
 
@@ -41,7 +41,7 @@ class BookmarkRemoverHelper : public bookmarks::BaseBookmarkModelObserver {
 
  private:
   // Invoked when the bookmark entries have been deleted. Invoke the
-  // completion callback with |success| (invocation is asynchronous so
+  // completion callback with `success` (invocation is asynchronous so
   // the object won't be deleted immediately).
   void BookmarksRemoved(bool success);
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,14 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "ash/constants/ash_features.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/ash/drive/drive_integration_service.h"
 #include "chrome/browser/ash/drive/file_system_util.h"
+#include "components/drive/file_errors.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "mojo/public/cpp/bindings/callback_helpers.h"
@@ -22,8 +25,7 @@
 #include "storage/browser/file_system/native_file_util.h"
 #include "storage/common/file_system/file_system_util.h"
 
-namespace drive {
-namespace internal {
+namespace drive::internal {
 namespace {
 
 class DriveFsFileUtil : public storage::LocalFileUtil {
@@ -175,6 +177,30 @@ class DeleteOperation {
       return;
     }
 
+    if (ash::features::IsDriveFsBulkPinningEnabled()) {
+      base::FilePath drive_path;
+      if (drive_integration_service->GetRelativeDrivePath(path_, &drive_path)) {
+        // TODO(b/266168982): In the case this is a folder, only the folder will
+        // get unpinned leaving all the children pinned. When the new method is
+        // exposed (or parameter on the existing method) update the
+        // implementation here.
+        drive_integration_service->GetDriveFsInterface()->SetPinned(
+            drive_path, /*pinned*/ false,
+            base::BindOnce(&DeleteOperation::OnUnpinFile,
+                           base::Unretained(this)));
+        return;
+      }
+    }
+
+    blocking_task_runner_->PostTask(
+        FROM_HERE,
+        base::BindOnce(&DeleteOperation::Delete, base::Unretained(this)));
+  }
+
+  void OnUnpinFile(drive::FileError error) {
+    LOG_IF(ERROR, error != drive::FILE_ERROR_OK)
+        << "Failed to unpin file before deleting it: "
+        << drive::FileErrorToString(error);
     blocking_task_runner_->PostTask(
         FROM_HERE,
         base::BindOnce(&DeleteOperation::Delete, base::Unretained(this)));
@@ -220,7 +246,7 @@ void DriveFsAsyncFileUtil::CopyFileLocal(
           base::Unretained(new CopyOperation(
               profile_, std::move(context), src_url, dest_url, options,
               std::move(progress_callback), std::move(callback),
-              base::SequencedTaskRunnerHandle::Get(),
+              base::SequencedTaskRunner::GetCurrentDefault(),
               weak_factory_.GetWeakPtr()))));
 }
 
@@ -229,12 +255,12 @@ void DriveFsAsyncFileUtil::DeleteRecursively(
     const storage::FileSystemURL& url,
     StatusCallback callback) {
   content::GetUIThreadTaskRunner({})->PostTask(
-      FROM_HERE, base::BindOnce(&DeleteOperation::Start,
-                                base::Unretained(new DeleteOperation(
-                                    profile_, url.path(), std::move(callback),
-                                    base::SequencedTaskRunnerHandle::Get(),
-                                    context->task_runner()))));
+      FROM_HERE,
+      base::BindOnce(&DeleteOperation::Start,
+                     base::Unretained(new DeleteOperation(
+                         profile_, url.path(), std::move(callback),
+                         base::SequencedTaskRunner::GetCurrentDefault(),
+                         context->task_runner()))));
 }
 
-}  // namespace internal
-}  // namespace drive
+}  // namespace drive::internal

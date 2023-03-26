@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,7 @@ namespace message_center {
 class Notification;
 }
 
-namespace chromeos {
+namespace ash {
 
 class CupsPrintJob;
 class CupsPrintJobNotificationManager;
@@ -73,6 +73,6 @@ class CupsPrintJobNotification : public message_center::NotificationObserver {
   base::WeakPtrFactory<CupsPrintJobNotification> weak_factory_{this};
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_CUPS_PRINT_JOB_NOTIFICATION_H_

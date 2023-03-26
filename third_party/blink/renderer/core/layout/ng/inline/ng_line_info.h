@@ -1,11 +1,13 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_LINE_INFO_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_LINE_INFO_H_
 
+#include "base/check_op.h"
 #include "base/dcheck_is_on.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/ng/geometry/ng_bfc_offset.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_item_result.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_block_break_token.h"
@@ -163,10 +165,9 @@ class CORE_EXPORT NGLineInfo {
 
   // The block-in-inline layout result.
   const NGLayoutResult* BlockInInlineLayoutResult() const {
-    return block_in_inline_layout_result_.get();
+    return block_in_inline_layout_result_;
   }
-  void SetBlockInInlineLayoutResult(
-      scoped_refptr<const NGLayoutResult> layout_result) {
+  void SetBlockInInlineLayoutResult(const NGLayoutResult* layout_result) {
     block_in_inline_layout_result_ = std::move(layout_result);
   }
 
@@ -174,6 +175,41 @@ class CORE_EXPORT NGLineInfo {
   // ideographic character during "text-align:justify".
   bool MayHaveTextCombineItem() const { return may_have_text_combine_item_; }
   void SetHaveTextCombineItem() { may_have_text_combine_item_ = true; }
+
+  // Returns annotation block start adjustment base on annotation and initial
+  // letter.
+  LayoutUnit ComputeAnnotationBlockOffsetAdjustment() const;
+
+  // Returns block start adjustment for line base on annotation and initial
+  // letter.
+  LayoutUnit ComputeBlockStartAdjustment() const;
+
+  // Returns block start adjustment for initial letter box base on annotation
+  // and initial letter.
+  LayoutUnit ComputeInitialLetterBoxBlockStartAdjustment() const;
+
+  // Returns total block size of this line to check whether we should use next
+  // layout opportunity or not base on `line_height`, annotation and initial
+  // letter box.
+  LayoutUnit ComputeTotalBlockSize(
+      LayoutUnit line_height,
+      LayoutUnit annotation_overflow_block_end) const;
+
+  void SetAnnotationBlockStartAdjustment(LayoutUnit amount) {
+    DCHECK(!IsEmptyLine());
+    annotation_block_start_adjustment_ = amount;
+  }
+
+  void SetInitialLetterBlockStartAdjustment(LayoutUnit amount) {
+    DCHECK_GE(amount, LayoutUnit());
+    DCHECK(!IsEmptyLine());
+    initial_letter_box_block_start_adjustment_ = amount;
+  }
+
+  void SetInitialLetterBoxBlockSize(LayoutUnit block_size) {
+    DCHECK_GE(block_size, LayoutUnit());
+    initial_letter_box_block_size_ = block_size;
+  }
 
  private:
   ETextAlign GetTextAlign(bool is_last_line = false) const;
@@ -189,12 +225,16 @@ class CORE_EXPORT NGLineInfo {
 
   NGBfcOffset bfc_offset_;
 
-  scoped_refptr<const NGLayoutResult> block_in_inline_layout_result_;
+  const NGLayoutResult* block_in_inline_layout_result_ = nullptr;
 
   LayoutUnit available_width_;
   LayoutUnit width_;
   LayoutUnit hang_width_;
   LayoutUnit text_indent_;
+
+  LayoutUnit annotation_block_start_adjustment_;
+  LayoutUnit initial_letter_box_block_start_adjustment_;
+  LayoutUnit initial_letter_box_block_size_;
 
   unsigned start_offset_;
   unsigned end_item_index_;

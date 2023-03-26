@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -81,6 +81,10 @@ IN_PROC_BROWSER_TEST_P(AutofillPrivateApiTest, AddAndUpdateAddress) {
 
 IN_PROC_BROWSER_TEST_P(AutofillPrivateApiTest, AddAndUpdateCreditCard) {
   EXPECT_TRUE(RunAutofillSubtest("addAndUpdateCreditCard")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_P(AutofillPrivateApiTest, AddAndUpdateIban) {
+  EXPECT_TRUE(RunAutofillSubtest("addAndUpdateIban")) << message_;
 }
 
 }  // namespace extensions

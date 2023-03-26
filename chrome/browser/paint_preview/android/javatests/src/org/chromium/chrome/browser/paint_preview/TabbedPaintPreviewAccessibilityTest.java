@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,6 @@ import org.junit.runner.RunWith;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.base.test.util.DisabledTest;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.paint_preview.services.PaintPreviewTabService;
 import org.chromium.chrome.browser.tab.Tab;
@@ -60,7 +59,6 @@ public class TabbedPaintPreviewAccessibilityTest {
      */
     @Test
     @MediumTest
-    @DisabledTest(message = "https://crbug.com/1287526")
     public void smokeTest() throws ExecutionException, TimeoutException {
         Tab tab = mActivityTestRule.getActivity().getActivityTab();
         TabbedPaintPreview tabbedPaintPreview =

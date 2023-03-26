@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 
 #include "android_webview/common/aw_features.h"
 #include "base/containers/flat_map.h"
-#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/files/scoped_file.h"
 #include "base/values.h"
@@ -39,14 +38,14 @@ const uint8_t kFakePublicKeySHA256[32] = {
 void EmptyComponentLoaderPolicy::ComponentLoaded(
     const base::Version& /*version*/,
     base::flat_map<std::string, base::ScopedFD>& /*fd_map*/,
-    std::unique_ptr<base::DictionaryValue> /*manifest*/) {}
+    base::Value::Dict /*manifest*/) {}
 
 void EmptyComponentLoaderPolicy::ComponentLoadFailed(
     component_updater::ComponentLoadResult /*error*/) {}
 
 void EmptyComponentLoaderPolicy::GetHash(std::vector<uint8_t>* hash) const {
   hash->assign(kFakePublicKeySHA256,
-               kFakePublicKeySHA256 + base::size(kFakePublicKeySHA256));
+               kFakePublicKeySHA256 + std::size(kFakePublicKeySHA256));
 }
 
 std::string EmptyComponentLoaderPolicy::GetMetricsSuffix() const {

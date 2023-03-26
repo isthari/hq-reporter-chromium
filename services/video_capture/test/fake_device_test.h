@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,8 +25,8 @@ class FakeDeviceTest : public FakeDeviceDescriptorTest {
  protected:
   media::VideoCaptureFormat fake_device_first_supported_format_;
   media::VideoCaptureParams requestable_settings_;
-  mojo::Remote<mojom::Device> i420_fake_device_remote_;
-  mojo::Remote<mojom::Device> mjpeg_fake_device_remote_;
+  mojo::Remote<mojom::VideoSource> i420_fake_source_remote_;
+  mojo::Remote<mojom::VideoSource> mjpeg_fake_source_remote_;
 };
 
 }  // namespace video_capture

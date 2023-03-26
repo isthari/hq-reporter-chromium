@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser.h"
+#include "third_party/blink/renderer/core/css/resolver/style_resolver.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
@@ -36,8 +37,12 @@ CanvasFontCache::CanvasFontCache(Document& document)
   default_font_description.SetFamily(font_family);
   default_font_description.SetSpecifiedSize(defaultFontSize);
   default_font_description.SetComputedSize(defaultFontSize);
-  default_font_style_ = document.GetStyleResolver().CreateComputedStyle();
-  default_font_style_->SetFontDescription(default_font_description);
+  ComputedStyleBuilder builder =
+      document.IsActive()
+          ? document.GetStyleResolver().CreateComputedStyleBuilder()
+          : ComputedStyleBuilder(*ComputedStyle::CreateInitialStyleSingleton());
+  builder.SetFontDescription(default_font_description);
+  default_font_style_ = builder.TakeStyle();
 }
 
 CanvasFontCache::~CanvasFontCache() {

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@
  * @enum {number}
  */
 export const MacroName = {
-  UNSPECIFID: 0,
+  UNSPECIFIED: 0,
 
   // Simply input text into a text field.
   INPUT_TEXT_VIEW: 1,
@@ -66,6 +66,63 @@ export const MacroName = {
   // Insert a new line character.
   // Note: This doesn't correspond to a Voice Access action.
   NEW_LINE: 15,
+
+  // Stops dictation.
+  STOP_LISTENING: 16,
+
+  // Delete one word.
+  DELETE_PREV_WORD: 17,
+
+  // Delete one sentence.
+  DELETE_PREV_SENT: 18,
+
+  // Move the cursor to the next word.
+  NAV_NEXT_WORD: 19,
+
+  // Move the cursor to the previous word.
+  NAV_PREV_WORD: 20,
+
+  // Deletes a provided word or phrase.
+  SMART_DELETE_PHRASE: 21,
+
+  // Replaces a provided word or phrase.
+  SMART_REPLACE_PHRASE: 22,
+
+  // Inserts a provided word or phrase.
+  SMART_INSERT_BEFORE: 23,
+
+  // Sets selection between two provided words or phrases.
+  SMART_SELECT_BTWN_INCL: 24,
+
+  // Move the cursor to the next sentence.
+  NAV_NEXT_SENT: 25,
+
+  // Move the cursor to the previous sentence.
+  NAV_PREV_SENT: 26,
+
+  // Deletes all text in the input field.
+  DELETE_ALL_TEXT: 27,
+
+  // Moves the cursor to the start of the input field.
+  NAV_START_TEXT: 28,
+
+  // Moves the cursor to the end of the input field.
+  NAV_END_TEXT: 29,
+
+  // Select the previous word in the input field.
+  SELECT_PREV_WORD: 30,
+
+  // Select the next word in the input field.
+  SELECT_NEXT_WORD: 31,
+
+  // Select the next character in the input field.
+  SELECT_NEXT_CHAR: 32,
+
+  // Select the previous character in the input field.
+  SELECT_PREV_CHAR: 33,
+
+  // Repeats the last executed macro.
+  REPEAT: 34,
 
   // Any new actions should match with Voice Access's semantic tags.
 };

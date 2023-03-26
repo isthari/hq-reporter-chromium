@@ -1,15 +1,16 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/icons.m.js';
-import 'chrome://resources/cr_elements/shared_vars_css.m.js';
-import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
+import 'chrome://resources/cr_elements/icons.html.js';
+import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
 
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {AddSinkResultCode} from '../access_code_cast.mojom-webui.js';
 import {RouteRequestResultCode} from '../route_request_result_code.mojom-webui.js';
+
+import {getTemplate} from './error_message.html.js';
 
 enum ErrorMessage {
   NO_ERROR,
@@ -18,56 +19,78 @@ enum ErrorMessage {
   NETWORK,
   PERMISSION,
   TOO_MANY_REQUESTS,
+  PROFILE_SYNC_ERROR
 }
 
 export class ErrorMessageElement extends PolymerElement {
   private static readonly ADD_RESULT_MESSAGE_CODES:
-      [ErrorMessage, AddSinkResultCode[]][] = [
-    [ErrorMessage.NO_ERROR, [AddSinkResultCode.OK]],
-    [ErrorMessage.GENERIC, [
-      AddSinkResultCode.UNKNOWN_ERROR,
-      AddSinkResultCode.SINK_CREATION_ERROR
-    ]],
-    [ErrorMessage.ACCESS_CODE, [
-      AddSinkResultCode.INVALID_ACCESS_CODE,
-      AddSinkResultCode.ACCESS_CODE_NOT_FOUND
-    ]],
-    [ErrorMessage.NETWORK, [
-      AddSinkResultCode.HTTP_RESPONSE_CODE_ERROR,
-      AddSinkResultCode.RESPONSE_MALFORMED,
-      AddSinkResultCode.EMPTY_RESPONSE,
-      AddSinkResultCode.SERVICE_NOT_PRESENT,
-      AddSinkResultCode.SERVER_ERROR
-    ]],
-    [ErrorMessage.PERMISSION, [AddSinkResultCode.AUTH_ERROR]],
-    [ErrorMessage.TOO_MANY_REQUESTS, [AddSinkResultCode.TOO_MANY_REQUESTS]],
-  ];
+      Array<[ErrorMessage, AddSinkResultCode[]]> = [
+        [ErrorMessage.NO_ERROR, [AddSinkResultCode.OK]],
+        [
+          ErrorMessage.GENERIC,
+          [
+            AddSinkResultCode.UNKNOWN_ERROR,
+            AddSinkResultCode.SINK_CREATION_ERROR,
+            AddSinkResultCode.CHANNEL_OPEN_ERROR,
+            AddSinkResultCode.INTERNAL_MEDIA_ROUTER_ERROR,
+          ],
+        ],
+        [
+          ErrorMessage.ACCESS_CODE,
+          [
+            AddSinkResultCode.INVALID_ACCESS_CODE,
+            AddSinkResultCode.ACCESS_CODE_NOT_FOUND,
+          ],
+        ],
+        [
+          ErrorMessage.NETWORK,
+          [
+            AddSinkResultCode.HTTP_RESPONSE_CODE_ERROR,
+            AddSinkResultCode.RESPONSE_MALFORMED,
+            AddSinkResultCode.EMPTY_RESPONSE,
+            AddSinkResultCode.SERVICE_NOT_PRESENT,
+            AddSinkResultCode.SERVER_ERROR,
+          ],
+        ],
+        [ErrorMessage.PERMISSION, [AddSinkResultCode.AUTH_ERROR]],
+        [ErrorMessage.TOO_MANY_REQUESTS, [AddSinkResultCode.TOO_MANY_REQUESTS]],
+        [
+          ErrorMessage.PROFILE_SYNC_ERROR,
+          [AddSinkResultCode.PROFILE_SYNC_ERROR],
+        ],
+      ];
 
   private static readonly CAST_RESULT_MESSAGE_CODES:
-      [ErrorMessage, RouteRequestResultCode[]][] = [
-    [ErrorMessage.NO_ERROR, [RouteRequestResultCode.OK]],
-    [ErrorMessage.GENERIC, [
-      RouteRequestResultCode.UNKNOWN_ERROR,
-      RouteRequestResultCode.INVALID_ORIGIN,
-      RouteRequestResultCode.OFF_THE_RECORD_MISMATCH,
-      RouteRequestResultCode.NO_SUPPORTED_PROVIDER,
-      RouteRequestResultCode.CANCELLED,
-      RouteRequestResultCode.ROUTE_ALREADY_EXISTS,
-      RouteRequestResultCode.DESKTOP_PICKER_FAILED,
-      RouteRequestResultCode.ROUTE_ALREADY_TERMINATED
-    ]],
-    [ErrorMessage.NETWORK, [
-      RouteRequestResultCode.TIMED_OUT,
-      RouteRequestResultCode.ROUTE_NOT_FOUND,
-      RouteRequestResultCode.SINK_NOT_FOUND
-    ]],
-  ];
+      Array<[ErrorMessage, RouteRequestResultCode[]]> = [
+        [ErrorMessage.NO_ERROR, [RouteRequestResultCode.OK]],
+        [
+          ErrorMessage.GENERIC,
+          [
+            RouteRequestResultCode.UNKNOWN_ERROR,
+            RouteRequestResultCode.INVALID_ORIGIN,
+            RouteRequestResultCode.DEPRECATED_OFF_THE_RECORD_MISMATCH,
+            RouteRequestResultCode.NO_SUPPORTED_PROVIDER,
+            RouteRequestResultCode.CANCELLED,
+            RouteRequestResultCode.ROUTE_ALREADY_EXISTS,
+            RouteRequestResultCode.DESKTOP_PICKER_FAILED,
+            RouteRequestResultCode.ROUTE_ALREADY_TERMINATED,
+          ],
+        ],
+        [
+          ErrorMessage.NETWORK,
+          [
+            RouteRequestResultCode.TIMED_OUT,
+            RouteRequestResultCode.ROUTE_NOT_FOUND,
+            RouteRequestResultCode.SINK_NOT_FOUND,
+          ],
+        ],
+      ];
 
-  private static readonly ADD_RESULT_MESSAGE_MAP = 
-        new Map(ErrorMessageElement.ADD_RESULT_MESSAGE_CODES);
+  private static readonly ADD_RESULT_MESSAGE_MAP =
+      new Map(ErrorMessageElement.ADD_RESULT_MESSAGE_CODES);
 
   private static readonly CAST_RESULT_MESSAGE_MAP =
-        new Map(ErrorMessageElement.CAST_RESULT_MESSAGE_CODES);
+      new Map(ErrorMessageElement.CAST_RESULT_MESSAGE_CODES);
 
   // Needed for Polymer data binding
   private errorMessageEnum = ErrorMessage;
@@ -77,7 +100,7 @@ export class ErrorMessageElement extends PolymerElement {
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   private messageCode = ErrorMessage.NO_ERROR;
@@ -109,8 +132,8 @@ export class ErrorMessageElement extends PolymerElement {
   }
 
   private findErrorMessage(
-    resultCode: AddSinkResultCode|RouteRequestResultCode,
-    messageCodes: Map<ErrorMessage, any[]>) {
+      resultCode: AddSinkResultCode|RouteRequestResultCode,
+      messageCodes: Map<ErrorMessage, any[]>) {
     for (const key of messageCodes.keys()) {
       if (messageCodes.get(key)!.includes(resultCode)) {
         return key;
@@ -118,6 +141,12 @@ export class ErrorMessageElement extends PolymerElement {
     }
 
     return ErrorMessage.NO_ERROR;
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    'c2c-error-message': ErrorMessageElement;
   }
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@ import android.animation.TimeAnimator;
 import android.animation.TimeAnimator.TimeListener;
 import android.content.Context;
 import android.graphics.Color;
-import android.os.Build;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityEvent;
@@ -22,10 +21,8 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.core.view.ViewCompat;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.MathUtils;
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.chrome.browser.theme.ThemeUtils;
 import org.chromium.components.browser_ui.styles.SemanticColorUtils;
 import org.chromium.components.browser_ui.widget.ClipDrawableProgressBar;
@@ -99,9 +96,6 @@ public class ToolbarProgressBar extends ClipDrawableProgressBar {
 
     /** Whether or not to use the status bar color as the background of the toolbar. */
     private boolean mUseStatusBarColorAsBackground;
-
-    /** A supplier of whether the prorgress bar should be visible. */
-    private ObservableSupplier<Boolean> mIsVisibleSupplier;
 
     /**
      * The indeterminate animating view for the progress bar. This will be null for Android
@@ -181,19 +175,17 @@ public class ToolbarProgressBar extends ClipDrawableProgressBar {
      * @param anchor The view to use as an anchor.
      * @param useStatusBarColorAsBackground Whether or not to use the status bar color as the
      *                                      background of the toolbar.
-     * @param isVisibleSupplier A supplier of the desired visibility of the progress bar.
      */
-    public ToolbarProgressBar(Context context, int height, View anchor,
-            boolean useStatusBarColorAsBackground, ObservableSupplier<Boolean> isVisibleSupplier) {
+    public ToolbarProgressBar(
+            Context context, int height, View anchor, boolean useStatusBarColorAsBackground) {
         super(context, height);
         mProgressBarHeight = height;
-        mIsVisibleSupplier = isVisibleSupplier;
         setAlpha(0.0f);
         setAnchorView(anchor);
         mUseStatusBarColorAsBackground = useStatusBarColorAsBackground;
         mAnimationLogic = new ProgressAnimationSmooth();
 
-        isVisibleSupplier.addObserver(visible -> setVisibility(visible ? View.VISIBLE : View.GONE));
+        setVisibility(View.VISIBLE);
 
         // This tells accessibility services that progress bar changes are important enough to
         // announce to the user even when not focused.
@@ -263,22 +255,19 @@ public class ToolbarProgressBar extends ClipDrawableProgressBar {
 
         mAnimationInitialized = true;
 
-        // Only use the indeterminate animation if the Android version is > J.
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.JELLY_BEAN_MR2) {
-            LayoutParams animationParams = new LayoutParams(getLayoutParams());
-            animationParams.width = 1;
-            animationParams.topMargin = mMarginTop;
+        LayoutParams animationParams = new LayoutParams(getLayoutParams());
+        animationParams.width = 1;
+        animationParams.topMargin = mMarginTop;
 
-            mAnimatingView = new ToolbarProgressBarAnimatingView(getContext(), animationParams);
+        mAnimatingView = new ToolbarProgressBarAnimatingView(getContext(), animationParams);
 
-            // The primary theme color may not have been set.
-            if (mThemeColor != 0 || mUseStatusBarColorAsBackground) {
-                setThemeColor(mThemeColor, false);
-            } else {
-                setForegroundColor(getForegroundColor());
-            }
-            UiUtils.insertAfter(mProgressBarContainer, mAnimatingView, this);
+        // The primary theme color may not have been set.
+        if (mThemeColor != 0 || mUseStatusBarColorAsBackground) {
+            setThemeColor(mThemeColor, false);
+        } else {
+            setForegroundColor(getForegroundColor());
         }
+        UiUtils.insertAfter(mProgressBarContainer, mAnimatingView, this);
     }
 
     /**
@@ -430,7 +419,6 @@ public class ToolbarProgressBar extends ClipDrawableProgressBar {
     @Override
     public void setVisibility(int visibility) {
         // Hide the progress bar if it is being forced externally.
-        if (!mIsVisibleSupplier.get()) visibility = GONE;
         super.setVisibility(visibility);
         if (mAnimatingView != null) mAnimatingView.setVisibility(visibility);
     }
@@ -447,8 +435,7 @@ public class ToolbarProgressBar extends ClipDrawableProgressBar {
         // All colors use a single path if using the status bar color as the background.
         if (mUseStatusBarColorAsBackground) {
             if (isDefaultTheme) color = Color.BLACK;
-            setForegroundColor(
-                    ApiCompatibilityUtils.getColor(getResources(), R.color.modern_grey_400));
+            setForegroundColor(getContext().getColor(R.color.modern_grey_400));
             setBackgroundColor(ColorUtils.getDarkenedColorForStatusBar(color));
             return;
         }
@@ -456,7 +443,7 @@ public class ToolbarProgressBar extends ClipDrawableProgressBar {
         // The default toolbar has specific colors to use.
         if ((isDefaultTheme || ColorUtils.isThemeColorTooBright(color)) && !isIncognito) {
             setForegroundColor(SemanticColorUtils.getProgressBarForeground(getContext()));
-            setBackgroundColor(getContext().getColor(R.color.progress_bar_bg_color));
+            setBackgroundColor(getContext().getColor(R.color.progress_bar_bg_color_list));
             return;
         }
 

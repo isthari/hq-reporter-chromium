@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,19 +42,19 @@ class RestrictAccountsPolicyHandlerTest
 
   // Returns a List of valid patterns.
   base::Value ValidPatterns() {
-    base::ListValue value;
+    base::Value::List value;
     value.Append("*@example.com");
     value.Append("user@managedchrome.com");
-    return value;
+    return base::Value(std::move(value));
   }
 
   // Returns a List of invalid patterns.
   base::Value InvalidPatterns() {
-    base::ListValue value;
+    base::Value::List value;
     value.Append("*@example.com");
     value.Append("invalidPattern\\");
     value.Append("user@managedchrome.com");
-    return value;
+    return base::Value(std::move(value));
   }
 };
 

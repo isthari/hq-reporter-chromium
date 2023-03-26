@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #ifndef CHROME_BROWSER_ASH_PRINTING_PRINT_SERVERS_MANAGER_H_
@@ -8,7 +8,6 @@
 #include <string>
 #include <vector>
 
-#include "base/memory/ref_counted.h"
 #include "chrome/browser/ash/printing/print_server.h"
 #include "chrome/browser/ash/printing/print_servers_policy_provider.h"
 #include "chrome/browser/ash/printing/printer_detector.h"
@@ -20,17 +19,14 @@
 class PrefRegistrySimple;
 class Profile;
 
-namespace ash {
-class ServerPrintersProvider;
-}  // namespace ash
-
 namespace user_prefs {
 class PrefRegistrySyncable;
 }  // namespace user_prefs
 
-namespace chromeos {
+namespace ash {
 
 class PrinterDetector;
+class ServerPrintersProvider;
 
 struct PrintServersConfig {
   PrintServersConfig();
@@ -59,7 +55,7 @@ class PrintServersManager {
 
   // Factory function that allows injected dependencies, for testing.
   static std::unique_ptr<PrintServersManager> CreateForTesting(
-      std::unique_ptr<ash::ServerPrintersProvider> server_printers_provider,
+      std::unique_ptr<ServerPrintersProvider> server_printers_provider,
       std::unique_ptr<PrintServersPolicyProvider> print_servers_provider);
 
   // Register the profile printing preferences with the |registry|.
@@ -84,6 +80,6 @@ class PrintServersManager {
   virtual PrintServersConfig GetPrintServersConfig() const = 0;
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_PRINT_SERVERS_MANAGER_H_

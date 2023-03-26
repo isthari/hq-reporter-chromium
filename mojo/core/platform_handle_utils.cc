@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,7 @@
 #include "base/win/scoped_handle.h"
 #endif
 
-#if BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_APPLE)
 #include "base/mac/scoped_mach_port.h"
 #endif
 
@@ -25,14 +25,14 @@ namespace mojo {
 namespace core {
 
 void ExtractPlatformHandlesFromSharedMemoryRegionHandle(
-    base::subtle::PlatformSharedMemoryRegion::ScopedPlatformHandle handle,
+    base::subtle::ScopedPlatformSharedMemoryHandle handle,
     PlatformHandle* extracted_handle,
     PlatformHandle* extracted_readonly_handle) {
 #if BUILDFLAG(IS_WIN)
   *extracted_handle = PlatformHandle(base::win::ScopedHandle(handle.Take()));
 #elif BUILDFLAG(IS_FUCHSIA)
   *extracted_handle = PlatformHandle(std::move(handle));
-#elif BUILDFLAG(IS_MAC)
+#elif BUILDFLAG(IS_APPLE)
   // This is a Mach port. Same code as above and below, but separated for
   // clarity.
   *extracted_handle = PlatformHandle(std::move(handle));
@@ -45,7 +45,7 @@ void ExtractPlatformHandlesFromSharedMemoryRegionHandle(
 #endif
 }
 
-base::subtle::PlatformSharedMemoryRegion::ScopedPlatformHandle
+base::subtle::ScopedPlatformSharedMemoryHandle
 CreateSharedMemoryRegionHandleFromPlatformHandles(
     PlatformHandle handle,
     PlatformHandle readonly_handle) {
@@ -55,7 +55,7 @@ CreateSharedMemoryRegionHandleFromPlatformHandles(
 #elif BUILDFLAG(IS_FUCHSIA)
   DCHECK(!readonly_handle.is_valid());
   return zx::vmo(handle.TakeHandle());
-#elif BUILDFLAG(IS_MAC)
+#elif BUILDFLAG(IS_APPLE)
   DCHECK(!readonly_handle.is_valid());
   return handle.TakeMachSendRight();
 #elif BUILDFLAG(IS_ANDROID)

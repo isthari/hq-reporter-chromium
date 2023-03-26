@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #ifndef CHROME_BROWSER_CART_FETCH_DISCOUNT_WORKER_H_
@@ -9,6 +9,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/cart/cart_discount_fetcher.h"
 #include "chrome/browser/cart/cart_service.h"
 #include "chrome/browser/commerce/coupons/coupon_service.h"
@@ -90,7 +91,7 @@ class FetchDiscountWorker {
   // active carts, updating given cart discount, etc.
   std::unique_ptr<CartServiceDelegate> cart_service_delegate_;
   // This is used to identify whether user is a sync user.
-  const raw_ptr<signin::IdentityManager> identity_manager_;
+  const raw_ptr<signin::IdentityManager, DanglingUntriaged> identity_manager_;
   // This is used to fetch the oauth token.
   std::unique_ptr<const signin::PrimaryAccountAccessTokenFetcher>
       access_token_fetcher_;

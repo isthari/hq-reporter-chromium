@@ -1,25 +1,35 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
+import {NativeEventTarget as EventTarget} from 'chrome://resources/ash/common/event_target.js';
 
-import {getSizeStats} from '../../common/js/api.js';
-import {AsyncUtil} from '../../common/js/async_util.js';
+import {getDriveQuotaMetadata, getSizeStats} from '../../common/js/api.js';
+import {RateLimiter} from '../../common/js/async_util.js';
+import {DialogType} from '../../common/js/dialog_type.js';
+import {storage} from '../../common/js/storage.js';
+import {util} from '../../common/js/util.js';
 import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
-import {xfm} from '../../common/js/xfm.js';
 import {Crostini} from '../../externs/background/crostini.js';
 import {Banner} from '../../externs/banner.js';
 import {FakeEntry, FilesAppDirEntry} from '../../externs/files_app_entry_interfaces.js';
+import {State} from '../../externs/ts/state.js';
+import {Store} from '../../externs/ts/store.js';
 import {VolumeInfo} from '../../externs/volume_info.js';
 import {VolumeManager} from '../../externs/volume_manager.js';
+import {getStore} from '../../state/store.js';
 
 import {constants} from './constants.js';
 import {DirectoryModel} from './directory_model.js';
-import {TAG_NAME as DriveLowSpaceBanner} from './ui/banners/drive_low_space_banner.js';
+import {TAG_NAME as DlpRestrictedBannerName} from './ui/banners/dlp_restricted_banner.js';
+import {TAG_NAME as DriveLowIndividualSpaceBanner} from './ui/banners/drive_low_individual_space_banner.js';
 import {TAG_NAME as DriveOfflinePinningBannerTagName} from './ui/banners/drive_offline_pinning_banner.js';
+import {TAG_NAME as DriveOutOfIndividualSpaceBanner} from './ui/banners/drive_out_of_individual_space_banner.js';
+import {TAG_NAME as DriveOutOfOrganizationSpaceBanner} from './ui/banners/drive_out_of_organization_space_banner.js';
 import {TAG_NAME as DriveWelcomeBannerTagName} from './ui/banners/drive_welcome_banner.js';
+import {TAG_NAME as GoogleOneOfferBannerTagName} from './ui/banners/google_one_offer_banner.js';
 import {TAG_NAME as HoldingSpaceWelcomeBannerTagName} from './ui/banners/holding_space_welcome_banner.js';
+import {TAG_NAME as InvalidUSBFileSystemBanner} from './ui/banners/invalid_usb_filesystem_banner.js';
 import {TAG_NAME as LocalDiskLowSpaceBannerTagName} from './ui/banners/local_disk_low_space_banner.js';
 import {TAG_NAME as PhotosWelcomeBannerTagName} from './ui/banners/photos_welcome_banner.js';
 import {TAG_NAME as SharedWithCrostiniPluginVmBanner} from './ui/banners/shared_with_crostini_pluginvm_banner.js';
@@ -80,8 +90,9 @@ export class BannerController extends EventTarget {
    * @param {!DirectoryModel} directoryModel
    * @param {!VolumeManager} volumeManager
    * @param {!Crostini} crostini
+   * @param {!DialogType} dialogType
    */
-  constructor(directoryModel, volumeManager, crostini) {
+  constructor(directoryModel, volumeManager, crostini, dialogType) {
     super();
 
     /**
@@ -147,6 +158,13 @@ export class BannerController extends EventTarget {
     this.volumeSizeStats_ = {};
 
     /**
+     * Maintains a cache of the user's Google Drive quota and associated
+     * metadata.
+     * @private {?chrome.fileManagerPrivate.DriveQuotaMetadata|undefined}
+     */
+    this.driveQuotaMetadata_ = null;
+
+    /**
      * The directory model is maintained to get the current volume and also to
      * listen to the directory-changed event.
      * @private {!DirectoryModel}
@@ -169,6 +187,13 @@ export class BannerController extends EventTarget {
     this.volumeManager_ = volumeManager;
 
     /**
+     * The dialog type, used to determine whether certain banners should be
+     * shown or not.
+     * @private {!DialogType}
+     */
+    this.dialogType_ = dialogType;
+
+    /**
      * The container where all the banners will be appended to.
      * @private {?Element}
      */
@@ -181,7 +206,7 @@ export class BannerController extends EventTarget {
     this.disableBannerLoading_ = false;
 
     /**
-     * Whether banners should be completely disable, useful to remove banners
+     * Whether banners should be completely disabled, useful to remove banners
      * during integration tests or tast tests.
      * @private {boolean}
      */
@@ -216,10 +241,23 @@ export class BannerController extends EventTarget {
     this.customBannerFilters_ = {};
 
     /**
+     * @private {!Store}
+     */
+    this.store_ = getStore();
+    this.store_.subscribe(this);
+
+    /**
+     * Cached value of `this.store_.currentDirectory.hasDisabledFiles`, to avoid
+     * unnecessary reconciling.
+     * @private {boolean}
+     */
+    this.hasDlpDisabledFiles_ = false;
+
+    /**
      * The volumeId that is pending a volume size update, updateVolumeSizeStats_
      * will remove the volumeId once updated. This is cleared when the debounced
      * version of updateVolumeSizeStats_ executes.
-     * @private {!Set<string>}
+     * @private {!Set<VolumeInfo>}
      */
     this.pendingVolumeSizeUpdates_ = new Set();
 
@@ -233,19 +271,29 @@ export class BannerController extends EventTarget {
     /**
      * Debounced version of updateVolumeSizeStats_ to stop overly aggressive
      * calls coming from onDirectoryChanged_.
-     * @private {AsyncUtil.RateLimiter}
+     * @private {RateLimiter}
      */
-    this.updateVolumeSizeStatsDebounced_ = new AsyncUtil.RateLimiter(
+    this.updateVolumeSizeStatsDebounced_ = new RateLimiter(
         async () => this.updateVolumeSizeStats_(),
         MIN_INTERVAL_BETWEEN_DIRECTORY_SIZE_CHANGED_EVENTS);
 
     // Only attach event listeners if the controller is enabled. Used to disable
     // all banners from being loaded.
     if (!this.disableBanners_) {
-      xfm.storage.onChanged.addListener(
+      storage.onChanged.addListener(
           (changes, areaName) => this.onStorageChanged_(changes, areaName));
       this.directoryModel_.addEventListener(
           'directory-changed', event => this.onDirectoryChanged_(event));
+    }
+  }
+
+  /** @param {!State} state latest state from the store. */
+  onStateChanged(state) {
+    const changedHasDlpDisabledFiles =
+        !!state.currentDirectory?.hasDlpDisabledFiles;
+    if (this.hasDlpDisabledFiles_ !== changedHasDlpDisabledFiles) {
+      this.hasDlpDisabledFiles_ = changedHasDlpDisabledFiles;
+      this.reconcile();
     }
   }
 
@@ -260,15 +308,23 @@ export class BannerController extends EventTarget {
       // denotes the priority of the banner, 0th index is highest priority.
       this.setWarningBannersInOrder([
         LocalDiskLowSpaceBannerTagName,
-        DriveLowSpaceBanner,
+        DriveOutOfOrganizationSpaceBanner,
+        DriveOutOfIndividualSpaceBanner,
+        DriveLowIndividualSpaceBanner,
       ]);
-      this.setEducationalBannersInOrder([
-        DriveWelcomeBannerTagName,
-        HoldingSpaceWelcomeBannerTagName,
-        DriveOfflinePinningBannerTagName,
-        PhotosWelcomeBannerTagName,
-      ]);
+
+      const educationalBanners =
+          util.isGoogleOneOfferFilesBannerEligibleAndEnabled() ?
+          [GoogleOneOfferBannerTagName] :
+          [DriveWelcomeBannerTagName];
+      educationalBanners.push(
+          HoldingSpaceWelcomeBannerTagName, DriveOfflinePinningBannerTagName,
+          PhotosWelcomeBannerTagName);
+      this.setEducationalBannersInOrder(educationalBanners);
+
       this.setStateBannersInOrder([
+        DlpRestrictedBannerName,
+        InvalidUSBFileSystemBanner,
         SharedWithCrostiniPluginVmBanner,
         TrashBannerTagName,
       ]);
@@ -300,12 +356,42 @@ export class BannerController extends EventTarget {
       // the Drive banner only if the volume stats are available. The general
       // volume available handler will run before this ensuring the minimum
       // ratio has been met.
-      this.registerCustomBannerFilter_(DriveLowSpaceBanner, {
-        shouldShow: () => !!this.volumeSizeStats_[this.currentVolume_.volumeId],
-        context: () => ({
-          remainingSize:
-              this.volumeSizeStats_[this.currentVolume_.volumeId].remainingSize
-        })
+      this.registerCustomBannerFilter_(DriveLowIndividualSpaceBanner, {
+        shouldShow: () => this.driveQuotaMetadata_ &&
+            this.driveQuotaMetadata_.usedUserBytes <
+                this.driveQuotaMetadata_.totalUserBytes &&
+            this.driveQuotaMetadata_.totalUserBytes >= 0,  // not unlimited
+        context: () => this.driveQuotaMetadata_,
+      });
+
+      this.registerCustomBannerFilter_(DriveOutOfIndividualSpaceBanner, {
+        shouldShow: () => this.driveQuotaMetadata_ &&
+            this.driveQuotaMetadata_.usedUserBytes >=
+                this.driveQuotaMetadata_.totalUserBytes &&
+            this.driveQuotaMetadata_.totalUserBytes >= 0,  // not unlimited
+        context: () => ({}),
+      });
+
+      this.registerCustomBannerFilter_(DriveOutOfOrganizationSpaceBanner, {
+        shouldShow: () => this.driveQuotaMetadata_ &&
+            this.driveQuotaMetadata_.organizationLimitExceeded,
+        context: () => this.driveQuotaMetadata_,
+      });
+
+      // Register a custom filter that checks if the removable device has an
+      // error and show the invalid USB file system banner.
+      this.registerCustomBannerFilter_(InvalidUSBFileSystemBanner, {
+        shouldShow: () => !!(this.currentVolume_ && this.currentVolume_.error),
+        context: () => ({error: this.currentVolume_.error}),
+      });
+
+      // Register a custom filter that checks if DLP restricted banner should
+      // be shown.
+      this.registerCustomBannerFilter_(DlpRestrictedBannerName, {
+        shouldShow: () =>
+            (this.volumeManager_.hasDisabledVolumes() ||
+             this.hasDlpDisabledFiles_),
+        context: () => ({type: this.dialogType_}),
       });
     }
 
@@ -336,7 +422,7 @@ export class BannerController extends EventTarget {
     const cacheKeys = Object.keys(this.localStorageCache_);
     let values = {};
     try {
-      values = await xfm.storage.local.getAsync(cacheKeys);
+      values = await storage.local.getAsync(cacheKeys);
     } catch (e) {
       console.warn(e.message);
     }
@@ -360,11 +446,15 @@ export class BannerController extends EventTarget {
 
     // When navigating to a different volume, refresh the volume size stats
     // when first navigating. A listener will keep this in sync.
-    if (this.currentVolume_ && previousVolume &&
-        previousVolume.volumeId !== this.currentVolume_.volumeId &&
+    if (this.currentVolume_ &&
+        previousVolume?.volumeId !== this.currentVolume_.volumeId &&
         this.volumeSizeObservers_[this.currentVolume_.volumeType]) {
-      this.pendingVolumeSizeUpdates_.add(this.currentVolume_.volumeId);
+      this.pendingVolumeSizeUpdates_.add(this.currentVolume_);
       this.updateVolumeSizeStatsDebounced_.runImmediately();
+
+      // updateVolumeSizeStats will call reconcile at its end. Return here to
+      // avoid calling showBanner_ twice for a banner.
+      return;
     }
 
     /** @type {?Banner} */
@@ -492,7 +582,7 @@ export class BannerController extends EventTarget {
 
   /**
    * Check if the banner exists (add to DOM if not) and ensure it's visible.
-   * @param {!Banner} banner The banner to hide.
+   * @param {!Banner} banner The banner to show.
    * @private
    */
   async showBanner_(banner) {
@@ -687,20 +777,20 @@ export class BannerController extends EventTarget {
   }
 
   /**
-   * Writes through the localStorage cache to localStorage to ensure values
+   * Writes through the localStorage cache to local storage to ensure values
    * are immediately available.
-   * @param {string} key The key in localStorage to set.
-   * @param {number} value The value to set the key to in localStorage.
+   * @param {string} key The key in local storage to set.
+   * @param {number} value The value to set the key to in local storage.
    * @private
    */
   async setLocalStorage_(key, value) {
     if (!this.localStorageCache_.hasOwnProperty(key)) {
-      console.error(`Key ${key} not found in localStorage cache`);
+      console.warn(`Key ${key} not found in localStorage cache`);
       return;
     }
     this.localStorageCache_[key] = value;
     try {
-      await xfm.storage.local.setAsync({[key]: value});
+      await storage.local.setAsync({[key]: value});
     } catch (e) {
       console.warn(e.message);
     }
@@ -771,7 +861,7 @@ export class BannerController extends EventTarget {
     if (!eventVolumeInfo || !eventVolumeInfo.volumeId) {
       return;
     }
-    this.pendingVolumeSizeUpdates_.add(eventVolumeInfo.volumeId);
+    this.pendingVolumeSizeUpdates_.add(eventVolumeInfo);
     this.updateVolumeSizeStatsDebounced_.run();
   }
 
@@ -810,12 +900,32 @@ export class BannerController extends EventTarget {
     if (this.pendingVolumeSizeUpdates_.size === 0) {
       return;
     }
-    for (const volumeId of this.pendingVolumeSizeUpdates_) {
-      const sizeStats = await getSizeStats(volumeId);
-      if (!sizeStats || sizeStats.totalSize === 0) {
+    for (const {volumeType, volumeId} of this.pendingVolumeSizeUpdates_) {
+      if (volumeType === VolumeManagerCommon.VolumeType.DRIVE) {
+        try {
+          this.driveQuotaMetadata_ = await getDriveQuotaMetadata();
+          if (this.driveQuotaMetadata_) {
+            this.volumeSizeStats_[volumeId] = {
+              totalSize: this.driveQuotaMetadata_.totalUserBytes,
+              remainingSize: this.driveQuotaMetadata_.totalUserBytes -
+                  this.driveQuotaMetadata_.usedUserBytes,
+            };
+          }
+        } catch (e) {
+          console.warn('Error getting drive quota metadata', e);
+        }
         continue;
       }
-      this.volumeSizeStats_[volumeId] = sizeStats;
+
+      try {
+        const sizeStats = await getSizeStats(volumeId);
+        if (!sizeStats || sizeStats.totalSize === 0) {
+          continue;
+        }
+        this.volumeSizeStats_[volumeId] = sizeStats;
+      } catch (e) {
+        console.warn('Error getting size stats', e);
+      }
     }
     this.pendingVolumeSizeUpdates_.clear();
     await this.reconcile();
@@ -828,7 +938,7 @@ export class BannerController extends EventTarget {
    * @private
    */
   onStorageChanged_(changes, areaName) {
-    if (areaName != 'local') {
+    if (areaName !== 'local') {
       return;
     }
 
@@ -889,7 +999,8 @@ export function isBelowThreshold(threshold, sizeStats) {
   if (!threshold || !sizeStats) {
     return false;
   }
-  if (!sizeStats.remainingSize || !sizeStats.totalSize) {
+  if (util.isNullOrUndefined(sizeStats.remainingSize) ||
+      util.isNullOrUndefined(sizeStats.totalSize)) {
     return false;
   }
   if (threshold.minSize < sizeStats.remainingSize) {

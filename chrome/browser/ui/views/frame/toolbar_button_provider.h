@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,9 @@
 
 class AppMenuButton;
 class AvatarToolbarButton;
+class DownloadToolbarButtonView;
 class ExtensionsToolbarContainer;
+class IntentChipButton;
 class PageActionIconView;
 class SidePanelToolbarButton;
 class ReloadButton;
@@ -73,6 +75,12 @@ class ToolbarButtonProvider {
 
   // Returns the reload button.
   virtual ReloadButton* GetReloadButton() = 0;
+
+  // Returns the intent chip button, if present.
+  virtual IntentChipButton* GetIntentChipButton() = 0;
+
+  // Returns the download button.
+  virtual DownloadToolbarButtonView* GetDownloadButton() = 0;
 
   // TODO(calamity): Move other buttons and button actions into here.
  protected:

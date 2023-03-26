@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,7 +47,10 @@ class ASH_EXPORT OutputProtectionDelegate : public aura::WindowObserver,
       const aura::WindowObserver::HierarchyChangeParams& params) override;
   void OnWindowDestroying(aura::Window* window) override;
 
-  void OnWindowMayHaveMovedToAnotherDisplay();
+  // Called when `window_` may have become a descendant of a different root
+  // window (on a different display), or a descendant of a different window
+  // (e.g. a browser window when `window_` is for a tab that has become active).
+  void OnWindowMayHaveMovedToAnotherDisplayOrWindow();
 
   bool RegisterClientIfNecessary();
 

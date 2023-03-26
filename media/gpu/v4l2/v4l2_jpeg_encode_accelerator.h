@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,14 +12,14 @@
 #include <vector>
 
 #include "base/containers/queue.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
+#include "base/memory/shared_memory_mapping.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "components/chromeos_camera/jpeg_encode_accelerator.h"
 #include "gpu/ipc/common/gpu_memory_buffer_support.h"
 #include "media/base/bitstream_buffer.h"
-#include "media/base/unaligned_shared_memory.h"
 #include "media/base/video_frame.h"
 #include "media/gpu/media_gpu_export.h"
 #include "media/gpu/v4l2/v4l2_device.h"
@@ -76,9 +76,8 @@ class MEDIA_GPU_EXPORT V4L2JpegEncodeAccelerator
                         BitstreamBuffer* exif_buffer) override;
 
  private:
-  void InitializeOnTaskRunner(
-      chromeos_camera::JpegEncodeAccelerator::Client* client,
-      InitCB init_cb);
+  void InitializeTask(chromeos_camera::JpegEncodeAccelerator::Client* client,
+                      InitCB init_cb);
 
   // Record for input buffers.
   struct I420BufferRecord {
@@ -113,11 +112,12 @@ class MEDIA_GPU_EXPORT V4L2JpegEncodeAccelerator
               scoped_refptr<VideoFrame> output_frame,
               int32_t task_id,
               int quality,
-              BitstreamBuffer* exif_buffer);
+              base::WritableSharedMemoryMapping exif_mapping);
     JobRecord(scoped_refptr<VideoFrame> input_frame,
               int quality,
-              BitstreamBuffer* exif_buffer,
-              BitstreamBuffer output_buffer);
+              int32_t task_id,
+              base::WritableSharedMemoryMapping exif_mapping,
+              base::WritableSharedMemoryMapping output_mapping);
     ~JobRecord();
 
     // Input frame buffer.
@@ -132,16 +132,12 @@ class MEDIA_GPU_EXPORT V4L2JpegEncodeAccelerator
     // Encode task ID.
     int32_t task_id;
     // Memory mapped from |output_buffer|.
-    UnalignedSharedMemory output_shm;
-    // Offset used for |output_shm|.
-    off_t output_offset;
+    base::WritableSharedMemoryMapping output_mapping;
 
     // Memory mapped from |exif_buffer|.
-    // It contains EXIF data to be inserted into JPEG image. If it's nullptr,
-    // the JFIF APP0 segment will be inserted.
-    std::unique_ptr<UnalignedSharedMemory> exif_shm;
-    // Offset used for |exif_shm|.
-    off_t exif_offset;
+    // It contains EXIF data to be inserted into JPEG image. If `IsValid()` is
+    // false, the JFIF APP0 segment will be inserted.
+    base::WritableSharedMemoryMapping exif_mapping;
   };
 
   // TODO(wtlee): To be deprecated. (crbug.com/944705)
@@ -149,8 +145,7 @@ class MEDIA_GPU_EXPORT V4L2JpegEncodeAccelerator
   // Encode Instance. One EncodedInstance is used for a specific set of jpeg
   // parameters. The stored parameters are jpeg quality and resolutions of input
   // image.
-  // We execute all EncodedInstance methods on |encoder_task_runner_| except
-  // Initialize().
+  // We execute all EncodedInstance methods on |encoder_task_runner_|.
   class EncodedInstance {
    public:
     EncodedInstance(V4L2JpegEncodeAccelerator* parent);
@@ -183,7 +178,7 @@ class MEDIA_GPU_EXPORT V4L2JpegEncodeAccelerator
     size_t FinalizeJpegImage(uint8_t* dst_ptr,
                              const JpegBufferRecord& output_buffer,
                              size_t buffer_size,
-                             std::unique_ptr<UnalignedSharedMemory> exif_shm);
+                             base::WritableSharedMemoryMapping exif_mapping);
 
     bool SetInputBufferFormat(gfx::Size coded_size);
     bool SetOutputBufferFormat(gfx::Size coded_size, size_t buffer_size);
@@ -265,8 +260,7 @@ class MEDIA_GPU_EXPORT V4L2JpegEncodeAccelerator
   // Encode Instance. One EncodedInstance is used for a specific set of jpeg
   // parameters. The stored parameters are jpeg quality and resolutions of input
   // image.
-  // We execute all EncodedInstance methods on |encoder_task_runner_| except
-  // Initialize().
+  // We execute all EncodedInstance methods on |encoder_task_runner_|.
   class EncodedInstanceDmaBuf {
    public:
     EncodedInstanceDmaBuf(V4L2JpegEncodeAccelerator* parent);
@@ -300,7 +294,7 @@ class MEDIA_GPU_EXPORT V4L2JpegEncodeAccelerator
     // Add JPEG Marks if needed. Add EXIF section by |exif_shm|.
     size_t FinalizeJpegImage(scoped_refptr<VideoFrame> output_frame,
                              size_t buffer_size,
-                             std::unique_ptr<UnalignedSharedMemory> exif_shm);
+                             base::WritableSharedMemoryMapping exif_mapping);
 
     bool SetInputBufferFormat(gfx::Size coded_size,
                               const VideoFrameLayout& input_layout);
@@ -394,22 +388,6 @@ class MEDIA_GPU_EXPORT V4L2JpegEncodeAccelerator
   // Run on |encoder_thread_| to destroy input and output buffers.
   void DestroyTask();
 
-  // The |latest_input_buffer_coded_size_| and |latest_quality_| are used to
-  // check if we need to open new EncodedInstance.
-
-  // Latest coded size of input buffer.
-  gfx::Size latest_input_buffer_coded_size_;
-  // TODO(wtlee): To be deprecated. (crbug.com/944705)
-  gfx::Size latest_input_buffer_coded_size_legacy_;
-
-  // Latest encode quality.
-  int latest_quality_;
-  // TODO(wtlee): To be deprecated. (crbug.com/944705)
-  int latest_quality_legacy_;
-
-  // ChildThread's task runner.
-  scoped_refptr<base::SingleThreadTaskRunner> child_task_runner_;
-
   // GPU IO task runner.
   scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
 
@@ -424,10 +402,26 @@ class MEDIA_GPU_EXPORT V4L2JpegEncodeAccelerator
   // All the below members except |weak_factory_| are accessed from
   // |encoder_thread_| only (if it's running).
 
+  // The |latest_input_buffer_coded_size_| and |latest_quality_| are used to
+  // check if we need to open new EncodedInstance.
+  // Latest coded size of input buffer.
+  gfx::Size latest_input_buffer_coded_size_
+      GUARDED_BY_CONTEXT(encoder_sequence_);
+  // TODO(wtlee): To be deprecated. (crbug.com/944705)
+  gfx::Size latest_input_buffer_coded_size_legacy_
+      GUARDED_BY_CONTEXT(encoder_sequence_);
+  // Latest encode quality.
+  int latest_quality_ GUARDED_BY_CONTEXT(encoder_sequence_);
+  // TODO(wtlee): To be deprecated. (crbug.com/944705)
+  int latest_quality_legacy_ GUARDED_BY_CONTEXT(encoder_sequence_);
   // JEA may open multiple devices for different input parameters.
   // We handle the |encoded_instances_| by order for keeping user's input order.
-  std::queue<std::unique_ptr<EncodedInstance>> encoded_instances_;
-  std::queue<std::unique_ptr<EncodedInstanceDmaBuf>> encoded_instances_dma_buf_;
+  std::queue<std::unique_ptr<EncodedInstance>> encoded_instances_
+      GUARDED_BY_CONTEXT(encoder_sequence_);
+  std::queue<std::unique_ptr<EncodedInstanceDmaBuf>> encoded_instances_dma_buf_
+      GUARDED_BY_CONTEXT(encoder_sequence_);
+
+  SEQUENCE_CHECKER(encoder_sequence_);
 
   // Point to |this| for use in posting tasks from the encoder thread back to
   // the ChildThread.

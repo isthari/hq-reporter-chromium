@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,10 +27,6 @@ class RegistryOverrideManager;
 }
 
 class Profile;
-
-#if BUILDFLAG(IS_MAC)
-class MockPreferences;
-#endif
 
 scoped_refptr<extensions::Extension> AddMediaGalleriesApp(
     const std::string& name,
@@ -75,9 +71,6 @@ class EnsureMediaDirectoriesExists {
   std::unique_ptr<base::ScopedPathOverride> local_app_data_override_;
 
   registry_util::RegistryOverrideManager registry_override_;
-#endif
-#if BUILDFLAG(IS_MAC)
-  std::unique_ptr<MockPreferences> mac_preferences_;
 #endif
 };
 

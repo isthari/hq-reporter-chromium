@@ -1,38 +1,44 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/settings/settings_navigation_controller.h"
 
-#include "base/ios/ios_util.h"
-#include "base/mac/foundation_util.h"
-#include "components/strings/grit/components_strings.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/main/browser.h"
-#include "ios/chrome/browser/sync/sync_setup_service.h"
-#include "ios/chrome/browser/sync/sync_setup_service_factory.h"
+#import "base/ios/ios_util.h"
+#import "base/mac/foundation_util.h"
+#import "base/metrics/user_metrics.h"
+#import "base/metrics/user_metrics_action.h"
+#import "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/application_context/application_context.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/main/browser.h"
+#import "ios/chrome/browser/sync/sync_setup_service.h"
+#import "ios/chrome/browser/sync/sync_setup_service_factory.h"
 #import "ios/chrome/browser/ui/icons/chrome_icon.h"
 #import "ios/chrome/browser/ui/keyboard/UIKeyCommand+Chrome.h"
 #import "ios/chrome/browser/ui/settings/autofill/autofill_credit_card_table_view_controller.h"
 #import "ios/chrome/browser/ui/settings/autofill/autofill_profile_table_view_controller.h"
+#import "ios/chrome/browser/ui/settings/clear_browsing_data/clear_browsing_data_coordinator.h"
+#import "ios/chrome/browser/ui/settings/clear_browsing_data/clear_browsing_data_table_view_controller.h"
 #import "ios/chrome/browser/ui/settings/default_browser/default_browser_settings_table_view_controller.h"
 #import "ios/chrome/browser/ui/settings/google_services/accounts_table_view_controller.h"
 #import "ios/chrome/browser/ui/settings/google_services/google_services_settings_coordinator.h"
 #import "ios/chrome/browser/ui/settings/google_services/google_services_settings_view_controller.h"
-#include "ios/chrome/browser/ui/settings/google_services/manage_sync_settings_coordinator.h"
+#import "ios/chrome/browser/ui/settings/google_services/manage_sync_settings_coordinator.h"
 #import "ios/chrome/browser/ui/settings/import_data_table_view_controller.h"
 #import "ios/chrome/browser/ui/settings/password/passwords_coordinator.h"
+#import "ios/chrome/browser/ui/settings/privacy/privacy_safe_browsing_coordinator.h"
+#import "ios/chrome/browser/ui/settings/safety_check/safety_check_coordinator.h"
+#import "ios/chrome/browser/ui/settings/safety_check/safety_check_table_view_controller.h"
 #import "ios/chrome/browser/ui/settings/settings_table_view_controller.h"
 #import "ios/chrome/browser/ui/settings/sync/sync_encryption_passphrase_table_view_controller.h"
 #import "ios/chrome/browser/ui/table_view/table_view_utils.h"
-#include "ios/chrome/browser/ui/util/ui_util.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
-#include "ios/chrome/grit/ios_strings.h"
-#import "ios/public/provider/chrome/browser/chrome_browser_provider.h"
-#import "ios/public/provider/chrome/browser/user_feedback/user_feedback_provider.h"
-#include "ui/base/l10n/l10n_util_mac.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ios/public/provider/chrome/browser/user_feedback/user_feedback_api.h"
+#import "ui/base/l10n/l10n_util_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -41,9 +47,12 @@
 NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
 
 @interface SettingsNavigationController () <
+    ClearBrowsingDataCoordinatorDelegate,
     GoogleServicesSettingsCoordinatorDelegate,
     ManageSyncSettingsCoordinatorDelegate,
     PasswordsCoordinatorDelegate,
+    PrivacySafeBrowsingCoordinatorDelegate,
+    SafetyCheckCoordinatorDelegate,
     UIAdaptivePresentationControllerDelegate,
     UINavigationControllerDelegate>
 
@@ -57,6 +66,16 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
 
 // Saved passwords settings coordinator.
 @property(nonatomic, strong) PasswordsCoordinator* savedPasswordsCoordinator;
+
+@property(nonatomic, strong)
+    ClearBrowsingDataCoordinator* clearBrowsingDataCoordinator;
+
+// Safety Check coordinator.
+@property(nonatomic, strong) SafetyCheckCoordinator* safetyCheckCoordinator;
+
+// Privacy Safe Browsing coordinator.
+@property(nonatomic, strong)
+    PrivacySafeBrowsingCoordinator* privacySafeBrowsingCoordinator;
 
 // Current UIViewController being presented by this Navigation Controller.
 // If nil it means the Navigation Controller is not presenting anything, or the
@@ -87,6 +106,9 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
   SettingsTableViewController* controller = [[SettingsTableViewController alloc]
       initWithBrowser:browser
            dispatcher:[delegate handlerForSettings]];
+  controller.applicationCommandsHandler =
+      [delegate handlerForApplicationCommands];
+  controller.snackbarCommandsHandler = [delegate handlerForSnackbarCommands];
   SettingsNavigationController* nc = [[SettingsNavigationController alloc]
       initWithRootViewController:controller
                          browser:browser
@@ -103,7 +125,8 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
   AccountsTableViewController* controller =
       [[AccountsTableViewController alloc] initWithBrowser:browser
                                  closeSettingsOnAddAccount:YES];
-  controller.dispatcher = [delegate handlerForSettings];
+  controller.applicationCommandsHandler =
+      [delegate handlerForApplicationCommands];
   SettingsNavigationController* nc = [[SettingsNavigationController alloc]
       initWithRootViewController:controller
                          browser:browser
@@ -119,7 +142,7 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
   DCHECK(browser);
   // GoogleServicesSettings uses a coordinator to be presented, therefore the
   // view controller is not accessible. Prefer creating a
-  // |SettingsNavigationController| with a nil root view controller and then
+  // `SettingsNavigationController` with a nil root view controller and then
   // use the coordinator to push the GoogleServicesSettings as the first
   // root view controller.
   SettingsNavigationController* nc = [[SettingsNavigationController alloc]
@@ -140,6 +163,36 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
                          browser:browser
                         delegate:delegate];
   [nc showSyncServices];
+  return nc;
+}
+
++ (instancetype)
+    safetyCheckControllerForBrowser:(Browser*)browser
+                           delegate:(id<SettingsNavigationControllerDelegate>)
+                                        delegate {
+  DCHECK(browser);
+  SettingsNavigationController* nc = [[SettingsNavigationController alloc]
+      initWithRootViewController:nil
+                         browser:browser
+                        delegate:delegate];
+
+  [nc showSafetyCheckAndStartSafetyCheck];
+
+  return nc;
+}
+
++ (instancetype)
+    safeBrowsingControllerForBrowser:(Browser*)browser
+                            delegate:(id<SettingsNavigationControllerDelegate>)
+                                         delegate {
+  DCHECK(browser);
+  SettingsNavigationController* nc = [[SettingsNavigationController alloc]
+      initWithRootViewController:nil
+                         browser:browser
+                        delegate:delegate];
+
+  [nc showSafeBrowsing];
+
   return nc;
 }
 
@@ -183,17 +236,20 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
     userFeedbackControllerForBrowser:(Browser*)browser
                             delegate:(id<SettingsNavigationControllerDelegate>)
                                          delegate
-                  feedbackDataSource:(id<UserFeedbackDataSource>)dataSource
-                              sender:(UserFeedbackSender)sender
+                    userFeedbackData:(UserFeedbackData*)userFeedbackData
                              handler:(id<ApplicationCommands>)handler {
   DCHECK(browser);
-  DCHECK(ios::GetChromeBrowserProvider()
-             .GetUserFeedbackProvider()
-             ->IsUserFeedbackEnabled());
+  DCHECK(ios::provider::IsUserFeedbackSupported());
+
+  UserFeedbackConfiguration* configuration =
+      [[UserFeedbackConfiguration alloc] init];
+  configuration.data = userFeedbackData;
+  configuration.handler = handler;
+  configuration.singleSignOnService = GetApplicationContext()->GetSSOService();
+
   UIViewController* controller =
-      ios::GetChromeBrowserProvider()
-          .GetUserFeedbackProvider()
-          ->CreateViewController(dataSource, handler, sender);
+      ios::provider::CreateUserFeedbackViewController(configuration);
+
   DCHECK(controller);
   SettingsNavigationController* nc = [[SettingsNavigationController alloc]
       initWithRootViewController:controller
@@ -292,6 +348,24 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
   return nc;
 }
 
++ (instancetype)
+    clearBrowsingDataControllerForBrowser:(Browser*)browser
+                                 delegate:
+                                     (id<SettingsNavigationControllerDelegate>)
+                                         delegate {
+  DCHECK(browser);
+  SettingsNavigationController* nc = [[SettingsNavigationController alloc]
+      initWithRootViewController:nil
+                         browser:browser
+                        delegate:delegate];
+  nc.clearBrowsingDataCoordinator = [[ClearBrowsingDataCoordinator alloc]
+      initWithBaseNavigationController:nc
+                               browser:browser];
+  nc.clearBrowsingDataCoordinator.delegate = nc;
+  [nc.clearBrowsingDataCoordinator start];
+  return nc;
+}
+
 #pragma mark - Lifecycle
 
 - (instancetype)initWithRootViewController:(UIViewController*)rootViewController
@@ -330,7 +404,6 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
     self.navigationBar.scrollEdgeAppearance = appearance;
   }
 
-  self.navigationBar.translucent = NO;
   self.toolbar.translucent = NO;
   self.navigationBar.barTintColor =
       [UIColor colorNamed:kSecondaryBackgroundColor];
@@ -349,6 +422,12 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
 #pragma mark - Public
 
 - (UIBarButtonItem*)doneButton {
+  if (self.presentingViewController == nil) {
+    // This can be called while being dismissed. In that case, return nil. See
+    // crbug.com/1346604.
+    return nil;
+  }
+
   UIBarButtonItem* item = [[UIBarButtonItem alloc]
       initWithBarButtonSystemItem:UIBarButtonSystemItemDone
                            target:self
@@ -370,6 +449,7 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
   [self stopSyncSettingsCoordinator];
   [self stopGoogleServicesSettingsCoordinator];
   [self stopPasswordsCoordinator];
+  [self stopSafetyCheckCoordinator];
 
   // Reset the delegate to prevent any queued transitions from attempting to
   // close the settings.
@@ -411,7 +491,7 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
 
 // Pushes a GoogleServicesSettingsViewController on this settings navigation
 // controller. Does nothing id the top view controller is already of type
-// |GoogleServicesSettingsViewController|.
+// `GoogleServicesSettingsViewController`.
 - (void)showGoogleServices {
   if ([self.topViewController
           isKindOfClass:[GoogleServicesSettingsViewController class]]) {
@@ -442,6 +522,36 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
   [self.manageSyncSettingsCoordinator start];
 }
 
+- (void)showSafetyCheckAndStartSafetyCheck {
+  if ([self.topViewController isKindOfClass:[SafetyCheckCoordinator class]]) {
+    // The top view controller is already the Safety Check panel.
+    // No need to open it.
+    return;
+  }
+  DCHECK(!self.safetyCheckCoordinator);
+  self.safetyCheckCoordinator = [[SafetyCheckCoordinator alloc]
+      initWithBaseNavigationController:self
+                               browser:self.browser];
+  self.safetyCheckCoordinator.delegate = self;
+  [self.safetyCheckCoordinator start];
+  [self.safetyCheckCoordinator startCheckIfNotRunning];
+}
+
+- (void)showSafeBrowsing {
+  if ([self.topViewController
+          isKindOfClass:[PrivacySafeBrowsingCoordinator class]]) {
+    // The top view controller is already the Safe Browsing panel.
+    // No need to open it.
+    return;
+  }
+  DCHECK(!self.privacySafeBrowsingCoordinator);
+  self.privacySafeBrowsingCoordinator = [[PrivacySafeBrowsingCoordinator alloc]
+      initWithBaseNavigationController:self
+                               browser:self.browser];
+  self.privacySafeBrowsingCoordinator.delegate = self;
+  [self.privacySafeBrowsingCoordinator start];
+}
+
 // Stops the underlying Google services settings coordinator if it exists.
 - (void)stopGoogleServicesSettingsCoordinator {
   [self.googleServicesSettingsCoordinator stop];
@@ -455,7 +565,7 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
 }
 
 // Shows the saved passwords and starts the password check is
-// |startPasswordCheck| is true. If |showCancelButton| is true, adds a cancel
+// `startPasswordCheck` is true. If `showCancelButton` is true, adds a cancel
 // button as the left navigation item.
 - (void)showSavedPasswordsAndStartPasswordCheck:(BOOL)startPasswordCheck
                                showCancelButton:(BOOL)showCancelButton {
@@ -478,6 +588,27 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
   [self.savedPasswordsCoordinator stop];
   self.savedPasswordsCoordinator.delegate = nil;
   self.savedPasswordsCoordinator = nil;
+}
+
+// Stops the underlying clear browsing data coordinator if it exists.
+- (void)stopClearBrowsingDataCoordinator {
+  [self.clearBrowsingDataCoordinator stop];
+  self.clearBrowsingDataCoordinator.delegate = nil;
+  self.clearBrowsingDataCoordinator = nil;
+}
+
+// Stops the underlying SafetyCheck coordinator if it exists.
+- (void)stopSafetyCheckCoordinator {
+  [self.safetyCheckCoordinator stop];
+  self.safetyCheckCoordinator.delegate = nil;
+  self.safetyCheckCoordinator = nil;
+}
+
+// Stops the underlying PrivacySafeBrowsing coordinator if it exists.
+- (void)stopPrivacySafeBrowsingCoordinator {
+  [self.privacySafeBrowsingCoordinator stop];
+  self.privacySafeBrowsingCoordinator.delegate = nil;
+  self.privacySafeBrowsingCoordinator = nil;
 }
 
 #pragma mark - GoogleServicesSettingsCoordinatorDelegate
@@ -505,6 +636,29 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
 - (void)passwordsCoordinatorDidRemove:(PasswordsCoordinator*)coordinator {
   DCHECK_EQ(self.savedPasswordsCoordinator, coordinator);
   [self stopPasswordsCoordinator];
+}
+
+#pragma mark - ClearBrowsingDataCoordinatorDelegate
+
+- (void)clearBrowsingDataCoordinatorViewControllerWasRemoved:
+    (ClearBrowsingDataCoordinator*)coordinator {
+  DCHECK_EQ(self.clearBrowsingDataCoordinator, coordinator);
+  [self stopClearBrowsingDataCoordinator];
+}
+
+#pragma mark - SafetyCheckCoordinatorDelegate
+
+- (void)safetyCheckCoordinatorDidRemove:(SafetyCheckCoordinator*)coordinator {
+  DCHECK_EQ(self.safetyCheckCoordinator, coordinator);
+  [self stopSafetyCheckCoordinator];
+}
+
+#pragma mark - PrivacySafeBrowsingCoordinatorDelegate
+
+- (void)privacySafeBrowsingCoordinatorDidRemove:
+    (PrivacySafeBrowsingCoordinator*)coordinator {
+  DCHECK_EQ(self.privacySafeBrowsingCoordinator, coordinator);
+  [self stopPrivacySafeBrowsingCoordinator];
 }
 
 #pragma mark - UIAdaptivePresentationControllerDelegate
@@ -576,46 +730,51 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
 
 #pragma mark - UIResponder
 
-- (NSArray*)keyCommands {
+// To always be able to register key commands via -keyCommands, the VC must be
+// able to become first responder.
+- (BOOL)canBecomeFirstResponder {
+  return YES;
+}
+
+- (NSArray<UIKeyCommand*>*)keyCommands {
   if ([self presentedViewController]) {
     return nil;
   }
-  __weak SettingsNavigationController* weakSelf = self;
-  return @[
-    [UIKeyCommand cr_keyCommandWithInput:UIKeyInputEscape
-                           modifierFlags:Cr_UIKeyModifierNone
-                                   title:nil
-                                  action:^{
-                                    [weakSelf closeSettings];
-                                  }],
-  ];
+
+  return @[ UIKeyCommand.cr_close ];
+}
+
+- (void)keyCommand_close {
+  base::RecordAction(base::UserMetricsAction("MobileKeyCommandClose"));
+  [self closeSettings];
 }
 
 #pragma mark - ApplicationSettingsCommands
 
-// TODO(crbug.com/779791) : Do not pass |baseViewController| through dispatcher.
+// TODO(crbug.com/779791) : Do not pass `baseViewController` through dispatcher.
 - (void)showAccountsSettingsFromViewController:
     (UIViewController*)baseViewController {
   AccountsTableViewController* controller =
       [[AccountsTableViewController alloc] initWithBrowser:self.browser
                                  closeSettingsOnAddAccount:NO];
-  controller.dispatcher = [self.settingsNavigationDelegate handlerForSettings];
+  controller.applicationCommandsHandler =
+      [self.settingsNavigationDelegate handlerForApplicationCommands];
   [self pushViewController:controller animated:YES];
 }
 
-// TODO(crbug.com/779791) : Do not pass |baseViewController| through dispatcher.
+// TODO(crbug.com/779791) : Do not pass `baseViewController` through dispatcher.
 - (void)showGoogleServicesSettingsFromViewController:
     (UIViewController*)baseViewController {
   [self showGoogleServices];
 }
 
-// TODO(crbug.com/779791) : Do not pass |baseViewController| through dispatcher.
+// TODO(crbug.com/779791) : Do not pass `baseViewController` through dispatcher.
 - (void)showSyncSettingsFromViewController:
     (UIViewController*)baseViewController {
   [self showSyncServices];
 }
 
-// TODO(crbug.com/779791) : Do not pass |baseViewController| through dispatcher.
+// TODO(crbug.com/779791) : Do not pass `baseViewController` through dispatcher.
 - (void)showSyncPassphraseSettingsFromViewController:
     (UIViewController*)baseViewController {
   SyncEncryptionPassphraseTableViewController* controller =
@@ -625,7 +784,7 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
   [self pushViewController:controller animated:YES];
 }
 
-// TODO(crbug.com/779791) : Do not pass |baseViewController| through dispatcher.
+// TODO(crbug.com/779791) : Do not pass `baseViewController` through dispatcher.
 - (void)showSavedPasswordsSettingsFromViewController:
             (UIViewController*)baseViewController
                                     showCancelButton:(BOOL)showCancelButton {
@@ -638,7 +797,7 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
   [self showSavedPasswordsAndStartPasswordCheck:YES showCancelButton:NO];
 }
 
-// TODO(crbug.com/779791) : Do not pass |baseViewController| through dispatcher.
+// TODO(crbug.com/779791) : Do not pass `baseViewController` through dispatcher.
 - (void)showProfileSettingsFromViewController:
     (UIViewController*)baseViewController {
   AutofillProfileTableViewController* controller =
@@ -648,9 +807,7 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
   [self pushViewController:controller animated:YES];
 }
 
-// TODO(crbug.com/779791) : Do not pass |baseViewController| through dispatcher.
-- (void)showCreditCardSettingsFromViewController:
-    (UIViewController*)baseViewController {
+- (void)showCreditCardSettings {
   AutofillCreditCardTableViewController* controller =
       [[AutofillCreditCardTableViewController alloc]
           initWithBrowser:self.browser];
@@ -659,17 +816,30 @@ NSString* const kSettingsDoneButtonId = @"kSettingsDoneButtonId";
 }
 
 - (void)showDefaultBrowserSettingsFromViewController:
-    (UIViewController*)baseViewController {
+            (UIViewController*)baseViewController
+                                        sourceForUMA:
+                                            (DefaultBrowserPromoSource)source {
   DefaultBrowserSettingsTableViewController* controller =
       [[DefaultBrowserSettingsTableViewController alloc] init];
   controller.dispatcher = [self.settingsNavigationDelegate handlerForSettings];
+  controller.source = source;
   [self pushViewController:controller animated:YES];
 }
 
-#pragma mark - UIResponder
+- (void)showClearBrowsingDataSettings {
+  self.clearBrowsingDataCoordinator = [[ClearBrowsingDataCoordinator alloc]
+      initWithBaseNavigationController:self
+                               browser:self.browser];
+  self.clearBrowsingDataCoordinator.delegate = self;
+  [self.clearBrowsingDataCoordinator start];
+}
 
-- (BOOL)canBecomeFirstResponder {
-  return YES;
+- (void)showSafetyCheckSettingsAndStartSafetyCheck {
+  [self showSafetyCheckAndStartSafetyCheck];
+}
+
+- (void)showSafeBrowsingSettings {
+  [self showSafeBrowsing];
 }
 
 @end

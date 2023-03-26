@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,10 +18,10 @@ WithCrosapiParam::WithCrosapiParam() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   if (GetParam() == CrosapiParam::kEnabled) {
     scoped_feature_list_.InitWithFeatures(
-        {chromeos::features::kLacrosSupport, features::kWebAppsCrosapi}, {});
+        {ash::features::kLacrosSupport, features::kWebAppsCrosapi}, {});
   } else {
     scoped_feature_list_.InitWithFeatures(
-        {}, {features::kWebAppsCrosapi, chromeos::features::kLacrosPrimary});
+        {}, {features::kWebAppsCrosapi, ash::features::kLacrosPrimary});
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }

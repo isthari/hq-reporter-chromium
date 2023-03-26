@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "ash/wm/desks/desk.h"
 #include "ash/wm/desks/desks_controller.h"
 #include "ash/wm/desks/desks_util.h"
+#include "ash/wm/overview/overview_controller.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/compositor/compositor.h"
 
@@ -37,13 +38,15 @@ DeskAnimationBase::~DeskAnimationBase() {
 }
 
 void DeskAnimationBase::Launch() {
+  launch_time_ = base::TimeTicks::Now();
+
   for (auto& observer : controller_->observers_)
     observer.OnDeskSwitchAnimationLaunching();
 
   // The throughput tracker measures the animation when the user lifts their
   // fingers off the trackpad, which is done in EndSwipeAnimation.
   if (!is_continuous_gesture_animation_)
-    throughput_tracker_.Start(GetReportCallback());
+    throughput_tracker_.Start(GetSmoothnessReportCallback());
 
   // This step makes sure that the containers of the target desk are shown at
   // the beginning of the animation (but not actually visible to the user yet,
@@ -70,6 +73,14 @@ bool DeskAnimationBase::UpdateSwipeAnimation(float scroll_delta_x) {
 
 bool DeskAnimationBase::EndSwipeAnimation() {
   return false;
+}
+
+bool DeskAnimationBase::CanEnterOverview() const {
+  return is_overview_toggle_allowed_;
+}
+
+bool DeskAnimationBase::CanEndOverview() const {
+  return is_overview_toggle_allowed_;
 }
 
 void DeskAnimationBase::OnStartingDeskScreenshotTaken(int ending_desk_index) {
@@ -116,11 +127,14 @@ void DeskAnimationBase::OnEndingDeskScreenshotTaken() {
   // see an animation but expect to. If the gesture has ended, and has been
   // determined to be fast, we will start the animation to delete `this`.
   const bool skip_start_animation =
-      is_continuous_gesture_animation_ &&
-      (!features::AreDesksTrackpadSwipeImprovementsEnabled() ||
-       !did_continuous_gesture_end_fast_);
+      is_continuous_gesture_animation_ && !did_continuous_gesture_end_fast_;
   if (skip_start_animation)
     return;
+
+  if (!launch_time_.is_null()) {
+    GetLatencyReportCallback().Run(base::TimeTicks::Now() - launch_time_);
+    launch_time_ = base::TimeTicks();
+  }
 
   for (auto& animator : desk_switch_animators_)
     animator->StartAnimation();
@@ -153,6 +167,28 @@ RootWindowDeskSwitchAnimator*
 DeskAnimationBase::GetDeskSwitchAnimatorAtIndexForTesting(size_t index) const {
   DCHECK_LT(index, desk_switch_animators_.size());
   return desk_switch_animators_[index].get();
+}
+
+void DeskAnimationBase::ActivateDeskDuringAnimation(
+    const Desk* desk,
+    bool update_window_activation) {
+  // Normally we do not allow toggling overview while there is an active
+  // animation. The only exception is when we are doing a desk activation and
+  // are starting the animation in overview. The desk switch animations require
+  // taking a screenshot of the starting and ending desks before animating
+  // between the two screenshots, and these screenshots need to represent what
+  // the new desk will look like for the user. If we start the animation in
+  // overview, we want to allow `ActivateDeskInternal()` to end overview on the
+  // old active desk (and enter overview on the new active desk if the overview
+  // desk navigation feature is enabled). Once `ActivateDeskInternal()` finishes
+  // updating the active desk and overview states, we immediately set
+  // `is_overview_toggle_allowed_` to false to prevent any subsequent overview
+  // toggling (i.e. user input).
+  is_overview_toggle_allowed_ =
+      features::IsOverviewDeskNavigationEnabled() &&
+      Shell::Get()->overview_controller()->InOverviewSession();
+  controller_->ActivateDeskInternal(desk, update_window_activation);
+  is_overview_toggle_allowed_ = false;
 }
 
 }  // namespace ash

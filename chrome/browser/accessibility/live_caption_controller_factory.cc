@@ -1,15 +1,18 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/accessibility/live_caption_controller_factory.h"
 
 #include "base/no_destructor.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/live_caption/live_caption_controller.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/profiles/profile_helper.h"
+#endif
 
 namespace captions {
 
@@ -34,22 +37,30 @@ LiveCaptionControllerFactory* LiveCaptionControllerFactory::GetInstance() {
 }
 
 LiveCaptionControllerFactory::LiveCaptionControllerFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "LiveCaptionController",
-          BrowserContextDependencyManager::GetInstance()) {}
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kRedirectedToOriginal)
+              // Use OTR profile for Guest Session.
+              .WithGuest(ProfileSelection::kOffTheRecordOnly)
+              // No service for system profile.
+              .WithSystem(ProfileSelection::kNone)
+              // ChromeOS creates various profiles (login, lock screen...) that
+              // do not need the Live Caption controller.
+              .WithAshInternals(ProfileSelection::kNone)
+              .Build()) {}
 
 LiveCaptionControllerFactory::~LiveCaptionControllerFactory() = default;
 
-content::BrowserContext* LiveCaptionControllerFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  return chrome::GetBrowserContextRedirectedInIncognito(context);
+bool LiveCaptionControllerFactory::ServiceIsCreatedWithBrowserContext() const {
+  return true;
 }
 
 KeyedService* LiveCaptionControllerFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
   return new LiveCaptionController(
       Profile::FromBrowserContext(context)->GetPrefs(),
-      g_browser_process->local_state());
+      g_browser_process->local_state(), context);
 }
 
 }  // namespace captions

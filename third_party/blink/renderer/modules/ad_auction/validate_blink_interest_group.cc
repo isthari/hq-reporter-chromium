@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,7 @@ bool IsUrlAllowedForRenderUrls(const KURL& url) {
   if (!url.IsValid() || !url.ProtocolIs(url::kHttpsScheme))
     return false;
 
-  return url.User().IsEmpty() && url.Pass().IsEmpty();
+  return url.User().empty() && url.Pass().empty();
 }
 
 // Check if `url` can be used with the specified interest group for any of
@@ -36,6 +36,14 @@ bool IsUrlAllowed(const KURL& url, const mojom::blink::InterestGroup& group) {
   return IsUrlAllowedForRenderUrls(url) && !url.HasFragmentIdentifier();
 }
 
+size_t EstimateHashMapSize(const HashMap<String, double>& hash_map) {
+  size_t result = 0;
+  for (const auto& pair : hash_map) {
+    result += pair.key.length() + sizeof(pair.value);
+  }
+  return result;
+}
+
 }  // namespace
 
 // The logic in this method must be kept in sync with
@@ -45,15 +53,32 @@ size_t EstimateBlinkInterestGroupSize(
   size_t size = 0u;
   size += group.owner->ToString().length();
   size += group.name.length();
+  size += sizeof(group.priority);
+  size += sizeof(group.execution_mode);
+  size += sizeof(group.enable_bidding_signals_prioritization);
 
+  if (group.priority_vector)
+    size += EstimateHashMapSize(*group.priority_vector);
+  if (group.priority_signals_overrides)
+    size += EstimateHashMapSize(*group.priority_signals_overrides);
+  // Tests ensure this matches the blink::InterestGroup size, which is computed
+  // from the underlying number of enum bytes (the actual size on disk will
+  // vary, but we need a rough estimate for size enforcement).
+  constexpr size_t kCapabilitiesFlagsSize = 4;
+  if (group.seller_capabilities) {
+    for (const auto& [seller_origin, flags] : *group.seller_capabilities) {
+      size += seller_origin->ToString().length() + kCapabilitiesFlagsSize;
+    }
+  }
+  size += kCapabilitiesFlagsSize;  // For all_sellers_capabilities.
   if (group.bidding_url)
     size += group.bidding_url->GetString().length();
 
   if (group.bidding_wasm_helper_url)
     size += group.bidding_wasm_helper_url->GetString().length();
 
-  if (group.update_url)
-    size += group.update_url->GetString().length();
+  if (group.daily_update_url)
+    size += group.daily_update_url->GetString().length();
 
   if (group.trusted_bidding_signals_url)
     size += group.trusted_bidding_signals_url->GetString().length();
@@ -94,6 +119,37 @@ bool ValidateBlinkInterestGroup(const mojom::blink::InterestGroup& group,
     return false;
   }
 
+  if (!std::isfinite(group.priority)) {
+    error_field_name = "priority";
+    error_field_value = String::NumberToStringECMAScript(group.priority);
+    error = "priority must be finite.";
+    return false;
+  }
+
+  // This check is here to keep it in sync with InterestGroup::IsValid(), but
+  // checks in navigator_auction.cc should ensure the execution mode is always
+  // valid.
+  if (group.execution_mode !=
+          mojom::blink::InterestGroup::ExecutionMode::kCompatibilityMode &&
+      group.execution_mode !=
+          mojom::blink::InterestGroup::ExecutionMode::kGroupedByOriginMode) {
+    error_field_name = "executionMode";
+    error_field_value = String::Number(static_cast<int>(group.execution_mode));
+    error = "execution mode is not valid.";
+    return false;
+  }
+
+  if (group.seller_capabilities) {
+    for (const auto& [seller_origin, flags] : *group.seller_capabilities) {
+      if (seller_origin->Protocol() != url::kHttpsScheme) {
+        error_field_name = "sellerCapabilities";
+        error_field_value = seller_origin->ToString();
+        error = "sellerCapabilities origins must all be HTTPS.";
+        return false;
+      }
+    }
+  }
+
   if (group.bidding_url) {
     if (!IsUrlAllowed(*group.bidding_url, group)) {
       error_field_name = "biddingUrl";
@@ -116,10 +172,10 @@ bool ValidateBlinkInterestGroup(const mojom::blink::InterestGroup& group,
     }
   }
 
-  if (group.update_url) {
-    if (!IsUrlAllowed(*group.update_url, group)) {
+  if (group.daily_update_url) {
+    if (!IsUrlAllowed(*group.daily_update_url, group)) {
       error_field_name = "updateUrl";
-      error_field_value = group.update_url->GetString();
+      error_field_value = group.daily_update_url->GetString();
       error =
           "updateUrl must have the same origin as the InterestGroup owner "
           "and have no fragment identifier or embedded credentials.";
@@ -132,7 +188,7 @@ bool ValidateBlinkInterestGroup(const mojom::blink::InterestGroup& group,
     // `trusted_bidding_signals_url` must not have a query string, since the
     // query parameter needs to be set as part of running an auction.
     if (!IsUrlAllowed(*group.trusted_bidding_signals_url, group) ||
-        !group.trusted_bidding_signals_url->Query().IsEmpty()) {
+        !group.trusted_bidding_signals_url->Query().empty()) {
       error_field_name = "trustedBiddingSignalsUrl";
       error_field_value = group.trusted_bidding_signals_url->GetString();
       error =

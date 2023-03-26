@@ -1,11 +1,10 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/functional/bind.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process_impl.h"
 #include "chrome/browser/extensions/extension_api_unittest.h"
@@ -56,9 +55,9 @@ TEST_F(SocketsTcpServerUnitTest, Create) {
       new SocketsTcpServerCreateFunction();
 
   // Run tests
-  std::unique_ptr<base::DictionaryValue> result(RunFunctionAndReturnDictionary(
+  absl::optional<base::Value::Dict> result(RunFunctionAndReturnDictionary(
       function, "[{\"persistent\": true, \"name\": \"foo\"}]"));
-  ASSERT_TRUE(result.get());
+  ASSERT_TRUE(result);
 }
 
 }  // namespace api

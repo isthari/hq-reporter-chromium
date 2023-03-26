@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,11 +15,12 @@
 #include "build/chromeos_buildflags.h"
 #include "ui/display/display_switches.h"
 #include "ui/display/manager/managed_display_info.h"
+#include "ui/display/util/display_util.h"
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/geometry/size_f.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chromeos/system/statistics_provider.h"
+#include "chromeos/ash/components/system/statistics_provider.h"
 #endif
 
 namespace display {
@@ -68,8 +69,7 @@ bool ForceFirstDisplayInternal() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // Touch view mode is only available to internal display. We force the
   // display as internal for emulator to test touch view mode.
-  ret = ret ||
-        chromeos::system::StatisticsProvider::GetInstance()->IsRunningOnVm();
+  ret = ret || ash::system::StatisticsProvider::GetInstance()->IsRunningOnVm();
 #endif
   return ret;
 }
@@ -162,9 +162,21 @@ DisplayIdList CreateDisplayIdList(const Displays& list) {
       [](const Display& display) { return display.id(); });
 }
 
+DisplayIdList CreateDisplayIdList(const DisplayInfoList& updated_displays) {
+  return GenerateDisplayIdList(
+      updated_displays.begin(), updated_displays.end(),
+      [](const display::ManagedDisplayInfo& info) { return info.id(); });
+}
+
 void SortDisplayIdList(DisplayIdList* ids) {
   std::sort(ids->begin(), ids->end(),
             [](int64_t a, int64_t b) { return CompareDisplayIds(a, b); });
+}
+
+bool IsDisplayIdListSorted(const DisplayIdList& list) {
+  return std::is_sorted(list.begin(), list.end(), [](int64_t a, int64_t b) {
+    return CompareDisplayIds(a, b);
+  });
 }
 
 std::string DisplayIdListToString(const DisplayIdList& list) {
@@ -179,8 +191,12 @@ std::string DisplayIdListToString(const DisplayIdList& list) {
 
 display::ManagedDisplayInfo CreateDisplayInfo(int64_t id,
                                               const gfx::Rect& bounds) {
+  // Output index is stored in the first 8 bits.
+  const uint8_t connector_index = id & 0xFF;
+
   display::ManagedDisplayInfo info(id, "x-" + base::NumberToString(id), false);
   info.SetBounds(bounds);
+  info.set_connector_index(connector_index);
   return info;
 }
 

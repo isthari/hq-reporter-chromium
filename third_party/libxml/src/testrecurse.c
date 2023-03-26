@@ -13,13 +13,8 @@
 #include "libxml.h"
 #include <stdio.h>
 
-#if !defined(_WIN32) || defined(__CYGWIN__)
-#include <unistd.h>
-#endif
 #include <string.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 
 #include <libxml/parser.h>
 #include <libxml/tree.h>
@@ -56,10 +51,9 @@ struct testDesc {
 static int checkTestFile(const char *filename);
 
 
-#if defined(_WIN32) && !defined(__CYGWIN__)
+#if defined(_WIN32)
 
 #include <windows.h>
-#include <io.h>
 
 typedef struct
 {
@@ -310,7 +304,7 @@ testExternalEntityLoader(const char *URL, const char *ID,
 static char testErrors[32769];
 static int testErrorsSize = 0;
 
-static void XMLCDECL
+static void
 channel(void *ctx  ATTRIBUTE_UNUSED, const char *msg, ...) {
     va_list args;
     int res;
@@ -643,7 +637,7 @@ static int checkTestFile(const char *filename) {
     if (stat(filename, &buf) == -1)
         return(0);
 
-#if defined(_WIN32) && !defined(__CYGWIN__)
+#if defined(_WIN32)
     if (!(buf.st_mode & _S_IFREG))
         return(0);
 #else

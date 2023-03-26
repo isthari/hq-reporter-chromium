@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 @protocol HistoryConsumer <NSObject>
 
 // Tells the consumer that the result of a history query has been retrieved.
-// Entries in |result| are already sorted.
+// Entries in `result` are already sorted.
 - (void)
     historyQueryWasCompletedWithResults:
         (const std::vector<history::BrowsingHistoryService::HistoryEntry>&)

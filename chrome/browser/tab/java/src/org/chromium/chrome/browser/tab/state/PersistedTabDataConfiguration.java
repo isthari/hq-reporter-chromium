@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,8 +20,8 @@ public enum PersistedTabDataConfiguration {
     ENCRYPTED_CRITICAL_PERSISTED_TAB_DATA("ECPTDFB"),
     MOCK_PERSISTED_TAB_DATA("MPTD"),
     ENCRYPTED_MOCK_PERSISTED_TAB_DATA("EMPTD"),
+    COUPON_PERSISTED_TAB_DATA("COPTD"),
     SHOPPING_PERSISTED_TAB_DATA("SPTD"),
-    STORE_PERSISTED_TAB_DATA("STPTD"),
     EMPTY_BYTE_BUFFER_TEST_CONFIG("EBBTC"),
     // TODO(crbug.com/1113828) investigate separating test from prod test implementations
     TEST_CONFIG("TC");
@@ -48,14 +48,14 @@ public enum PersistedTabDataConfiguration {
         return sEmptyByteBufferPersistedTabDataStorage;
     }
 
-    private static FilePersistedTabDataStorage getFilePersistedTabDataStorage() {
+    static FilePersistedTabDataStorage getFilePersistedTabDataStorage() {
         if (sFilePersistedTabDataStorage == null) {
             sFilePersistedTabDataStorage = new FilePersistedTabDataStorage();
         }
         return sFilePersistedTabDataStorage;
     }
 
-    private static EncryptedFilePersistedTabDataStorage getEncryptedFilePersistedTabDataStorage() {
+    static EncryptedFilePersistedTabDataStorage getEncryptedFilePersistedTabDataStorage() {
         if (sEncrpytedFilePersistedTabDataStorage == null) {
             sEncrpytedFilePersistedTabDataStorage = new EncryptedFilePersistedTabDataStorage();
         }
@@ -73,14 +73,16 @@ public enum PersistedTabDataConfiguration {
 
     static {
         // TODO(crbug.com/1060187) remove static initializer and initialization lazy
+        sLookup.put(CouponPersistedTabData.class, COUPON_PERSISTED_TAB_DATA);
+        sEncryptedLookup.put(CouponPersistedTabData.class, COUPON_PERSISTED_TAB_DATA);
         sLookup.put(CriticalPersistedTabData.class, CRITICAL_PERSISTED_TAB_DATA);
         sEncryptedLookup.put(CriticalPersistedTabData.class, ENCRYPTED_CRITICAL_PERSISTED_TAB_DATA);
         sLookup.put(MockPersistedTabData.class, MOCK_PERSISTED_TAB_DATA);
         sEncryptedLookup.put(MockPersistedTabData.class, ENCRYPTED_MOCK_PERSISTED_TAB_DATA);
         sLookup.put(ShoppingPersistedTabData.class, SHOPPING_PERSISTED_TAB_DATA);
         sEncryptedLookup.put(ShoppingPersistedTabData.class, SHOPPING_PERSISTED_TAB_DATA);
-        sLookup.put(StorePersistedTabData.class, STORE_PERSISTED_TAB_DATA);
-        sEncryptedLookup.put(StorePersistedTabData.class, STORE_PERSISTED_TAB_DATA);
+
+        COUPON_PERSISTED_TAB_DATA.mStorageFactory = new LevelDBPersistedTabDataStorageFactory();
 
         CRITICAL_PERSISTED_TAB_DATA.mStorageFactory = () -> {
             return getFilePersistedTabDataStorage();
@@ -95,8 +97,6 @@ public enum PersistedTabDataConfiguration {
             return getEncryptedFilePersistedTabDataStorage();
         };
         SHOPPING_PERSISTED_TAB_DATA.mStorageFactory = new LevelDBPersistedTabDataStorageFactory();
-
-        STORE_PERSISTED_TAB_DATA.mStorageFactory = new LevelDBPersistedTabDataStorageFactory();
 
         TEST_CONFIG.mStorageFactory = () -> {
             return getMockPersistedTabDataStorage();

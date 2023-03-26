@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,7 +56,7 @@ MockCertProvisioningWorker::MockCertProvisioningWorker() {
   // Makes MockCertProvisioningWorker return empty key by default. Because the
   // return type is a reference, the object must exist to be able to return a
   // default value.
-  static const std::string default_public_key;
+  static const std::vector<uint8_t> default_public_key;
   ON_CALL(*this, GetPublicKey).WillByDefault(ReturnRef(default_public_key));
 }
 
@@ -65,14 +65,18 @@ MockCertProvisioningWorker::~MockCertProvisioningWorker() = default;
 void MockCertProvisioningWorker::SetExpectations(
     testing::Cardinality do_step_times,
     bool is_waiting,
-    const CertProfile& cert_profile) {
+    const CertProfile& cert_profile,
+    std::string failure_message) {
   testing::Mock::VerifyAndClearExpectations(this);
 
   cert_profile_ = cert_profile;
+  failure_message_ = std::move(failure_message);
 
   EXPECT_CALL(*this, DoStep).Times(do_step_times);
   EXPECT_CALL(*this, IsWaiting).WillRepeatedly(Return(is_waiting));
   EXPECT_CALL(*this, GetCertProfile).WillRepeatedly(ReturnRef(cert_profile_));
+  EXPECT_CALL(*this, GetFailureMessage)
+      .WillRepeatedly(ReturnRef(failure_message_));
 }
 
 }  // namespace cert_provisioning

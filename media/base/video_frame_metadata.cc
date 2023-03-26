@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,7 +35,10 @@ void VideoFrameMetadata::MergeMetadataFrom(
   MERGE_OPTIONAL_FIELD(capture_end_time, metadata_source);
   MERGE_OPTIONAL_FIELD(capture_counter, metadata_source);
   MERGE_OPTIONAL_FIELD(capture_update_rect, metadata_source);
-  MERGE_OPTIONAL_FIELD(copy_mode, metadata_source);
+  MERGE_OPTIONAL_FIELD(source_size, metadata_source);
+  MERGE_OPTIONAL_FIELD(region_capture_rect, metadata_source);
+  MERGE_VALUE_FIELD(crop_version, metadata_source);
+  MERGE_OPTIONAL_FIELD(copy_required, metadata_source);
   MERGE_VALUE_FIELD(end_of_stream, metadata_source);
   MERGE_OPTIONAL_FIELD(frame_duration, metadata_source);
   MERGE_OPTIONAL_FIELD(frame_rate, metadata_source);
@@ -48,6 +51,7 @@ void VideoFrameMetadata::MergeMetadataFrom(
   MERGE_VALUE_FIELD(dcomp_surface, metadata_source);
   MERGE_VALUE_FIELD(protected_video, metadata_source);
   MERGE_VALUE_FIELD(hw_protected, metadata_source);
+  MERGE_VALUE_FIELD(is_webgpu_compatible, metadata_source);
 #if BUILDFLAG(USE_VAAPI)
   MERGE_OPTIONAL_FIELD(hw_va_protected_session_id, metadata_source);
 #endif
@@ -69,6 +73,12 @@ void VideoFrameMetadata::MergeMetadataFrom(
 
 #undef MERGE_VALUE_FIELD
 #undef MERGE_OPTIONAL_FIELD
+}
+
+void VideoFrameMetadata::ClearTextureFrameMedatada() {
+  is_webgpu_compatible = false;
+  texture_origin_is_top_left = true;
+  read_lock_fences_enabled = false;
 }
 
 }  // namespace media

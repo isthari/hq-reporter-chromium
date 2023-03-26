@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,11 +20,11 @@ namespace blink {
 
 namespace {
 
-Node* GeneratingNodeForObject(const LayoutBoxModelObject& box_model) {
+Node* GetNode(const LayoutBoxModelObject& box_model) {
   Node* node = nullptr;
   const LayoutObject* layout_object = &box_model;
   for (; layout_object && !node; layout_object = layout_object->Parent()) {
-    node = layout_object->GeneratingNode();
+    node = layout_object->GetNode();
   }
   return node;
 }
@@ -51,9 +51,7 @@ LayoutSize LogicalOffsetOnLine(const InlineFlowBox& flow_box) {
 
 BoxModelObjectPainter::BoxModelObjectPainter(const LayoutBoxModelObject& box,
                                              const InlineFlowBox* flow_box)
-    : BoxPainterBase(&box.GetDocument(),
-                     box.StyleRef(),
-                     GeneratingNodeForObject(box)),
+    : BoxPainterBase(&box.GetDocument(), box.StyleRef(), GetNode(box)),
       box_model_(box),
       flow_box_(flow_box) {}
 

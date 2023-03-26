@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,16 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/synchronization/lock.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "dbus/bus.h"
 #include "dbus/message.h"
@@ -125,12 +126,6 @@ void GetDbusStringsForApi(DBusAPI api,
   NOTREACHED();
 }
 
-void SetScreenSaverSuspended(bool suspend) {
-  // The screen can be nullptr in tests.
-  if (auto* const screen = display::Screen::GetScreen())
-    screen->SetScreenSaverSuspended(suspend);
-}
-
 }  // namespace
 
 class PowerSaveBlocker::Delegate
@@ -181,6 +176,8 @@ class PowerSaveBlocker::Delegate
   // call to Inhibit().
   void Uninhibit(const InhibitCookie& inhibit_cookie);
 
+  void SetScreenSaverSuspended(bool suspend);
+
   const mojom::WakeLockType type_;
   const std::string description_;
 
@@ -190,6 +187,9 @@ class PowerSaveBlocker::Delegate
 
   scoped_refptr<base::SequencedTaskRunner> ui_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> blocking_task_runner_;
+
+  std::unique_ptr<display::Screen::ScreenSaverSuspender>
+      screen_saver_suspender_;
 };
 
 PowerSaveBlocker::Delegate::Delegate(
@@ -211,8 +211,9 @@ void PowerSaveBlocker::Delegate::Init() {
         FROM_HERE, base::BindOnce(&Delegate::ApplyBlock, this));
   }
 
-  ui_task_runner_->PostTask(FROM_HERE,
-                            base::BindOnce(SetScreenSaverSuspended, true));
+  ui_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(&Delegate::SetScreenSaverSuspended, this, true));
 }
 
 void PowerSaveBlocker::Delegate::CleanUp() {
@@ -221,8 +222,9 @@ void PowerSaveBlocker::Delegate::CleanUp() {
         FROM_HERE, base::BindOnce(&Delegate::RemoveBlock, this));
   }
 
-  ui_task_runner_->PostTask(FROM_HERE,
-                            base::BindOnce(SetScreenSaverSuspended, false));
+  ui_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(&Delegate::SetScreenSaverSuspended, this, false));
 }
 
 bool PowerSaveBlocker::Delegate::ShouldBlock() const {
@@ -366,6 +368,17 @@ void PowerSaveBlocker::Delegate::Uninhibit(
   // really do anything about it anyway if it fails.
   if (!response)
     LOG(ERROR) << "No response to Uninhibit() request!";
+}
+
+void PowerSaveBlocker::Delegate::SetScreenSaverSuspended(bool suspend) {
+  if (suspend) {
+    DCHECK(!screen_saver_suspender_);
+    // The screen can be nullptr in tests.
+    if (auto* const screen = display::Screen::GetScreen())
+      screen_saver_suspender_ = screen->SuspendScreenSaver();
+  } else {
+    screen_saver_suspender_.reset();
+  }
 }
 
 PowerSaveBlocker::PowerSaveBlocker(

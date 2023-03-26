@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,38 +7,42 @@ GEN_INCLUDE(['switch_access_e2e_test_base.js']);
 /** Test fixture for the SwitchAccess class. */
 SwitchAccessSwitchAccessTest = class extends SwitchAccessE2ETest {
   /** @override */
-  setUp() {
-    var runTest = this.deferRunTest(WhenTestDone.EXPECT);
-    (async () => {
-      await importModule('SwitchAccess', '/switch_access/switch_access.js');
-
-      runTest();
-    })();
+  async setUpDeferred() {
+    await super.setUpDeferred();
+    await importModule('SwitchAccess', '/switch_access/switch_access.js');
   }
 };
 
-SYNC_TEST_F('SwitchAccessSwitchAccessTest', 'NoFocusDefersInit', function() {
-  // Build a new SwitchAccess instance with hooks.
-  let initCount = 0;
-  SwitchAccess.finishInit_ = () => initCount++;
+async function waitForAsyncToResolve() {
+  await new Promise(resolve => setTimeout(resolve, 0));
+}
 
-  // A fake desktop.
-  const fakeDesktop = {};
-  fakeDesktop.addEventListener = () => {};
-  fakeDesktop.removeEventListener = () => {};
+AX_TEST_F(
+    'SwitchAccessSwitchAccessTest', 'NoFocusDefersInit', async function() {
+      // Build a new SwitchAccess instance with hooks.
+      let initCount = 0;
+      SwitchAccess.finishInit_ = () => initCount++;
 
-  // Stub out this to be synchronous.
-  chrome.automation.getDesktop = callback => callback(fakeDesktop);
+      // A fake desktop.
+      const fakeDesktop = {};
+      fakeDesktop.addEventListener = () => {};
+      fakeDesktop.removeEventListener = () => {};
 
-  // Stub this out as well so that focus is undefined.
-  chrome.automation.getFocus = callback => callback();
+      // Stub out this to be synchronous.
+      chrome.automation.getDesktop = callback => callback(fakeDesktop);
 
-  // Initialize; we should not have called finishInit_ since there's no focus.
-  SwitchAccess.initialize();
-  assertEquals(0, initCount);
+      // Stub this out as well so that focus is undefined.
+      chrome.automation.getFocus = callback => callback();
 
-  // Restub this to pass a "focused" node.
-  chrome.automation.getFocus = callback => callback({});
-  SwitchAccess.initialize();
-  assertEquals(1, initCount);
-});
+      // Initialize; we should not have called finishInit_ since there's no
+      // focus.
+      SwitchAccess.initialize();
+      await waitForAsyncToResolve();
+      assertEquals(0, initCount);
+
+      // Restub this to pass a "focused" node.
+      chrome.automation.getFocus = callback => callback({});
+      SwitchAccess.initialize();
+      await waitForAsyncToResolve();
+      assertEquals(1, initCount);
+    });

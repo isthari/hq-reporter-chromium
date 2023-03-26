@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,9 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
 #include "base/cancelable_callback.h"
 #include "base/compiler_specific.h"
+#include "base/functional/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -53,11 +53,11 @@ class SyncSchedulerImpl : public SyncScheduler {
   void Stop() override;
   void ScheduleLocalNudge(ModelType type) override;
   void ScheduleLocalRefreshRequest(ModelTypeSet types) override;
-  void ScheduleInvalidationNudge(
-      ModelType type,
-      std::unique_ptr<SyncInvalidation> invalidation) override;
+  void ScheduleInvalidationNudge(ModelType type) override;
   void ScheduleInitialSyncNudge(ModelType model_type) override;
   void SetNotificationsEnabled(bool notifications_enabled) override;
+  void SetHasPendingInvalidations(ModelType type,
+                                  bool has_invalidations) override;
 
   void OnCredentialsUpdated() override;
   void OnConnectionStatusChange(network::mojom::ConnectionType type) override;
@@ -72,11 +72,14 @@ class SyncSchedulerImpl : public SyncScheduler {
       const base::TimeDelta& new_interval) override;
   void OnReceivedCustomNudgeDelays(
       const std::map<ModelType, base::TimeDelta>& nudge_delays) override;
-  void OnReceivedClientInvalidationHintBufferSize(int size) override;
   void OnSyncProtocolError(
       const SyncProtocolError& sync_protocol_error) override;
   void OnReceivedGuRetryDelay(const base::TimeDelta& delay) override;
   void OnReceivedMigrationRequest(ModelTypeSet types) override;
+  void OnReceivedQuotaParamsForExtensionTypes(
+      absl::optional<int> max_tokens,
+      absl::optional<base::TimeDelta> refill_interval,
+      absl::optional<base::TimeDelta> depleted_quota_nudge_delay) override;
 
   bool IsGlobalThrottle() const;
   bool IsGlobalBackoff() const;

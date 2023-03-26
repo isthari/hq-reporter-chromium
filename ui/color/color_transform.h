@@ -1,12 +1,12 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef UI_COLOR_COLOR_TRANSFORM_H_
 #define UI_COLOR_COLOR_TRANSFORM_H_
 
-#include "base/callback.h"
 #include "base/component_export.h"
+#include "base/functional/callback.h"
 #include "build/build_config.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -27,11 +27,11 @@ using Callback =
 class COMPONENT_EXPORT(COLOR) ColorTransform {
  public:
   // Allows simple conversion from a Callback to a ColorTransform.
-  ColorTransform(Callback callback);
+  ColorTransform(Callback callback);  // NOLINT
   // Creates a transform that returns the supplied |color|.
-  ColorTransform(SkColor color);
+  ColorTransform(SkColor color);  // NOLINT
   // Creates a transform that returns the result color for the supplied |id|.
-  ColorTransform(ColorId id);
+  ColorTransform(ColorId id);  // NOLINT
   ColorTransform(const ColorTransform&);
   ColorTransform& operator=(const ColorTransform&);
   ~ColorTransform();
@@ -85,10 +85,6 @@ COMPONENT_EXPORT(COLOR) ColorTransform ContrastInvert(ColorTransform transform);
 COMPONENT_EXPORT(COLOR)
 ColorTransform DeriveDefaultIconColor(ColorTransform transform);
 
-// A transform which returns the color |id| from set |set_id|.
-COMPONENT_EXPORT(COLOR)
-ColorTransform FromOriginalColorFromSet(ColorId id, ColorSetId set_id);
-
 // A transform which returns the transform's input color (i.e. does nothing).
 // This is useful to supply as an argument to other transforms to control how
 // the input color is routed.
@@ -98,6 +94,11 @@ COMPONENT_EXPORT(COLOR) ColorTransform FromTransformInput();
 // |transform|.
 COMPONENT_EXPORT(COLOR)
 ColorTransform GetColorWithMaxContrast(ColorTransform transform);
+
+// A transform which returns the end point color with min contrast against the
+// result of |transform|.
+COMPONENT_EXPORT(COLOR)
+ColorTransform GetEndpointColorWithMinContrast(ColorTransform transform);
 
 // A transform which returns the resulting paint color of the result of
 // |foreground_transform| over the result of |background_transform|.
@@ -124,6 +125,19 @@ COMPONENT_EXPORT(COLOR)
 ColorTransform PickGoogleColor(ColorTransform color,
                                ColorTransform background_color,
                                float min_contrast = 0.0f);
+
+// Like the version above, but attempts to contrast sufficiently against both
+// supplied backgrounds.
+COMPONENT_EXPORT(COLOR)
+ColorTransform PickGoogleColorTwoBackgrounds(
+    ColorTransform foreground_transform,
+    ColorTransform background_a_transform,
+    ColorTransform background_b_transform,
+    float min_contrast);
+
+// A transform that returns the HSL shifted color given the input color.
+COMPONENT_EXPORT(COLOR)
+ColorTransform HSLShift(ColorTransform color, color_utils::HSL hsl);
 
 #if BUILDFLAG(IS_MAC)
 COMPONENT_EXPORT(COLOR)

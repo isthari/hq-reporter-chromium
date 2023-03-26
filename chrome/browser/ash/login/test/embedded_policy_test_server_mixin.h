@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 #include "base/containers/flat_set.h"
 #include "chrome/browser/ash/policy/server_backed_state/server_backed_state_keys_broker.h"
 #include "chrome/test/base/mixin_based_in_process_browser_test.h"
-#include "chromeos/system/fake_statistics_provider.h"
+#include "chromeos/ash/components/system/fake_statistics_provider.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/policy/proto/cloud_policy.pb.h"
 #include "components/policy/proto/device_management_backend.pb.h"
@@ -70,6 +70,10 @@ class EmbeddedPolicyTestServerMixin : public InProcessBrowserTestMixin {
       const enterprise_management::CloudPolicySettings& policy,
       const std::string& policy_user);
 
+  // Updates the timestamp returned by the server for policies. By default,
+  // server returns current time as timestamp.
+  void UpdatePolicyTimestamp(const base::Time& timestamp);
+
   // Updates policy selected by |type| and optional |entity_id|. The policy is
   // set to the proto serialized in |serialized_policy|. This does not trigger
   // policy invalidation, hence test authors must manually trigger a policy
@@ -102,6 +106,9 @@ class EmbeddedPolicyTestServerMixin : public InProcessBrowserTestMixin {
   // Configures fake attestation flow so that we can test attestation-based
   // enrollment flows.
   void SetFakeAttestationFlow();
+
+  // Sets which types of licenses are possible to use for enrollment.
+  void SetAvailableLicenses(bool has_enterpise_license, bool has_kiosk_license);
 
   // Configures server to expect these PSM (private set membership) execution
   // values (i.e. `psm_execution_result` and `psm_determination_timestamp`) as

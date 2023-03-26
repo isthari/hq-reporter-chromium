@@ -71,17 +71,17 @@
   }
 
   #sideNav {
-    grid-area: sideNav;
     display: flex;
     flex-direction: column;
+    grid-area: sideNav;
     justify-content: flex-start;
-    min-width: 0px;
+    min-width: 0;
   }
 
   #navigationBody {
     grid-area: main;
     justify-self: center;
-    min-width: 0px;
+    min-width: 0;
     padding-inline: var(--container-padding-nav);
   }
 
@@ -103,10 +103,11 @@
   <iron-media-query query="(min-width: 769px)" query-matches="{{showNav}}">
   </iron-media-query>
   <template is="dom-if" if="[[showToolBar]]">
-    <div id="topNav">
+    <div id="topNav" part="top-nav">
       <page-toolbar
           title="[[title]]"
-          is-narrow="[[!showNav]]">
+          is-narrow="[[!showNav]]"
+          exportparts="title, toolbar-container">
       </page-toolbar>
     </div>
   </template>
@@ -124,7 +125,8 @@
     </div>
     <div slot="body">
       <navigation-selector selector-items={{selectorItems_}}
-          selected-item={{selectedItem}}>
+          selected-item="{{selectedItem}}"
+          exportparts="navigation-item">
       </navigation-selector>
     <slot name="bottom-nav-content-drawer"></slot>
     </div>
@@ -133,7 +135,7 @@
     <div id="sideNav">
       <div id="navigationSelector" class="left-aligned">
         <navigation-selector selector-items={{selectorItems_}}
-            selected-item={{selectedItem}}>
+            selected-item="{{selectedItem}}" exportparts="navigation-item">
         </navigation-selector>
         <slot name="bottom-nav-content-panel"></slot>
       </div>

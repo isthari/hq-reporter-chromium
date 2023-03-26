@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include "base/metrics/histogram_functions.h"
 #include "build/build_config.h"
-#include "chrome/browser/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
+#include "chrome/browser/preloading/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
 #include "components/no_state_prefetch/browser/no_state_prefetch_manager.h"
 #include "components/performance_manager/public/performance_manager.h"
 #include "content/public/browser/navigation_handle.h"
@@ -155,11 +155,14 @@ bool PageLoadMetricsWebContentsObserver::IsTab() const {
 
 bool PageLoadMetricsWebContentsObserver::IsExtension() const {
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-  return !!extensions::ProcessManager::Get(web_contents()->GetBrowserContext())
-               ->GetExtensionForWebContents(web_contents());
-#else
-  return false;
+  // The process manager might be null for some irregular profiles, e.g. the
+  // System Profile.
+  if (extensions::ProcessManager* service = extensions::ProcessManager::Get(
+          web_contents()->GetBrowserContext())) {
+    return !!service->GetExtensionForWebContents(web_contents());
+  }
 #endif
+  return false;
 }
 
 bool PageLoadMetricsWebContentsObserver::IsPrerender() const {
@@ -271,15 +274,15 @@ void PageLoadMetricsWebContentsObserver::DidStopLoading() {
 
 void PageLoadMetricsWebContentsObserver::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
-  // TODO(https://crbug.com/1190112): Support non-primary FrameTrees.
+  // We don't record metrics for prerendering pages.
   if (!navigation_handle->HasCommitted() ||
-      !navigation_handle->GetRenderFrameHost()->GetPage().IsPrimary()) {
+      !navigation_handle->GetRenderFrameHost()->IsActive()) {
     return;
   }
 
   DCHECK(is_loading_);
 
-  if (navigation_handle->IsInMainFrame() &&
+  if (navigation_handle->IsInPrimaryMainFrame() &&
       !navigation_handle->IsSameDocument()) {
     RecordUKM();
     ukm_source_id_ = ukm::ConvertToSourceId(
@@ -288,12 +291,12 @@ void PageLoadMetricsWebContentsObserver::DidFinishNavigation(
 
   NavigationType navigation_type;
   if (navigation_handle->IsSameDocument()) {
-    if (navigation_handle->IsInMainFrame())
+    if (navigation_handle->IsInPrimaryMainFrame())
       navigation_type = NavigationType::kMainFrameSameDocument;
     else
       navigation_type = NavigationType::kSubFrameSameDocument;
   } else {
-    if (navigation_handle->IsInMainFrame())
+    if (navigation_handle->IsInPrimaryMainFrame())
       navigation_type = NavigationType::kMainFrameDifferentDocument;
     else
       navigation_type = NavigationType::kSubFrameDifferentDocument;

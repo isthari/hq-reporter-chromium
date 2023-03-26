@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,11 +19,11 @@ namespace ash {
 namespace input_method {
 
 CandidateWindowControllerImpl::CandidateWindowControllerImpl() {
-  ui::IMEBridge::Get()->SetCandidateWindowHandler(this);
+  IMEBridge::Get()->SetCandidateWindowHandler(this);
 }
 
 CandidateWindowControllerImpl::~CandidateWindowControllerImpl() {
-  ui::IMEBridge::Get()->SetCandidateWindowHandler(nullptr);
+  IMEBridge::Get()->SetCandidateWindowHandler(nullptr);
   if (candidate_window_view_) {
     candidate_window_view_->RemoveObserver(this);
     candidate_window_view_->GetWidget()->RemoveObserver(this);
@@ -45,7 +45,8 @@ void CandidateWindowControllerImpl::InitCandidateWindowView() {
       ash::kShellWindowId_MenuContainer);
   candidate_window_view_ = new ui::ime::CandidateWindowView(parent);
   candidate_window_view_->AddObserver(this);
-  candidate_window_view_->SetCursorBounds(cursor_bounds_, composition_head_);
+  candidate_window_view_->SetCursorAndCompositionBounds(cursor_bounds_,
+                                                        composition_bounds_);
   views::Widget* widget = candidate_window_view_->InitWidget();
   widget->AddObserver(this);
   widget->Show();
@@ -60,9 +61,9 @@ void CandidateWindowControllerImpl::Hide() {
     infolist_window_->HideImmediately();
 }
 
-void CandidateWindowControllerImpl::SetCursorBounds(
+void CandidateWindowControllerImpl::SetCursorAndCompositionBounds(
     const gfx::Rect& cursor_bounds,
-    const gfx::Rect& composition_head) {
+    const gfx::Rect& composition_bounds) {
   // A workaround for http://crosbug.com/6460. We should ignore very short Y
   // move to prevent the window from shaking up and down.
   const int kKeepPositionThreshold = 2;  // px
@@ -78,11 +79,12 @@ void CandidateWindowControllerImpl::SetCursorBounds(
   }
 
   cursor_bounds_ = cursor_bounds;
-  composition_head_ = composition_head;
+  composition_bounds_ = composition_bounds;
 
   // Remember the cursor bounds.
   if (candidate_window_view_)
-    candidate_window_view_->SetCursorBounds(cursor_bounds, composition_head);
+    candidate_window_view_->SetCursorAndCompositionBounds(cursor_bounds,
+                                                          composition_bounds);
 }
 
 gfx::Rect CandidateWindowControllerImpl::GetCursorBounds() const {
@@ -95,20 +97,18 @@ void CandidateWindowControllerImpl::FocusStateChanged(bool is_focused) {
     candidate_window_view_->HidePreeditText();
 }
 
-void CandidateWindowControllerImpl::UpdateLookupTable(
-    const ui::CandidateWindow& candidate_window,
-    bool visible) {
+void CandidateWindowControllerImpl::HideLookupTable() {
   // If it's not visible, hide the lookup table and return.
-  if (!visible) {
-    if (candidate_window_view_)
-      candidate_window_view_->HideLookupTable();
-    if (infolist_window_)
-      infolist_window_->HideImmediately();
-    // TODO(nona): Introduce unittests for crbug.com/170036.
-    latest_infolist_entries_.clear();
-    return;
-  }
+  if (candidate_window_view_)
+    candidate_window_view_->HideLookupTable();
+  if (infolist_window_)
+    infolist_window_->HideImmediately();
+  // TODO(nona): Introduce unittests for crbug.com/170036.
+  latest_infolist_entries_.clear();
+}
 
+void CandidateWindowControllerImpl::UpdateLookupTable(
+    const ui::CandidateWindow& candidate_window) {
   if (!candidate_window_view_)
     InitCandidateWindowView();
   candidate_window_view_->UpdateCandidates(candidate_window);

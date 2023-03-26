@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,20 +8,29 @@
 #include <memory>
 #include <vector>
 
+namespace gfx {
+class Transform;
+}  // namespace gfx
+
+namespace views {
+class View;
+}  // namespace views
+
 namespace ash {
 
 class DesksBarView;
 class DeskMiniView;
 class ExpandedDesksBarButton;
 
-// Animates new desk mini_views, fading them in and moving them from right to
-// left into their final positions in the desk bar view. It will also animate
-// existing desks to show them moving as a result of creating the new
-// mini_views.
-// |bar_view| is the desk bar view on which the new mini_views are being
-// added. |new_mini_views| contains a list of the newly-created mini_views.
-// |shift_x| is the amount by which the mini_views (new and existing) will be
-// moved horizontally as a result of creating the new mini_views.
+// Animates new desk mini_views, fading them into their final positions in the
+// desk bar view. It will also animate existing desks to show them moving as a
+// result of creating the new mini_views. `new_mini_views` contains a list of
+// the newly-created mini_views. `mini_views_left` are the mini views on the
+// left of the new mini views in the desks bar, while `mini_views_right` are the
+// mini views on the right side of the new mini views.
+// The new desk button and the library button (if it exists) will be moved to
+// the right. `shift_x` is the amount by which the mini_views (new and existing)
+// will be moved horizontally as a result of creating the new mini_views.
 //
 // * Notes:
 // - It assumes that the new mini_views have already been created, and all
@@ -29,27 +38,29 @@ class ExpandedDesksBarButton;
 //   positions.
 void PerformNewDeskMiniViewAnimation(
     DesksBarView* bar_view,
-    const std::vector<DeskMiniView*>& new_mini_views,
+    std::vector<DeskMiniView*> new_mini_views,
+    std::vector<DeskMiniView*> mini_views_left,
+    std::vector<DeskMiniView*> mini_views_right,
     int shift_x);
 
 // Performs the mini_view removal animation. It is in charge of removing the
-// |removed_mini_view| from the views hierarchy and deleting it.
+// |removed_mini_view| from the views hierarchy and deleting it. We also update
+// the |bar_view| desk buttons visibility once the animation completes.
 // |mini_views_left|, and |mini_views_right| are lists of the remaining
 // mini_views to left and to the right of the removed mini_view respectively.
-// |expanded_state_new_desk_button| will be moved to right the same as
-// |mini_views_right|. If |expanded_state_desks_templates_button| is non-null,
-// it will also be moved to the right the same as |mini_views_right|. Either
-// list can be empty (e.g. if the removed mini_view is the last one on the
-// right). |shift_x| is the amount by which the remaining mini_views will be
-// moved horizontally to occupy the space that the removed mini_view used to
-// occupy. It assumes that the remaining mini_views have been laid out in their
-// final positions as if the removed mini_view no longer exists.
+// The new desk button will be moved to right the same as `mini_views_right`. If
+// the library button is non-null, it will also be moved to the right the same
+// as `mini_views_right`. Either list can be empty (e.g. if the removed
+// mini_view is the last one on the right). `shift_x` is the amount by which the
+// remaining mini_views will be moved horizontally to occupy the space that the
+// removed mini_view used to occupy. It assumes that the remaining mini_views
+// have been laid out in their final positions as if the removed mini_view no
+// longer exists.
 void PerformRemoveDeskMiniViewAnimation(
+    DesksBarView* bar_view,
     DeskMiniView* removed_mini_view,
     std::vector<DeskMiniView*> mini_views_left,
     std::vector<DeskMiniView*> mini_views_right,
-    ExpandedDesksBarButton* expanded_state_new_desk_button,
-    ExpandedDesksBarButton* expanded_state_desks_templates_button,
     int shift_x);
 
 // Performs the animation of switching from zero state desks bar to expanded
@@ -57,6 +68,9 @@ void PerformRemoveDeskMiniViewAnimation(
 // ExpandedDesksBarButton. Also animates the desks bar view from the zero state
 // bar's height to the expanded bar's height.
 void PerformZeroStateToExpandedStateMiniViewAnimation(DesksBarView* bar_view);
+
+void PerformZeroStateToExpandedStateMiniViewAnimationCrOSNext(
+    DesksBarView* bar_view);
 
 // Performs the animation of switching from expanded state desks bar to zero
 // state desks bar. This happens when a desk is removed such that a single desk
@@ -89,6 +103,28 @@ void PerformReorderDeskMiniViewAnimation(
     int old_index,
     int new_index,
     const std::vector<DeskMiniView*>& mini_views);
+
+// Performs the animation which happens when the saved desk library button is
+// shown or hidden. Shifts all the mini views and the new desk button to the
+// left by `shift_x`.
+// * Notes:
+// - It assumes all the `mini_views` and new desk button have been laid out in
+//   their final positions.
+void PerformLibraryButtonVisibilityAnimation(
+    const std::vector<DeskMiniView*>& mini_views,
+    views::View* new_desk_button,
+    int shift_x);
+
+// Performs the `new_desk_button_` scale animation based on the given arguments.
+// It also shifts the mini views to the left and the library button to the right
+// by `shift_x` with animation.
+// * Notes:
+// - It assumes all the mini views in `bar_view`, new desk button and library
+// button have been laid out in their final positions.
+void PerformNewDeskButtonScaleAnimationCrOSNext(
+    DesksBarView* bar_view,
+    const gfx::Transform& new_desk_button_rects_transform,
+    int shift_x);
 
 }  // namespace ash
 

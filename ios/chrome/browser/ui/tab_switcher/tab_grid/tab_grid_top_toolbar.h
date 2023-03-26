@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,11 +23,12 @@
 //   Remote page:    [                   PageControl             Done]
 //   Selection mode: [SelectAll        SelectedTabsCount         Done]
 @interface TabGridTopToolbar : UIToolbar
+
 // These components are publicly available to allow the user to set their
 // contents, visibility and actions.
 @property(nonatomic, strong, readonly) UIBarButtonItem* anchorItem;
 @property(nonatomic, strong, readonly) TabGridPageControl* pageControl;
-// This property together with |mode| control the items shown in toolbar.
+// This property together with `mode` control the items shown in toolbar.
 @property(nonatomic, assign) TabGridPage page;
 // TabGrid mode, it controls the items shown in toolbar.
 @property(nonatomic, assign) TabGridMode mode;
@@ -50,19 +51,22 @@
 - (void)setCancelSearchButtonTarget:(id)target action:(SEL)action;
 // Sets the delegate for the searchbar.
 - (void)setSearchBarDelegate:(id<UISearchBarDelegate>)delegate;
-// Set |enabled| on the new tab button.
+// Set `enabled` on the search button.
+- (void)setSearchButtonEnabled:(BOOL)enabled;
+// Set `enabled` on the new tab button.
 - (void)setNewTabButtonEnabled:(BOOL)enabled;
-// Set |enabled| on the select all button.
+// Set `enabled` on the select all button.
 - (void)setSelectAllButtonEnabled:(BOOL)enabled;
-// Set |enabled| on the done button.
+// Set `enabled` on the done button.
 - (void)setDoneButtonEnabled:(BOOL)enabled;
-// Set |enabled| on the close all button.
+// Set `enabled` on the close all button.
 - (void)setCloseAllButtonEnabled:(BOOL)enabled;
-// use undo or closeAll text on the close all button based on |useUndo| value.
+// use undo or closeAll text on the close all button based on `useUndo` value.
 - (void)useUndoCloseAll:(BOOL)useUndo;
-// Sets the |menu| displayed on tapping the Edit button.
+
+// Sets the `menu` displayed on tapping the Edit button.
 - (void)setEditButtonMenu:(UIMenu*)menu API_AVAILABLE(ios(14.0));
-// Set |enabled| on the Edit button.
+// Set `enabled` on the Edit button.
 - (void)setEditButtonEnabled:(BOOL)enabled;
 
 // Sets the title of the Select All button to "Deselect All".
@@ -75,6 +79,9 @@
 - (void)hide;
 // Recovers the normal appearance for tab grid transition animation.
 - (void)show;
+// Updates the appearance of the this toolbar, based on whether the content
+// below it is `scrolledToEdge` or not.
+- (void)setScrollViewScrolledToEdge:(BOOL)scrolledToEdge;
 
 @end
 

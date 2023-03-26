@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/common/buildflags.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/metadata/metadata_header_macros.h"
@@ -29,12 +28,6 @@
 #include "ui/views/window/native_frame_view.h"
 #include "ui/views/window/non_client_view.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "ash/public/cpp/app_list/app_list_color_provider.h"
-#include "third_party/skia/include/core/SkPaint.h"
-#include "ui/views/background.h"
-#endif
-
 namespace {
 
 #if BUILDFLAG(IS_MAC)
@@ -45,33 +38,6 @@ const ui::ModalType kModalType = ui::MODAL_TYPE_WINDOW;
 const views::BubbleBorder::Shadow kShadowType =
     views::BubbleBorder::STANDARD_SHADOW;
 #endif
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-// The background for App List dialogs, which appears as a rounded rectangle
-// with the same border radius and color as the app list contents.
-class AppListOverlayBackground : public views::Background {
- public:
-  AppListOverlayBackground() = default;
-  AppListOverlayBackground(const AppListOverlayBackground&) = delete;
-  AppListOverlayBackground& operator=(const AppListOverlayBackground&) = delete;
-  ~AppListOverlayBackground() override = default;
-
-  // Overridden from views::Background:
-  void Paint(gfx::Canvas* canvas, views::View* view) const override {
-    // The radius of the app list overlay (the dialog's background).
-    // TODO(sashab): Using SupportsShadow() from app_list_view.cc, make this
-    // 1px smaller on platforms that support shadows.
-    const int kAppListOverlayBorderRadius = 3;
-
-    cc::PaintFlags flags;
-    flags.setStyle(cc::PaintFlags::kFill_Style);
-    flags.setColor(
-        ash::AppListColorProvider::Get()->GetContentsBackgroundColor());
-    canvas->DrawRoundRect(view->GetContentsBounds(),
-                          kAppListOverlayBorderRadius, flags);
-  }
-};
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // A BubbleFrameView that allows its client view to extend all the way to the
 // top of the dialog, overlapping the BubbleFrameView's close button. This
@@ -106,7 +72,6 @@ class NativeDialogContainer : public views::DialogDelegateView {
     SetModalType(kModalType);
     AddChildView(std::move(dialog_body));
     SetLayoutManager(std::make_unique<views::FillLayout>());
-    chrome::RecordDialogCreation(chrome::DialogIdentifier::NATIVE_CONTAINER);
     SetPreferredSize(size);
 
     if (!close_callback.is_null()) {
@@ -122,10 +87,8 @@ class NativeDialogContainer : public views::DialogDelegateView {
   std::unique_ptr<views::NonClientFrameView> CreateNonClientFrameView(
       views::Widget* widget) override {
     auto frame = std::make_unique<FullSizeBubbleFrameView>();
-    auto border = std::make_unique<views::BubbleBorder>(
-        views::BubbleBorder::FLOAT, kShadowType, gfx::kPlaceholderColor);
-    border->set_use_theme_background_color(true);
-    frame->SetBubbleBorder(std::move(border));
+    frame->SetBubbleBorder(std::make_unique<views::BubbleBorder>(
+        views::BubbleBorder::FLOAT, kShadowType));
     return frame;
   }
 };

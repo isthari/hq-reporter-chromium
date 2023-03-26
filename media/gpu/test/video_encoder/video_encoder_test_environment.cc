@@ -1,22 +1,22 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "media/gpu/test/video_encoder/video_encoder_test_environment.h"
 
-#include <algorithm>
 #include <iterator>
 #include <utility>
 
 #include "base/containers/flat_set.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/pattern.h"
 #include "base/system/sys_info.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
 #include "build/chromeos_buildflags.h"
 #include "gpu/ipc/service/gpu_memory_buffer_factory.h"
+#include "media/base/bitrate.h"
 #include "media/base/media_switches.h"
-#include "media/base/video_bitrate_allocation.h"
 #include "media/gpu/buildflags.h"
 #include "media/gpu/gpu_video_encode_accelerator_helpers.h"
 #include "media/gpu/macros.h"
@@ -97,10 +97,11 @@ VideoEncoderTestEnvironment* VideoEncoderTestEnvironment::Create(
     size_t num_spatial_layers,
     bool save_output_bitstream,
     absl::optional<uint32_t> encode_bitrate,
+    Bitrate::Mode bitrate_mode,
     bool reverse,
     const FrameOutputConfig& frame_output_config,
-    const std::vector<base::Feature>& enabled_features,
-    const std::vector<base::Feature>& disabled_features) {
+    const std::vector<base::test::FeatureRef>& enabled_features,
+    const std::vector<base::test::FeatureRef>& disabled_features) {
   if (video_path.empty()) {
     LOG(ERROR) << "No video specified";
     return nullptr;
@@ -130,9 +131,8 @@ VideoEncoderTestEnvironment* VideoEncoderTestEnvironment::Create(
     return nullptr;
   }
 
-  const auto* it = std::find_if(
-      std::begin(kCodecParamToProfile), std::end(kCodecParamToProfile),
-      [codec](const auto& cp) { return cp.codec == codec; });
+  const auto* it = base::ranges::find(kCodecParamToProfile, codec,
+                                      &CodecParamToProfile::codec);
   if (it == std::end(kCodecParamToProfile)) {
     LOG(ERROR) << "Unknown codec: " << codec;
     return nullptr;
@@ -147,8 +147,10 @@ VideoEncoderTestEnvironment* VideoEncoderTestEnvironment::Create(
 
   // TODO(b/182008564) Add checks to make sure no features are duplicated, and
   // there is no intersection between the enabled and disabled set.
-  std::vector<base::Feature> combined_enabled_features(enabled_features);
-  std::vector<base::Feature> combined_disabled_features(disabled_features);
+  std::vector<base::test::FeatureRef> combined_enabled_features(
+      enabled_features);
+  std::vector<base::test::FeatureRef> combined_disabled_features(
+      disabled_features);
   combined_disabled_features.push_back(media::kFFmpegDecodeOpaqueVP8);
 #if BUILDFLAG(USE_VAAPI)
   // TODO(crbug.com/828482): remove once enabled by default.
@@ -165,10 +167,31 @@ VideoEncoderTestEnvironment* VideoEncoderTestEnvironment::Create(
 #if BUILDFLAG(IS_CHROMEOS) && BUILDFLAG(USE_VAAPI)
   // TODO(crbug.com/1186051): remove once enabled by default.
   combined_enabled_features.push_back(media::kVaapiVp9kSVCHWEncoding);
+  // TODO(b/202926617): remove once enabled by default.
+  combined_enabled_features.push_back(media::kVaapiVp8TemporalLayerHWEncoding);
 #endif
 
-  const uint32_t bitrate = encode_bitrate.value_or(
+#if BUILDFLAG(IS_LINUX) && BUILDFLAG(USE_VAAPI)
+  combined_enabled_features.push_back(media::kVaapiVideoEncodeLinux);
+#endif
+
+#if BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
+  combined_enabled_features.push_back(media::kChromeOSHWVBREncoding);
+#endif
+
+  const uint32_t target_bitrate = encode_bitrate.value_or(
       GetDefaultTargetBitrate(video->Resolution(), video->FrameRate()));
+  // TODO(b/181797390): Reconsider if this peak bitrate is reasonable.
+  const media::Bitrate bitrate =
+      bitrate_mode == media::Bitrate::Mode::kVariable
+          ? media::Bitrate::VariableBitrate(target_bitrate,
+                                            /*peak_bps=*/target_bitrate * 2)
+          : media::Bitrate::ConstantBitrate(target_bitrate);
+  if (bitrate.mode() == media::Bitrate::Mode::kVariable &&
+      VideoCodecProfileToVideoCodec(profile) != VideoCodec::kH264) {
+    LOG(ERROR) << "VBR is only supported for H264 encoding";
+    return nullptr;
+  }
   return new VideoEncoderTestEnvironment(
       std::move(video), enable_bitstream_validator, output_folder, profile,
       num_temporal_layers, num_spatial_layers, bitrate, save_output_bitstream,
@@ -183,12 +206,12 @@ VideoEncoderTestEnvironment::VideoEncoderTestEnvironment(
     VideoCodecProfile profile,
     size_t num_temporal_layers,
     size_t num_spatial_layers,
-    uint32_t bitrate,
+    const Bitrate& bitrate,
     bool save_output_bitstream,
     bool reverse,
     const FrameOutputConfig& frame_output_config,
-    const std::vector<base::Feature>& enabled_features,
-    const std::vector<base::Feature>& disabled_features)
+    const std::vector<base::test::FeatureRef>& enabled_features,
+    const std::vector<base::test::FeatureRef>& disabled_features)
     : VideoTestEnvironment(enabled_features, disabled_features),
       video_(std::move(video)),
       enable_bitstream_validator_(enable_bitstream_validator),
@@ -240,7 +263,8 @@ VideoEncoderTestEnvironment::SpatialLayers() const {
   return spatial_layers_;
 }
 
-VideoBitrateAllocation VideoEncoderTestEnvironment::Bitrate() const {
+const VideoBitrateAllocation& VideoEncoderTestEnvironment::BitrateAllocation()
+    const {
   return bitrate_;
 }
 

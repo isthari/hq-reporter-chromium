@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,23 @@ import SwiftUI
   /// The user-visible name of the item.
   @Published public var name: String
 
-  /// The name of the image used to load the image for SwiftUI.
-  @Published public var imageName: String
+  /// The name of the symbol to be used.
+  @Published public var symbolName: String
+
+  /// Whether the symbol is a system one (or a custom one).
+  @Published public var systemSymbol: Bool
+
+  /// Whether the symbol is monochrome or default configuration.
+  @Published public var monochromeSymbol: Bool
+
+  /// The base `UIImage` used to load the image for SwiftUI.
+  /// TODO(crbug.com/1315544): Remove this once the symbols have shipped.
+  @Published public var storedImage: UIImage
 
   /// The SwiftUI `Image` for the action icon.
+  /// TODO(crbug.com/1315544): Remove this once the symbols have shipped.
   public var image: Image {
-    return Image(imageName)
+    return Image(uiImage: self.storedImage)
   }
 
   /// The accessibility identifier for this item.
@@ -27,15 +38,35 @@ import SwiftUI
   @Published public var handler: () -> Void
 
   public init(
-    name: String, imageName: String, accessibilityIdentifier: String, enterpriseDisabled: Bool,
+    name: String, image: UIImage, accessibilityIdentifier: String, enterpriseDisabled: Bool,
     handler: @escaping () -> Void
   ) {
     self.name = name
-    self.imageName = imageName
+    storedImage = image
+    symbolName = ""
+    systemSymbol = false
+    monochromeSymbol = false
     self.accessibilityIdentifier = accessibilityIdentifier
     self.enterpriseDisabled = enterpriseDisabled
     self.handler = handler
   }
+
+  public init(
+    name: String, symbolName: String, systemSymbol: Bool, monochromeSymbol: Bool,
+    accessibilityIdentifier: String,
+    enterpriseDisabled: Bool,
+    handler: @escaping () -> Void
+  ) {
+    self.name = name
+    self.storedImage = UIImage()
+    self.symbolName = symbolName
+    self.systemSymbol = systemSymbol
+    self.monochromeSymbol = monochromeSymbol
+    self.accessibilityIdentifier = accessibilityIdentifier
+    self.enterpriseDisabled = enterpriseDisabled
+    self.handler = handler
+  }
+
 }
 
 // MARK: - Identifiable

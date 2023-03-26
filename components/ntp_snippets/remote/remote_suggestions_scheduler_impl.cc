@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,12 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_split.h"
 #include "base/time/clock.h"
 #include "components/ntp_snippets/features.h"
@@ -112,24 +112,23 @@ const char* kFetchingIntervalParamNameActiveSuggestionsConsumer[] = {
 
 static_assert(
     static_cast<unsigned int>(FetchingInterval::COUNT) ==
-            base::size(kDefaultFetchingIntervalHoursRareNtpUser) &&
+            std::size(kDefaultFetchingIntervalHoursRareNtpUser) &&
         static_cast<unsigned int>(FetchingInterval::COUNT) ==
-            base::size(kDefaultFetchingIntervalHoursActiveNtpUser) &&
+            std::size(kDefaultFetchingIntervalHoursActiveNtpUser) &&
         static_cast<unsigned int>(FetchingInterval::COUNT) ==
-            base::size(
-                kDefaultFetchingIntervalHoursActiveSuggestionsConsumer) &&
+            std::size(kDefaultFetchingIntervalHoursActiveSuggestionsConsumer) &&
         static_cast<unsigned int>(FetchingInterval::COUNT) ==
-            base::size(kM58FetchingIntervalHoursRareNtpUser) &&
+            std::size(kM58FetchingIntervalHoursRareNtpUser) &&
         static_cast<unsigned int>(FetchingInterval::COUNT) ==
-            base::size(kM58FetchingIntervalHoursActiveNtpUser) &&
+            std::size(kM58FetchingIntervalHoursActiveNtpUser) &&
         static_cast<unsigned int>(FetchingInterval::COUNT) ==
-            base::size(kM58FetchingIntervalHoursActiveSuggestionsConsumer) &&
+            std::size(kM58FetchingIntervalHoursActiveSuggestionsConsumer) &&
         static_cast<unsigned int>(FetchingInterval::COUNT) ==
-            base::size(kFetchingIntervalParamNameRareNtpUser) &&
+            std::size(kFetchingIntervalParamNameRareNtpUser) &&
         static_cast<unsigned int>(FetchingInterval::COUNT) ==
-            base::size(kFetchingIntervalParamNameActiveNtpUser) &&
+            std::size(kFetchingIntervalParamNameActiveNtpUser) &&
         static_cast<unsigned int>(FetchingInterval::COUNT) ==
-            base::size(kFetchingIntervalParamNameActiveSuggestionsConsumer),
+            std::size(kFetchingIntervalParamNameActiveSuggestionsConsumer),
     "Fill in all the info for fetching intervals.");
 
 // For backward compatibility "ntp_opened" value is kept and denotes the
@@ -154,7 +153,7 @@ base::TimeDelta GetDesiredFetchingInterval(
     UserClassifier::UserClass user_class) {
   DCHECK(interval != FetchingInterval::COUNT);
   const unsigned int index = static_cast<unsigned int>(interval);
-  DCHECK(index < base::size(kDefaultFetchingIntervalHoursRareNtpUser));
+  DCHECK(index < std::size(kDefaultFetchingIntervalHoursRareNtpUser));
 
   bool emulateM58 = base::FeatureList::IsEnabled(
       kRemoteSuggestionsEmulateM58FetchingSchedule);
@@ -839,15 +838,6 @@ void RemoteSuggestionsSchedulerImpl::OnFetchCompleted(Status fetch_status) {
 }
 
 void RemoteSuggestionsSchedulerImpl::ClearLastFetchAttemptTime() {
-  // Added during Feed rollout to help investigate https://crbug.com/908963.
-  base::TimeDelta attempt_age =
-      clock_->Now() -
-      profile_prefs_->GetTime(prefs::kSnippetLastFetchAttemptTime);
-  UMA_HISTOGRAM_CUSTOM_TIMES(
-      "ContentSuggestions.Feed.Scheduler.TimeSinceLastFetchOnClear",
-      attempt_age, base::Seconds(1), base::Days(7),
-      /*bucket_count=*/50);
-
   profile_prefs_->ClearPref(prefs::kSnippetLastFetchAttemptTime);
   // To mark the last fetch as stale, we need to keep the time in prefs, only
   // making sure it is long ago.
@@ -857,7 +847,7 @@ void RemoteSuggestionsSchedulerImpl::ClearLastFetchAttemptTime() {
 std::set<RemoteSuggestionsSchedulerImpl::TriggerType>
 RemoteSuggestionsSchedulerImpl::GetEnabledTriggerTypes() {
   static_assert(static_cast<unsigned int>(TriggerType::COUNT) ==
-                    base::size(kTriggerTypeNames),
+                    std::size(kTriggerTypeNames),
                 "Fill in names for trigger types.");
 
   std::string param_value = base::GetFieldTrialParamValueByFeature(
@@ -874,8 +864,7 @@ RemoteSuggestionsSchedulerImpl::GetEnabledTriggerTypes() {
 
   std::set<TriggerType> enabled_types;
   for (const auto& token : tokens) {
-    auto* const* it = std::find(std::begin(kTriggerTypeNames),
-                                std::end(kTriggerTypeNames), token);
+    auto* const* it = base::ranges::find(kTriggerTypeNames, token);
     if (it == std::end(kTriggerTypeNames)) {
       DLOG(WARNING) << "Failed to parse variation param "
                     << kTriggerTypesParamName << " with string value "

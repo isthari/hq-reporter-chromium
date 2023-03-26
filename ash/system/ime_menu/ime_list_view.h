@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -112,6 +112,10 @@ class ImeListView : public TrayDetailedView {
 
   // The item view of the current selected IME.
   views::View* current_ime_view_ = nullptr;
+
+  // The container for the IME list. Either a ScrollView (pre-QsRevamp) or a
+  // RoundedContainer (post-QsRevamp).
+  views::View* container_ = nullptr;
 };
 
 class ASH_EXPORT ImeListViewTestApi {

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,35 +6,33 @@
 
 #import <Foundation/Foundation.h>
 
-#include <memory>
+#import <memory>
 
-#include "base/strings/sys_string_conversions.h"
-#include "components/language/core/browser/language_prefs.h"
-#include "components/language/core/browser/pref_names.h"
-#include "components/language/ios/browser/ios_language_detection_tab_helper.h"
-#include "components/prefs/pref_registry_simple.h"
-#include "components/prefs/testing_pref_service.h"
-#include "components/translate/core/browser/mock_translate_ranker.h"
-#include "components/translate/core/browser/translate_pref_names.h"
-#include "components/translate/core/browser/translate_prefs.h"
-#import "ios/web/public/deprecated/crw_test_js_injection_receiver.h"
-#include "ios/web/public/test/fakes/fake_browser_state.h"
-#import "ios/web/public/test/fakes/fake_navigation_manager.h"
-#import "ios/web/public/test/fakes/fake_web_state.h"
-#include "ios/web/public/test/scoped_testing_web_client.h"
-#include "ios/web/public/test/web_task_environment.h"
-#include "ios/web/public/web_client.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/language/core/browser/language_prefs.h"
+#import "components/language/core/browser/pref_names.h"
+#import "components/language/ios/browser/ios_language_detection_tab_helper.h"
+#import "components/prefs/pref_registry_simple.h"
+#import "components/prefs/testing_pref_service.h"
+#import "components/translate/core/browser/mock_translate_ranker.h"
+#import "components/translate/core/browser/translate_pref_names.h"
+#import "components/translate/core/browser/translate_prefs.h"
+#import "components/translate/core/language_detection/language_detection_model.h"
+#import "ios/web/public/test/fakes/fake_browser_state.h"
+#import "ios/web/public/test/scoped_testing_web_client.h"
+#import "ios/web/public/test/web_task_environment.h"
+#import "ios/web/public/web_client.h"
 #import "ios/web_view/internal/translate/cwv_translation_language_internal.h"
 #import "ios/web_view/internal/translate/web_view_translate_client.h"
-#include "ios/web_view/internal/web_view_browser_state.h"
+#import "ios/web_view/internal/web_view_browser_state.h"
 #import "ios/web_view/public/cwv_translation_controller_delegate.h"
 #import "ios/web_view/public/cwv_translation_policy.h"
-#include "ios/web_view/test/test_with_locale_and_resources.h"
-#include "testing/gtest/include/gtest/gtest.h"
+#import "ios/web_view/test/test_with_locale_and_resources.h"
+#import "testing/gtest/include/gtest/gtest.h"
 #import "testing/gtest_mac.h"
-#include "testing/platform_test.h"
+#import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
-#include "third_party/ocmock/gtest_support.h"
+#import "third_party/ocmock/gtest_support.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -58,11 +56,13 @@ class MockWebViewTranslateClient : public WebViewTranslateClient {
       PrefService* pref_service,
       translate::TranslateRanker* translate_ranker,
       language::LanguageModel* language_model,
+      language::UrlLanguageHistogram* url_language_histogram,
       web::WebState* web_state,
-      translate::TranslateAcceptLanguages* accept_languages)
+      language::AcceptLanguagesService* accept_languages)
       : WebViewTranslateClient(pref_service,
                                translate_ranker,
                                language_model,
+                               url_language_histogram,
                                web_state,
                                accept_languages) {}
   MOCK_METHOD3(TranslatePage,
@@ -78,18 +78,9 @@ class TestLanguageModel : public language::LanguageModel {
 class CWVTranslationControllerTest : public TestWithLocaleAndResources {
  protected:
   CWVTranslationControllerTest() {
-    auto test_navigation_manager =
-        std::make_unique<web::FakeNavigationManager>();
-    test_navigation_manager->SetBrowserState(&browser_state_);
-    web_state_.SetBrowserState(&browser_state_);
-    web_state_.SetNavigationManager(std::move(test_navigation_manager));
-    CRWTestJSInjectionReceiver* injection_receiver =
-        [[CRWTestJSInjectionReceiver alloc] init];
-    web_state_.SetJSInjectionReceiver(injection_receiver);
-
-    language::IOSLanguageDetectionTabHelper::CreateForWebState(
-        &web_state_,
-        /*url_language_histogram=*/nullptr);
+    web::WebState::CreateParams params(&browser_state_);
+    web_state_ = web::WebState::Create(params);
+    web_state_->SetKeepRenderProcessAlive(true);
 
     pref_service_.registry()->RegisterStringPref(
         language::prefs::kAcceptLanguages, "en");
@@ -105,7 +96,7 @@ class CWVTranslationControllerTest : public TestWithLocaleAndResources {
     pref_service_.registry()->RegisterListPref(
         translate::TranslatePrefs::kPrefNeverPromptSitesDeprecated);
     pref_service_.registry()->RegisterDictionaryPref(
-        translate::TranslatePrefs::kPrefNeverPromptSitesWithTime);
+        translate::prefs::kPrefNeverPromptSitesWithTime);
     pref_service_.registry()->RegisterDictionaryPref(
         translate::prefs::kPrefAlwaysTranslateList);
     pref_service_.registry()->RegisterDictionaryPref(
@@ -127,16 +118,22 @@ class CWVTranslationControllerTest : public TestWithLocaleAndResources {
     pref_service_.registry()->RegisterDictionaryPref(
         translate::TranslatePrefs::kPrefTranslateAutoNeverCount);
 
-    accept_languages_ = std::make_unique<translate::TranslateAcceptLanguages>(
+    accept_languages_ = std::make_unique<language::AcceptLanguagesService>(
         &pref_service_, language::prefs::kAcceptLanguages);
 
+    language::IOSLanguageDetectionTabHelper::CreateForWebState(
+        web_state_.get(),
+        /*url_language_histogram=*/nullptr, &language_detection_model_,
+        &pref_service_);
+
     auto translate_client = std::make_unique<MockWebViewTranslateClient>(
-        &pref_service_, &translate_ranker_, &language_model_, &web_state_,
+        &pref_service_, &translate_ranker_, &language_model_,
+        /*url_language_histogram=*/nullptr, web_state_.get(),
         accept_languages_.get());
     translate_client_ = translate_client.get();
 
     translation_controller_ = [[CWVTranslationController alloc]
-        initWithWebState:&web_state_
+        initWithWebState:web_state_.get()
          translateClient:std::move(translate_client)];
 
     translate_prefs_ = translate_client_->GetTranslatePrefs();
@@ -158,12 +155,13 @@ class CWVTranslationControllerTest : public TestWithLocaleAndResources {
   translate::testing::MockTranslateRanker translate_ranker_;
   TestLanguageModel language_model_;
   TestingPrefServiceSimple pref_service_;
-  std::unique_ptr<translate::TranslateAcceptLanguages> accept_languages_;
+  std::unique_ptr<language::AcceptLanguagesService> accept_languages_;
   web::FakeBrowserState browser_state_;
-  web::FakeWebState web_state_;
+  std::unique_ptr<web::WebState> web_state_;
   MockWebViewTranslateClient* translate_client_;
   CWVTranslationController* translation_controller_;
   std::unique_ptr<translate::TranslatePrefs> translate_prefs_;
+  translate::LanguageDetectionModel language_detection_model_;
 };
 
 // Tests CWVTranslationController invokes can offer delegate method.

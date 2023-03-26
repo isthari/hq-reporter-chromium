@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 
+#include "base/time/time.h"
 #include "ios/web/public/favicon/favicon_status.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #include "ios/web/public/navigation/referrer.h"
@@ -60,8 +61,8 @@ class NavigationItemImpl : public web::NavigationItem {
   bool HasPostData() const override;
   NSDictionary* GetHttpRequestHeaders() const override;
   void AddHttpRequestHeaders(NSDictionary* additional_headers) override;
-  void SetUpgradedToHttps() override;
-  bool IsUpgradedToHttps() const override;
+  void SetHttpsUpgradeType(HttpsUpgradeType https_upgrade_type) override;
+  HttpsUpgradeType GetHttpsUpgradeType() const override;
 
   // Serialized representation of the state object that was used in conjunction
   // with a JavaScript window.history.pushState() or
@@ -80,11 +81,6 @@ class NavigationItemImpl : public web::NavigationItem {
       web::NavigationInitiationType navigation_initiation_type);
   web::NavigationInitiationType NavigationInitiationType() const;
 
-  // Whether or not to bypass showing the repost form confirmation when loading
-  // a POST request. Set to YES for browser-generated POST requests.
-  void SetShouldSkipRepostFormConfirmation(bool skip);
-  bool ShouldSkipRepostFormConfirmation() const;
-
   // Whether or not to bypass serializing this item to session storage.  Set to
   // YES to skip saving this page (and therefore restoring this page).
   void SetShouldSkipSerialization(bool skip);
@@ -94,27 +90,27 @@ class NavigationItemImpl : public web::NavigationItem {
   void SetPostData(NSData* post_data);
   NSData* GetPostData() const;
 
-  // Removes the header for |key| from |http_request_headers_|.
+  // Removes the header for `key` from `http_request_headers_`.
   void RemoveHttpRequestHeaderForKey(NSString* key);
 
-  // Removes all http headers from |http_request_headers_|.
+  // Removes all http headers from `http_request_headers_`.
   void ResetHttpRequestHeaders();
 
   // Once a navigation item is committed, we should no longer track
   // non-persisted state, as documented on the members below.
   void ResetForCommit();
 
-  // Returns the title string to be used for a page with |url| if that page
+  // Returns the title string to be used for a page with `url` if that page
   // doesn't specify a title.
   static std::u16string GetDisplayTitleForURL(const GURL& url);
 
   // Used only by NavigationManagerImpl.  SetUntrusted() is only used for
-  // Visible or LastCommitted NavigationItems where the |url_| may be incorrect
+  // Visible or LastCommitted NavigationItems where the `url_` may be incorrect
   // due to timining problems or bugs in WKWebView.
   void SetUntrusted();
   bool IsUntrusted();
 
-  // Restores the state of the |other| navigation item in this item.
+  // Restores the state of the `other` navigation item in this item.
   void RestoreStateFromItem(NavigationItem* other);
 
 #ifndef NDEBUG
@@ -143,17 +139,16 @@ class NavigationItemImpl : public web::NavigationItem {
 
   NSString* serialized_state_object_;
   bool is_created_from_hash_change_;
-  bool should_skip_repost_form_confirmation_;
   bool should_skip_serialization_;
   NSData* post_data_;
 
   // The navigation initiation type of the item.  This decides whether the URL
   // should be displayed before the navigation commits.  It is cleared in
-  // |ResetForCommit| and not persisted.
+  // `ResetForCommit` and not persisted.
   web::NavigationInitiationType navigation_initiation_type_;
 
-  // Used only by NavigationManagerImpl.  |is_untrusted_| is only |true| for
-  // Visible or LastCommitted NavigationItems where the |url_| may be incorrect
+  // Used only by NavigationManagerImpl.  `is_untrusted_` is only `true` for
+  // Visible or LastCommitted NavigationItems where the `url_` may be incorrect
   // due to timining problems or bugs in WKWebView.
   bool is_untrusted_;
 
@@ -161,9 +156,8 @@ class NavigationItemImpl : public web::NavigationItem {
   // virtual URL, or title is set, this should be cleared to force a refresh.
   mutable std::u16string cached_display_title_;
 
-  // True if this navigation was typed without a scheme and its URL is using
-  // https:// as the default scheme.
-  bool is_upgraded_to_https_;
+  // Type of the HTTPS upgrade applied to this navigation, if any.
+  HttpsUpgradeType https_upgrade_type_;
 
   // Copy and assignment is explicitly allowed for this class.
 };

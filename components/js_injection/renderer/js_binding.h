@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,13 @@
 #include <string>
 
 #include "base/auto_reset.h"
+#include "base/memory/weak_ptr.h"
 #include "components/js_injection/common/interfaces.mojom.h"
 #include "gin/arguments.h"
 #include "gin/wrappable.h"
 #include "mojo/public/cpp/bindings/associated_receiver.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
+#include "third_party/blink/public/common/messaging/string_message_codec.h"
 
 namespace v8 {
 template <typename T>
@@ -26,35 +28,35 @@ class RenderFrame;
 
 namespace js_injection {
 class JsCommunication;
-// A gin::Wrappable class used for providing JavaScript API. We will inject the
-// object of this class to JavaScript world in JsCommunication.
-// JsCommunication will own at most one instance of this class. When the
-// RenderFrame gone or another DidClearWindowObject comes, the instance will be
-// destroyed.
+
+// A gin::Wrappable class used for providing JavaScript API. JsCommunication
+// creates an instance of JsBinding for each unique name exposed to the page.
+// JsBinding is owned by v8.
 class JsBinding final : public gin::Wrappable<JsBinding>,
                         public mojom::BrowserToJsMessaging {
  public:
   static gin::WrapperInfo kWrapperInfo;
 
-  static std::unique_ptr<JsBinding> Install(
-      content::RenderFrame* render_frame,
-      const std::u16string& js_object_name,
-      JsCommunication* js_java_configurator);
-
-  // mojom::BrowserToJsMessaging implementation.
-  void OnPostMessage(const std::u16string& message) override;
-
-  void ReleaseV8GlobalObjects();
-
   JsBinding(const JsBinding&) = delete;
   JsBinding& operator=(const JsBinding&) = delete;
 
+  static base::WeakPtr<JsBinding> Install(
+      content::RenderFrame* render_frame,
+      const std::u16string& js_object_name,
+      base::WeakPtr<JsCommunication> js_communication);
+
+  // mojom::BrowserToJsMessaging implementation.
+  void OnPostMessage(blink::WebMessagePayload message) override;
+
+  void ReleaseV8GlobalObjects();
+
+ protected:
   ~JsBinding() override;
 
  private:
   explicit JsBinding(content::RenderFrame* render_frame,
                      const std::u16string& js_object_name,
-                     JsCommunication* js_java_configurator);
+                     base::WeakPtr<JsCommunication> js_java_configurator);
 
   // gin::Wrappable implementation
   gin::ObjectTemplateBuilder GetObjectTemplateBuilder(
@@ -75,11 +77,12 @@ class JsBinding final : public gin::Wrappable<JsBinding>,
   std::u16string js_object_name_;
   v8::Global<v8::Function> on_message_;
   std::vector<v8::Global<v8::Function>> listeners_;
-  // |js_java_configurator| owns JsBinding objects, so it will out live
-  // JsBinding's life cycle, it is safe to access it.
-  JsCommunication* js_java_configurator_;
+
+  base::WeakPtr<JsCommunication> js_communication_;
 
   mojo::AssociatedReceiver<mojom::BrowserToJsMessaging> receiver_{this};
+
+  base::WeakPtrFactory<JsBinding> weak_ptr_factory_{this};
 };
 
 }  // namespace js_injection

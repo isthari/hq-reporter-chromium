@@ -1,9 +1,12 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/test/base/browser_with_test_window_test.h"
 
+#include <memory>
+
+#include "base/command_line.h"
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "build/build_config.h"
@@ -14,6 +17,7 @@
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
@@ -30,7 +34,6 @@
 #include "components/constrained_window/constrained_window_views.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/ash/app_mode/kiosk_app_manager.h"
 #include "content/public/browser/context_factory.h"
 #endif
 #endif
@@ -38,6 +41,7 @@
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ash/crosapi/crosapi_manager.h"
 #include "chrome/browser/ash/crosapi/idle_service_ash.h"
+#include "chrome/browser/ash/crosapi/test_crosapi_dependency_registry.h"
 #include "components/user_manager/fake_user_manager.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "components/user_manager/user_manager.h"
@@ -57,6 +61,9 @@ BrowserWithTestWindowTest::~BrowserWithTestWindowTest() {}
 
 void BrowserWithTestWindowTest::SetUp() {
   testing::Test::SetUp();
+
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(switches::kNoFirstRun);
+
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   if (!user_manager::UserManager::IsInitialized()) {
     scoped_user_manager_ = std::make_unique<user_manager::ScopedUserManager>(
@@ -87,7 +94,8 @@ void BrowserWithTestWindowTest::SetUp() {
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   crosapi::IdleServiceAsh::DisableForTesting();
-  manager_ = std::make_unique<crosapi::CrosapiManager>();
+  manager_ = crosapi::CreateCrosapiManagerWithTestRegistry();
+  kiosk_app_manager_ = std::make_unique<ash::KioskAppManager>();
 #endif
 
   // Subclasses can provide their own Profile.
@@ -123,6 +131,7 @@ void BrowserWithTestWindowTest::TearDown() {
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   manager_.reset();
+  kiosk_app_manager_.reset();
 #endif
 
   // Calling DeleteAllTestingProfiles() first can cause issues in some tests, if
@@ -136,11 +145,6 @@ void BrowserWithTestWindowTest::TearDown() {
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  // If initialized, the KioskAppManager will register an observer to
-  // CrosSettings and will need to be destroyed before it. Having it destroyed
-  // as part of the teardown will avoid unexpected test failures.
-  ash::KioskAppManager::Shutdown();
-
   ash_test_helper_.TearDown();
   test_views_delegate_.reset();
 #elif defined(TOOLKIT_VIEWS)
@@ -203,7 +207,7 @@ void BrowserWithTestWindowTest::NavigateAndCommitActiveTabWithTitle(
 
 TestingProfile* BrowserWithTestWindowTest::CreateProfile() {
   return profile_manager_->CreateTestingProfile(
-      "testing_profile", nullptr, std::u16string(), 0, std::string(),
+      TestingProfile::kDefaultProfileUserName, nullptr, std::u16string(), 0,
       GetTestingFactories());
 }
 
@@ -241,8 +245,7 @@ BrowserWithTestWindowTest::GetCrosSettingsHelper() {
   return &cros_settings_test_helper_;
 }
 
-chromeos::StubInstallAttributes*
-BrowserWithTestWindowTest::GetInstallAttributes() {
+ash::StubInstallAttributes* BrowserWithTestWindowTest::GetInstallAttributes() {
   return GetCrosSettingsHelper()->InstallAttributes();
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)

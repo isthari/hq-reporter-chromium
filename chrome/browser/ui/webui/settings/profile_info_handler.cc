@@ -1,10 +1,10 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/webui/settings/profile_info_handler.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
@@ -16,7 +16,7 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/ui/webui/chromeos/user_image_source.h"
+#include "chrome/browser/ui/webui/ash/user_image_source.h"
 #include "components/account_id/account_id.h"
 #include "components/user_manager/user_manager.h"
 #else
@@ -38,19 +38,19 @@ ProfileInfoHandler::ProfileInfoHandler(Profile* profile) : profile_(profile) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // Set up the chrome://userimage/ source.
   content::URLDataSource::Add(profile,
-                              std::make_unique<chromeos::UserImageSource>());
+                              std::make_unique<ash::UserImageSource>());
 #endif
 }
 
 ProfileInfoHandler::~ProfileInfoHandler() {}
 
 void ProfileInfoHandler::RegisterMessages() {
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "getProfileInfo",
       base::BindRepeating(&ProfileInfoHandler::HandleGetProfileInfo,
                           base::Unretained(this)));
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "getProfileStatsCount",
       base::BindRepeating(&ProfileInfoHandler::HandleGetProfileStats,
                           base::Unretained(this)));
@@ -97,17 +97,17 @@ void ProfileInfoHandler::OnProfileAvatarChanged(
   PushProfileInfo();
 }
 
-void ProfileInfoHandler::HandleGetProfileInfo(const base::ListValue* args) {
+void ProfileInfoHandler::HandleGetProfileInfo(const base::Value::List& args) {
   AllowJavascript();
 
-  CHECK_EQ(1U, args->GetList().size());
-  const base::Value& callback_id = args->GetList()[0];
+  CHECK_EQ(1U, args.size());
+  const base::Value& callback_id = args[0];
 
-  ResolveJavascriptCallback(callback_id, *GetAccountNameAndIcon());
+  ResolveJavascriptCallback(callback_id, GetAccountNameAndIcon());
 }
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-void ProfileInfoHandler::HandleGetProfileStats(const base::ListValue* args) {
+void ProfileInfoHandler::HandleGetProfileStats(const base::Value::List& args) {
   AllowJavascript();
 
   ProfileStatisticsFactory::GetForProfile(profile_)->GatherStatistics(
@@ -129,11 +129,10 @@ void ProfileInfoHandler::PushProfileStatsCount(
 #endif
 
 void ProfileInfoHandler::PushProfileInfo() {
-  FireWebUIListener(kProfileInfoChangedEventName, *GetAccountNameAndIcon());
+  FireWebUIListener(kProfileInfoChangedEventName, GetAccountNameAndIcon());
 }
 
-std::unique_ptr<base::DictionaryValue>
-ProfileInfoHandler::GetAccountNameAndIcon() {
+base::Value::Dict ProfileInfoHandler::GetAccountNameAndIcon() {
   std::string name;
   std::string icon_url;
 
@@ -146,7 +145,7 @@ ProfileInfoHandler::GetAccountNameAndIcon() {
   // Get image as data URL instead of using chrome://userimage source to avoid
   // issues with caching.
   scoped_refptr<base::RefCountedMemory> image =
-      chromeos::UserImageSource::GetUserImage(user->GetAccountId());
+      ash::UserImageSource::GetUserImage(user->GetAccountId());
   icon_url = webui::GetPngDataUrl(image->front(), image->size());
 #else   // !BUILDFLAG(IS_CHROMEOS_ASH)
   ProfileAttributesEntry* entry =
@@ -160,14 +159,14 @@ ProfileInfoHandler::GetAccountNameAndIcon() {
     // work here, sends less over IPC, and is more stable with returned results.
     int kAvatarIconSize = 40.f * web_ui()->GetDeviceScaleFactor();
     gfx::Image icon = profiles::GetSizedAvatarIcon(
-        entry->GetAvatarIcon(), true, kAvatarIconSize, kAvatarIconSize);
+        entry->GetAvatarIcon(), kAvatarIconSize, kAvatarIconSize);
     icon_url = webui::GetBitmapDataUrl(icon.AsBitmap());
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-  auto response = std::make_unique<base::DictionaryValue>();
-  response->SetString("name", name);
-  response->SetString("iconUrl", icon_url);
+  base::Value::Dict response;
+  response.Set("name", name);
+  response.Set("iconUrl", icon_url);
   return response;
 }
 

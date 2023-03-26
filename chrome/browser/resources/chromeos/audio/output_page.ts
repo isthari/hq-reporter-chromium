@@ -1,4 +1,8 @@
-import {$} from 'chrome://resources/js/util.m.js';
+// Copyright 2022 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+import {getRequiredElement} from 'chrome://resources/js/util_ts.js';
 
 import {AudioBroker} from './audio_broker.js';
 import {AudioPlayer} from './audio_player.js';
@@ -14,41 +18,41 @@ export interface AudioSample {
   description: string;
 }
 
-let audiosSamples: AudioSample[] = [
+const audiosSamples: AudioSample[] = [
   {
     sampleRate: 44100,
     freqency: 440,
     channelCount: 1,
     pan: 0,
-    description: '44.1k mono 440Hz sine tone'
+    description: '44.1k mono 440Hz sine tone',
   },
   {
     sampleRate: 48000,
     freqency: 440,
     channelCount: 1,
     pan: 0,
-    description: '48k mono 440Hz sine tone'
+    description: '48k mono 440Hz sine tone',
   },
   {
     sampleRate: 48000,
     freqency: 440,
     channelCount: 2,
     pan: 0,
-    description: '48k stereo 440Hz sine tone'
+    description: '48k stereo 440Hz sine tone',
   },
   {
     sampleRate: 48000,
     freqency: 440,
     channelCount: 2,
     pan: -1,
-    description: '48k stereo 440Hz sine tone - Left channel only'
+    description: '48k stereo 440Hz sine tone - Left channel only',
   },
   {
     sampleRate: 48000,
     freqency: 440,
     channelCount: 2,
     pan: 1,
-    description: '48k stereo 440Hz sine tone - Right channel only'
+    description: '48k stereo 440Hz sine tone - Right channel only',
   },
 ];
 
@@ -71,9 +75,10 @@ export class OutputPage extends Page {
     const handler = AudioBroker.getInstance().handler;
     handler.getActiveOutputDeviceName().then(({deviceName}) => {
       if (deviceName) {
-        $('active-output').innerHTML = deviceName;
+        getRequiredElement('active-output').innerHTML = deviceName;
       } else {
-        $('active-output').innerHTML = 'No active output device';
+        getRequiredElement('active-output').innerHTML =
+            'No active output device';
       }
     });
   }
@@ -84,7 +89,7 @@ export class OutputPage extends Page {
 
   createAudioPlayer() {
     const audioPlayer = new AudioPlayer(audiosSamples);
-    $('audio-player').appendChild(audioPlayer);
+    getRequiredElement('audio-player').appendChild(audioPlayer);
   }
 
   static getInstance() {

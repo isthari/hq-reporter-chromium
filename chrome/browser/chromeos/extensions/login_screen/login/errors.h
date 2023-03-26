@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,9 @@ extern const char kAlreadyActiveSession[];
 extern const char kLoginScreenIsNotActive[];
 extern const char kAnotherLoginAttemptInProgress[];
 extern const char kNoManagedGuestSessionAccounts[];
-extern const char kNoLockableManagedGuestSession[];
+extern const char kNoLockableSession[];
 extern const char kSessionIsNotActive[];
-extern const char kNoUnlockableManagedGuestSession[];
+extern const char kNoUnlockableSession[];
 extern const char kSessionIsNotLocked[];
 extern const char kAnotherUnlockAttemptInProgress[];
 extern const char kAuthenticationFailed[];

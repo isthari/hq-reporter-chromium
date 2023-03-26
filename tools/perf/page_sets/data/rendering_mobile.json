@@ -195,9 +195,6 @@
         "forecast.io_mobile_2018": {
             "DEFAULT": "rendering_mobile_011.wprgo"
         },
-        "geo_apis": {
-            "DEFAULT": "rendering_mobile_004.wprgo"
-        },
         "gmail_2018": {
             "DEFAULT": "rendering_mobile_000.wprgo"
         },
@@ -215,6 +212,9 @@
         },
         "google_docs_desktop_gpu_raster_2018": {
             "DEFAULT": "rendering_mobile_000.wprgo"
+        },
+        "google_docs_mobile_2022": {
+            "DEFAULT": "rendering_mobile_9939596a9b.wprgo"
         },
         "google_image_search_2018": {
             "DEFAULT": "rendering_mobile_000.wprgo"
@@ -430,6 +430,9 @@
             "DEFAULT": "rendering_common_c95200764f.wprgo"
         },
         "motionmark_ramp_canvas_lines": {
+            "DEFAULT": "rendering_common_c95200764f.wprgo"
+        },
+        "motionmark_ramp_composite": {
             "DEFAULT": "rendering_common_c95200764f.wprgo"
         },
         "motionmark_ramp_design": {

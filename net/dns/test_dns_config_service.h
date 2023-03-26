@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <memory>
 #include <utility>
 
-#include "base/callback.h"
 #include "base/check.h"
+#include "base/functional/callback.h"
 #include "net/base/net_export.h"
 #include "net/dns/dns_config_service.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -20,7 +20,7 @@ class DnsHostsParser;
 
 // Simple test implementation of DnsConfigService that will trigger
 // notifications only on explicitly calling On...() methods.
-class TestDnsConfigService : public DnsConfigService {
+class NET_EXPORT_PRIVATE TestDnsConfigService : public DnsConfigService {
  public:
   TestDnsConfigService();
   ~TestDnsConfigService() override;
@@ -56,7 +56,8 @@ class TestDnsConfigService : public DnsConfigService {
 // Test implementation of `DnsConfigService` that exercises the
 // `DnsConfigService::HostsReader`. Uses an injected `DnsHostsParser`. `Watcher`
 // change notifications are simulated using `TriggerHostsChangeNotification()`.
-class HostsReadingTestDnsConfigService : public TestDnsConfigService {
+class NET_EXPORT_PRIVATE HostsReadingTestDnsConfigService
+    : public TestDnsConfigService {
  public:
   using HostsParserFactory =
       base::RepeatingCallback<std::unique_ptr<DnsHostsParser>(void)>;
@@ -88,7 +89,7 @@ class HostsReadingTestDnsConfigService : public TestDnsConfigService {
     HostsParserFactory hosts_parser_factory_;
   };
 
-  class Watcher : public DnsConfigService::Watcher {
+  class NET_EXPORT_PRIVATE Watcher : public DnsConfigService::Watcher {
    public:
     explicit Watcher(DnsConfigService& service);
     ~Watcher() override;

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -51,6 +51,9 @@ const char* kSkiaGoldCtl = "tools/skia_goldctl/linux/goldctl";
 
 const char* kBuildRevisionKey = "git-revision";
 
+// A dummy build revision used only under a dry run.
+constexpr char kDummyBuildRevision[] = "12345";
+
 // The switch keys for tryjob.
 const char* kIssueKey = "gerrit-issue";
 const char* kPatchSetKey = "gerrit-patchset";
@@ -64,6 +67,12 @@ const char* kDryRun = "dryrun";
 // The switch key for saving png file locally for debugging. This will allow
 // the framework to save the screenshot png file to this path.
 const char* kPngFilePathDebugging = "skia-gold-local-png-write-directory";
+
+// The separator used in the names of the screenshots taken on Ash platform.
+constexpr char kAshSeparator[] = ".";
+
+// The separator used by non-Ash platforms.
+constexpr char kNonAshSeparator[] = "_";
 
 namespace {
 
@@ -83,7 +92,7 @@ void AppendArgsJustAfterProgram(base::CommandLine& cmd,
   argv.insert(argv.begin() + 1, args.begin(), args.end());
 }
 
-void FillInSystemEnvironment(base::Value::DictStorage& ds) {
+void FillInSystemEnvironment(base::Value::Dict& ds) {
   std::string processor = "unknown";
 #if defined(ARCH_CPU_X86)
   processor = "x86";
@@ -93,8 +102,8 @@ void FillInSystemEnvironment(base::Value::DictStorage& ds) {
   LOG(WARNING) << "Unknown Processor.";
 #endif
 
-  ds["system"] = base::Value(SkiaGoldPixelDiff::GetPlatform());
-  ds["processor"] = base::Value(processor);
+  ds.Set("system", SkiaGoldPixelDiff::GetPlatform());
+  ds.Set("processor", processor);
 }
 
 // Fill in test environment to the keys_file. The format is json.
@@ -103,7 +112,7 @@ void FillInSystemEnvironment(base::Value::DictStorage& ds) {
 // should be filled in. Eg: operating system, graphics card, processor
 // architecture, screen resolution, etc.
 bool FillInTestEnvironment(const base::FilePath& keys_file) {
-  base::Value::DictStorage ds;
+  base::Value::Dict ds;
   FillInSystemEnvironment(ds);
   base::Value root(std::move(ds));
   std::string content;
@@ -128,14 +137,6 @@ bool BotModeEnabled(const base::CommandLine* command_line) {
          env->HasVar("CHROMIUM_TEST_LAUNCHER_BOT_MODE");
 }
 
-// Returns true if it's running on CQ under 'without patch'. Otherwise
-// returns false.
-// The implementation is a bit hacky because there's no good indicator.
-bool IsTryjobWithoutPatch(const base::CommandLine* command_line) {
-  return BotModeEnabled(command_line) &&
-         command_line->HasSwitch(switches::kTestLauncherBatchLimit);
-}
-
 }  // namespace
 
 SkiaGoldPixelDiff::SkiaGoldPixelDiff() = default;
@@ -150,8 +151,12 @@ std::string SkiaGoldPixelDiff::GetPlatform() {
   return "macOS";
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
-#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#elif BUILDFLAG(IS_LINUX)
   return "linux";
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  return "lacros";
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
+  return "ash";
 #endif
 }
 
@@ -218,8 +223,19 @@ void SkiaGoldPixelDiff::InitSkiaGold() {
 void SkiaGoldPixelDiff::Init(const std::string& screenshot_prefix,
                              const std::string& corpus) {
   auto* cmd_line = base::CommandLine::ForCurrentProcess();
-  ASSERT_TRUE(cmd_line->HasSwitch(kBuildRevisionKey))
+  if (!BotModeEnabled(base::CommandLine::ForCurrentProcess())) {
+    cmd_line->AppendSwitch(kDryRun);
+  }
+
+  ASSERT_TRUE(cmd_line->HasSwitch(kBuildRevisionKey) ||
+              cmd_line->HasSwitch(kDryRun))
       << "Missing switch " << kBuildRevisionKey;
+
+  // Use the dummy revision code for dry run.
+  build_revision_ = cmd_line->HasSwitch(kDryRun)
+                        ? kDummyBuildRevision
+                        : cmd_line->GetSwitchValueASCII(kBuildRevisionKey);
+
   ASSERT_TRUE(
       cmd_line->HasSwitch(kIssueKey) && cmd_line->HasSwitch(kPatchSetKey) &&
           cmd_line->HasSwitch(kJobIdKey) ||
@@ -228,7 +244,6 @@ void SkiaGoldPixelDiff::Init(const std::string& screenshot_prefix,
       << "Missing switch. If it's running for tryjob, you should pass --"
       << kIssueKey << " --" << kPatchSetKey << " --" << kJobIdKey
       << ". Otherwise, do not pass any one of them.";
-  build_revision_ = cmd_line->GetSwitchValueASCII(kBuildRevisionKey);
   if (cmd_line->HasSwitch(kIssueKey)) {
     issue_ = cmd_line->GetSwitchValueASCII(kIssueKey);
     patchset_ = cmd_line->GetSwitchValueASCII(kPatchSetKey);
@@ -255,19 +270,12 @@ bool SkiaGoldPixelDiff::UploadToSkiaGoldServer(
     const base::FilePath& local_file_path,
     const std::string& remote_golden_image_name,
     const SkiaGoldMatchingAlgorithm* algorithm) const {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          kBypassSkiaGoldFunctionality)) {
-    LOG(WARNING) << "Bypassing Skia Gold comparison due to "
-                 << "--bypass-skia-gold-functionality being present.";
-    return true;
-  }
-
   // Copy the png file to another place for local debugging.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          kPngFilePathDebugging)) {
+  base::CommandLine* process_command_line =
+      base::CommandLine::ForCurrentProcess();
+  if (process_command_line->HasSwitch(kPngFilePathDebugging)) {
     base::FilePath path =
-        base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
-            kPngFilePathDebugging);
+        process_command_line->GetSwitchValuePath(kPngFilePathDebugging);
     if (!base::PathExists(path)) {
       base::CreateDirectory(path);
     }
@@ -283,21 +291,19 @@ bool SkiaGoldPixelDiff::UploadToSkiaGoldServer(
     base::CopyFile(local_file_path, filepath);
   }
 
+  if (process_command_line->HasSwitch(kBypassSkiaGoldFunctionality)) {
+    LOG(WARNING) << "Bypassing Skia Gold comparison due to "
+                 << "--bypass-skia-gold-functionality being present.";
+    return true;
+  }
+
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::CommandLine cmd(GetAbsoluteSrcRelativePath(kSkiaGoldCtl));
   cmd.AppendSwitchASCII("test-name", remote_golden_image_name);
   cmd.AppendSwitchASCII("corpus", corpus_);
   cmd.AppendSwitchPath("png-file", local_file_path);
   cmd.AppendSwitchPath("work-dir", working_dir_);
-
-  if (!BotModeEnabled(base::CommandLine::ForCurrentProcess())) {
-    cmd.AppendSwitch(kDryRun);
-  }
-  // For CQ, if a Skia Gold gtest fails, then swarming runs the suite
-  // without patch, and the test succeed. The success job will override
-  // the failed job, and the failed test will not show on the triage dashboard.
-  // To resolve this, we use dryrun mode for 'run without patch'.
-  if (IsTryjobWithoutPatch(base::CommandLine::ForCurrentProcess())) {
+  if (process_command_line->HasSwitch(kDryRun)) {
     cmd.AppendSwitch(kDryRun);
   }
 
@@ -326,11 +332,21 @@ bool SkiaGoldPixelDiff::CompareScreenshot(
   // The golden image name should be unique on GCS per platform. And also the
   // name should be valid across all systems.
   std::string suffix = GetPlatform();
+  std::string normalized_prefix;
   std::string normalized_screenshot_name;
+
   // Parameterized tests have "/" in their names which isn't allowed in file
-  // names. Replace with "_".
-  base::ReplaceChars(screenshot_name, "/", "_", &normalized_screenshot_name);
-  std::string name = prefix_ + "_" + normalized_screenshot_name + "_" + suffix;
+  // names. Replace with `separator`.
+  const std::string separator =
+      suffix == std::string("ash") ? kAshSeparator : kNonAshSeparator;
+  base::ReplaceChars(prefix_, "/", separator, &normalized_prefix);
+  base::ReplaceChars(screenshot_name, "/", separator,
+                     &normalized_screenshot_name);
+  std::string name = normalized_prefix + separator +
+                     normalized_screenshot_name + separator + suffix;
+  CHECK_EQ(name.find_first_of(" /"), std::string::npos)
+      << " a golden image name should not contain any space or back slash";
+
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::FilePath temporary_path =
       working_dir_.Append(base::FilePath::FromUTF8Unsafe(name + ".png"));

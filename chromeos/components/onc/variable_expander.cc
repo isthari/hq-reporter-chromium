@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "base/containers/flat_map.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -103,9 +104,8 @@ bool Expand(base::StringPiece variable_name,
 
 namespace chromeos {
 
-VariableExpander::VariableExpander() = default;
-
-VariableExpander::VariableExpander(std::map<std::string, std::string> variables)
+VariableExpander::VariableExpander(
+    base::flat_map<std::string, std::string> variables)
     : variables_(std::move(variables)) {}
 
 VariableExpander::~VariableExpander() = default;

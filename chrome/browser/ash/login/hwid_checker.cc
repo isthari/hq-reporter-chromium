@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@
 #include "base/system/sys_info.h"
 #include "build/branding_buildflags.h"
 #include "chrome/common/chrome_switches.h"
-#include "chromeos/system/statistics_provider.h"
+#include "chromeos/ash/components/system/statistics_provider.h"
 #include "content/public/common/content_switches.h"
 #include "third_party/re2/src/re2/re2.h"
 #include "third_party/zlib/zlib.h"
@@ -167,18 +167,18 @@ bool IsMachineHWIDCorrect() {
   if (!base::SysInfo::IsRunningOnChromeOS())
     return true;
 
-  chromeos::system::StatisticsProvider* stats =
-      chromeos::system::StatisticsProvider::GetInstance();
+  system::StatisticsProvider* stats = system::StatisticsProvider::GetInstance();
   if (stats->IsRunningOnVm())
     return true;
 
-  std::string hwid;
-  if (!stats->GetMachineStatistic(chromeos::system::kHardwareClassKey, &hwid)) {
+  const absl::optional<base::StringPiece> hwid =
+      stats->GetMachineStatistic(system::kHardwareClassKey);
+  if (!hwid) {
     LOG(ERROR) << "Couldn't get machine statistic 'hardware_class'.";
     return false;
   }
-  if (!IsHWIDCorrect(hwid)) {
-    LOG(ERROR) << "Machine has malformed HWID '" << hwid << "'. ";
+  if (!IsHWIDCorrect(std::string(hwid.value()))) {
+    LOG(ERROR) << "Machine has malformed HWID '" << hwid.value() << "'. ";
     return false;
   }
 #endif

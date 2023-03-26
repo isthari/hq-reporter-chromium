@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -230,7 +230,11 @@ XrResult OpenXrTestHelper::CreateSession(XrSession* session) {
   session_ = TreatIntegerAsHandle<XrSession>(++next_handle_);
   *session = session_;
   SetSessionState(XR_SESSION_STATE_IDLE);
-  SetSessionState(XR_SESSION_STATE_READY);
+  if (GetCanCreateSession()) {
+    SetSessionState(XR_SESSION_STATE_READY);
+  } else {
+    SetSessionState(XR_SESSION_STATE_EXITING);
+  }
   return XR_SUCCESS;
 }
 
@@ -925,6 +929,17 @@ absl::optional<device::DeviceConfig> OpenXrTestHelper::GetDeviceConfig() {
   return absl::nullopt;
 }
 
+bool OpenXrTestHelper::GetCanCreateSession() {
+  base::AutoLock lock(lock_);
+  if (test_hook_) {
+    return test_hook_->WaitGetCanCreateSession();
+  }
+
+  // In the absence of a test hook telling us that we can't create a session;
+  // assume that we can, as there's enough of a default implementation to do so.
+  return true;
+}
+
 device::ControllerFrameData OpenXrTestHelper::GetControllerDataFromPath(
     std::string path_string) const {
   device::ControllerRole role;
@@ -1021,19 +1036,18 @@ void OpenXrTestHelper::LocateSpace(XrSpace space, XrPosef* pose) {
   }
 
   if (transform) {
-    gfx::DecomposedTransform decomposed_transform;
-    bool decomposable =
-        gfx::DecomposeTransform(&decomposed_transform, transform.value());
-    DCHECK(decomposable);
+    absl::optional<gfx::DecomposedTransform> decomposed_transform =
+        transform->Decompose();
+    DCHECK(decomposed_transform);
 
-    pose->orientation.x = decomposed_transform.quaternion.x();
-    pose->orientation.y = decomposed_transform.quaternion.y();
-    pose->orientation.z = decomposed_transform.quaternion.z();
-    pose->orientation.w = decomposed_transform.quaternion.w();
+    pose->orientation.x = decomposed_transform->quaternion.x();
+    pose->orientation.y = decomposed_transform->quaternion.y();
+    pose->orientation.z = decomposed_transform->quaternion.z();
+    pose->orientation.w = decomposed_transform->quaternion.w();
 
-    pose->position.x = decomposed_transform.translate[0];
-    pose->position.y = decomposed_transform.translate[1];
-    pose->position.z = decomposed_transform.translate[2];
+    pose->position.x = decomposed_transform->translate[0];
+    pose->position.y = decomposed_transform->translate[1];
+    pose->position.z = decomposed_transform->translate[2];
   }
 }
 

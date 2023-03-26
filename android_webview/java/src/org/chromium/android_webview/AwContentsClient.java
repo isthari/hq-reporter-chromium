@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@ import android.provider.Browser;
 import android.text.TextUtils;
 import android.view.KeyEvent;
 import android.view.View;
+import android.webkit.WebChromeClient;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -27,14 +28,15 @@ import org.chromium.android_webview.safe_browsing.AwSafeBrowsingResponse;
 import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
-import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.ScopedSysTraceEvent;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.components.embedder_support.util.WebResourceResponseInfo;
 import org.chromium.content_public.common.ContentUrlConstants;
 
 import java.security.Principal;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -113,10 +115,11 @@ public abstract class AwContentsClient {
         // Prefer using other constructors over this one.
         public AwWebResourceRequest() {}
 
-        public AwWebResourceRequest(String url, boolean isMainFrame, boolean hasUserGesture,
-                String method, @Nullable HashMap<String, String> requestHeaders) {
+        public AwWebResourceRequest(String url, boolean isOutermostMainFrame,
+                boolean hasUserGesture, String method,
+                @Nullable HashMap<String, String> requestHeaders) {
             this.url = url;
-            this.isMainFrame = isMainFrame;
+            this.isOutermostMainFrame = isOutermostMainFrame;
             this.hasUserGesture = hasUserGesture;
             // Note: we intentionally let isRedirect default initialize to false. This is because we
             // don't always know if this request is associated with a redirect or not.
@@ -124,10 +127,10 @@ public abstract class AwContentsClient {
             this.requestHeaders = requestHeaders;
         }
 
-        public AwWebResourceRequest(String url, boolean isMainFrame, boolean hasUserGesture,
-                String method, @NonNull String[] requestHeaderNames,
+        public AwWebResourceRequest(String url, boolean isOutermostMainFrame,
+                boolean hasUserGesture, String method, @NonNull String[] requestHeaderNames,
                 @NonNull String[] requestHeaderValues) {
-            this(url, isMainFrame, hasUserGesture, method,
+            this(url, isOutermostMainFrame, hasUserGesture, method,
                     new HashMap<String, String>(requestHeaderValues.length));
             for (int i = 0; i < requestHeaderNames.length; ++i) {
                 this.requestHeaders.put(requestHeaderNames[i], requestHeaderValues[i]);
@@ -136,8 +139,8 @@ public abstract class AwContentsClient {
 
         // Url of the request.
         public String url;
-        // Is this for the main frame or a child iframe?
-        public boolean isMainFrame;
+        // Is this for the outermost main frame or a subframe?
+        public boolean isOutermostMainFrame;
         // Was a gesture associated with the request? Don't trust can easily be spoofed.
         public boolean hasUserGesture;
         // Was it a result of a server-side redirect?
@@ -196,16 +199,16 @@ public abstract class AwContentsClient {
     public abstract void onDownloadStart(String url, String userAgent, String contentDisposition,
             String mimeType, long contentLength);
 
-    public final boolean shouldIgnoreNavigation(Context context, String url, boolean isMainFrame,
-            boolean hasUserGesture, boolean isRedirect) {
+    public final boolean shouldIgnoreNavigation(Context context, String url,
+            boolean isOutermostMainFrame, boolean hasUserGesture, boolean isRedirect) {
         AwContentsClientCallbackHelper.CancelCallbackPoller poller =
                 mCallbackHelper.getCancelCallbackPoller();
         if (poller != null && poller.shouldCancelAllCallbacks()) return false;
 
         if (hasWebViewClient()) {
             // Note: only GET requests can be overridden, so we hardcode the method.
-            AwWebResourceRequest request =
-                    new AwWebResourceRequest(url, isMainFrame, hasUserGesture, "GET", null);
+            AwWebResourceRequest request = new AwWebResourceRequest(
+                    url, isOutermostMainFrame, hasUserGesture, "GET", null);
             request.isRedirect = isRedirect;
             return shouldOverrideUrlLoading(request);
         } else {
@@ -298,6 +301,183 @@ public abstract class AwContentsClient {
         private String mTitle;
         private String mDefaultFilename;
         private boolean mCapture;
+        private static final Map<String, String> sAcceptTypesMapping;
+        static {
+            // It takes less code to loop over an array than to call put() N times.
+            String[] tuples = new String[] {
+                    "application/*",
+                    "application/*",
+                    "audio/*",
+                    "audio/*",
+                    "font/*",
+                    "font/*",
+                    "image/*",
+                    "image/*",
+                    "text/*",
+                    "text/*",
+                    "video/*",
+                    "video/*",
+                    ".aac",
+                    "audio/aac",
+                    ".abw",
+                    "application/x-abiword",
+                    ".arc",
+                    "application/x-freearc",
+                    ".avif",
+                    "image/avif",
+                    ".avi",
+                    "video/x-msvideo",
+                    ".azw",
+                    "application/vnd.amazon.ebook",
+                    ".bin",
+                    "application/octet-stream",
+                    ".bmp",
+                    "image/bmp",
+                    ".bz",
+                    "application/x-bzip",
+                    ".bz2",
+                    "application/x-bzip2",
+                    ".cda",
+                    "application/x-cdf",
+                    ".csh",
+                    "application/x-csh",
+                    ".css",
+                    "text/css",
+                    ".csv",
+                    "text/csv",
+                    ".doc",
+                    "application/msword",
+                    ".docx",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    ".eot",
+                    "application/vnd.ms-fontobject",
+                    ".epub",
+                    "application/epub+zip",
+                    ".gz",
+                    "application/gzip",
+                    ".gif",
+                    "image/gif",
+                    ".htm",
+                    "text/html",
+                    ".html",
+                    "text/html",
+                    ".ico",
+                    "image/vnd.microsoft.icon",
+                    ".ics",
+                    "text/calendar",
+                    ".jar",
+                    "application/java-archive",
+                    ".jpeg",
+                    "image/jpeg",
+                    ".jpg",
+                    "image/jpeg",
+                    ".js",
+                    "text/javascript",
+                    ".json",
+                    "application/json",
+                    ".jsonld",
+                    "application/ld+json",
+                    ".mid",
+                    "audio/midi",
+                    ".midi",
+                    "audio/midi",
+                    ".mjs",
+                    "text/javascript",
+                    ".mp3",
+                    "audio/mpeg",
+                    ".mp4",
+                    "video/mp4",
+                    ".mpeg",
+                    "video/mpeg",
+                    ".mpkg",
+                    "application/vnd.apple.installer+xml",
+                    ".odp",
+                    "application/vnd.oasis.opendocument.presentation",
+                    ".ods",
+                    "application/vnd.oasis.opendocument.spreadsheet",
+                    ".odt",
+                    "application/vnd.oasis.opendocument.text",
+                    ".oga",
+                    "audio/ogg",
+                    ".ogv",
+                    "video/ogg",
+                    ".ogx",
+                    "application/ogg",
+                    ".opus",
+                    "audio/opus",
+                    ".otf",
+                    "font/otf",
+                    ".png",
+                    "image/png",
+                    ".pdf",
+                    "application/pdf",
+                    ".php",
+                    "application/x-httpd-php",
+                    ".ppt",
+                    "application/vnd.ms-powerpoint",
+                    ".pptx",
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    ".rar",
+                    "application/vnd.rar",
+                    ".rtf",
+                    "application/rtf",
+                    ".sh",
+                    "application/x-sh",
+                    ".svg",
+                    "image/svg+xml",
+                    ".swf",
+                    "application/x-shockwave-flash",
+                    ".tar",
+                    "application/x-tar",
+                    ".tif",
+                    "image/tiff",
+                    ".tiff",
+                    "image/tiff",
+                    ".ts",
+                    "video/mp2t",
+                    ".ttf",
+                    "font/ttf",
+                    ".txt",
+                    "text/plain",
+                    ".vsd",
+                    "application/vnd.visio",
+                    ".wav",
+                    "audio/wav",
+                    ".weba",
+                    "audio/webm",
+                    ".webm",
+                    "video/webm",
+                    ".webp",
+                    "image/webp",
+                    ".woff",
+                    "font/woff",
+                    ".woff2",
+                    "font/woff2",
+                    ".xhtml",
+                    "application/xhtml+xml",
+                    ".xls",
+                    "application/vnd.ms-excel",
+                    ".xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    ".xml",
+                    "application/xml",
+                    ".xul",
+                    "application/vnd.mozilla.xul+xml",
+                    ".zip",
+                    "application/zip",
+                    ".3gp",
+                    "video/3gpp",
+                    ".3g2",
+                    "video/3gpp2",
+                    ".7z",
+                    "application/x-7z-compressed",
+            };
+            Map<String, String> map = new HashMap<String, String>(tuples.length / 2);
+            for (int i = 0; i < tuples.length; i += 2) {
+                map.put(tuples[i], tuples[i + 1]);
+            }
+            sAcceptTypesMapping = map;
+        }
 
         public FileChooserParamsImpl(int mode, String acceptTypes, String title,
                 String defaultFilename, boolean capture) {
@@ -337,14 +517,45 @@ public abstract class AwContentsClient {
 
         public Intent createIntent() {
             String mimeType = "*/*";
-            if (mAcceptTypes != null && !mAcceptTypes.trim().isEmpty()) {
-                mimeType = mAcceptTypes.split(",")[0];
-            }
-
             Intent i = new Intent(Intent.ACTION_GET_CONTENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);
+            if (getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
+                i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+            }
+            if (mAcceptTypes != null && !mAcceptTypes.trim().isEmpty()) {
+                String[] acceptTypesArray = getAcceptTypes();
+                if (acceptTypesArray.length > 0) {
+                    String[] mimeTypesToAccept = getMimeTypesToAccept(getAcceptTypes());
+                    if (mimeTypesToAccept.length > 0) {
+                        if (!mimeTypesToAccept[0].trim().isEmpty()) {
+                            mimeType = mimeTypesToAccept[0];
+                        }
+                        i.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypesToAccept);
+                    }
+                }
+            }
             i.setType(mimeType);
             return i;
+        }
+
+        /**
+         * This method takes a list of types to accept, which could be file extensions, MIME types,
+         * or a sub-category of MIME types such as image/*, video/*, etc., and returns a list of
+         * MIME types.
+         * @param acceptTypesList
+         * @return An array of MIME types to accept in the file selector
+         */
+        private String[] getMimeTypesToAccept(String[] acceptTypesList) {
+            ArrayList<String> acceptTypesArray = new ArrayList<String>();
+            for (int i = 0; i < acceptTypesList.length; i++) {
+                if (sAcceptTypesMapping.containsKey(acceptTypesList[i])) {
+                    acceptTypesArray.add(sAcceptTypesMapping.get(acceptTypesList[i]));
+                } else if (sAcceptTypesMapping.containsValue(acceptTypesList[i])) {
+                    // can also directly use the MIME type in the accept HTML field
+                    acceptTypesArray.add(acceptTypesList[i]);
+                }
+            }
+            return acceptTypesArray.toArray(new String[acceptTypesArray.size()]);
         }
     }
 
@@ -392,37 +603,7 @@ public abstract class AwContentsClient {
 
     public abstract void onPageCommitVisible(String url);
 
-    public final void onReceivedError(AwWebResourceRequest request, AwWebResourceError error) {
-        // Only one of these callbacks actually reaches out the client code. The first callback
-        // is used on API versions up to and including L, the second on subsequent releases.
-        // Below is the calls diagram:
-        //
-        //                           Old (<= L) glue              Old (<= L) android.webkit API
-        //                             onReceivedError --------->   onReceivedError
-        //  AwContentsClient           onReceivedError2 ->X   /
-        //   abs. onReceivedError                            /
-        //   abs. onReceivedError2                          /
-        //                           New (M+) glue         /      New (M+) android.webkit API
-        //                             onReceivedError    /     ->  onReceviedError <new>
-        //   "->X" = "do nothing"        if (!<M API>) ---     /      if (isMainFrame) -\
-        //                               else ->X             /       else ->X          |
-        //                             onReceivedError2      /                          V
-        //                               if (<M API>) -------       onReceivedError <old>
-        //                               else ->X
-        if (request.isMainFrame) {
-            onReceivedError(error.errorCode, error.description, request.url);
-        }
-        onReceivedError2(request, error);
-
-        // Record UMA on error code distribution here.
-        RecordHistogram.recordSparseHistogram(
-                "Android.WebView.onReceivedError.ErrorCode", error.errorCode);
-    }
-
-    protected abstract void onReceivedError(int errorCode, String description, String failingUrl);
-
-    protected abstract void onReceivedError2(
-            AwWebResourceRequest request, AwWebResourceError error);
+    public abstract void onReceivedError(AwWebResourceRequest request, AwWebResourceError error);
 
     protected abstract void onSafeBrowsingHit(AwWebResourceRequest request, int threatType,
             Callback<AwSafeBrowsingResponse> callback);

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,7 +32,7 @@ ui::ImageModel GlobalError::MenuItemIcon() {
           IDR_INPUT_ALERT_MENU));
 #else
   return ui::ImageModel::FromVectorIcon(kBrowserToolsErrorIcon,
-                                        gfx::kGoogleYellow700);
+                                        ui::kColorAlertMediumSeverity);
 #endif
 }
 

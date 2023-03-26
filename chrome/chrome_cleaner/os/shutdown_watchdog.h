@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_CHROME_CLEANER_OS_SHUTDOWN_WATCHDOG_H_
 #define CHROME_CHROME_CLEANER_OS_SHUTDOWN_WATCHDOG_H_
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/watchdog.h"
 #include "base/time/time.h"

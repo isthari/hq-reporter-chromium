@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 #define COMPONENTS_FEED_CORE_V2_LAUNCH_RELIABILITY_LOGGER_H_
 
 #include "base/memory/raw_ptr.h"
-#include "base/observer_list.h"
 #include "base/time/time.h"
 #include "components/feed/core/proto/v2/wire/reliability_logging_enums.pb.h"
 #include "components/feed/core/v2/public/feed_stream_surface.h"
@@ -32,6 +31,7 @@ class LaunchReliabilityLogger {
   NetworkRequestId LogFeedRequestStart();
   NetworkRequestId LogActionsUploadRequestStart();
   NetworkRequestId LogWebFeedRequestStart();
+  NetworkRequestId LogSingleWebFeedRequestStart();
   void LogRequestSent(NetworkRequestId id, base::TimeTicks timestamp);
   void LogResponseReceived(NetworkRequestId id,
                            int64_t server_receive_timestamp_ns,
@@ -58,7 +58,7 @@ class LaunchReliabilityLogger {
       feedwire::DiscoverLaunchResult result);
 
  private:
-  raw_ptr<StreamSurfaceSet> surfaces_;
+  raw_ptr<StreamSurfaceSet, DanglingUntriaged> surfaces_;
   NetworkRequestId::Generator request_id_gen_;
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,7 +36,8 @@ void ResourceLoadObserverForWorker::WillSendRequest(
     const ResourceResponse& redirect_response,
     ResourceType resource_type,
     const ResourceLoaderOptions& options,
-    RenderBlockingBehavior render_blocking_behavior) {
+    RenderBlockingBehavior render_blocking_behavior,
+    const Resource* resource) {
   probe::WillSendRequest(
       probe_, nullptr,
       fetcher_properties_->GetFetchClientSettingsObject().GlobalObjectUrl(),
@@ -53,8 +54,13 @@ void ResourceLoadObserverForWorker::DidChangePriority(
 void RecordPrivateNetworkAccessFeature(ExecutionContext* execution_context,
                                        const ResourceResponse& response) {
   DCHECK(execution_context);
+
+  if (response.RemoteIPEndpoint().address().IsZero()) {
+    execution_context->CountUse(WebFeature::kPrivateNetworkAccessNullIpAddress);
+  }
+
   if (!network::IsLessPublicAddressSpace(response.AddressSpace(),
-                                         execution_context->AddressSpace()))
+                                         response.ClientAddressSpace()))
     return;
   // Only record the feature for worker contexts, not worklets. The address
   // space of worklets is not yet specified.

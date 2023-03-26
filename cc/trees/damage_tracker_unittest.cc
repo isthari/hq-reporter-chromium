@@ -1,4 +1,4 @@
-// Copyright 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -1079,7 +1079,7 @@ TEST_F(DamageTrackerTest, VerifyDamageForHighDPIImageFilter) {
   // Blur outset is 9px for a 3px blur, scaled up by DSF.
   int blur_outset = 9 * device_scale_factor;
   gfx::Rect expected_child_damage_rect(60, 60);
-  expected_child_damage_rect.Inset(-blur_outset, -blur_outset);
+  expected_child_damage_rect.Inset(-blur_outset);
   gfx::Rect expected_root_damage_rect(child_damage_rect);
   expected_root_damage_rect.Offset(200, 200);
   EXPECT_EQ(expected_root_damage_rect, root_damage_rect);

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,16 @@
 
 #include <functional>
 #include <set>
+#include <string>
 #include <utility>
 
 #include "base/base_paths.h"
 #include "base/base_switches.h"
-#include "base/bind.h"
 #include "base/check.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/lazy_instance.h"
 #include "base/memory/ref_counted.h"
 #include "base/notreached.h"
@@ -24,7 +26,6 @@
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task/task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "mojo/public/cpp/platform/platform_channel.h"
 #include "mojo/public/cpp/platform/platform_channel_endpoint.h"
@@ -98,6 +99,13 @@ ScopedMessagePipeHandle MultiprocessTestHelper::StartChildWithExtraSwitch(
   std::set<std::string> uninherited_args;
   uninherited_args.insert("mojo-platform-channel-handle");
   uninherited_args.insert(switches::kTestChildProcess);
+
+  std::string enable_overrides;
+  std::string disable_overrides;
+  base::FeatureList::GetInstance()->GetCommandLineFeatureOverrides(
+      &enable_overrides, &disable_overrides);
+  command_line.AppendSwitchASCII(switches::kEnableFeatures, enable_overrides);
+  command_line.AppendSwitchASCII(switches::kDisableFeatures, disable_overrides);
 
   // Copy commandline switches from the parent process, except for the
   // multiprocess client name and mojo message pipe handle; this allows test

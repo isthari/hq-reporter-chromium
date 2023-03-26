@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,17 @@
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 
 #include "ash/app_list/app_list_util.h"
 #include "ash/app_list/model/app_list_folder_item.h"
 #include "ash/app_list/views/app_list_folder_view.h"
-#include "ash/public/cpp/app_list/app_list_color_provider.h"
 #include "ash/public/cpp/app_list/app_list_config.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/app_list/app_list_switches.h"
+#include "ash/public/cpp/style/color_provider.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/style/ash_color_id.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/cursor/cursor.h"
@@ -25,11 +27,13 @@
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/image_button.h"
+#include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/focus/focus_manager.h"
-#include "ui/views/native_cursor.h"
 #include "ui/views/painter.h"
+#include "ui/views/view.h"
 #include "ui/views/view_targeter_delegate.h"
+#include "ui/views/widget/widget.h"
 
 namespace ash {
 
@@ -60,9 +64,11 @@ SkColor GetFolderBackgroundColor(bool is_active) {
   if (!is_active)
     return SK_ColorTRANSPARENT;
 
-  const AppListColorProvider* color_provider = AppListColorProvider::Get();
-  return SkColorSetA(color_provider->GetInkDropBaseColor(),
-                     color_provider->GetInkDropOpacity() * 255);
+  const std::pair<SkColor, float> base_color_and_opacity =
+      ash::ColorProvider::Get()->GetInkDropBaseColorAndOpacity();
+
+  return SkColorSetA(base_color_and_opacity.first,
+                     base_color_and_opacity.second * 255);
 }
 
 }  // namespace
@@ -76,10 +82,13 @@ class FolderHeaderView::FolderNameView : public views::Textfield,
     // Make folder name font size 14px.
     SetFontList(
         ui::ResourceBundle::GetSharedInstance().GetFontListWithDelta(2));
-    set_placeholder_text_color(
-        AppListColorProvider::Get()->GetFolderHintTextColor());
-    SetTextColor(AppListColorProvider::Get()->GetFolderTitleTextColor());
+
     SetEventTargeter(std::make_unique<views::ViewTargeter>(this));
+    SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(0, kFolderNamePadding)));
+    views::FocusRing::Install(this);
+    views::FocusRing::Get(this)->SetColorId(ui::kColorAshFocusRing);
+    views::InstallRoundRectHighlightPathGenerator(this, gfx::Insets(),
+                                                  kFolderNameBorderRadius);
   }
 
   FolderNameView(const FolderNameView&) = delete;
@@ -96,31 +105,27 @@ class FolderHeaderView::FolderNameView : public views::Textfield,
 
     const bool is_active = has_mouse_already_entered_ || HasFocus();
     SetBackground(views::CreateRoundedRectBackground(
-        GetFolderBackgroundColor(is_active), kFolderNameBorderRadius));
+        GetFolderBackgroundColor(is_active), kFolderNameBorderRadius,
+        kFolderNameBorderThickness));
 
-    AppListColorProvider* color_provider = AppListColorProvider::Get();
-    const SkColor text_color = color_provider->GetFolderTitleTextColor();
+    const ui::ColorProvider* const color_provider = GetColorProvider();
+    set_placeholder_text_color(
+        color_provider->GetColor(kColorAshTextColorSecondary));
+    const SkColor text_color =
+        color_provider->GetColor(kColorAshTextColorPrimary);
     SetTextColor(text_color);
     SetSelectionTextColor(text_color);
-    SetSelectionBackgroundColor(color_provider->GetFolderNameSelectionColor());
-    SetNameViewBorderAndBackground(is_active);
-  }
-
-  gfx::NativeCursor GetCursor(const ui::MouseEvent& event) override {
-    return views::GetNativeIBeamCursor();
-  }
-
-  void SetNameViewBorderAndBackground(bool is_active) {
-    SetBorder(views::CreatePaddedBorder(
-        views::CreateRoundedRectBorder(
-            kFolderNameBorderThickness, kFolderNameBorderRadius,
-            AppListColorProvider::Get()->GetFolderNameBorderColor(is_active)),
-        gfx::Insets(0, kFolderNamePadding)));
+    SetSelectionBackgroundColor(
+        color_provider->GetColor(kColorAshFocusAuraColor));
     UpdateBackgroundColor(is_active);
   }
 
+  ui::Cursor GetCursor(const ui::MouseEvent& event) override {
+    return ui::mojom::CursorType::kIBeam;
+  }
+
   void OnFocus() override {
-    SetNameViewBorderAndBackground(/*is_active=*/true);
+    UpdateBackgroundColor(/*is_active=*/true);
     SetText(folder_header_view_->GetFolderName());
     starting_name_ = GetText();
     folder_header_view_->previous_folder_name_ = starting_name_;
@@ -132,7 +137,7 @@ class FolderHeaderView::FolderNameView : public views::Textfield,
   }
 
   void OnBlur() override {
-    SetNameViewBorderAndBackground(/*is_active=*/false);
+    UpdateBackgroundColor(/*is_active=*/false);
 
     // Collapse whitespace when FolderNameView loses focus.
     folder_header_view_->ContentsChanged(
@@ -218,7 +223,7 @@ class FolderHeaderView::FolderNameView : public views::Textfield,
     int min_width =
         std::max(kFolderHeaderMinTapWidth, textfield_bounds.width());
     int horizontal_padding = -((min_width - textfield_bounds.width()) / 2);
-    textfield_bounds.Inset(gfx::Insets(0, horizontal_padding));
+    textfield_bounds.Inset(gfx::Insets::VH(0, horizontal_padding));
 
     return textfield_bounds.Intersects(rect);
   }
@@ -249,14 +254,15 @@ class FolderHeaderView::FolderNameView : public views::Textfield,
   bool has_mouse_already_entered_ = false;
 };
 
-FolderHeaderView::FolderHeaderView(FolderHeaderViewDelegate* delegate)
+FolderHeaderView::FolderHeaderView(FolderHeaderViewDelegate* delegate,
+                                   bool tablet_mode)
     : folder_item_(nullptr),
       folder_name_placeholder_text_(
           ui::ResourceBundle::GetSharedInstance().GetLocalizedString(
               IDS_APP_LIST_FOLDER_NAME_PLACEHOLDER)),
       delegate_(delegate),
       folder_name_visible_(true),
-      is_tablet_mode_(false) {
+      is_tablet_mode_(tablet_mode) {
   folder_name_view_ = AddChildView(std::make_unique<FolderNameView>(this));
   folder_name_view_->SetPlaceholderText(folder_name_placeholder_text_);
   folder_name_view_->set_controller(this);

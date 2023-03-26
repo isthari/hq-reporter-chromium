@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,7 +39,7 @@ AwPackageNamesAllowlistComponentInstallerPolicy::
 
 update_client::CrxInstaller::Result
 AwPackageNamesAllowlistComponentInstallerPolicy::OnCustomInstall(
-    const base::Value& manifest,
+    const base::Value::Dict& manifest,
     const base::FilePath& install_dir) {
   // Nothing custom here.
   return update_client::CrxInstaller::Result(/* error = */ 0);
@@ -66,7 +66,7 @@ bool AwPackageNamesAllowlistComponentInstallerPolicy::
 }
 
 bool AwPackageNamesAllowlistComponentInstallerPolicy::VerifyInstallation(
-    const base::Value& manifest,
+    const base::Value::Dict& manifest,
     const base::FilePath& install_dir) const {
   return true;
 }

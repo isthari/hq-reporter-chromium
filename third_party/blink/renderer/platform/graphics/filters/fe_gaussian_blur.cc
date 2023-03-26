@@ -25,7 +25,7 @@
 
 #include "third_party/blink/renderer/platform/graphics/filters/fe_gaussian_blur.h"
 
-#include "base/stl_util.h"
+#include "base/types/optional_util.h"
 #include "third_party/blink/renderer/platform/graphics/filters/filter.h"
 #include "third_party/blink/renderer/platform/graphics/filters/paint_filter_builder.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
@@ -64,8 +64,9 @@ gfx::RectF FEGaussianBlur::MapEffect(const gfx::SizeF& std_deviation,
   // We take the half kernel size and multiply it by three, because we run box
   // blur three times.
   gfx::RectF result = rect;
-  result.Outset(3.0f * kernel_size.width() * 0.5f,
-                3.0f * kernel_size.height() * 0.5f);
+  result.Outset(gfx::OutsetsF::VH(3.0f * kernel_size.height() * 0.5f,
+                                  3.0f * kernel_size.width() * 0.5f));
+
   return result;
 }
 
@@ -83,7 +84,7 @@ sk_sp<PaintFilter> FEGaussianBlur::CreateImageFilter() {
   absl::optional<PaintFilter::CropRect> crop_rect = GetCropRect();
   return sk_make_sp<BlurPaintFilter>(
       SkFloatToScalar(std_x), SkFloatToScalar(std_y), SkTileMode::kDecal,
-      std::move(input), base::OptionalOrNullptr(crop_rect));
+      std::move(input), base::OptionalToPtr(crop_rect));
 }
 
 WTF::TextStream& FEGaussianBlur::ExternalRepresentation(WTF::TextStream& ts,

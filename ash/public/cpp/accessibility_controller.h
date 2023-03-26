@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "ash/public/cpp/accelerators.h"
 #include "ash/public/cpp/accessibility_controller_enums.h"
 #include "ash/public/cpp/ash_public_export.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace gfx {
@@ -25,6 +25,7 @@ enum class AccessibilityPanelState;
 enum class DictationToggleSource;
 enum class DictationBubbleHintType;
 enum class DictationBubbleIconType;
+enum class DictationNotificationType;
 class SelectToSpeakEventHandlerDelegate;
 enum class SelectToSpeakState;
 
@@ -182,8 +183,8 @@ class ASH_PUBLIC_EXPORT AccessibilityController {
   // Shows a notification card in the message center informing the user that
   // speech recognition files have either downloaded successfully or failed.
   // Specific to the Dictation feature.
-  virtual void ShowSpeechRecognitionDownloadNotificationForDictation(
-      bool succeeded,
+  virtual void ShowNotificationForDictation(
+      DictationNotificationType type,
       const std::u16string& display_language) = 0;
 
   // Updates the Dictation UI bubble. `text` is optional to allow clients to
@@ -193,6 +194,9 @@ class ASH_PUBLIC_EXPORT AccessibilityController {
       DictationBubbleIconType icon,
       const absl::optional<std::u16string>& text,
       const absl::optional<std::vector<DictationBubbleHintType>>& hints) = 0;
+
+  // Cancels all of spoken feedback's current and queued speech immediately.
+  virtual void SilenceSpokenFeedback() = 0;
 
  protected:
   AccessibilityController();

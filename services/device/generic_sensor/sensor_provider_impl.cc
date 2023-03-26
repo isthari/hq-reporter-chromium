@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <utility>
 
-#include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/device/generic_sensor/platform_sensor_provider.h"
@@ -58,8 +58,8 @@ void SensorProviderImpl::GetSensor(mojom::SensorType type,
                             nullptr);
     return;
   }
-  auto cloned_handle = provider_->CloneSharedBufferHandle();
-  if (!cloned_handle.is_valid()) {
+  auto cloned_region = provider_->CloneSharedMemoryRegion();
+  if (!cloned_region.IsValid()) {
     std::move(callback).Run(mojom::SensorCreationResult::ERROR_NOT_AVAILABLE,
                             nullptr);
     return;
@@ -70,17 +70,17 @@ void SensorProviderImpl::GetSensor(mojom::SensorType type,
     provider_->CreateSensor(
         type, base::BindOnce(&SensorProviderImpl::SensorCreated,
                              weak_ptr_factory_.GetWeakPtr(), type,
-                             std::move(cloned_handle), std::move(callback)));
+                             std::move(cloned_region), std::move(callback)));
     return;
   }
 
-  SensorCreated(type, std::move(cloned_handle), std::move(callback),
+  SensorCreated(type, std::move(cloned_region), std::move(callback),
                 std::move(sensor));
 }
 
 void SensorProviderImpl::SensorCreated(
     mojom::SensorType type,
-    mojo::ScopedSharedBufferHandle cloned_handle,
+    base::ReadOnlySharedMemoryRegion cloned_region,
     GetSensorCallback callback,
     scoped_refptr<PlatformSensor> sensor) {
   if (!sensor) {
@@ -99,7 +99,7 @@ void SensorProviderImpl::SensorCreated(
                         pending_sensor.InitWithNewPipeAndPassReceiver());
   init_params->sensor = std::move(pending_sensor);
 
-  init_params->memory = std::move(cloned_handle);
+  init_params->memory = std::move(cloned_region);
   init_params->buffer_offset = SensorReadingSharedBuffer::GetOffset(type);
   init_params->mode = sensor->GetReportingMode();
 

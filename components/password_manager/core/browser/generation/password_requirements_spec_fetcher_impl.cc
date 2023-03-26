@@ -1,10 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/password_manager/core/browser/generation/password_requirements_spec_fetcher_impl.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/hash/md5.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
@@ -104,18 +104,6 @@ void PasswordRequirementsSpecFetcherImpl::Fetch(GURL origin,
     return;
   }
 
-  if (!url_loader_factory_) {
-    TriggerCallback(std::move(callback), ResultCode::kErrorNoUrlLoader,
-                    PasswordRequirementsSpec());
-    return;
-  }
-
-  if (!url_loader_factory_) {
-    TriggerCallback(std::move(callback), ResultCode::kErrorNoUrlLoader,
-                    PasswordRequirementsSpec());
-    return;
-  }
-
   if (!origin.is_valid() || origin.HostIsIPAddress() ||
       !origin.SchemeIsHTTPOrHTTPS()) {
     VLOG(1) << "No valid origin";
@@ -125,11 +113,11 @@ void PasswordRequirementsSpecFetcherImpl::Fetch(GURL origin,
   }
 
   // Canonicalize away trailing periods in hostname.
-  while (!origin.host().empty() && origin.host().back() == '.') {
-    std::string new_host = origin.host().substr(0, origin.host().length() - 1);
-    url::Replacements<char> replacements;
-    replacements.SetHost(new_host.c_str(),
-                         url::Component(0, new_host.length()));
+  while (!origin.host_piece().empty() && origin.host_piece().back() == '.') {
+    base::StringPiece new_host =
+        origin.host_piece().substr(0, origin.host_piece().length() - 1);
+    GURL::Replacements replacements;
+    replacements.SetHostStr(new_host);
     origin = origin.ReplaceComponents(replacements);
   }
 

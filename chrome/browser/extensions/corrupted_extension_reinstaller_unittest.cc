@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,9 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/test/simple_test_tick_clock.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_service_test_base.h"
 #include "chrome/test/base/testing_profile.h"
@@ -60,14 +59,16 @@ using CorruptedExtensionReinstallerUnittest = ExtensionServiceTestBase;
 
 // Tests that a single extension corruption will keep retrying reinstallation.
 TEST_F(CorruptedExtensionReinstallerUnittest, Retry) {
+  // Reinstaller depends on the extension service.
   InitializeEmptyExtensionService();
-  service()->pending_extension_manager()->ExpectReinstallForCorruption(
+
+  CorruptedExtensionReinstaller reinstaller(profile());
+  reinstaller.ExpectReinstallForCorruption(
       kDummyExtensionId,
-      PendingExtensionManager::PolicyReinstallReason::
+      CorruptedExtensionReinstaller::PolicyReinstallReason::
           CORRUPTION_DETECTED_WEBSTORE,
       mojom::ManifestLocation::kInternal);
 
-  CorruptedExtensionReinstaller reinstaller(profile_.get());
   TestReinstallerTracker tracker;
 
   reinstaller.NotifyExtensionDisabledDueToCorruption();
@@ -82,14 +83,16 @@ TEST_F(CorruptedExtensionReinstallerUnittest, Retry) {
 // CheckForExternalUpdates() when one is already in-flight through PostTask.
 TEST_F(CorruptedExtensionReinstallerUnittest,
        DoNotScheduleWhenAlreadyInflight) {
+  // Reinstaller depends on the extension service.
   InitializeEmptyExtensionService();
-  service()->pending_extension_manager()->ExpectReinstallForCorruption(
+
+  CorruptedExtensionReinstaller reinstaller(profile_.get());
+  reinstaller.ExpectReinstallForCorruption(
       kDummyExtensionId,
-      PendingExtensionManager::PolicyReinstallReason::
+      CorruptedExtensionReinstaller::PolicyReinstallReason::
           CORRUPTION_DETECTED_WEBSTORE,
       mojom::ManifestLocation::kInternal);
 
-  CorruptedExtensionReinstaller reinstaller(profile_.get());
   TestReinstallerTracker tracker;
 
   reinstaller.NotifyExtensionDisabledDueToCorruption();

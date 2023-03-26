@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,14 +22,12 @@ class GtkUiPlatformStub : public GtkUiPlatform {
   GdkModifierType GetGdkKeyEventState(const ui::KeyEvent& key_event) override;
   int GetGdkKeyEventGroup(const ui::KeyEvent& key_event) override;
   GdkWindow* GetGdkWindow(gfx::AcceleratedWidget window_id) override;
-  bool ExportWindowHandle(
-      gfx::AcceleratedWidget window_id,
-      base::OnceCallback<void(std::string)> callback) override;
   bool SetGtkWidgetTransientFor(GtkWidget* widget,
                                 gfx::AcceleratedWidget parent) override;
   void ClearTransientFor(gfx::AcceleratedWidget parent) override;
   void ShowGtkWindow(GtkWindow* window) override;
-  bool PreferGtkIme() override;
+  std::unique_ptr<ui::LinuxInputMethodContext> CreateInputMethodContext(
+      ui::LinuxInputMethodContextDelegate* delegate) const override;
 };
 
 }  // namespace gtk

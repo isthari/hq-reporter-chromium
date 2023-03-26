@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,9 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/containers/circular_deque.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/task/single_thread_task_runner.h"
@@ -97,7 +97,8 @@ class FakeMultiBufferDataProvider : public MultiBuffer::DataProvider {
     --blocks_until_deferred_;
 
     bool ret = true;
-    auto block = base::MakeRefCounted<media::DataBuffer>(kBlockSize);
+    auto block =
+        base::MakeRefCounted<media::DataBuffer>(static_cast<int>(kBlockSize));
     size_t x = 0;
     size_t byte_pos = (fifo_.size() + pos_) * kBlockSize;
     for (x = 0; x < kBlockSize; x++, byte_pos++) {

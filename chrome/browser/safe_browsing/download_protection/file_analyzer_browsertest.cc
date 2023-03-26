@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 #include "chrome/test/base/in_process_browser_test.h"
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
-#include "chrome/browser/safe_browsing/download_protection/document_analysis_service.h"
 #include "chrome/services/file_util/public/cpp/sandboxed_document_analyzer.h"
 #endif
 

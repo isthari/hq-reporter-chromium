@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,6 +48,18 @@ public class WebappTestPage {
         String url = testServer.getURL(NO_SERVICE_WORKER_PAGE_PATH);
         Uri.Builder builder = Uri.parse(url).buildUpon();
         builder.appendQueryParameter("manifest", manifestUrl);
+        return builder.build().toString();
+    }
+
+    /**
+     * Returns the URL of a page with no service worker, an installable Web App Manifest, and the
+     * specified action query parameter.
+     */
+    public static String getNonServiceWorkerUrlWithAction(
+            EmbeddedTestServer testServer, String action) {
+        String url = testServer.getURL(NO_SERVICE_WORKER_PAGE_PATH);
+        Uri.Builder builder = Uri.parse(url).buildUpon();
+        builder.appendQueryParameter("action", action);
         return builder.build().toString();
     }
 

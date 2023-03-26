@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -114,12 +114,16 @@ public class WebApkIconNameUpdateDialog implements ModalDialogProperties.Control
             dialogCustomView.configureShortNames(oldAppShortName, newAppShortName);
         }
 
+        // A detailed explanation is only required when the icon is changing. The name updates are
+        // more straight-forward and the dialog title is enough to explain what is going on.
+        String explanation =
+                iconChanging ? resources.getString(R.string.webapp_update_explanation) : "";
+
         mDialogModel =
                 new PropertyModel.Builder(ModalDialogProperties.ALL_KEYS)
                         .with(ModalDialogProperties.CONTROLLER, this)
                         .with(ModalDialogProperties.TITLE, resources, titleId)
-                        .with(ModalDialogProperties.MESSAGE,
-                                resources.getString(R.string.webapp_update_explanation))
+                        .with(ModalDialogProperties.MESSAGE_PARAGRAPH_1, explanation)
                         .with(ModalDialogProperties.CUSTOM_VIEW, dialogCustomView)
                         .with(ModalDialogProperties.BUTTON_STYLES,
                                 ModalDialogProperties.ButtonStyles.PRIMARY_FILLED_NEGATIVE_OUTLINE)

@@ -1,10 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/paint/list_marker_painter.h"
 
 #include "third_party/blink/renderer/core/css/counter_style.h"
+#include "third_party/blink/renderer/core/layout/layout_counter.h"
 #include "third_party/blink/renderer/core/layout/layout_list_item.h"
 #include "third_party/blink/renderer/core/layout/layout_list_marker.h"
 #include "third_party/blink/renderer/core/layout/list_marker.h"
@@ -17,6 +18,7 @@
 #include "third_party/blink/renderer/core/paint/text_painter.h"
 #include "third_party/blink/renderer/platform/fonts/text_run_paint_info.h"
 #include "third_party/blink/renderer/platform/geometry/layout_point.h"
+#include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context_state_saver.h"
 #include "third_party/blink/renderer/platform/graphics/paint/drawing_recorder.h"
 
@@ -86,8 +88,14 @@ void ListMarkerPainter::PaintSymbol(const PaintInfo& paint_info,
                                     const ComputedStyle& style,
                                     const LayoutRect& marker) {
   DCHECK(object);
-  DCHECK(style.ListStyleType());
-  DCHECK(style.ListStyleType()->IsCounterStyle());
+#if DCHECK_IS_ON()
+  if (object->IsCounter()) {
+    DCHECK(To<LayoutCounter>(object)->IsDirectionalSymbolMarker());
+  } else {
+    DCHECK(style.ListStyleType());
+    DCHECK(style.ListStyleType()->IsCounterStyle());
+  }
+#endif
   GraphicsContext& context = paint_info.context;
   Color color(object->ResolveColor(GetCSSPropertyColor()));
   if (BoxModelObjectPainter::ShouldForceWhiteBackgroundForPrintEconomy(
@@ -99,7 +107,7 @@ void ListMarkerPainter::PaintSymbol(const PaintInfo& paint_info,
   context.SetStrokeStyle(kSolidStroke);
   context.SetStrokeThickness(1.0f);
   gfx::Rect snapped_rect = ToPixelSnappedRect(marker);
-  const AtomicString& type = style.ListStyleType()->GetCounterStyleName();
+  const AtomicString& type = LayoutCounter::ListStyle(object, style);
   AutoDarkMode auto_dark_mode(
       PaintAutoDarkMode(style, DarkModeFilter::ElementRole::kListSymbol));
   if (type == "disc") {
@@ -148,20 +156,22 @@ void ListMarkerPainter::Paint(const PaintInfo& paint_info) {
 
   GraphicsContext& context = local_paint_info.context;
 
-  AutoDarkMode auto_dark_mode(
-      PaintAutoDarkMode(layout_list_marker_.StyleRef(),
-                        DarkModeFilter::ElementRole::kListSymbol));
-
   if (layout_list_marker_.IsImage()) {
+    const gfx::RectF marker_rect(marker);
+    scoped_refptr<Image> target_image =
+        layout_list_marker_.GetImage()->GetImage(
+            layout_list_marker_, layout_list_marker_.GetDocument(),
+            layout_list_marker_.StyleRef(), marker_rect.size());
+    if (!target_image)
+      return;
+    const gfx::RectF src_rect(target_image->Rect());
+    auto image_auto_dark_mode = ImageClassifierHelper::GetImageAutoDarkMode(
+        *layout_list_marker_.GetFrame(), layout_list_marker_.StyleRef(),
+        marker_rect, src_rect);
     // Since there is no way for the developer to specify decode behavior, use
     // kSync by default.
-    context.DrawImage(
-        layout_list_marker_.GetImage()
-            ->GetImage(layout_list_marker_, layout_list_marker_.GetDocument(),
-                       layout_list_marker_.StyleRef(),
-                       gfx::SizeF(marker.Size()))
-            .get(),
-        Image::kSyncDecode, auto_dark_mode, gfx::RectF(marker));
+    context.DrawImage(*target_image, Image::kSyncDecode, image_auto_dark_mode,
+                      ImagePaintTimingInfo(), marker_rect, &src_rect);
     return;
   }
 
@@ -176,7 +186,7 @@ void ListMarkerPainter::Paint(const PaintInfo& paint_info) {
     return;
   }
 
-  if (layout_list_marker_.GetText().IsEmpty())
+  if (layout_list_marker_.GetText().empty())
     return;
 
   Color color(layout_list_marker_.ResolveColor(GetCSSPropertyColor()));
@@ -228,6 +238,9 @@ void ListMarkerPainter::Paint(const PaintInfo& paint_info) {
     text_run.SetText(reversed_text.ToString());
   }
 
+  AutoDarkMode auto_dark_mode(
+      PaintAutoDarkMode(layout_list_marker_.StyleRef(),
+                        DarkModeFilter::ElementRole::kListSymbol));
   if (style_category == ListMarker::ListStyleCategory::kStaticString) {
     // Don't add a suffix.
     context.DrawText(font, text_run_paint_info, text_origin, kInvalidDOMNodeId,

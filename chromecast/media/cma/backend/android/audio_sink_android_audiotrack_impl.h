@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread.h"
+#include "base/time/time.h"
 #include "chromecast/media/cma/backend/android/audio_sink_android.h"
 #include "chromecast/media/cma/backend/android/media_pipeline_backend_android.h"
 
@@ -54,14 +55,20 @@ class AudioSinkAndroidAudioTrackImpl : public AudioSinkAndroid {
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj,
       const base::android::JavaParamRef<jobject>& pcm_byte_buffer,
-      const base::android::JavaParamRef<jobject>& timestamp_byte_buffer);
+      const base::android::JavaParamRef<jobject>& rendering_delay_byte_buffer,
+      const base::android::JavaParamRef<jobject>&
+          audio_track_timestamp_byte_buffer);
 
-  // AudioSinkAndroid implementation
+  // AudioSinkAndroid implementation:
   void WritePcm(scoped_refptr<DecoderBufferBase> data) override;
   void SetPaused(bool paused) override;
   void SetStreamVolumeMultiplier(float multiplier) override;
   void SetLimiterVolumeMultiplier(float multiplier) override;
   float EffectiveVolume() const override;
+  MediaPipelineBackendAndroid::RenderingDelay GetRenderingDelay() override;
+  MediaPipelineBackendAndroid::AudioTrackTimestamp GetAudioTrackTimestamp()
+      override;
+  int GetStartThresholdInFrames() override;
 
   // Getters
   int input_samples_per_second() const override;
@@ -83,6 +90,7 @@ class AudioSinkAndroidAudioTrackImpl : public AudioSinkAndroid {
                                  int input_samples_per_second,
                                  int audio_track_session_id,
                                  bool primary,
+                                 bool is_apk_audio,
                                  bool use_hw_av_sync,
                                  const std::string& device_id,
                                  AudioContentType content_type);
@@ -105,8 +113,7 @@ class AudioSinkAndroidAudioTrackImpl : public AudioSinkAndroid {
 
   void TrackRawMonotonicClockDeviation();
 
-  void PostPcmCallback(
-      const MediaPipelineBackendAndroid::RenderingDelay& delay);
+  void PostPcmCallback();
 
   void SignalError(AudioSinkAndroid::SinkError error);
   void PostError(AudioSinkAndroid::SinkError error);
@@ -134,6 +141,8 @@ class AudioSinkAndroidAudioTrackImpl : public AudioSinkAndroid {
   uint8_t* direct_pcm_buffer_address_;  // PCM audio data native->java
   // rendering delay+timestamp return value, java->native
   uint64_t* direct_rendering_delay_address_;
+  // AudioTrack.getTimestamp return value, java->native
+  uint64_t* direct_audio_track_timestamp_address_;
 
   // Java AudioSinkAudioTrackImpl instance.
   const base::android::ScopedJavaGlobalRef<jobject>

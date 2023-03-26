@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,7 @@
     if (message.startsWith('backend')) {
       continue;
     }
-    message = message.replace(/"id":\d+,/, '"id":<number>,');
+    message = message.replace(/"id":\d+,/, '"id":<number>,').replace(/"sessionId":"[0-9A-F]+"/, '"sessionId":<string>');
     TestRunner.addResult(message);
   }
   TestRunner.completeTest();

@@ -1,23 +1,23 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2023 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//third_party/closure_compiler/compile_js.gni")
-import("//tools/polymer/html_to_js.gni")
+import("//ui/webui/resources/include_polymer.gni")
+import("//ui/webui/webui_features.gni")
+import("../../tools/build_cr_component.gni")
 
-js_type_check("closure_compile") {
-  is_polymer3 = true
-  deps = [ ":managed_dialog" ]
-}
+assert(include_polymer)
 
-js_library("managed_dialog") {
-  deps = [
-    "//third_party/polymer/v3_0/components-chromium/polymer:polymer_bundled",
-    "//ui/webui/resources/cr_elements/cr_dialog:cr_dialog.m",
-    "//ui/webui/resources/js:i18n_behavior.m",
+build_cr_component("build") {
+  grd_prefix = "cr_components_managed_dialog"
+
+  web_component_files = [ "managed_dialog.ts" ]
+
+  tsc_dir = "$root_gen_dir/ui/webui/resources/tsc/cr_components/managed_dialog"
+  ts_deps = [
+    "//third_party/polymer/v3_0:library",
+    "//ui/webui/resources:library",
   ]
-}
 
-html_to_js("web_components") {
-  js_files = [ "managed_dialog.js" ]
+  optimize = optimize_webui
 }

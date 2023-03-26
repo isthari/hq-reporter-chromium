@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <stddef.h>
 
-#include "base/cxx17_backports.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/no_destructor.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -47,7 +47,7 @@ enum class MimeHandlerType {
 };
 
 static_assert(
-    base::size(kMIMETypeHandlersAllowlist) ==
+    std::size(kMIMETypeHandlersAllowlist) ==
         static_cast<size_t>(MimeHandlerType::kMaxValue) + 1,
     "MimeHandlerType enum is not in sync with kMIMETypeHandlersAllowlist.");
 
@@ -79,8 +79,7 @@ const std::vector<std::string>& MimeTypesHandler::GetMIMETypeAllowlist() {
 // static
 void MimeTypesHandler::ReportUsedHandler(const std::string& extension_id) {
   auto* const* it =
-      std::find(std::begin(kMIMETypeHandlersAllowlist),
-                std::end(kMIMETypeHandlersAllowlist), extension_id);
+      base::ranges::find(kMIMETypeHandlersAllowlist, extension_id);
   if (it != std::end(kMIMETypeHandlersAllowlist)) {
     MimeHandlerType type = static_cast<MimeHandlerType>(
         it - std::begin(kMIMETypeHandlersAllowlist));
@@ -107,9 +106,7 @@ SkColor MimeTypesHandler::GetBackgroundColor() const {
   if (extension_id_ == extension_misc::kPdfExtensionId) {
     return kPdfExtensionBackgroundColor;
   }
-  if (extension_id_ == extension_misc::kQuickOfficeExtensionId ||
-      extension_id_ == extension_misc::kQuickOfficeInternalExtensionId ||
-      extension_id_ == extension_misc::kQuickOfficeComponentExtensionId) {
+  if (extension_misc::IsQuickOfficeExtension(extension_id_)) {
     return kQuickOfficeExtensionBackgroundColor;
   }
   return content::WebPluginInfo::kDefaultBackgroundColor;
@@ -130,7 +127,7 @@ MimeTypesHandler* MimeTypesHandler::GetHandler(
       extension->GetManifestData(keys::kMimeTypesHandler));
   if (info)
     return &info->handler_;
-  return NULL;
+  return nullptr;
 }
 
 MimeTypesHandlerParser::MimeTypesHandlerParser() {

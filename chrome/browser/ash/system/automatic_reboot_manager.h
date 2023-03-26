@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/callback_list.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/scoped_observation.h"
@@ -15,13 +16,11 @@
 #include "base/timer/timer.h"
 #include "base/timer/wall_clock_timer.h"
 #include "chrome/browser/ash/system/automatic_reboot_manager_observer.h"
+#include "chromeos/ash/components/dbus/update_engine/update_engine_client.h"
 #include "chromeos/dbus/power/power_manager_client.h"
-#include "chromeos/dbus/update_engine/update_engine_client.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/session_manager/core/session_manager_observer.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
 #include "ui/base/user_activity/user_activity_observer.h"
 
 class PrefRegistrySimple;
@@ -73,11 +72,10 @@ struct SystemEventTimes;
 // applying an update is stored in /var/run/chrome/update_reboot_needed_uptime,
 // making it persist across browser restarts and crashes. Placing the file under
 // /var/run ensures that it gets cleared automatically on every boot.
-class AutomaticRebootManager : public PowerManagerClient::Observer,
+class AutomaticRebootManager : public chromeos::PowerManagerClient::Observer,
                                public UpdateEngineClient::Observer,
                                public ui::UserActivityObserver,
-                               public session_manager::SessionManagerObserver,
-                               public content::NotificationObserver {
+                               public session_manager::SessionManagerObserver {
  public:
   AutomaticRebootManager(const base::Clock* clock,
                          const base::TickClock* tick_clock);
@@ -111,11 +109,6 @@ class AutomaticRebootManager : public PowerManagerClient::Observer,
   // session_manager::SessionManagerObserver:
   void OnUserSessionStarted(bool is_primary_user) override;
 
-  // content::NotificationObserver:
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
-
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
  private:
@@ -141,6 +134,9 @@ class AutomaticRebootManager : public PowerManagerClient::Observer,
   // Reboots immediately unless a non-kiosk session is active.
   void Reboot();
 
+  // Callback invoked when Chrome shuts down.
+  void OnAppTerminating();
+
   // Event that is signaled when Init() runs.
   base::WaitableEvent initialized_{
       base::WaitableEvent::ResetPolicy::MANUAL,
@@ -152,7 +148,7 @@ class AutomaticRebootManager : public PowerManagerClient::Observer,
 
   PrefChangeRegistrar local_state_registrar_;
 
-  content::NotificationRegistrar notification_registrar_;
+  base::CallbackListSubscription on_app_terminating_subscription_;
 
   // Fires when the user has been idle on the login screen for a set amount of
   // time.

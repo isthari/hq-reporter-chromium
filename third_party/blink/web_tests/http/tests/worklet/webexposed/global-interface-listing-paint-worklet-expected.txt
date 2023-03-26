@@ -9,6 +9,7 @@ CONSOLE MESSAGE: interface CSSColorValue
 CONSOLE MESSAGE:     attribute @@toStringTag
 CONSOLE MESSAGE:     method constructor
 CONSOLE MESSAGE:     method toHSL
+CONSOLE MESSAGE:     method toHWB
 CONSOLE MESSAGE:     method toRGB
 CONSOLE MESSAGE: interface CSSHSL : CSSColorValue
 CONSOLE MESSAGE:     attribute @@toStringTag
@@ -21,6 +22,17 @@ CONSOLE MESSAGE:     setter alpha
 CONSOLE MESSAGE:     setter h
 CONSOLE MESSAGE:     setter l
 CONSOLE MESSAGE:     setter s
+CONSOLE MESSAGE: interface CSSHWB : CSSColorValue
+CONSOLE MESSAGE:     attribute @@toStringTag
+CONSOLE MESSAGE:     getter alpha
+CONSOLE MESSAGE:     getter b
+CONSOLE MESSAGE:     getter h
+CONSOLE MESSAGE:     getter w
+CONSOLE MESSAGE:     method constructor
+CONSOLE MESSAGE:     setter alpha
+CONSOLE MESSAGE:     setter b
+CONSOLE MESSAGE:     setter h
+CONSOLE MESSAGE:     setter w
 CONSOLE MESSAGE: interface CSSImageValue : CSSStyleValue
 CONSOLE MESSAGE:     attribute @@toStringTag
 CONSOLE MESSAGE:     method constructor
@@ -29,6 +41,12 @@ CONSOLE MESSAGE:     attribute @@toStringTag
 CONSOLE MESSAGE:     getter value
 CONSOLE MESSAGE:     method constructor
 CONSOLE MESSAGE:     setter value
+CONSOLE MESSAGE: interface CSSMathClamp : CSSMathValue
+CONSOLE MESSAGE:     attribute @@toStringTag
+CONSOLE MESSAGE:     getter lower
+CONSOLE MESSAGE:     getter upper
+CONSOLE MESSAGE:     getter value
+CONSOLE MESSAGE:     method constructor
 CONSOLE MESSAGE: interface CSSMathInvert : CSSMathValue
 CONSOLE MESSAGE:     attribute @@toStringTag
 CONSOLE MESSAGE:     getter value
@@ -360,6 +378,13 @@ CONSOLE MESSAGE:     attribute @@toStringTag
 CONSOLE MESSAGE:     getter readable
 CONSOLE MESSAGE:     getter writable
 CONSOLE MESSAGE:     method constructor
+CONSOLE MESSAGE: interface TransformStreamDefaultController
+CONSOLE MESSAGE:     attribute @@toStringTag
+CONSOLE MESSAGE:     getter desiredSize
+CONSOLE MESSAGE:     method constructor
+CONSOLE MESSAGE:     method enqueue
+CONSOLE MESSAGE:     method error
+CONSOLE MESSAGE:     method terminate
 CONSOLE MESSAGE: interface WorkletGlobalScope
 CONSOLE MESSAGE:     attribute @@toStringTag
 CONSOLE MESSAGE:     method constructor
@@ -386,8 +411,33 @@ CONSOLE MESSAGE:     method constructor
 CONSOLE MESSAGE:     method releaseLock
 CONSOLE MESSAGE:     method write
 CONSOLE MESSAGE: [NAMESPACES]
+CONSOLE MESSAGE: namespace console
+CONSOLE MESSAGE:     attribute @@toStringTag
+CONSOLE MESSAGE:     method assert
+CONSOLE MESSAGE:     method clear
+CONSOLE MESSAGE:     method context
+CONSOLE MESSAGE:     method count
+CONSOLE MESSAGE:     method countReset
+CONSOLE MESSAGE:     method createTask
+CONSOLE MESSAGE:     method debug
+CONSOLE MESSAGE:     method dir
+CONSOLE MESSAGE:     method dirxml
+CONSOLE MESSAGE:     method error
+CONSOLE MESSAGE:     method group
+CONSOLE MESSAGE:     method groupCollapsed
+CONSOLE MESSAGE:     method groupEnd
+CONSOLE MESSAGE:     method info
+CONSOLE MESSAGE:     method log
+CONSOLE MESSAGE:     method profile
+CONSOLE MESSAGE:     method profileEnd
+CONSOLE MESSAGE:     method table
+CONSOLE MESSAGE:     method time
+CONSOLE MESSAGE:     method timeEnd
+CONSOLE MESSAGE:     method timeLog
+CONSOLE MESSAGE:     method timeStamp
+CONSOLE MESSAGE:     method trace
+CONSOLE MESSAGE:     method warn
 CONSOLE MESSAGE: [GLOBAL OBJECT]
-CONSOLE MESSAGE:     attribute console
 CONSOLE MESSAGE:     attribute globalThis
 CONSOLE MESSAGE:     getter devicePixelRatio
 CONSOLE MESSAGE:     method gc
@@ -402,6 +452,7 @@ CONSOLE MESSAGE: interface CSSColorValue
 CONSOLE MESSAGE:     attribute @@toStringTag
 CONSOLE MESSAGE:     method constructor
 CONSOLE MESSAGE:     method toHSL
+CONSOLE MESSAGE:     method toHWB
 CONSOLE MESSAGE:     method toRGB
 CONSOLE MESSAGE: interface CSSHSL : CSSColorValue
 CONSOLE MESSAGE:     attribute @@toStringTag
@@ -414,6 +465,17 @@ CONSOLE MESSAGE:     setter alpha
 CONSOLE MESSAGE:     setter h
 CONSOLE MESSAGE:     setter l
 CONSOLE MESSAGE:     setter s
+CONSOLE MESSAGE: interface CSSHWB : CSSColorValue
+CONSOLE MESSAGE:     attribute @@toStringTag
+CONSOLE MESSAGE:     getter alpha
+CONSOLE MESSAGE:     getter b
+CONSOLE MESSAGE:     getter h
+CONSOLE MESSAGE:     getter w
+CONSOLE MESSAGE:     method constructor
+CONSOLE MESSAGE:     setter alpha
+CONSOLE MESSAGE:     setter b
+CONSOLE MESSAGE:     setter h
+CONSOLE MESSAGE:     setter w
 CONSOLE MESSAGE: interface CSSImageValue : CSSStyleValue
 CONSOLE MESSAGE:     attribute @@toStringTag
 CONSOLE MESSAGE:     method constructor
@@ -422,6 +484,12 @@ CONSOLE MESSAGE:     attribute @@toStringTag
 CONSOLE MESSAGE:     getter value
 CONSOLE MESSAGE:     method constructor
 CONSOLE MESSAGE:     setter value
+CONSOLE MESSAGE: interface CSSMathClamp : CSSMathValue
+CONSOLE MESSAGE:     attribute @@toStringTag
+CONSOLE MESSAGE:     getter lower
+CONSOLE MESSAGE:     getter upper
+CONSOLE MESSAGE:     getter value
+CONSOLE MESSAGE:     method constructor
 CONSOLE MESSAGE: interface CSSMathInvert : CSSMathValue
 CONSOLE MESSAGE:     attribute @@toStringTag
 CONSOLE MESSAGE:     getter value
@@ -753,6 +821,13 @@ CONSOLE MESSAGE:     attribute @@toStringTag
 CONSOLE MESSAGE:     getter readable
 CONSOLE MESSAGE:     getter writable
 CONSOLE MESSAGE:     method constructor
+CONSOLE MESSAGE: interface TransformStreamDefaultController
+CONSOLE MESSAGE:     attribute @@toStringTag
+CONSOLE MESSAGE:     getter desiredSize
+CONSOLE MESSAGE:     method constructor
+CONSOLE MESSAGE:     method enqueue
+CONSOLE MESSAGE:     method error
+CONSOLE MESSAGE:     method terminate
 CONSOLE MESSAGE: interface WorkletGlobalScope
 CONSOLE MESSAGE:     attribute @@toStringTag
 CONSOLE MESSAGE:     method constructor
@@ -779,8 +854,33 @@ CONSOLE MESSAGE:     method constructor
 CONSOLE MESSAGE:     method releaseLock
 CONSOLE MESSAGE:     method write
 CONSOLE MESSAGE: [NAMESPACES]
+CONSOLE MESSAGE: namespace console
+CONSOLE MESSAGE:     attribute @@toStringTag
+CONSOLE MESSAGE:     method assert
+CONSOLE MESSAGE:     method clear
+CONSOLE MESSAGE:     method context
+CONSOLE MESSAGE:     method count
+CONSOLE MESSAGE:     method countReset
+CONSOLE MESSAGE:     method createTask
+CONSOLE MESSAGE:     method debug
+CONSOLE MESSAGE:     method dir
+CONSOLE MESSAGE:     method dirxml
+CONSOLE MESSAGE:     method error
+CONSOLE MESSAGE:     method group
+CONSOLE MESSAGE:     method groupCollapsed
+CONSOLE MESSAGE:     method groupEnd
+CONSOLE MESSAGE:     method info
+CONSOLE MESSAGE:     method log
+CONSOLE MESSAGE:     method profile
+CONSOLE MESSAGE:     method profileEnd
+CONSOLE MESSAGE:     method table
+CONSOLE MESSAGE:     method time
+CONSOLE MESSAGE:     method timeEnd
+CONSOLE MESSAGE:     method timeLog
+CONSOLE MESSAGE:     method timeStamp
+CONSOLE MESSAGE:     method trace
+CONSOLE MESSAGE:     method warn
 CONSOLE MESSAGE: [GLOBAL OBJECT]
-CONSOLE MESSAGE:     attribute console
 CONSOLE MESSAGE:     attribute globalThis
 CONSOLE MESSAGE:     getter devicePixelRatio
 CONSOLE MESSAGE:     method gc

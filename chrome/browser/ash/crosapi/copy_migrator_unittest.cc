@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -101,7 +101,7 @@ TEST_F(CopyMigratorTest, SetupTmpDir) {
           from_dir_, browser_data_migrator_util::ItemType::kLacros);
   browser_data_migrator_util::TargetItems need_copy_items =
       browser_data_migrator_util::GetTargetItems(
-          from_dir_, browser_data_migrator_util::ItemType::kNeedCopy);
+          from_dir_, browser_data_migrator_util::ItemType::kNeedCopyForCopy);
   FakeMigrationProgressTracker progress_tracker;
   EXPECT_TRUE(CopyMigrator::SetupTmpDir(lacros_items, need_copy_items, tmp_dir,
                                         cancel_flag.get(), &progress_tracker));
@@ -141,7 +141,7 @@ TEST_F(CopyMigratorTest, CancelSetupTmpDir) {
           from_dir_, browser_data_migrator_util::ItemType::kLacros);
   browser_data_migrator_util::TargetItems need_copy_items =
       browser_data_migrator_util::GetTargetItems(
-          from_dir_, browser_data_migrator_util::ItemType::kNeedCopy);
+          from_dir_, browser_data_migrator_util::ItemType::kNeedCopyForCopy);
 
   // Set cancel_flag to cancel migrationl.
   cancel_flag->Set();
@@ -219,6 +219,21 @@ TEST_F(CopyMigratorTest, MigrateInternal) {
                                      CopyMigrator::FinalStatus::kSuccess, 1);
   histogram_tester.ExpectBucketCount(kCopiedDataSize,
                                      kFileSize * 4 / (1024 * 1024), 1);
+}
+
+TEST_F(CopyMigratorTest, MigrateInternalOutOfDisk) {
+  // Emulate the situation of out-of-disk.
+  browser_data_migrator_util::ScopedExtraBytesRequiredToBeFreedForTesting
+      scoped_extra_bytes(100);
+
+  // Run the migration.
+  auto result = CopyMigrator::MigrateInternal(
+      from_dir_, std::make_unique<FakeMigrationProgressTracker>(),
+      base::MakeRefCounted<browser_data_migrator_util::CancelFlag>());
+
+  EXPECT_EQ(BrowserDataMigrator::ResultKind::kFailed,
+            result.data_migration_result.kind);
+  EXPECT_EQ(100u, result.data_migration_result.required_size);
 }
 
 }  // namespace ash

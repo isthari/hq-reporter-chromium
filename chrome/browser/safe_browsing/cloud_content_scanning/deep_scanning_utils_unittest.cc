@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,17 +54,19 @@ constexpr base::TimeDelta kInvalidDuration = base::Seconds(0);
 
 class DeepScanningUtilsUMATest
     : public testing::TestWithParam<
-          std::tuple<DeepScanAccessPoint, BinaryUploadService::Result>> {
+          std::tuple<bool, DeepScanAccessPoint, BinaryUploadService::Result>> {
  public:
   DeepScanningUtilsUMATest() {}
 
-  DeepScanAccessPoint access_point() const { return std::get<0>(GetParam()); }
+  bool is_cloud() const { return std::get<0>(GetParam()); }
+
+  DeepScanAccessPoint access_point() const { return std::get<1>(GetParam()); }
 
   std::string access_point_string() const {
     return DeepScanAccessPointToString(access_point());
   }
 
-  BinaryUploadService::Result result() const { return std::get<1>(GetParam()); }
+  BinaryUploadService::Result result() const { return std::get<2>(GetParam()); }
 
   bool success() const {
     return result() == BinaryUploadService::Result::SUCCESS;
@@ -76,6 +78,11 @@ class DeepScanningUtilsUMATest
 
   const base::HistogramTester& histograms() const { return histograms_; }
 
+  const char* metric_prefix() {
+    return is_cloud() ? "SafeBrowsing.DeepScan."
+                      : "SafeBrowsing.LocalDeepScan.";
+  }
+
  private:
   base::HistogramTester histograms_;
 };
@@ -83,11 +90,13 @@ class DeepScanningUtilsUMATest
 INSTANTIATE_TEST_SUITE_P(
     Tests,
     DeepScanningUtilsUMATest,
-    testing::Combine(testing::Values(DeepScanAccessPoint::DOWNLOAD,
+    testing::Combine(testing::Bool(),
+                     testing::Values(DeepScanAccessPoint::DOWNLOAD,
                                      DeepScanAccessPoint::UPLOAD,
                                      DeepScanAccessPoint::DRAG_AND_DROP,
                                      DeepScanAccessPoint::PASTE,
-                                     DeepScanAccessPoint::PRINT),
+                                     DeepScanAccessPoint::PRINT,
+                                     DeepScanAccessPoint::FILE_TRANSFER),
                      testing::ValuesIn(kAllBinaryUploadServiceResults)));
 
 TEST_P(DeepScanningUtilsUMATest, SuccessfulScanVerdicts) {
@@ -95,9 +104,11 @@ TEST_P(DeepScanningUtilsUMATest, SuccessfulScanVerdicts) {
   // - A default response
   // - A DLP response with SUCCESS
   // - A malware respopnse with MALWARE, UWS, CLEAN
-  RecordDeepScanMetrics(access_point(), kDuration, kTotalBytes, result(),
+  RecordDeepScanMetrics(is_cloud(), access_point(), kDuration, kTotalBytes,
+                        result(),
                         enterprise_connectors::ContentAnalysisResponse());
-  RecordDeepScanMetrics(access_point(), kDuration, kTotalBytes, result(),
+  RecordDeepScanMetrics(is_cloud(), access_point(), kDuration, kTotalBytes,
+                        result(),
                         SimpleContentAnalysisResponseForTesting(
                             /*dlp_success*/ true,
                             /*malware_success*/ absl::nullopt));
@@ -113,32 +124,28 @@ TEST_P(DeepScanningUtilsUMATest, SuccessfulScanVerdicts) {
       rule->set_action(enterprise_connectors::TriggeredRule::BLOCK);
     }
 
-    RecordDeepScanMetrics(access_point(), kDuration, kTotalBytes, result(),
-                          response);
+    RecordDeepScanMetrics(is_cloud(), access_point(), kDuration, kTotalBytes,
+                          result(), response);
   }
 
   if (result() == BinaryUploadService::Result::UNAUTHORIZED) {
-    EXPECT_EQ(
-        0u,
-        histograms().GetTotalCountsForPrefix("SafeBrowsing.DeepScan.").size());
+    EXPECT_EQ(0u, histograms().GetTotalCountsForPrefix(metric_prefix()).size());
   } else {
     // We expect at least 2 histograms (<access-point>.Duration and
     // <access-point>.<result>.Duration), but only expect a third histogram in
     // the success case (bytes/seconds). Each of these should have 5 records to
     // match each of the RecordDeepScanMetrics calls.
     uint64_t expected_histograms = success() ? 3u : 2u;
-    auto recorded =
-        histograms().GetTotalCountsForPrefix("SafeBrowsing.DeepScan.");
+    auto recorded = histograms().GetTotalCountsForPrefix(metric_prefix());
     EXPECT_EQ(expected_histograms, recorded.size());
     if (success()) {
-      EXPECT_EQ(recorded["SafeBrowsing.DeepScan." + access_point_string() +
+      EXPECT_EQ(recorded[metric_prefix() + access_point_string() +
                          ".BytesPerSeconds"],
                 5);
     }
-    EXPECT_EQ(recorded["SafeBrowsing.DeepScan." + access_point_string() +
-                       ".Duration"],
+    EXPECT_EQ(recorded[metric_prefix() + access_point_string() + ".Duration"],
               5);
-    EXPECT_EQ(recorded["SafeBrowsing.DeepScan." + access_point_string() + "." +
+    EXPECT_EQ(recorded[metric_prefix() + access_point_string() + "." +
                        result_value(true) + ".Duration"],
               5);
   }
@@ -155,22 +162,18 @@ TEST_P(DeepScanningUtilsUMATest, UnsuccessfulDlpScanVerdicts) {
     dlp_result->set_tag("dlp");
     dlp_result->set_status(status);
 
-    RecordDeepScanMetrics(access_point(), kDuration, kTotalBytes, result(),
-                          response);
+    RecordDeepScanMetrics(is_cloud(), access_point(), kDuration, kTotalBytes,
+                          result(), response);
   }
 
   if (result() == BinaryUploadService::Result::UNAUTHORIZED) {
-    EXPECT_EQ(
-        0u,
-        histograms().GetTotalCountsForPrefix("SafeBrowsing.DeepScan.").size());
+    EXPECT_EQ(0u, histograms().GetTotalCountsForPrefix(metric_prefix()).size());
   } else {
-    auto recorded =
-        histograms().GetTotalCountsForPrefix("SafeBrowsing.DeepScan.");
+    auto recorded = histograms().GetTotalCountsForPrefix(metric_prefix());
     EXPECT_EQ(2u, recorded.size());
-    EXPECT_EQ(recorded["SafeBrowsing.DeepScan." + access_point_string() +
-                       ".Duration"],
+    EXPECT_EQ(recorded[metric_prefix() + access_point_string() + ".Duration"],
               2);
-    EXPECT_EQ(recorded["SafeBrowsing.DeepScan." + access_point_string() + "." +
+    EXPECT_EQ(recorded[metric_prefix() + access_point_string() + "." +
                        result_value(false) + ".Duration"],
               2);
   }
@@ -187,102 +190,52 @@ TEST_P(DeepScanningUtilsUMATest, UnsuccessfulMalwareScanVerdict) {
     malware_result->set_tag("malware");
     malware_result->set_status(status);
 
-    RecordDeepScanMetrics(access_point(), kDuration, kTotalBytes, result(),
-                          response);
+    RecordDeepScanMetrics(is_cloud(), access_point(), kDuration, kTotalBytes,
+                          result(), response);
   }
 
   if (result() == BinaryUploadService::Result::UNAUTHORIZED) {
-    EXPECT_EQ(
-        0u,
-        histograms().GetTotalCountsForPrefix("SafeBrowsing.DeepScan.").size());
+    EXPECT_EQ(0u, histograms().GetTotalCountsForPrefix(metric_prefix()).size());
   } else {
-    auto recorded =
-        histograms().GetTotalCountsForPrefix("SafeBrowsing.DeepScan.");
+    auto recorded = histograms().GetTotalCountsForPrefix(metric_prefix());
     EXPECT_EQ(2u, recorded.size());
-    EXPECT_EQ(recorded["SafeBrowsing.DeepScan." + access_point_string() +
-                       ".Duration"],
+    EXPECT_EQ(recorded[metric_prefix() + access_point_string() + ".Duration"],
               2);
-    EXPECT_EQ(recorded["SafeBrowsing.DeepScan." + access_point_string() + "." +
+    EXPECT_EQ(recorded[metric_prefix() + access_point_string() + "." +
                        result_value(false) + ".Duration"],
               2);
   }
 }
 
 TEST_P(DeepScanningUtilsUMATest, BypassScanVerdict) {
-  RecordDeepScanMetrics(access_point(), kDuration, kTotalBytes,
+  RecordDeepScanMetrics(is_cloud(), access_point(), kDuration, kTotalBytes,
                         "BypassedByUser", false);
 
-  EXPECT_EQ(
-      2u,
-      histograms().GetTotalCountsForPrefix("SafeBrowsing.DeepScan.").size());
+  EXPECT_EQ(2u, histograms().GetTotalCountsForPrefix(metric_prefix()).size());
   histograms().ExpectTimeBucketCount(
-      "SafeBrowsing.DeepScan." + access_point_string() + ".Duration", kDuration,
-      1);
-  histograms().ExpectTimeBucketCount("SafeBrowsing.DeepScan." +
-                                         access_point_string() +
-                                         ".BypassedByUser.Duration",
-                                     kDuration, 1);
+      metric_prefix() + access_point_string() + ".Duration", kDuration, 1);
+  histograms().ExpectTimeBucketCount(
+      metric_prefix() + access_point_string() + ".BypassedByUser.Duration",
+      kDuration, 1);
 }
 
 TEST_P(DeepScanningUtilsUMATest, CancelledByUser) {
-  RecordDeepScanMetrics(access_point(), kDuration, kTotalBytes,
+  RecordDeepScanMetrics(is_cloud(), access_point(), kDuration, kTotalBytes,
                         "CancelledByUser", false);
 
-  EXPECT_EQ(
-      2u,
-      histograms().GetTotalCountsForPrefix("SafeBrowsing.DeepScan.").size());
+  EXPECT_EQ(2u, histograms().GetTotalCountsForPrefix(metric_prefix()).size());
   histograms().ExpectTimeBucketCount(
-      "SafeBrowsing.DeepScan." + access_point_string() + ".Duration", kDuration,
-      1);
-  histograms().ExpectTimeBucketCount("SafeBrowsing.DeepScan." +
-                                         access_point_string() +
-                                         ".CancelledByUser.Duration",
-                                     kDuration, 1);
+      metric_prefix() + access_point_string() + ".Duration", kDuration, 1);
+  histograms().ExpectTimeBucketCount(
+      metric_prefix() + access_point_string() + ".CancelledByUser.Duration",
+      kDuration, 1);
 }
 
 TEST_P(DeepScanningUtilsUMATest, InvalidDuration) {
-  RecordDeepScanMetrics(access_point(), kInvalidDuration, kTotalBytes, result(),
+  RecordDeepScanMetrics(is_cloud(), access_point(), kInvalidDuration,
+                        kTotalBytes, result(),
                         enterprise_connectors::ContentAnalysisResponse());
-  EXPECT_EQ(
-      0u,
-      histograms().GetTotalCountsForPrefix("SafeBrowsing.DeepScan.").size());
-}
-
-class DeepScanningUtilsDlpFileSupportedTest : public testing::Test {
- protected:
-  std::vector<base::FilePath::StringType> UnsupportedDlpFileTypes() {
-    return {FILE_PATH_LITERAL(".these"), FILE_PATH_LITERAL(".types"),
-            FILE_PATH_LITERAL(".are"), FILE_PATH_LITERAL(".not"),
-            FILE_PATH_LITERAL(".supported")};
-  }
-
-  std::vector<std::string> UnsupportedDlpMimeTypes() {
-    return {"image/png", "video/webm", "audio/wav", "i/made", "this/up", "foo"};
-  }
-
-  base::FilePath FilePath(const base::FilePath::StringType& type) {
-    return base::FilePath(FILE_PATH_LITERAL("foo") + type);
-  }
-};
-
-TEST_F(DeepScanningUtilsDlpFileSupportedTest, FileExtension) {
-  // With a DLP-only scan, only the types returned by SupportedDlpFileTypes()
-  // will be supported, and other types will fail.
-  for (const base::FilePath::StringType& type : SupportedDlpFileTypes()) {
-    EXPECT_TRUE(FileTypeSupportedForDlp(FilePath(type)));
-  }
-  for (const base::FilePath::StringType& type : UnsupportedDlpFileTypes()) {
-    EXPECT_FALSE(FileTypeSupportedForDlp(FilePath(type)));
-  }
-}
-
-TEST_F(DeepScanningUtilsDlpFileSupportedTest, MimeType) {
-  for (const std::string& type : SupportedDlpMimeTypes()) {
-    EXPECT_TRUE(MimeTypeSupportedForDlp(type));
-  }
-  for (const std::string& type : UnsupportedDlpMimeTypes()) {
-    EXPECT_FALSE(MimeTypeSupportedForDlp(type));
-  }
+  EXPECT_EQ(0u, histograms().GetTotalCountsForPrefix(metric_prefix()).size());
 }
 
 #if !BUILDFLAG(USE_CRASH_KEY_STUBS)

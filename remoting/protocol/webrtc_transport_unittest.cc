@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
@@ -33,15 +33,12 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/libjingle_xmpp/xmllite/xmlelement.h"
 
-namespace remoting {
-namespace protocol {
+namespace remoting::protocol {
 
 namespace {
 
 const char kChannelName[] = "test_channel";
 const char kAuthKey[] = "test_auth_key";
-
-constexpr base::TimeDelta kWaitForThreadJoinTimeout = base::Milliseconds(200);
 
 class TestTransportEventHandler : public WebrtcTransport::EventHandler {
  public:
@@ -75,12 +72,14 @@ class TestTransportEventHandler : public WebrtcTransport::EventHandler {
 
   // WebrtcTransport::EventHandler interface.
   void OnWebrtcTransportConnecting() override {
-    if (!connecting_callback_.is_null())
+    if (!connecting_callback_.is_null()) {
       connecting_callback_.Run();
+    }
   }
   void OnWebrtcTransportConnected() override {
-    if (!connected_callback_.is_null())
+    if (!connected_callback_.is_null()) {
       connected_callback_.Run();
+    }
   }
   void OnWebrtcTransportError(ErrorCode error) override {
     error_callback_.Run(error);
@@ -96,9 +95,9 @@ class TestTransportEventHandler : public WebrtcTransport::EventHandler {
     }
   }
   void OnWebrtcTransportMediaStreamAdded(
-      scoped_refptr<webrtc::MediaStreamInterface> stream) override {}
+      rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) override {}
   void OnWebrtcTransportMediaStreamRemoved(
-      scoped_refptr<webrtc::MediaStreamInterface> stream) override {}
+      rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) override {}
   void OnWebrtcTransportRouteChanged(const TransportRoute& route) override {}
 
  private:
@@ -136,13 +135,15 @@ class TestMessagePipeEventHandler : public MessagePipe::EventHandler {
   // MessagePipe::EventHandler interface.
   void OnMessagePipeOpen() override {
     is_open_ = true;
-    if (!open_callback_.is_null())
+    if (!open_callback_.is_null()) {
       open_callback_.Run();
+    }
   }
   void OnMessageReceived(std::unique_ptr<CompoundBuffer> message) override {
     received_messages_.push_back(std::move(message));
-    if (!message_callback_.is_null())
+    if (!message_callback_.is_null()) {
       message_callback_.Run();
+    }
   }
   void OnMessagePipeClosed() override {
     if (!closed_callback_.is_null()) {
@@ -159,21 +160,6 @@ class TestMessagePipeEventHandler : public MessagePipe::EventHandler {
   base::RepeatingClosure closed_callback_;
 
   std::list<std::unique_ptr<CompoundBuffer>> received_messages_;
-};
-
-class FakeThreadJoinWatchdog : public base::Watchdog {
- public:
-  explicit FakeThreadJoinWatchdog(bool* alarm_triggered)
-      : base::Watchdog(kWaitForThreadJoinTimeout,
-                       "Fake Thread Join Watchdog",
-                       /* enabled= */ true),
-        alarm_triggered_(alarm_triggered) {}
-  ~FakeThreadJoinWatchdog() override = default;
-
-  void Alarm() override { *alarm_triggered_ = true; }
-
- private:
-  raw_ptr<bool> alarm_triggered_;
 };
 
 }  // namespace
@@ -196,9 +182,10 @@ class WebrtcTransportTest : public testing::Test {
     base::RunLoop().RunUntilIdle();
   }
 
-  void ProcessTransportInfo(std::unique_ptr<WebrtcTransport>* target_transport,
-                            bool normalize_line_endings,
-                            std::unique_ptr<jingle_xmpp::XmlElement> transport_info) {
+  void ProcessTransportInfo(
+      std::unique_ptr<WebrtcTransport>* target_transport,
+      bool normalize_line_endings,
+      std::unique_ptr<jingle_xmpp::XmlElement> transport_info) {
     ASSERT_TRUE(target_transport);
 
     // Reformat the message to normalize line endings by removing CR symbol.
@@ -218,10 +205,6 @@ class WebrtcTransportTest : public testing::Test {
         TransportContext::ForTests(TransportRole::SERVER),
         std::make_unique<WebrtcVideoEncoderFactory>(), &host_event_handler_);
 
-    host_transport_->SetThreadJoinWatchdogForTests(
-        std::make_unique<FakeThreadJoinWatchdog>(
-            &host_thread_join_alarm_triggered_));
-
     // If offer_to_receive_video and offer_to_receive_audio are both false,
     // there must be a stream present in order to generate a valid SDP offer.
     host_transport_->peer_connection()->AddTransceiver(
@@ -235,10 +218,6 @@ class WebrtcTransportTest : public testing::Test {
         webrtc::ThreadWrapper::current(),
         TransportContext::ForTests(TransportRole::CLIENT), nullptr,
         &client_event_handler_);
-
-    client_transport_->SetThreadJoinWatchdogForTests(
-        std::make_unique<FakeThreadJoinWatchdog>(
-            &client_thread_join_alarm_triggered_));
 
     client_authenticator_ =
         std::make_unique<FakeAuthenticator>(FakeAuthenticator::ACCEPT);
@@ -304,13 +283,15 @@ class WebrtcTransportTest : public testing::Test {
     client_message_pipe_ = std::move(pipe);
     client_message_pipe_->Start(&client_message_pipe_event_handler_);
 
-    if (run_loop_ && host_message_pipe_event_handler_.is_open())
+    if (run_loop_ && host_message_pipe_event_handler_.is_open()) {
       run_loop_->Quit();
+    }
   }
 
   void OnHostChannelConnected() {
-    if (run_loop_ && client_message_pipe_event_handler_.is_open())
+    if (run_loop_ && client_message_pipe_event_handler_.is_open()) {
       run_loop_->Quit();
+    }
   }
 
   void OnSessionError(TransportRole role, ErrorCode error) {
@@ -338,8 +319,9 @@ class WebrtcTransportTest : public testing::Test {
 
   void QuitRunLoopOnCounter(int* counter) {
     --(*counter);
-    if (*counter == 0)
+    if (*counter == 0) {
       run_loop_->Quit();
+    }
   }
 
  protected:
@@ -351,12 +333,10 @@ class WebrtcTransportTest : public testing::Test {
   std::unique_ptr<WebrtcTransport> host_transport_;
   TestTransportEventHandler host_event_handler_;
   std::unique_ptr<FakeAuthenticator> host_authenticator_;
-  bool host_thread_join_alarm_triggered_ = false;
 
   std::unique_ptr<WebrtcTransport> client_transport_;
   TestTransportEventHandler client_event_handler_;
   std::unique_ptr<FakeAuthenticator> client_authenticator_;
-  bool client_thread_join_alarm_triggered_ = false;
 
   std::unique_ptr<MessagePipe> client_message_pipe_;
   TestMessagePipeEventHandler client_message_pipe_event_handler_;
@@ -490,82 +470,4 @@ TEST_F(WebrtcTransportTest, MAYBE_TerminateDataChannel) {
   EXPECT_FALSE(host_message_pipe_);
 }
 
-// crbug.com/1224862: Tests are flaky on Mac.
-#if BUILDFLAG(IS_MAC)
-#define MAYBE_ThreadJoinBlockedDuringConnectionTeardown_WatchdogFired \
-  DISABLED_ThreadJoinBlockedDuringConnectionTeardown_WatchdogFired
-#else
-#define MAYBE_ThreadJoinBlockedDuringConnectionTeardown_WatchdogFired \
-  ThreadJoinBlockedDuringConnectionTeardown_WatchdogFired
-#endif
-TEST_F(WebrtcTransportTest,
-       MAYBE_ThreadJoinBlockedDuringConnectionTeardown_WatchdogFired) {
-  InitializeConnection();
-
-  int counter = 2;
-  auto block_before_disarm = base::BindLambdaForTesting([&]() {
-    base::PlatformThread::Sleep(kWaitForThreadJoinTimeout * 2);
-    QuitRunLoopOnCounter(&counter);
-  });
-
-  host_transport_->SetBeforeDisarmThreadJoinWatchdogCallbackForTests(
-      block_before_disarm);
-  client_transport_->SetBeforeDisarmThreadJoinWatchdogCallbackForTests(
-      block_before_disarm);
-
-  StartConnection();
-  WaitUntilConnected();
-
-  ExpectClientDataStream();
-  CreateHostDataStream();
-
-  // Run loop for starting the data stream.
-  run_loop_ = std::make_unique<base::RunLoop>();
-  run_loop_->Run();
-
-  // Run loop for deleting the transports.
-  run_loop_ = std::make_unique<base::RunLoop>();
-  host_transport_.reset();
-  client_transport_.reset();
-  run_loop_->Run();
-
-  EXPECT_EQ(true, host_thread_join_alarm_triggered_);
-  EXPECT_EQ(true, client_thread_join_alarm_triggered_);
-}
-
-TEST_F(WebrtcTransportTest,
-       DISABLED_ThreadJoinNotBlockedDuringConnectionTeardown_WatchdogNotFired) {
-  // Test disabled for crbug.com/1160702
-  InitializeConnection();
-
-  int counter = 2;
-  auto not_block_before_disarm =
-      base::BindLambdaForTesting([&]() { QuitRunLoopOnCounter(&counter); });
-
-  host_transport_->SetBeforeDisarmThreadJoinWatchdogCallbackForTests(
-      not_block_before_disarm);
-  client_transport_->SetBeforeDisarmThreadJoinWatchdogCallbackForTests(
-      not_block_before_disarm);
-
-  StartConnection();
-  WaitUntilConnected();
-
-  ExpectClientDataStream();
-  CreateHostDataStream();
-
-  // Run loop for starting the data stream.
-  run_loop_ = std::make_unique<base::RunLoop>();
-  run_loop_->Run();
-
-  // Run loop for deleting the transports.
-  run_loop_ = std::make_unique<base::RunLoop>();
-  host_transport_.reset();
-  client_transport_.reset();
-  run_loop_->Run();
-
-  EXPECT_EQ(false, host_thread_join_alarm_triggered_);
-  EXPECT_EQ(false, client_thread_join_alarm_triggered_);
-}
-
-}  // namespace protocol
-}  // namespace remoting
+}  // namespace remoting::protocol

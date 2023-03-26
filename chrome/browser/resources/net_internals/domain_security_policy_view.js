@@ -1,22 +1,23 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {addSingletonGetter} from 'chrome://resources/js/cr.m.js';
-import {$} from 'chrome://resources/js/util.m.js';
+import {$} from 'chrome://resources/js/util_ts.js';
 
 import {BrowserBridge} from './browser_bridge.js';
 import {addNode, addNodeWithText, addTextNode} from './util.js';
 import {DivView} from './view.js';
+
+/** @type {?DomainSecurityPolicyView} */
+let instance = null;
 
 /**
  * This UI allows a user to query and update the browser's list of per-domain
  * security policies. These policies include:
  * - HSTS: HTTPS Strict Transport Security. A way for sites to elect to always
  *   use HTTPS. See https://www.chromium.org/hsts
- * - Expect-CT. A way for sites to elect to always require valid Certificate
- *   Transparency information to be present. See
- *   https://tools.ietf.org/html/draft-ietf-httpbis-expect-ct
+ * - PKP. A way for sites to pin to specific certification authorities. Only
+ * available via manual preloading.
  */
 
 export class DomainSecurityPolicyView extends DivView {
@@ -31,19 +32,6 @@ export class DomainSecurityPolicyView extends DivView {
     this.queryStsInput_ = $(DomainSecurityPolicyView.QUERY_HSTS_INPUT_ID);
     this.queryStsOutputDiv_ =
         $(DomainSecurityPolicyView.QUERY_HSTS_OUTPUT_DIV_ID);
-    this.addExpectCTInput_ = $(DomainSecurityPolicyView.ADD_EXPECT_CT_INPUT_ID);
-    this.addExpectCTReportUriInput_ =
-        $(DomainSecurityPolicyView.ADD_EXPECT_CT_REPORT_URI_INPUT_ID);
-    this.addExpectCTEnforceCheck_ =
-        $(DomainSecurityPolicyView.ADD_EXPECT_CT_ENFORCE_CHECK_ID);
-    this.queryExpectCTInput_ =
-        $(DomainSecurityPolicyView.QUERY_EXPECT_CT_INPUT_ID);
-    this.queryExpectCTOutputDiv_ =
-        $(DomainSecurityPolicyView.QUERY_EXPECT_CT_OUTPUT_DIV_ID);
-    this.testExpectCTReportInput_ =
-        $(DomainSecurityPolicyView.TEST_REPORT_EXPECT_CT_INPUT_ID);
-    this.testExpectCTOutputDiv_ =
-        $(DomainSecurityPolicyView.TEST_REPORT_EXPECT_CT_OUTPUT_DIV_ID);
 
     let form = $(DomainSecurityPolicyView.DELETE_FORM_ID);
     form.addEventListener('submit', this.onSubmitDelete_.bind(this), false);
@@ -54,29 +42,12 @@ export class DomainSecurityPolicyView extends DivView {
     form = $(DomainSecurityPolicyView.QUERY_HSTS_FORM_ID);
     form.addEventListener('submit', this.onSubmitHSTSQuery_.bind(this), false);
 
-    form = $(DomainSecurityPolicyView.ADD_EXPECT_CT_FORM_ID);
-    form.addEventListener(
-        'submit', this.onSubmitExpectCTAdd_.bind(this), false);
-
-    form = $(DomainSecurityPolicyView.QUERY_EXPECT_CT_FORM_ID);
-    form.addEventListener(
-        'submit', this.onSubmitExpectCTQuery_.bind(this), false);
-
-    form = $(DomainSecurityPolicyView.TEST_REPORT_EXPECT_CT_FORM_ID);
-    form.addEventListener(
-        'submit', this.onSubmitExpectCTTestReport_.bind(this), false);
-
     this.hstsObservers_ = [];
-    this.expectCTObservers_ = [];
   }
 
   // Test specific functions.
   addHSTSObserverForTest(observer) {
     this.hstsObservers_.push(observer);
-  }
-
-  addExpectCTObserverForTest(observer) {
-    this.expectCTObservers_.push(observer);
   }
 
   onSubmitDelete_(event) {
@@ -113,11 +84,11 @@ export class DomainSecurityPolicyView extends DivView {
 
   onHSTSQueryResult_(result) {
     this.queryStsOutputDiv_.innerHTML = trustedTypes.emptyHTML;
-    if (result.error != undefined) {
+    if (result.error !== undefined) {
       const s = addNode(this.queryStsOutputDiv_, 'span');
       s.textContent = result.error;
       s.style.color = '#e00';
-    } else if (result.result == false) {
+    } else if (result.result === false) {
       const notFound = document.createElement('b');
       notFound.textContent = 'Not found';
       this.queryStsOutputDiv_.appendChild(notFound);
@@ -150,7 +121,7 @@ export class DomainSecurityPolicyView extends DivView {
       const staticHashes = [];
       for (let i = 0; i < kStaticHashKeys.length; ++i) {
         const staticHashValue = result[kStaticHashKeys[i]];
-        if (staticHashValue != undefined && staticHashValue != '') {
+        if (staticHashValue !== undefined && staticHashValue !== '') {
           staticHashes.push(staticHashValue);
         }
 
@@ -161,7 +132,7 @@ export class DomainSecurityPolicyView extends DivView {
 
           // If there are no static_hashes, do not make it seem like there is a
           // static PKP policy in place.
-          if (staticHashes.length == 0 && key.startsWith('static_pkp_')) {
+          if (staticHashes.length === 0 && key.startsWith('static_pkp_')) {
             addNode(this.queryStsOutputDiv_, 'br');
             continue;
           }
@@ -173,7 +144,8 @@ export class DomainSecurityPolicyView extends DivView {
             addNodeWithText(this.queryStsOutputDiv_, 'tt', modeToString(value));
           } else {
             addNodeWithText(
-                this.queryStsOutputDiv_, 'tt', value == undefined ? '' : value);
+                this.queryStsOutputDiv_, 'tt',
+                value === undefined ? '' : value);
           }
           addNode(this.queryStsOutputDiv_, 'br');
         }
@@ -186,101 +158,17 @@ export class DomainSecurityPolicyView extends DivView {
     }
   }
 
-  onSubmitExpectCTAdd_(event) {
-    this.browserBridge_.sendExpectCTAdd(
-        this.addExpectCTInput_.value, this.addExpectCTReportUriInput_.value,
-        this.addExpectCTEnforceCheck_.checked);
-    this.browserBridge_.sendExpectCTQuery(this.addExpectCTInput_.value)
-        .then(result => {
-          this.onExpectCTQueryResult_(result);
-        });
-    this.queryExpectCTInput_.value = this.addExpectCTInput_.value;
-    this.addExpectCTInput_.value = '';
-    this.addExpectCTReportUriInput_.value = '';
-    this.addExpectCTEnforceCheck_.checked = false;
-    event.preventDefault();
-  }
-
-  onSubmitExpectCTQuery_(event) {
-    this.browserBridge_.sendExpectCTQuery(this.queryExpectCTInput_.value)
-        .then(result => {
-          this.onExpectCTQueryResult_(result);
-        });
-
-    event.preventDefault();
-  }
-
-  onExpectCTQueryResult_(result) {
-    this.queryExpectCTOutputDiv_.innerHTML = trustedTypes.emptyHTML;
-    if (result.error != undefined) {
-      const s = addNode(this.queryExpectCTOutputDiv_, 'span');
-      s.textContent = result.error;
-      s.style.color = '#e00';
-    } else if (result.result == false) {
-      const notFound = document.createElement('b');
-      notFound.textContent = 'Not found';
-      this.queryExpectCTOutputDiv_.appendChild(notFound);
-    } else {
-      const s = addNode(this.queryExpectCTOutputDiv_, 'span');
-      const found = document.createElement('b');
-      found.textContent = 'Found:';
-      s.appendChild(found);
-      s.appendChild(document.createElement('br'));
-
-      const keys = [
-        'dynamic_expect_ct_domain',
-        'dynamic_expect_ct_observed',
-        'dynamic_expect_ct_expiry',
-        'dynamic_expect_ct_enforce',
-        'dynamic_expect_ct_report_uri',
-      ];
-
-      for (const i in keys) {
-        const key = keys[i];
-        const value = result[key];
-        addTextNode(this.queryExpectCTOutputDiv_, ' ' + key + ': ');
-        addNodeWithText(
-            this.queryExpectCTOutputDiv_, 'tt',
-            value == undefined ? '' : value);
-        addNode(this.queryExpectCTOutputDiv_, 'br');
-      }
-    }
-
-    highlightFade(this.queryExpectCTOutputDiv_);
-    for (const observer of this.expectCTObservers_) {
-      observer.onExpectCTQueryResult(result);
-    }
-  }
-
-  onSubmitExpectCTTestReport_(event) {
-    this.browserBridge_
-        .sendExpectCTTestReport(this.testExpectCTReportInput_.value)
-        .then(result => {
-          if (result === 'invalid') {
-            return;
-          }
-          this.onExpectCTTestReportResult_(result);
-        });
-    event.preventDefault();
-  }
-
-  onExpectCTTestReportResult_(result) {
-    addTextNode(
-        this.testExpectCTOutputDiv_,
-        result === 'success' ? 'Test report succeeded' : 'Test report failed');
-    highlightFade(this.testExpectCTOutputDiv_);
-    for (const observer of this.expectCTObservers_) {
-      observer.onExpectCTTestReportResult(result);
-    }
+  static getInstance() {
+    return instance || (instance = new DomainSecurityPolicyView());
   }
 }
 
 function modeToString(m) {
   // These numbers must match those in
   // TransportSecurityState::STSState::UpgradeMode.
-  if (m == 0) {
+  if (m === 0) {
     return 'FORCE_HTTPS';
-  } else if (m == 1) {
+  } else if (m === 1) {
     return 'DEFAULT';
   } else {
     return 'UNKNOWN';
@@ -290,10 +178,10 @@ function modeToString(m) {
 function highlightFade(element) {
   element.style.transitionProperty = 'background-color';
   element.style.transitionDuration = '0ms';
-  element.style.backgroundColor = "var(--color-highlight)";
+  element.style.backgroundColor = 'var(--color-highlight)';
   setTimeout(function() {
     element.style.transitionDuration = '1s';
-    element.style.backgroundColor = "var(--color-background)";
+    element.style.backgroundColor = 'var(--color-background)';
   }, 0);
 }
 
@@ -323,28 +211,3 @@ DomainSecurityPolicyView.QUERY_HSTS_INPUT_ID = 'hsts-view-query-input';
 DomainSecurityPolicyView.QUERY_HSTS_OUTPUT_DIV_ID = 'hsts-view-query-output';
 DomainSecurityPolicyView.QUERY_HSTS_FORM_ID = 'hsts-view-query-form';
 DomainSecurityPolicyView.QUERY_HSTS_SUBMIT_ID = 'hsts-view-query-submit';
-// Expect-CT form elements
-DomainSecurityPolicyView.ADD_EXPECT_CT_INPUT_ID = 'expect-ct-view-add-input';
-DomainSecurityPolicyView.ADD_EXPECT_CT_REPORT_URI_INPUT_ID =
-    'expect-ct-view-add-report-uri-input';
-DomainSecurityPolicyView.ADD_EXPECT_CT_ENFORCE_CHECK_ID =
-    'expect-ct-view-check-enforce-input';
-DomainSecurityPolicyView.ADD_EXPECT_CT_FORM_ID = 'expect-ct-view-add-form';
-DomainSecurityPolicyView.ADD_EXPECT_CT_SUBMIT_ID = 'expect-ct-view-add-submit';
-DomainSecurityPolicyView.QUERY_EXPECT_CT_INPUT_ID =
-    'expect-ct-view-query-input';
-DomainSecurityPolicyView.QUERY_EXPECT_CT_FORM_ID = 'expect-ct-view-query-form';
-DomainSecurityPolicyView.QUERY_EXPECT_CT_SUBMIT_ID =
-    'expect-ct-view-query-submit';
-DomainSecurityPolicyView.QUERY_EXPECT_CT_OUTPUT_DIV_ID =
-    'expect-ct-view-query-output';
-DomainSecurityPolicyView.TEST_REPORT_EXPECT_CT_INPUT_ID =
-    'expect-ct-view-test-report-uri';
-DomainSecurityPolicyView.TEST_REPORT_EXPECT_CT_FORM_ID =
-    'expect-ct-view-test-report-form';
-DomainSecurityPolicyView.TEST_REPORT_EXPECT_CT_SUBMIT_ID =
-    'expect-ct-view-test-report-submit';
-DomainSecurityPolicyView.TEST_REPORT_EXPECT_CT_OUTPUT_DIV_ID =
-    'expect-ct-view-test-report-output';
-
-addSingletonGetter(DomainSecurityPolicyView);

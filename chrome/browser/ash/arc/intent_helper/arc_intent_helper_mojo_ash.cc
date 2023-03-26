@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 #include "ash/components/arc/session/arc_bridge_service.h"
 #include "ash/components/arc/session/arc_service_manager.h"
 #include "base/barrier_closure.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "chrome/browser/apps/app_service/app_icon/app_icon_factory.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 
 namespace arc {
 
@@ -29,9 +29,9 @@ ArcIntentHelperMojoAsh::~ArcIntentHelperMojoAsh() = default;
 
 bool ArcIntentHelperMojoAsh::IsArcAvailable() {
   auto* arc_service_manager = ArcServiceManager::Get();
-  return arc_service_manager && !arc_service_manager->arc_bridge_service()
-                                     ->intent_helper()
-                                     ->IsConnected();
+  return arc_service_manager && arc_service_manager->arc_bridge_service()
+                                    ->intent_helper()
+                                    ->IsConnected();
 }
 
 bool ArcIntentHelperMojoAsh::IsRequestUrlHandlerListAvailable() {
@@ -42,6 +42,18 @@ bool ArcIntentHelperMojoAsh::IsRequestUrlHandlerListAvailable() {
     instance = ARC_GET_INSTANCE_FOR_METHOD(
         arc_service_manager->arc_bridge_service()->intent_helper(),
         RequestUrlHandlerList);
+  }
+  return instance;
+}
+
+bool ArcIntentHelperMojoAsh::IsRequestTextSelectionActionsAvailable() {
+  auto* arc_service_manager = ArcServiceManager::Get();
+  arc::mojom::IntentHelperInstance* instance = nullptr;
+
+  if (arc_service_manager) {
+    instance = ARC_GET_INSTANCE_FOR_METHOD(
+        arc_service_manager->arc_bridge_service()->intent_helper(),
+        RequestTextSelectionActions);
   }
   return instance;
 }
@@ -111,7 +123,7 @@ void ArcIntentHelperMojoAsh::OnRequestTextSelectionActions(
     std::vector<mojom::TextSelectionActionPtr> actions) {
   size_t actions_count = actions.size();
   auto converted_actions = std::vector<TextSelectionAction*>(actions_count);
-  TextSelectionAction** converted_actions_ptr = &converted_actions[0];
+  TextSelectionAction** converted_actions_ptr = converted_actions.data();
   base::RepeatingClosure barrier_closure = base::BarrierClosure(
       actions_count, base::BindOnce(
                          [](std::vector<TextSelectionAction*> actions,
@@ -142,8 +154,9 @@ void ArcIntentHelperMojoAsh::OnRequestTextSelectionActions(
       continue;
     }
 
+    auto icon_png_data = std::move(action->icon->icon_png_data);
     apps::ArcRawIconPngDataToImageSkia(
-        std::move(action->icon->icon_png_data), kSmallIconSizeInDip,
+        std::move(icon_png_data), kSmallIconSizeInDip,
         base::BindOnce(&ArcIntentHelperMojoAsh::ConvertTextSelectionAction,
                        weak_ptr_factory_.GetWeakPtr(), converted_action,
                        std::move(action), barrier_closure));

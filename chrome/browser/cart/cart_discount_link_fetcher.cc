@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,10 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/sequence_checker.h"
 #include "chrome/browser/cart/cart_db.h"
-#include "chrome/browser/cart/cart_db_content.pb.h"
 #include "chrome/browser/cart/cart_discount_metric_collector.h"
-#include "chrome/browser/endpoint_fetcher/endpoint_fetcher.h"
 #include "chrome/browser/profiles/profile.h"
+#include "components/commerce/core/proto/cart_db_content.pb.h"
+#include "components/endpoint_fetcher/endpoint_fetcher.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/cpp/cross_thread_pending_shared_url_loader_factory.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -164,10 +164,10 @@ void CartDiscountLinkFetcher::OnLinkFetched(
   absl::optional<base::Value> value =
       base::JSONReader::Read(responses->response);
 
-  if (!value || !value->is_dict() || !value->FindKey("url")) {
+  if (!value || !value->is_dict() || !value->GetDict().FindString("url")) {
     NOTREACHED() << "empty response or wrong format";
     std::move(callback).Run(GURL());
     return;
   }
-  std::move(callback).Run(GURL(value->FindKey("url")->GetString()));
+  std::move(callback).Run(GURL(*value->GetDict().FindString("url")));
 }

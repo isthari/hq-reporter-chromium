@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,15 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/containers/queue.h"
+#include "base/functional/callback.h"
 #include "base/location.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
-#include "base/task/post_task.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
 #include "net/base/load_flags.h"
@@ -97,7 +97,7 @@ class PrinterConfigCacheImpl : public PrinterConfigCache {
     if (finding != cache_.end()) {
       const Entry& entry = finding->second;
       if (entry.time_of_fetch + expiration > clock_->Now()) {
-        base::SequencedTaskRunnerHandle::Get()->PostTask(
+        base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
             FROM_HERE, base::BindOnce(std::move(cb), FetchResult::Success(
                                                          key, entry.contents,
                                                          entry.time_of_fetch)));
@@ -156,9 +156,57 @@ class PrinterConfigCacheImpl : public PrinterConfigCache {
     fetch_queue_.pop();
     auto request = FormRequest(context->key);
 
-    // TODO(crbug.com/888189): add traffic annotation.
+    // Create traffic annotation tag.
+    net::NetworkTrafficAnnotationTag traffic_annotation =
+        net::DefineNetworkTrafficAnnotation("printer_config_fetch", R"(
+          semantics {
+            sender: "Printer Configuration"
+            description:
+              "This component sends requests to the Chrome OS Printing "
+              "serving root during printer configuration. This can return "
+              "two pieces of information, depending on the request: "
+              "PostScript Printer Description (PPD) files for a specified "
+              "printer, and PPD file metadata to help locate the desired PPD "
+              "file."
+            trigger: "On printer setup in ChromeOS."
+            data: "Printer names (comprising of make and/or model)."
+            user_data: {
+              type: OTHER
+            }
+            destination: GOOGLE_OWNED_SERVICE
+            internal: {
+              contacts: {
+                email: "bmgordon@google.com"
+              }
+            }
+            last_reviewed: "2023-01-18"
+          }
+          policy {
+            cookies_allowed: NO
+            setting:
+              "Admins must disable access to both enterprise and "
+              "non-enterprise printers. Enterprise printers should be left "
+              "empty under 'Devices > Chrome > Printers'. Non-enterprise "
+              "printers can be disabled under 'Devices > Chrome > Settings > "
+              "Printer management' by setting to: 'Do not allow users to add "
+              "new printers'."
+            chrome_policy {
+              UserPrintersAllowed {
+                UserPrintersAllowed: false
+              }
+              PrintersBulkConfiguration: {
+                PrintersBulkConfiguration: ""
+              }
+            }
+            # TODO(b/210911671): chrome_device_policy not supported by auditor
+            # chrome_device_policy {
+            #   DevicePrinters: {
+            #     external_policy: ""
+            #   }
+            # }
+          })");
     fetcher_ = network::SimpleURLLoader::Create(std::move(request),
-                                                MISSING_TRAFFIC_ANNOTATION);
+                                                traffic_annotation);
 
     fetcher_->DownloadToString(
         loader_factory_dispenser_.Run(),
@@ -180,13 +228,13 @@ class PrinterConfigCacheImpl : public PrinterConfigCache {
       // (if extant) or retain no entry at all (if not).
       const Entry newly_inserted = Entry(*contents, clock_->Now());
       cache_.insert_or_assign(context->key, newly_inserted);
-      base::SequencedTaskRunnerHandle::Get()->PostTask(
+      base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(std::move(context->cb),
                                     FetchResult::Success(
                                         context->key, newly_inserted.contents,
                                         newly_inserted.time_of_fetch)));
     } else {
-      base::SequencedTaskRunnerHandle::Get()->PostTask(
+      base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(std::move(context->cb),
                                     FetchResult::Failure(context->key)));
     }
@@ -202,7 +250,7 @@ class PrinterConfigCacheImpl : public PrinterConfigCache {
   base::queue<std::unique_ptr<FetchContext>> fetch_queue_;
 
   // Dispenses Time objects to mark time of fetch on Entry instances.
-  const base::Clock* clock_;
+  raw_ptr<const base::Clock> clock_;
 
   // Dispenses fresh URLLoaderFactory instances; see header comment
   // on Create().

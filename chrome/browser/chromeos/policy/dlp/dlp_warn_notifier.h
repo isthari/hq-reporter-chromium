@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,9 @@
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
+#include "chrome/browser/ash/policy/dlp/dlp_files_controller.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_confidential_contents.h"
+#include "chrome/browser/chromeos/policy/dlp/dlp_confidential_file.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_warn_dialog.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
@@ -25,8 +27,6 @@ class DlpWarnNotifier : public views::WidgetObserver {
   ~DlpWarnNotifier() override;
 
   // WidgetObserver:
-  // TODO(crbug.com/1284296): Remove this and use only OnWidgetDestroying().
-  void OnWidgetClosing(views::Widget* widget) override;
   void OnWidgetDestroying(views::Widget* widget) override;
 
   // Shows a warning dialog that informs the user that printing is not
@@ -48,10 +48,23 @@ class DlpWarnNotifier : public views::WidgetObserver {
       OnDlpRestrictionCheckedCallback callback,
       const DlpConfidentialContents& confidential_contents);
 
+  // Shows a warning dialog that informs the user that |files_action| to
+  // |dst_component| or |destination_pattern| on selected
+  // |confidential_files| is not recommended. Calls |callback| and
+  // passes user's choice of whether to proceed or not.
+  // Returns a pointer to the widget that owns the created dialog.
+  base::WeakPtr<views::Widget> ShowDlpFilesWarningDialog(
+      OnDlpRestrictionCheckedCallback callback,
+      const std::vector<DlpConfidentialFile>& confidential_files,
+      absl::optional<DlpRulesManager::Component> dst_component,
+      const absl::optional<std::string>& destination_pattern,
+      DlpFilesController::FileAction files_action);
+
   // Shows a warning dialog that informs the user that screen sharing is not
   // recommended due to |confidential_contents| visible. Calls |callback| and
   // passes user's choice of whether to proceed or not.
-  void ShowDlpScreenShareWarningDialog(
+  // Returns a pointer to the widget that owns the created dialog.
+  base::WeakPtr<views::Widget> ShowDlpScreenShareWarningDialog(
       OnDlpRestrictionCheckedCallback callback,
       const DlpConfidentialContents& confidential_contents,
       const std::u16string& application_title);
@@ -62,9 +75,11 @@ class DlpWarnNotifier : public views::WidgetObserver {
   int ActiveWarningDialogsCountForTesting() const;
 
  private:
+  friend class MockDlpWarnNotifier;
+
   // Helper method to create and show a warning dialog for a given
   // |restriction|.
-  virtual void ShowDlpWarningDialog(
+  virtual base::WeakPtr<views::Widget> ShowDlpWarningDialog(
       OnDlpRestrictionCheckedCallback callback,
       DlpWarnDialog::DlpWarnDialogOptions options);
 

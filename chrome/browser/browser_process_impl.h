@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,22 +53,13 @@ class SiteIsolationPrefsObserver;
 class SystemNotificationHelper;
 class StartupData;
 
-#if BUILDFLAG(ENABLE_PLUGINS)
-class PluginsResourceService;
-#endif
-
-namespace base {
-class CommandLine;
-}
-
 namespace breadcrumbs {
 class ApplicationBreadcrumbsLogger;
-class BreadcrumbManager;
 class BreadcrumbPersistentStorageManager;
 }  // namespace breadcrumbs
 
 namespace extensions {
-class ExtensionsBrowserClient;
+class ChromeExtensionsBrowserClient;
 }
 
 namespace gcm {
@@ -124,7 +115,7 @@ class BrowserProcessImpl : public BrowserProcess,
 #endif
 
   // Called before the browser threads are created.
-  void PreCreateThreads(const base::CommandLine& command_line);
+  void PreCreateThreads();
 
   // Called after the threads have been created but before the message loops
   // starts running. Allows the browser process to do any initialization that
@@ -192,8 +183,6 @@ class BrowserProcessImpl : public BrowserProcess,
   safe_browsing::SafeBrowsingService* safe_browsing_service() override;
   subresource_filter::RulesetService* subresource_filter_ruleset_service()
       override;
-  federated_learning::FlocSortingLshClustersService*
-  floc_sorting_lsh_clusters_service() override;
 
   StartupData* startup_data() override;
 
@@ -216,6 +205,8 @@ class BrowserProcessImpl : public BrowserProcess,
 
 #if !BUILDFLAG(IS_ANDROID)
   SerialPolicyAllowedPorts* serial_policy_allowed_ports() override;
+  HidPolicyAllowedDevices* hid_policy_allowed_devices() override;
+  HidSystemTrayIcon* hid_system_tray_icon() override;
 #endif
 
   BuildState* GetBuildState() override;
@@ -243,12 +234,11 @@ class BrowserProcessImpl : public BrowserProcess,
   void CreateBackgroundPrintingManager();
   void CreateSafeBrowsingService();
   void CreateSubresourceFilterRulesetService();
-  void CreateFlocBlocklistService();
-  void CreateFlocSortingLshClustersService();
   void CreateOptimizationGuideService();
   void CreateStatusTray();
   void CreateBackgroundModeManager();
   void CreateGCMDriver();
+  void CreateNetworkTimeTracker();
 
   void ApplyDefaultBrowserPolicy();
 
@@ -260,17 +250,19 @@ class BrowserProcessImpl : public BrowserProcess,
   const raw_ptr<StartupData> startup_data_;
 
   // Must be destroyed after |local_state_|.
-  std::unique_ptr<policy::ChromeBrowserPolicyConnector>
+  // Must be destroyed after |profile_manager_|.
+  std::unique_ptr<policy::ChromeBrowserPolicyConnector> const
       browser_policy_connector_;
 
+  // Must be destroyed before |browser_policy_connector_|.
   bool created_profile_manager_ = false;
   std::unique_ptr<ProfileManager> profile_manager_;
 
   const std::unique_ptr<PrefService> local_state_;
 
   // |metrics_services_manager_| owns this.
-  raw_ptr<ChromeMetricsServicesManagerClient> metrics_services_manager_client_ =
-      nullptr;
+  raw_ptr<ChromeMetricsServicesManagerClient, DanglingUntriaged>
+      metrics_services_manager_client_ = nullptr;
 
   // Must be destroyed before |local_state_|.
   std::unique_ptr<metrics_services_manager::MetricsServicesManager>
@@ -290,7 +282,7 @@ class BrowserProcessImpl : public BrowserProcess,
   std::unique_ptr<GpuModeManager> gpu_mode_manager_;
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-  std::unique_ptr<extensions::ExtensionsBrowserClient>
+  std::unique_ptr<extensions::ChromeExtensionsBrowserClient>
       extensions_browser_client_;
 
   scoped_refptr<extensions::EventRouterForwarder>
@@ -346,15 +338,14 @@ class BrowserProcessImpl : public BrowserProcess,
   std::unique_ptr<subresource_filter::RulesetService>
       subresource_filter_ruleset_service_;
 
-  std::unique_ptr<federated_learning::FlocSortingLshClustersService>
-      floc_sorting_lsh_clusters_service_;
-
   bool shutting_down_ = false;
 
   bool tearing_down_ = false;
 
+#if BUILDFLAG(ENABLE_PRINTING)
   // Ensures that all the print jobs are finished before closing the browser.
   std::unique_ptr<printing::PrintJobManager> print_job_manager_;
+#endif
 
   std::string locale_;
 
@@ -390,7 +381,7 @@ class BrowserProcessImpl : public BrowserProcess,
   // but some users of component updater only install per-user.
   std::unique_ptr<component_updater::ComponentUpdateService> component_updater_;
 
-#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
   // Used to create a singleton instance of SodaInstallerImpl, which can be
   // retrieved using speech::SodaInstaller::GetInstance().
   // SodaInstallerImpl depends on ComponentUpdateService, so define it here
@@ -401,10 +392,6 @@ class BrowserProcessImpl : public BrowserProcess,
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // Chrome OS has a different implementation of SodaInstaller.
   std::unique_ptr<speech::SodaInstallerImplChromeOS> soda_installer_impl_;
-#endif
-
-#if BUILDFLAG(ENABLE_PLUGINS)
-  std::unique_ptr<PluginsResourceService> plugins_resource_service_;
 #endif
 
   std::unique_ptr<BrowserProcessPlatformPart> platform_part_;
@@ -433,6 +420,8 @@ class BrowserProcessImpl : public BrowserProcess,
   base::OnceClosure quit_closure_;
 
   std::unique_ptr<SerialPolicyAllowedPorts> serial_policy_allowed_ports_;
+  std::unique_ptr<HidPolicyAllowedDevices> hid_policy_allowed_devices_;
+  std::unique_ptr<HidSystemTrayIcon> hid_system_tray_icon_;
 
   BuildState build_state_;
 #endif
@@ -441,11 +430,8 @@ class BrowserProcessImpl : public BrowserProcess,
   std::unique_ptr<base::android::ApplicationStatusListener> app_state_listener_;
 #endif
 
-  // Stores application-wide breadcrumb events. Null if breadcrumbs logging is
-  // disabled.
-  std::unique_ptr<breadcrumbs::BreadcrumbManager> breadcrumb_manager_;
-  // Observes application-wide events and logs them to |breadcrumb_manager_|.
-  // Null if breadcrumbs logging is disabled.
+  // Observes application-wide events and logs them to breadcrumbs. Null if
+  // breadcrumbs logging is disabled.
   std::unique_ptr<breadcrumbs::ApplicationBreadcrumbsLogger>
       application_breadcrumbs_logger_;
 

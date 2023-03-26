@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/check.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/guid.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -130,8 +130,8 @@ void OfflinePageTabHelper::NotifyMhtmlPageLoadAttempted(
     MHTMLLoadResult load_result,
     const GURL& main_frame_url,
     base::Time date) {
-  if (mhtml_page_notifier_receivers_.GetCurrentTargetFrame() !=
-      web_contents()->GetMainFrame()) {
+  if (!mhtml_page_notifier_receivers_.GetCurrentTargetFrame()
+           ->IsInPrimaryMainFrame()) {
     return;
   }
 
@@ -176,7 +176,7 @@ void OfflinePageTabHelper::NotifyMhtmlPageLoadAttempted(
 void OfflinePageTabHelper::DidStartNavigation(
     content::NavigationHandle* navigation_handle) {
   // Skips non-main frame.
-  if (!navigation_handle->IsInMainFrame())
+  if (!navigation_handle->IsInPrimaryMainFrame())
     return;
 
   // The provisional offline info can be cleared no matter how.
@@ -192,7 +192,7 @@ void OfflinePageTabHelper::DidStartNavigation(
 void OfflinePageTabHelper::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
   // Skips non-main frame.
-  if (!navigation_handle->IsInMainFrame())
+  if (!navigation_handle->IsInPrimaryMainFrame())
     return;
 
   if (!navigation_handle->HasCommitted())

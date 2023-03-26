@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,7 @@ class TestNaClBrowserDelegate : public NaClBrowserDelegate {
 
   ~TestNaClBrowserDelegate() override;
   void ShowMissingArchInfobar(int render_process_id,
-                              int render_view_id) override;
+                              int render_frame_id) override;
   bool DialogsAreSuppressed() override;
   bool GetCacheDirectory(base::FilePath* cache_dir) override;
   bool GetPluginDirectory(base::FilePath* plugin_dir) override;

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@
 #include "ash/system/message_center/ash_message_center_lock_screen_controller.h"
 #include "ash/system/message_center/message_center_constants.h"
 #include "ash/system/tray/tray_constants.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/message_center/lock_screen/lock_screen_controller.h"
 #include "ui/message_center/message_center.h"
@@ -68,14 +68,13 @@ NotificationHiddenView::NotificationHiddenView()
         base::BindRepeating(&NotificationHiddenView::ChangeButtonPressed,
                             base::Unretained(this)),
         l10n_util::GetStringUTF16(IDS_ASH_MESSAGE_CENTER_LOCKSCREEN_CHANGE),
-        PillButton::Type::kIconless, /*icon=*/nullptr,
+        PillButton::Type::kDefaultWithoutIcon, /*icon=*/nullptr,
         kNotificationPillButtonHorizontalSpacing));
     change_button_->SetTooltipText(l10n_util::GetStringUTF16(
         IDS_ASH_MESSAGE_CENTER_LOCKSCREEN_CHANGE_TOOLTIP));
   }
 
-  SetBorder(
-      views::CreateEmptyBorder(gfx::Insets(kUnifiedNotificationCenterSpacing)));
+  SetBorder(views::CreateEmptyBorder(kUnifiedNotificationCenterSpacing));
   SetLayoutManager(std::make_unique<views::FillLayout>());
 }
 

@@ -1,5 +1,5 @@
-#!/usr/bin/env python
-# Copyright (c) 2017 The Chromium Authors. All rights reserved.
+#!/usr/bin/env python3
+# Copyright 2017 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -41,8 +41,10 @@ bundle_data\("test_support_bundle_data"\) \{
 # ------------------------------------------
 
 net_unittest_bundle_data_globs = [
+    "data/cache_tests/**",
     "data/cert_issuer_source_aia_unittest/*.pem",
     "data/cert_issuer_source_static_unittest/*.pem",
+    "data/cert_net_fetcher_impl_unittest/**",
     "data/certificate_policies_unittest/*.pem",
     "data/crl_unittest/*.pem",
     "data/embedded_test_server/*",
@@ -50,10 +52,11 @@ net_unittest_bundle_data_globs = [
     "data/name_constraints_unittest/*.pem",
     "data/ocsp_unittest/*.pem",
     "data/ov_name_constraints/*.pem",
+    "data/pac_file_fetcher_unittest/**",
     "data/path_builder_unittest/**/*.pem",
     "data/parse_certificate_unittest/**/*.pem",
-    "data/parse_certificate_unittest/*.pem",
     "data/parse_certificate_unittest/*.pk8",
+    "data/spdy_tests/**",
     "data/test.html",
     "data/trial_comparison_cert_verifier_unittest/**/*.pem",
     "data/url_request_unittest/*",
@@ -86,7 +89,10 @@ def get_net_path():
 def do_file_glob(rule):
   # Do the globbing relative to //net
   prefix = get_net_path()
-  matches = glob.glob(prefix + os.sep + rule)
+  matches = glob.glob(prefix + os.sep + rule, recursive=True)
+
+  # Filter out directories.
+  matches = [f for f in matches if os.path.isfile(f)]
 
   # Strip off the prefix.
   return [f[len(prefix) + 1:] for f in matches]
@@ -100,17 +106,17 @@ def resolve_file_globs(rules):
 
 
 def read_file_to_string(path):
-  with open(path, 'r') as f:
+  with open(path, 'r', encoding='utf-8') as f:
     return f.read()
 
 
 def write_string_to_file(data, path):
-  with open(path, 'w') as f:
+  with open(path, 'w', encoding='utf-8') as f:
     f.write(data)
 
 
 def fatal(message):
-  print "FATAL: " + message
+  print("FATAL: " + message)
   sys.exit(1)
 
 
@@ -148,7 +154,7 @@ def main():
                          net_unittest_bundle_data_globs)
 
   write_string_to_file(data, path)
-  print "Wrote %s" % path
+  print("Wrote %s" % path)
 
 
 if __name__ == '__main__':

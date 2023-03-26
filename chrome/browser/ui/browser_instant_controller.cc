@@ -1,10 +1,10 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/browser_instant_controller.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/instant_service.h"
 #include "chrome/browser/search/instant_service_factory.h"
@@ -52,7 +52,8 @@ void BrowserInstantController::OnSearchEngineBaseURLChanged(
     if (!contents)
       continue;
 
-    GURL site_url = contents->GetMainFrame()->GetSiteInstance()->GetSiteURL();
+    GURL site_url =
+        contents->GetPrimaryMainFrame()->GetSiteInstance()->GetSiteURL();
     bool is_ntp = site_url == GURL(chrome::kChromeUINewTabPageURL) ||
                   site_url == GURL(chrome::kChromeUINewTabPageThirdPartyURL);
 
@@ -61,7 +62,7 @@ void BrowserInstantController::OnSearchEngineBaseURLChanged(
           InstantServiceFactory::GetForProfile(profile());
       if (instant_service) {
         content::RenderProcessHost* rph =
-            contents->GetMainFrame()->GetProcess();
+            contents->GetPrimaryMainFrame()->GetProcess();
         is_ntp = instant_service->IsInstantProcess(rph->GetID());
       }
     }

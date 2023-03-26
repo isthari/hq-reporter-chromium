@@ -32,6 +32,7 @@
 #include <utility>
 
 #include "base/dcheck_is_on.h"
+#include "base/functional/function_ref.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/synchronous_mutation_observer.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
@@ -41,8 +42,8 @@
 #include "third_party/blink/renderer/core/editing/markers/document_marker_group.h"
 #include "third_party/blink/renderer/core/editing/markers/suggestion_marker.h"
 #include "third_party/blink/renderer/core/editing/markers/text_match_marker.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -179,6 +180,7 @@ class CORE_EXPORT DocumentMarkerController final
       const Text&,
       DocumentMarker::MarkerTypes = DocumentMarker::MarkerTypes::All()) const;
   DocumentMarkerVector Markers() const;
+  DocumentMarkerVector CustomHighlightMarkersNotOverlapping(const Text&) const;
   DocumentMarkerVector ComputeMarkersToPaint(const Text&) const;
 
   bool PossiblyHasTextMatchMarkers() const;
@@ -203,7 +205,7 @@ class CORE_EXPORT DocumentMarkerController final
  private:
   void AddMarkerInternal(
       const EphemeralRange&,
-      std::function<DocumentMarker*(int, int)> create_marker_from_offsets,
+      base::FunctionRef<DocumentMarker*(int, int)> create_marker_from_offsets,
       const TextIteratorBehavior& iterator_behavior = {});
   void AddMarkerToNode(const Text&, DocumentMarker*);
   DocumentMarkerGroup* GetMarkerGroupForMarker(const DocumentMarker* marker);

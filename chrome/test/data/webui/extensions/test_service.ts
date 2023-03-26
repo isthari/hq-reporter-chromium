@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,12 @@ export class TestService extends TestBrowserProxy implements ServiceInterface {
   itemStateChangedTarget: FakeChromeEvent = new FakeChromeEvent();
   profileStateChangedTarget: FakeChromeEvent = new FakeChromeEvent();
   extensionActivityTarget: FakeChromeEvent = new FakeChromeEvent();
+  userSiteSettingsChangedTarget: FakeChromeEvent = new FakeChromeEvent();
   acceptRuntimeHostPermission: boolean = true;
   testActivities?: chrome.activityLogPrivate.ActivityResultSet;
   userSiteSettings?: chrome.developerPrivate.UserSiteSettings;
+  siteGroups?: chrome.developerPrivate.SiteGroup[];
+  matchingExtensionsInfo?: chrome.developerPrivate.MatchingExtensionInfo[];
 
   private retryLoadUnpackedError_?: chrome.developerPrivate.LoadError;
   private forceReloadItemError_: boolean = false;
@@ -22,6 +25,7 @@ export class TestService extends TestBrowserProxy implements ServiceInterface {
   constructor() {
     super([
       'addRuntimeHostPermission',
+      'addUserSpecifiedSites',
       'choosePackRootDirectory',
       'choosePrivateKeyPath',
       'deleteActivitiesById',
@@ -33,18 +37,22 @@ export class TestService extends TestBrowserProxy implements ServiceInterface {
       'getExtensionsInfo',
       'getExtensionSize',
       'getFilteredExtensionActivityLog',
+      'getMatchingExtensionsForSite',
       'getProfileConfiguration',
+      'getUserAndExtensionSitesByEtld',
       'getUserSiteSettings',
+      'getUserSiteSettingsChangedTarget',
       'inspectItemView',
       'installDroppedFile',
       'loadUnpacked',
-      'loadUnpacked',
+      'loadUnpackedFromDrag',
       'notifyDragInstallInProgress',
       'openUrl',
       'packExtension',
       'recordUserAction',
       'reloadItem',
       'removeRuntimeHostPermission',
+      'removeUserSpecifiedSites',
       'repairItem',
       'requestFileSource',
       'retryLoadUnpacked',
@@ -55,12 +63,14 @@ export class TestService extends TestBrowserProxy implements ServiceInterface {
       'setItemHostAccess',
       'setProfileInDevMode',
       'setShortcutHandlingSuspended',
+      'setShowAccessRequestsInToolbar',
       'shouldIgnoreUpdate',
       'showInFolder',
       'showItemOptionsPage',
       'updateAllExtensions',
       'updateExtensionCommandKeybinding',
       'updateExtensionCommandScope',
+      'updateSiteAccess',
     ]);
   }
 
@@ -109,6 +119,10 @@ export class TestService extends TestBrowserProxy implements ServiceInterface {
 
   getProfileStateChangedTarget() {
     return this.profileStateChangedTarget;
+  }
+
+  getUserSiteSettingsChangedTarget() {
+    return this.userSiteSettingsChangedTarget;
   }
 
   getExtensionsInfo() {
@@ -205,12 +219,15 @@ export class TestService extends TestBrowserProxy implements ServiceInterface {
     this.methodCalled('openUrl', url);
   }
 
-  packExtension(
-      rootPath: string, keyPath: string, flag?: number,
-      _callback?:
-          (response: chrome.developerPrivate.PackDirectoryResponse) => void):
-      void {
+  packExtension(rootPath: string, keyPath: string, flag?: number) {
     this.methodCalled('packExtension', [rootPath, keyPath, flag]);
+    return Promise.resolve({
+      message: '',
+      item_path: '',
+      pem_path: '',
+      override_flags: 0,
+      status: chrome.developerPrivate.PackStatus.ERROR,
+    });
   }
 
   repairItem(id: string): void {
@@ -316,5 +333,38 @@ export class TestService extends TestBrowserProxy implements ServiceInterface {
   getUserSiteSettings() {
     this.methodCalled('getUserSiteSettings');
     return Promise.resolve(this.userSiteSettings!);
+  }
+
+  addUserSpecifiedSites(
+      siteSet: chrome.developerPrivate.SiteSet, hosts: string[]) {
+    this.methodCalled('addUserSpecifiedSites', [siteSet, hosts]);
+    return Promise.resolve();
+  }
+
+  removeUserSpecifiedSites(
+      siteSet: chrome.developerPrivate.SiteSet, hosts: string[]) {
+    this.methodCalled('removeUserSpecifiedSites', [siteSet, hosts]);
+    return Promise.resolve();
+  }
+
+  getUserAndExtensionSitesByEtld() {
+    this.methodCalled('getUserAndExtensionSitesByEtld');
+    return Promise.resolve(this.siteGroups!);
+  }
+
+  setShowAccessRequestsInToolbar(id: string, showRequests: boolean) {
+    this.methodCalled('setShowAccessRequestsInToolbar', id, showRequests);
+  }
+
+  getMatchingExtensionsForSite(site: string) {
+    this.methodCalled('getMatchingExtensionsForSite', site);
+    return Promise.resolve(this.matchingExtensionsInfo!);
+  }
+
+  updateSiteAccess(
+      site: string,
+      updates: chrome.developerPrivate.ExtensionSiteAccessUpdate[]) {
+    this.methodCalled('updateSiteAccess', site, updates);
+    return Promise.resolve();
   }
 }

@@ -23,11 +23,12 @@
  * DAMAGE.
  */
 
+#include "third_party/blink/renderer/modules/webaudio/wave_shaper_processor.h"
+
 #include <memory>
 
 #include "base/synchronization/lock.h"
 #include "third_party/blink/renderer/modules/webaudio/wave_shaper_dsp_kernel.h"
-#include "third_party/blink/renderer/modules/webaudio/wave_shaper_processor.h"
 
 namespace blink {
 
@@ -36,8 +37,7 @@ WaveShaperProcessor::WaveShaperProcessor(float sample_rate,
                                          unsigned render_quantum_frames)
     : AudioDSPKernelProcessor(sample_rate,
                               number_of_channels,
-                              render_quantum_frames),
-      oversample_(kOverSampleNone) {}
+                              render_quantum_frames) {}
 
 WaveShaperProcessor::~WaveShaperProcessor() {
   if (IsInitialized()) {
@@ -74,8 +74,8 @@ void WaveShaperProcessor::SetCurve(const float* curve_data,
   double output = kernel->WaveShaperCurveValue(0.0, curve_data, curve_length);
   double tail_time = output == 0 ? 0 : std::numeric_limits<double>::infinity();
 
-  for (unsigned k = 0; k < kernels_.size(); ++k) {
-    kernel = static_cast<WaveShaperDSPKernel*>(kernels_[k].get());
+  for (auto& k : kernels_) {
+    kernel = static_cast<WaveShaperDSPKernel*>(k.get());
     kernel->SetTailTime(tail_time);
   }
 }
@@ -87,9 +87,8 @@ void WaveShaperProcessor::SetOversample(OverSampleType oversample) {
   oversample_ = oversample;
 
   if (oversample != kOverSampleNone) {
-    for (unsigned i = 0; i < kernels_.size(); ++i) {
-      WaveShaperDSPKernel* kernel =
-          static_cast<WaveShaperDSPKernel*>(kernels_[i].get());
+    for (auto& i : kernels_) {
+      WaveShaperDSPKernel* kernel = static_cast<WaveShaperDSPKernel*>(i.get());
       kernel->LazyInitializeOversampling();
     }
   }

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,8 @@
 #include <memory>
 #include <string>
 
+#include "base/values.h"
 #include "extensions/common/constants.h"
-
-namespace base {
-class DictionaryValue;
-}
 
 namespace content {
 class BrowserContext;
@@ -41,16 +38,16 @@ namespace util {
 bool HasIsolatedStorage(const std::string& extension_id,
                         content::BrowserContext* context);
 
+// Returns true if the extension associated with `extension_id` is a Chrome App.
+bool IsChromeApp(const std::string& extension_id,
+                 content::BrowserContext* context);
+
 // Sets whether |extension_id| can run in an incognito window. Reloads the
 // extension if it's enabled since this permission is applied at loading time
 // only. Note that an ExtensionService must exist.
 void SetIsIncognitoEnabled(const std::string& extension_id,
                            content::BrowserContext* context,
                            bool enabled);
-
-// Returns true if |extension| can be loaded in incognito.
-bool CanLoadInIncognito(const extensions::Extension* extension,
-                        content::BrowserContext* context);
 
 // Returns true if this extension can inject scripts into pages with file URLs.
 bool AllowFileAccess(const std::string& extension_id,
@@ -82,8 +79,7 @@ bool IsExtensionIdle(const std::string& extension_id,
 
 // Sets the name, id, and icon resource path of the given extension into the
 // returned dictionary.
-std::unique_ptr<base::DictionaryValue> GetExtensionInfo(
-    const Extension* extension);
+base::Value::Dict GetExtensionInfo(const Extension* extension);
 
 // Returns the default extension/app icon (for extensions or apps that don't
 // have one).

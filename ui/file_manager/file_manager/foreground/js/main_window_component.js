@@ -1,13 +1,19 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {DialogType} from '../../common/js/dialog_type.js';
+import {assertInstanceof} from 'chrome://resources/ash/common/assert.js';
+
+import {DialogType, isFolderDialogType} from '../../common/js/dialog_type.js';
+import {getKeyModifiers} from '../../common/js/dom_utils.js';
 import {metrics} from '../../common/js/metrics.js';
+import {TrashEntry} from '../../common/js/trash.js';
 import {str, util} from '../../common/js/util.js';
 import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
 import {DirectoryChangeEvent} from '../../externs/directory_change_event.js';
 import {VolumeManager} from '../../externs/volume_manager.js';
+import {changeDirectory} from '../../state/actions/current_directory.js';
+import {getStore} from '../../state/store.js';
 
 import {AppStateController} from './app_state_controller.js';
 import {FileFilter} from './directory_contents.js';
@@ -15,6 +21,7 @@ import {DirectoryModel} from './directory_model.js';
 import {FileSelectionHandler} from './file_selection.js';
 import {NamingController} from './naming_controller.js';
 import {TaskController} from './task_controller.js';
+import {Command} from './ui/command.js';
 import {FileManagerUI} from './ui/file_manager_ui.js';
 import {FileTapHandler} from './ui/file_tap_handler.js';
 import {ListContainer} from './ui/list_container.js';
@@ -142,10 +149,15 @@ export class MainWindowComponent {
         'focus', this.onFileListFocus_.bind(this));
     ui.listContainer.grid.addEventListener(
         'focus', this.onFileListFocus_.bind(this));
-    ui.locationLine.addEventListener(
-        'pathclick', this.onBreadcrumbClick_.bind(this));
+    /**
+     * We are binding both click/keyup event here because "click" event will
+     * be triggered multiple times if the Enter/Space key is being pressed
+     * without releasing (because the focus is always on the button).
+     */
     ui.toggleViewButton.addEventListener(
         'click', this.onToggleViewButtonClick_.bind(this));
+    ui.toggleViewButton.addEventListener(
+        'keyup', this.onToggleViewButtonClick_.bind(this));
     directoryModel.addEventListener(
         'directory-changed', this.onDirectoryChanged_.bind(this));
     volumeManager.addEventListener(
@@ -154,6 +166,7 @@ export class MainWindowComponent {
     document.addEventListener('keydown', this.onKeyDown_.bind(this));
     document.addEventListener('keyup', this.onKeyUp_.bind(this));
     window.addEventListener('focus', this.onWindowFocus_.bind(this));
+    addIsFocusedMethod();
 
     /**
      * @type {!FileTapHandler}
@@ -185,14 +198,6 @@ export class MainWindowComponent {
 
       return false;
     });
-  }
-
-  /**
-   * @param {Event} event Click event.
-   * @private
-   */
-  onBreadcrumbClick_(event) {
-    this.directoryModel_.changeDirectoryEntry(event.entry);
   }
 
   /**
@@ -250,7 +255,17 @@ export class MainWindowComponent {
     if (!listItem || !listItem.selected || selection.totalCount !== 1) {
       return false;
     }
-
+    const trashEntries = /** @type {!Array<!TrashEntry>} */ (
+        selection.entries.filter(util.isTrashEntry));
+    if (trashEntries.length > 0) {
+      this.showFailedToOpenTrashItemDialog_(trashEntries);
+      return false;
+    }
+    // If the selection is blocked by DLP restrictions, we don't allow to change
+    // directory or the default action.
+    if (this.selectionHandler_.isDlpBlocked()) {
+      return false;
+    }
     const entry = selection.entries[0];
     if (entry.isDirectory) {
       this.directoryModel_.changeDirectoryEntry(
@@ -268,13 +283,26 @@ export class MainWindowComponent {
    */
   acceptSelection_() {
     if (this.dialogType_ === DialogType.FULL_PAGE) {
+      // Files within the trash root should not have default tasks. They should
+      // be restored first.
+      if (this.directoryModel_.getCurrentRootType() ===
+          VolumeManagerCommon.RootType.TRASH) {
+        const selection = this.selectionHandler_.selection;
+        if (!selection) {
+          return true;
+        }
+        const trashEntries = /** @type {!Array<!TrashEntry>} */ (
+            selection.entries.filter(util.isTrashEntry));
+        this.showFailedToOpenTrashItemDialog_(trashEntries);
+        return true;
+      }
       this.taskController_.getFileTasks()
           .then(tasks => {
             tasks.executeDefault();
           })
           .catch(error => {
             if (error) {
-              console.error(error.stack || error);
+              console.warn(error.stack || error);
             }
           });
       return true;
@@ -289,11 +317,49 @@ export class MainWindowComponent {
   }
 
   /**
-   * Handles click event on the toggle-view button.
-   * @param {Event} event Click event.
+   * Show a confirm dialog that shows whether the current selection can't be
+   * opened and offer to restore instead.
+   * @param {!Array<!TrashEntry>} trashEntries The current selection.
+   */
+  showFailedToOpenTrashItemDialog_(trashEntries) {
+    let msgTitle = str('OPEN_TRASHED_FILE_ERROR_TITLE');
+    let msgDesc = str('OPEN_TRASHED_FILE_ERROR_DESC');
+    if (trashEntries.length > 1) {
+      msgTitle = str('OPEN_TRASHED_FILES_ERROR_TITLE');
+      msgDesc = str('OPEN_TRASHED_FILES_ERROR_DESC');
+    }
+    const restoreCommand = assertInstanceof(
+        document.getElementById('restore-from-trash'), Command);
+    this.ui_.restoreConfirmDialog.showWithTitle(msgTitle, msgDesc, () => {
+      restoreCommand.canExecuteChange(this.ui_.listContainer.currentList);
+      restoreCommand.execute(this.ui_.listContainer.currentList);
+    });
+  }
+
+  /**
+   * Handles click/keyup event on the toggle-view button.
+   * @param {Event} event Click or keyup event.
    * @private
    */
   onToggleViewButtonClick_(event) {
+    /**
+     * This callback can be triggered by both mouse click and Enter/Space key,
+     * so we explicitly check if the "click" event is triggered by keyboard
+     * or not, if so, do nothing because this callback will be triggered
+     * again by "keyup" event when users release the Enter/Space key.
+     */
+    if (event.type === 'click') {
+      const pointerEvent = /** @type {PointerEvent} */ (event);
+      if (pointerEvent.detail === 0) {  // Click is triggered by keyboard.
+        return;
+      }
+    }
+    if (event.type === 'keyup') {
+      const keyboardEvent = /** @type {KeyboardEvent} */ (event);
+      if (keyboardEvent.code !== 'Space' && keyboardEvent.code !== 'Enter') {
+        return;
+      }
+    }
     const listType = this.ui_.listContainer.currentListType ===
             ListContainer.ListType.DETAIL ?
         ListContainer.ListType.THUMBNAIL :
@@ -305,7 +371,10 @@ export class MainWindowComponent {
     this.ui_.speakA11yMessage(str(msgId));
     this.appStateController_.saveViewOptions();
 
-    this.ui_.listContainer.focus();
+    // The aria-label of toggleViewButton has been updated, we need to
+    // explicitly show the tooltip.
+    this.ui_.filesTooltip.updateTooltipText(
+        /** @type {!HTMLElement} */ (this.ui_.toggleViewButton));
     metrics.recordEnum(
         'ToggleFileListType', listType, ListContainer.ListTypesForUMA);
   }
@@ -325,7 +394,7 @@ export class MainWindowComponent {
       return;
     }
 
-    switch (util.getKeyModifiers(event) + event.key) {
+    switch (getKeyModifiers(event) + event.key) {
       case 'Escape':  // Escape => Cancel dialog.
       case 'Ctrl-w':  // Ctrl+W => Cancel dialog.
         if (this.dialogType_ != DialogType.FULL_PAGE) {
@@ -355,7 +424,7 @@ export class MainWindowComponent {
    */
   onDirectoryTreeKeyDown_(event) {
     // Enter => Change directory or perform default action.
-    if (util.getKeyModifiers(event) + event.key === 'Enter') {
+    if (getKeyModifiers(event) + event.key === 'Enter') {
       const selectedItem = this.ui_.directoryTree.selectedItem;
       if (!selectedItem) {
         return;
@@ -377,34 +446,42 @@ export class MainWindowComponent {
    * @private
    */
   onListKeyDown_(event) {
-    switch (util.getKeyModifiers(event) + event.key) {
+    switch (getKeyModifiers(event) + event.key) {
       case 'Backspace':  // Backspace => Up one directory.
         event.preventDefault();
-        const components = this.ui_.locationLine.getCurrentPathComponents();
-        if (components.length < 2) {
+        const store = getStore();
+        const state = store.getState();
+        const components = state.currentDirectory?.pathComponents;
+        if (!components || components.length < 2) {
           break;
         }
-        const parentPathComponent = components[components.length - 2];
-        parentPathComponent.resolveEntry().then((parentEntry) => {
-          this.directoryModel_.changeDirectoryEntry(
-              /** @type {!DirectoryEntry} */ (parentEntry));
-        });
+        const parent = components[components.length - 2];
+        store.dispatch(changeDirectory({toKey: parent.key}));
         break;
 
       case 'Enter':  // Enter => Change directory or perform default action.
+                     // If the selection is blocked by DLP restrictions, we
+                     // don't allow to
+        // change directory or the default action.
+        if (this.selectionHandler_.isDlpBlocked()) {
+          break;
+        }
         const selection = this.selectionHandler_.selection;
         if (selection.totalCount === 1 && selection.entries[0].isDirectory &&
-            !DialogType.isFolderDialog(this.dialogType_)) {
+            !isFolderDialogType(this.dialogType_) &&
+            !selection.entries.some(util.isTrashEntry)) {
           const item = this.ui_.listContainer.currentList.getListItemByIndex(
               selection.indexes[0]);
-          // If the item is in renaming process, we don't allow to change
+          // If the item is in renaming process we don't allow to change
           // directory.
           if (item && !item.hasAttribute('renaming')) {
             event.preventDefault();
             this.directoryModel_.changeDirectoryEntry(
                 /** @type {!DirectoryEntry} */ (selection.entries[0]));
           }
-        } else if (this.acceptSelection_()) {
+          break;
+        }
+        if (this.acceptSelection_()) {
           event.preventDefault();
         }
         break;
@@ -445,38 +522,17 @@ export class MainWindowComponent {
         null;
 
     // Update unformatted volume status.
-    if (newVolumeInfo && newVolumeInfo.error) {
-      this.ui_.element.setAttribute('unformatted', '');
-
-      if (newVolumeInfo.error ===
-          VolumeManagerCommon.VolumeError.UNSUPPORTED_FILESYSTEM) {
-        this.ui_.formatPanelError.textContent =
-            str('UNSUPPORTED_FILESYSTEM_WARNING');
-      } else {
-        this.ui_.formatPanelError.textContent =
-            str('UNKNOWN_FILESYSTEM_WARNING');
-      }
-    } else {
-      this.ui_.element.removeAttribute('unformatted');
-    }
+    const unformatted = !!(newVolumeInfo && newVolumeInfo.error);
+    this.ui_.element.toggleAttribute('unformatted', /*force=*/ unformatted);
 
     if (event.newDirEntry) {
-      this.ui_.locationLine.show(event.newDirEntry);
       // Updates UI.
       if (this.dialogType_ === DialogType.FULL_PAGE) {
         const locationInfo =
             this.volumeManager_.getLocationInfo(event.newDirEntry);
-        if (locationInfo) {
-          const label = util.getEntryLabel(locationInfo, event.newDirEntry);
-          document.title = `${str('FILEMANAGER_APP_NAME')} - ${label}`;
-        } else {
-          console.error(
-              'Could not find location info for entry: ' +
-              event.newDirEntry.fullPath);
-        }
+        const label = util.getEntryLabel(locationInfo, event.newDirEntry);
+        document.title = `${str('FILEMANAGER_APP_NAME')} - ${label}`;
       }
-    } else {
-      this.ui_.locationLine.hide();
     }
   }
 
@@ -500,3 +556,23 @@ export class MainWindowComponent {
     }
   }
 }
+
+/** Adds an isFocused method to the current window object.  */
+const addIsFocusedMethod = () => {
+  let focused = true;
+
+  window.addEventListener('focus', () => {
+    focused = true;
+  });
+
+  window.addEventListener('blur', () => {
+    focused = false;
+  });
+
+  /**
+   * @return {boolean} True if focused.
+   */
+  window.isFocused = () => {
+    return focused;
+  };
+};

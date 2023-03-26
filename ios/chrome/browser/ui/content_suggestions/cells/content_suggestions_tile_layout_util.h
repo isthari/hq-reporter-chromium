@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,14 +23,14 @@ extern const CGSize kContentSuggestionsTileViewSizeLarge;
 extern const CGSize kContentSuggestionsTileViewSizeExtraLarge;
 
 // Returns the vertical spacing between columns of tiles under
-// |trait_collection|.
+// `trait_collection`.
 CGFloat ContentSuggestionsTilesHorizontalSpacing(UITraitCollection* trait_collection);
 
-// Returns the size of most visited cell based on |category|.
+// Returns the size of most visited cell based on `category`.
 CGSize MostVisitedCellSize(UIContentSizeCategory category);
 
 // Returns x-offset in order to have the tiles centered in a view with a
-// |width| under |environment|.
+// `width` under `environment`.
 CGFloat CenteredTilesMarginForWidth(UITraitCollection* trait_collection,
                                     CGFloat width);
 

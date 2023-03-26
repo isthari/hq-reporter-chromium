@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/test/task_environment.h"
 #include "chrome/browser/ash/cert_provisioning/cert_provisioning_common.h"
 #include "components/invalidation/impl/fake_invalidation_service.h"
@@ -76,12 +76,12 @@ class CertProvisioningInvalidationHandlerTest
   }
 
   bool IsInvalidationSent(const invalidation::Invalidation& invalidation) {
-    return !invalidation_service_.GetMockAckHandler()->IsUnsent(invalidation);
+    return !invalidation_service_.GetFakeAckHandler()->IsUnsent(invalidation);
   }
 
   bool IsInvalidationAcknowledged(
       const invalidation::Invalidation& invalidation) {
-    return invalidation_service_.GetMockAckHandler()->IsAcknowledged(
+    return invalidation_service_.GetFakeAckHandler()->IsAcknowledged(
         invalidation);
   }
 

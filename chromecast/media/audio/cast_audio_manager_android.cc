@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/logging.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chromecast/media/audio/audio_buildflags.h"
 #include "chromecast/media/audio/cast_audio_input_stream.h"
 #include "chromecast/media/audio/cast_audio_output_stream.h"
@@ -85,7 +86,7 @@ void CastAudioManagerAndroid::GetAudioInputDeviceNames(
   // Need to send a valid AudioParameters object even when it will be unused.
   return ::media::AudioParameters(
       ::media::AudioParameters::AUDIO_PCM_LOW_LATENCY,
-      ::media::CHANNEL_LAYOUT_STEREO, kDefaultSampleRate,
+      ::media::ChannelLayoutConfig::Stereo(), kDefaultSampleRate,
       kDefaultInputBufferSize);
 }
 

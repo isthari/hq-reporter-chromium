@@ -1,16 +1,17 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/public/cpp/in_session_auth_dialog_controller.h"
 
-#include "base/check_op.h"
-
 namespace ash {
 
 namespace {
+
+// non owning pointer, the singleton's lifetime is instead managed by ash::Shell
 InSessionAuthDialogController* g_instance = nullptr;
-}
+
+}  // namespace
 
 // static
 InSessionAuthDialogController* InSessionAuthDialogController::Get() {
@@ -18,12 +19,12 @@ InSessionAuthDialogController* InSessionAuthDialogController::Get() {
 }
 
 InSessionAuthDialogController::InSessionAuthDialogController() {
-  DCHECK_EQ(nullptr, g_instance);
+  DCHECK(!g_instance);
   g_instance = this;
 }
 
 InSessionAuthDialogController::~InSessionAuthDialogController() {
-  DCHECK_EQ(this, g_instance);
+  DCHECK(g_instance);
   g_instance = nullptr;
 }
 

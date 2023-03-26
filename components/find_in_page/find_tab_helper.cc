@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/observer_list.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
 #include "components/find_in_page/find_result_observer.h"
@@ -126,8 +127,9 @@ void FindTabHelper::StopFinding(SelectionAction selection_action) {
 }
 
 void FindTabHelper::ActivateFindInPageResultForAccessibility() {
-  GetWebContents().GetMainFrame()->ActivateFindInPageResultForAccessibility(
-      current_find_request_id_);
+  GetWebContents()
+      .GetPrimaryMainFrame()
+      ->ActivateFindInPageResultForAccessibility(current_find_request_id_);
 }
 
 std::u16string FindTabHelper::GetInitialSearchText() {

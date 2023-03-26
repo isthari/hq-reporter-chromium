@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 #define CHROME_BROWSER_ASH_ARC_METRICS_ARC_METRICS_SERVICE_PROXY_H_
 
 #include "ash/components/arc/metrics/arc_metrics_service.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager_observer.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "components/keyed_service/core/keyed_service.h"
 
 namespace content {
@@ -49,6 +49,7 @@ class ArcMetricsServiceProxy : public KeyedService,
   void OnTaskDestroyed(int32_t task_id) override;
 
   // ArcSessionManagerObserver overrides.
+  void OnArcStarted() override;
   void OnArcSessionStopped(ArcStopReason stop_reason) override;
 
   // ArcMetricsService::AppKillObserver overrides.

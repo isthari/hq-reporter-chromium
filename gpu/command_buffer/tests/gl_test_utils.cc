@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,24 +35,27 @@ namespace gpu {
 const uint8_t GLTestHelper::kCheckClearValue;
 #endif
 
-bool GLTestHelper::InitializeGL(gl::GLImplementation gl_impl) {
+gl::GLDisplay* GLTestHelper::InitializeGL(gl::GLImplementation gl_impl) {
+  gl::GLDisplay* display = nullptr;
   if (gl_impl == gl::GLImplementation::kGLImplementationNone) {
-    if (!gl::init::InitializeGLNoExtensionsOneOff(/*init_bindings*/ true))
-      return false;
+    display = gl::init::InitializeGLNoExtensionsOneOff(
+        /*init_bindings=*/true,
+        /*gpu_preference=*/gl::GpuPreference::kDefault);
   } else {
     if (!gl::init::InitializeStaticGLBindingsImplementation(
             gl::GLImplementationParts(gl_impl),
-            /*fallback_to_software_gl*/ false))
-      return false;
+            /*fallback_to_software_gl=*/false))
+      return nullptr;
 
-    if (!gl::init::InitializeGLOneOffPlatformImplementation(
-            false,  // fallback_to_software_gl
-            false,  // disable_gl_drawing
-            false   // init_extensions
-            )) {
-      return false;
-    }
+    display = gl::init::InitializeGLOneOffPlatformImplementation(
+        /*fallback_to_software_gl=*/false,
+        /*disable_gl_drawing=*/false,
+        /*init_extensions=*/false,
+        /*gpu_preference=*/gl::GpuPreference::kDefault);
   }
+
+  if (!display)
+    return nullptr;
 
   gpu::GPUInfo gpu_info;
   gpu::CollectGraphicsInfoForTesting(&gpu_info);
@@ -63,10 +66,12 @@ bool GLTestHelper::InitializeGL(gl::GLImplementation gl_impl) {
 
   gl::init::SetDisabledExtensionsPlatform(
       gpu::GLManager::g_gpu_feature_info.disabled_extensions);
-  return gl::init::InitializeExtensionSettingsOneOffPlatform();
+  if (!gl::init::InitializeExtensionSettingsOneOffPlatform(display))
+    return nullptr;
+  return display;
 }
 
-bool GLTestHelper::InitializeGLDefault() {
+gl::GLDisplay* GLTestHelper::InitializeGLDefault() {
   return GLTestHelper::InitializeGL(
       gl::GLImplementation::kGLImplementationNone);
 }
@@ -408,8 +413,9 @@ bool GpuCommandBufferTestEGL::InitializeEGL(int width, int height) {
     }
 
     gl_reinitialized_ = true;
-    gl::init::ShutdownGL(false /* due_to_fallback */);
-    if (!GLTestHelper::InitializeGL(new_impl.gl)) {
+    gl::init::ShutdownGL(gl_display_, false /* due_to_fallback */);
+    gl_display_ = GLTestHelper::InitializeGL(new_impl.gl);
+    if (!gl_display_) {
       LOG(INFO) << "Skip test, failed to initialize EGL";
       return false;
     }
@@ -443,8 +449,8 @@ void GpuCommandBufferTestEGL::RestoreGLDefault() {
   gl_.Destroy();
 
   if (gl_reinitialized_) {
-    gl::init::ShutdownGL(false /* due_to_fallback */);
-    GLTestHelper::InitializeGLDefault();
+    gl::init::ShutdownGL(gl_display_, false /* due_to_fallback */);
+    gl_display_ = GLTestHelper::InitializeGLDefault();
   }
 
   gl_reinitialized_ = false;
@@ -479,9 +485,9 @@ GpuCommandBufferTestEGL::CreateGLImageNativePixmap(gfx::BufferFormat format,
   EXPECT_NE(0u, tex_service_id);
 
   // Create an EGLImage from the real texture id.
-  auto image = base::MakeRefCounted<gl::GLImageNativePixmap>(size, format);
-  bool result = image->InitializeFromTexture(tex_service_id);
-  DCHECK(result);
+  auto image =
+      gl::GLImageNativePixmap::CreateFromTexture(size, format, tex_service_id);
+  DCHECK(image);
 
   // The test will own the EGLImage no need to keep a reference on the GL
   // texture after returning from this function. This is covered by the

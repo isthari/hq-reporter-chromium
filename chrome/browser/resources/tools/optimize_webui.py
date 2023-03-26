@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -14,7 +14,6 @@ import shutil
 import sys
 import tempfile
 
-
 _HERE_PATH = os.path.dirname(__file__)
 _SRC_PATH = os.path.normpath(os.path.join(_HERE_PATH, '..', '..', '..', '..'))
 _CWD = os.getcwd()  # NOTE(dbeam): this is typically out/<gn_name>/.
@@ -23,26 +22,19 @@ sys.path.append(os.path.join(_SRC_PATH, 'third_party', 'node'))
 import node
 import node_modules
 
-
 # These files are already combined and minified.
 _BASE_EXCLUDES = []
 for excluded_file in [
-  'resources/polymer/v1_0/web-animations-js/web-animations-next-lite.min.js',
-  'resources/css/roboto.css',
-  'resources/css/text_defaults.css',
-  'resources/css/text_defaults_md.css',
-  'resources/mojo/mojo/public/js/mojo_bindings_lite.html',
-  'resources/mojo/mojo/public/mojom/base/time.mojom.html',
-  'resources/mojo/mojo/public/mojom/base/time.mojom-lite.js',
-  'resources/mojo/chromeos/services/network_config/public/mojom/network_types.mojom.html',
-  'resources/mojo/services/network/public/mojom/ip_address.mojom.html',
-  'resources/polymer/v3_0/polymer/polymer_bundled.min.js',
-  'resources/js/load_time_data.m.js',
+    'resources/polymer/v1_0/web-animations-js/web-animations-next-lite.min.js',
+    'resources/mojo/mojo/public/mojom/base/time.mojom-lite.js',
+    'resources/polymer/v3_0/polymer/polymer_bundled.min.js',
+    'resources/js/load_time_data.js',
+    'resources/ash/common/load_time_data.m.js',
 ]:
-     # Exclude both the chrome://resources form and the scheme-relative form for
-     # files used in Polymer 3.
-     _BASE_EXCLUDES.append("chrome://" + excluded_file)
-     _BASE_EXCLUDES.append("//" + excluded_file)
+  # Exclude both the chrome://resources form and the scheme-relative form for
+  # files used in Polymer 3.
+  _BASE_EXCLUDES.append("chrome://" + excluded_file)
+  _BASE_EXCLUDES.append("//" + excluded_file)
 
 
 def _request_list_path(out_path, target_name):
@@ -51,6 +43,7 @@ def _request_list_path(out_path, target_name):
   # same BUILD.gn file exist.
   return os.path.join(out_path, target_name + '_requestlist.txt')
 
+
 def _get_dep_path(dep, host_url, in_path):
   if dep.startswith(host_url):
     return dep.replace(host_url, os.path.relpath(in_path, _CWD))
@@ -58,9 +51,10 @@ def _get_dep_path(dep, host_url, in_path):
     return os.path.relpath(in_path, _CWD) + '/' + dep
   return dep
 
+
 # Get a list of all files that were bundled with rollup and update the
 # depfile accordingly such that Ninja knows when to re-trigger.
-def _update_dep_file(in_folder, args, manifest):
+def _update_dep_file(in_folder, args, out_file_path, manifest):
   in_path = os.path.join(_CWD, in_folder)
 
   # Gather the dependencies of all bundled root files.
@@ -75,38 +69,52 @@ def _update_dep_file(in_folder, args, manifest):
 
   deps = map(os.path.normpath, request_list)
 
-  out_file_name = args.js_out_files[0]
-
   with open(os.path.join(_CWD, args.depfile), 'w') as f:
-    deps_file_header = os.path.join(args.out_folder, out_file_name)
-    f.write(deps_file_header + ': ' + ' '.join(deps))
+    f.write(out_file_path + ': ' + ' '.join(deps))
+
 
 # Autogenerate a rollup config file so that we can import the plugin and
-# pass it information about the location of the directories and files to exclude
-# from the bundle.
-def _generate_rollup_config(tmp_out_dir, path_to_plugin, in_path, host_url,
-                            excludes, external_paths):
-  rollup_config_file = os.path.join(tmp_out_dir, 'rollup.config.js')
+# pass it information about the location of the directories and files to
+# exclude from the bundle.
+# Arguments:
+# tmp_out_dir: The root directory for the output (i.e. corresponding to
+#              host_url at runtime).
+# path_to_plugin: Path to the rollup plugin.
+# in_path: Root directory for the input files.
+# bundle_path: Path to the output files from the root output directory.
+#              E.g. if bundle is chrome://foo/bundle.js, this is |foo|.
+# host_url: URL of the host. Usually something like "chrome://settings".
+# excludes: Imports to exclude from the bundle.
+# external_paths: Path mappings for import paths that are outside of
+#                 |in_path|. For example:
+#                 chrome://resources/|gen/ui/webui/resources/tsc
+def _generate_rollup_config(tmp_out_dir, path_to_plugin, in_path, bundle_path,
+                            host_url, excludes, external_paths):
+  rollup_config_file = os.path.join(tmp_out_dir, bundle_path,
+                                    'rollup.config.js')
   config_content = r'''
     import plugin from '{plugin_path}';
     export default ({{
       plugins: [
-        plugin('{in_path}', '{host_url}', {exclude_list},
-               {external_path_list}, /* allowEmptyExtension= */ false) ]
+        plugin('{in_path}', '{bundle_path}', '{host_url}', {exclude_list},
+               {external_path_list}) ]
     }});
-    '''.format(plugin_path=path_to_plugin.replace('\\', '/'),
-               in_path=in_path.replace('\\', '/'),
-               host_url=host_url,
-               exclude_list=json.dumps(excludes),
-               external_path_list=json.dumps(external_paths))
+    '''.format(
+      plugin_path=path_to_plugin.replace('\\', '/'),
+      in_path=in_path.replace('\\', '/'),
+      bundle_path=bundle_path.replace('\\', '/'),
+      host_url=host_url,
+      exclude_list=json.dumps(excludes),
+      external_path_list=json.dumps(external_paths))
   with open(rollup_config_file, 'w') as f:
-    f.write(config_content);
-  return rollup_config_file;
+    f.write(config_content)
+  return rollup_config_file
+
 
 # Create the manifest file from the sourcemap generated by rollup and return the
 # list of bundles.
-def _generate_manifest_file(tmp_out_dir, in_path, manifest_out_path):
-  generated_sourcemaps = glob.glob('%s/*.map' % tmp_out_dir)
+def _generate_manifest_file(out_dir, in_path, bundle_path, manifest_out_path):
+  generated_sourcemaps = glob.glob('%s/*.map' % out_dir)
   manifest = {}
   output_filenames = []
   for sourcemap_file in generated_sourcemaps:
@@ -116,11 +124,21 @@ def _generate_manifest_file(tmp_out_dir, in_path, manifest_out_path):
         raise Exception('rollup could not construct source map')
       sources = sourcemap['sources']
       replaced_sources = []
+      # Normalize everything to be relative to the input directory. This is
+      # where the conversion to a dependency file expects it to be.
+      output_to_input = os.path.relpath(in_path, out_dir) + "/"
+      bundle_to_input = os.path.relpath(in_path,
+                                        os.path.join(in_path, bundle_path))
       for source in sources:
-        replaced_sources.append(
-            source.replace('../' + os.path.basename(in_path) + "/", ""))
+        if output_to_input in source:
+          replaced_sources.append(source.replace(output_to_input, "", 1))
+        elif bundle_to_input != ".":
+          replaced_sources.append(source.replace(bundle_to_input + "/", "", 1))
+        else:
+          replaced_sources.append(source)
       filename = sourcemap_file[:-len('.map')]
-      manifest[os.path.basename(filename)] = replaced_sources
+      filepath = os.path.join(bundle_path, os.path.basename(filename))
+      manifest[filepath] = replaced_sources
       output_filenames.append(filename)
 
   with open(manifest_out_path, 'w') as f:
@@ -128,14 +146,19 @@ def _generate_manifest_file(tmp_out_dir, in_path, manifest_out_path):
 
   return output_filenames
 
+
 def _bundle_v3(tmp_out_dir, in_path, out_path, manifest_out_path, args,
                excludes, external_paths):
-  if not os.path.exists(tmp_out_dir):
-    os.makedirs(tmp_out_dir)
-  path_to_plugin = os.path.join(
-      os.path.abspath(_HERE_PATH), 'rollup_plugin.js')
+  bundle_path = os.path.dirname(args.js_module_in_files[0])
+  out_dir = tmp_out_dir if not bundle_path else os.path.join(
+      tmp_out_dir, bundle_path)
+  if not os.path.exists(out_dir):
+    os.makedirs(out_dir)
+
+  path_to_plugin = os.path.join(os.path.abspath(_HERE_PATH), 'rollup_plugin.js')
   rollup_config_file = _generate_rollup_config(tmp_out_dir, path_to_plugin,
-                                               in_path, args.host_url, excludes,
+                                               in_path, bundle_path,
+                                               args.host_url, excludes,
                                                external_paths)
   rollup_args = [os.path.join(in_path, f) for f in args.js_module_in_files]
 
@@ -144,37 +167,42 @@ def _bundle_v3(tmp_out_dir, in_path, out_path, manifest_out_path, args,
   # TODO(rbpotter): Is it worth adding import statement replacement to support
   # arbitrary names?
   bundled_paths = []
+  bundle_names = []
+
+  assert len(args.js_module_in_files) < 3, '3+ input files not supported'
+
   for index, js_file in enumerate(args.js_module_in_files):
-    base_file_name = os.path.basename(js_file)
-    expected_name = '%s.rollup.js' % base_file_name[:-len('.js')]
-    assert args.js_out_files[index] == expected_name, \
-           'Output file corresponding to %s should be named %s' % \
-           (js_file, expected_name)
-    bundled_paths.append(os.path.join(tmp_out_dir, expected_name))
+    bundle_name = '%s.rollup.js' % js_file[:-len('.js')]
+    assert os.path.dirname(js_file) == bundle_path, \
+           'All input files must be in the same directory.'
+    bundled_paths.append(os.path.join(tmp_out_dir, bundle_name))
+    bundle_names.append(bundle_name)
 
   # This indicates that rollup is expected to generate a shared chunk file as
   # well as one file per module. Set its name using --chunkFileNames. Note:
   # Currently, this only supports 2 entry points, which generate 2 corresponding
   # outputs and 1 shared output.
-  if (len(args.js_out_files) == 3):
-    assert len(args.js_module_in_files) == 2, \
-           'Expect 2 module entry points for generating 3 outputs'
-    shared_file_name = args.js_out_files[2]
-    rollup_args += [ '--chunkFileNames', shared_file_name ]
-    bundled_paths.append(os.path.join(tmp_out_dir, shared_file_name))
+  if (len(args.js_module_in_files) == 2):
+    shared_file_name = 'shared.rollup.js'
+    rollup_args += ['--chunkFileNames', shared_file_name]
+    bundled_paths.append(os.path.join(out_dir, shared_file_name))
+    bundle_names.append(os.path.join(bundle_path, shared_file_name))
 
-  node.RunNode(
-      [node_modules.PathToRollup()] + rollup_args + [
-          '--format', 'esm',
-          '--dir', tmp_out_dir,
-          '--entryFileNames', '[name].rollup.js',
-          '--sourcemap', '--sourcemapExcludeSources',
-          '--config', rollup_config_file,
-          '--silent',
-      ])
+  node.RunNode([node_modules.PathToRollup()] + rollup_args + [
+      '--format',
+      'esm',
+      '--dir',
+      out_dir,
+      '--entryFileNames',
+      '[name].rollup.js',
+      '--sourcemap',
+      '--sourcemapExcludeSources',
+      '--config',
+      rollup_config_file,
+  ])
 
   # Create the manifest file from the sourcemaps generated by rollup.
-  generated_paths = _generate_manifest_file(tmp_out_dir, in_path,
+  generated_paths = _generate_manifest_file(out_dir, in_path, bundle_path,
                                             manifest_out_path)
   assert len(generated_paths) == len(bundled_paths), \
          'unexpected number of bundles - %s - generated by rollup' % \
@@ -187,7 +215,8 @@ def _bundle_v3(tmp_out_dir, in_path, out_path, manifest_out_path, args,
           'Unexpected <if expr> found in bundled output. Check that all ' + \
           'input files using such expressions are preprocessed.'
 
-  return bundled_paths
+  return bundle_names
+
 
 def _optimize(in_folder, args):
   in_path = os.path.normpath(os.path.join(_CWD, in_folder)).replace('\\', '/')
@@ -196,35 +225,41 @@ def _optimize(in_folder, args):
   tmp_out_dir = tempfile.mkdtemp(dir=out_path).replace('\\', '/')
 
   excludes = _BASE_EXCLUDES + [
-    # This file is dynamically created by C++. Should always be imported with a
-    # relative path.
-    'strings.m.js',
+      # This file is dynamically created by C++. Should always be imported with
+      # a relative path.
+      'strings.m.js',
   ]
   excludes.extend(args.exclude or [])
+
+  for exclude in excludes:
+    extension = os.path.splitext(exclude)[1]
+    assert extension == '.js', f'Unexpected |excludes| entry: {exclude}.' + \
+        ' Only .js files can appear in |excludes|.'
+
   external_paths = args.external_paths or []
+  js_module_out_files = []
 
   try:
-    pcb_out_paths = [os.path.join(tmp_out_dir, f) for f in args.js_out_files]
-    bundled_paths = _bundle_v3(tmp_out_dir, in_path, out_path,
-                               manifest_out_path, args, excludes,
-                               external_paths)
-
-    # Run polymer-css-build.
-    node.RunNode([node_modules.PathToPolymerCssBuild()] +
-                 ['--polymer-version', '2'] +
-                 ['--no-inline-includes', '-f'] +
-                 bundled_paths + ['-o'] + pcb_out_paths)
+    js_module_out_files = _bundle_v3(tmp_out_dir, in_path, out_path,
+                                     manifest_out_path, args, excludes,
+                                     external_paths)
 
     # Pass the JS files through Terser and write the output to its final
     # destination.
-    for index, js_out_file in enumerate(args.js_out_files):
-      node.RunNode([node_modules.PathToTerser(),
-                    os.path.join(tmp_out_dir, js_out_file),
-                    '--comments', '/Copyright|license|LICENSE|\<\/?if/',
-                    '--output', os.path.join(out_path, js_out_file)])
+    for index, js_out_file in enumerate(js_module_out_files):
+      node.RunNode([
+          node_modules.PathToTerser(),
+          os.path.join(tmp_out_dir, js_out_file), '--comments',
+          '/Copyright|license|LICENSE|\<\/?if/', '--output',
+          os.path.join(out_path, js_out_file)
+      ])
   finally:
     shutil.rmtree(tmp_out_dir)
-  return manifest_out_path
+  return {
+      'manifest_out_path': manifest_out_path,
+      'js_module_out_files': js_module_out_files,
+  }
+
 
 def main(argv):
   parser = argparse.ArgumentParser()
@@ -234,7 +269,6 @@ def main(argv):
   parser.add_argument('--external_paths', nargs='*')
   parser.add_argument('--host', required=True)
   parser.add_argument('--input', required=True)
-  parser.add_argument('--js_out_files', nargs='*', required=True)
   parser.add_argument('--out_folder', required=True)
   parser.add_argument('--js_module_in_files', nargs='*', required=True)
   parser.add_argument('--out-manifest')
@@ -252,25 +286,27 @@ def main(argv):
   else:
     args.host_url = args.host
 
-  manifest_out_path = _optimize(args.input, args)
+  optimize_output = _optimize(args.input, args)
 
   # Prior call to _optimize() generated an output manifest file, containing
   # information about all files that were bundled. Grab it from there.
-  with open(manifest_out_path, 'r') as f:
+  with open(optimize_output['manifest_out_path'], 'r') as f:
     manifest = json.loads(f.read())
 
     # Output a manifest file that will be used to auto-generate a grd file
     # later.
     if args.out_manifest:
       manifest_data = {
-        'base_dir': args.out_folder,
-        'files': list(manifest.keys()),
+          'base_dir': args.out_folder,
+          'files': list(manifest.keys()),
       }
       with open(os.path.normpath(os.path.join(_CWD, args.out_manifest)), 'w') \
           as manifest_file:
         json.dump(manifest_data, manifest_file)
 
-    _update_dep_file(args.input, args, manifest)
+    dep_file_header = os.path.join(args.out_folder,
+                                   optimize_output['js_module_out_files'][0])
+    _update_dep_file(args.input, args, dep_file_header, manifest)
 
 
 if __name__ == '__main__':

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "ui/chromeos/events/keyboard_capability.h"
 #include "ui/events/devices/input_device.h"
 #include "ui/events/event.h"
 #include "ui/events/event_rewriter.h"
@@ -40,37 +41,6 @@ enum class DomCode;
 // - handles key/pointer combinations like Alt+Button1 -> Button3.
 class EventRewriterChromeOS : public EventRewriter {
  public:
-  enum DeviceType {
-    kDeviceUnknown = 0,
-    kDeviceInternalKeyboard,
-    kDeviceExternalAppleKeyboard,
-    kDeviceExternalChromeOsKeyboard,
-    kDeviceExternalGenericKeyboard,
-    kDeviceExternalUnknown,
-    kDeviceHotrodRemote,
-    kDeviceVirtualCoreKeyboard,  // X-server generated events.
-  };
-
-  enum KeyboardTopRowLayout {
-    // The original Chrome OS Layout:
-    // Browser Back, Browser Forward, Refresh, Full Screen, Overview,
-    // Brightness Down, Brightness Up, Mute, Volume Down, Volume Up.
-    kKbdTopRowLayout1 = 1,
-    kKbdTopRowLayoutDefault = kKbdTopRowLayout1,
-    kKbdTopRowLayoutMin = kKbdTopRowLayout1,
-    // 2017 keyboard layout: Browser Forward is gone and Play/Pause
-    // key is added between Brightness Up and Mute.
-    kKbdTopRowLayout2 = 2,
-    // Keyboard layout and handling for Wilco.
-    kKbdTopRowLayoutWilco = 3,
-    kKbdTopRowLayoutDrallion = 4,
-
-    // Handling for all keyboards that support supplying a custom layout
-    // via sysfs attribute (aka Vivaldi). See crbug.com/1076241
-    kKbdTopRowLayoutCustom = 5,
-    kKbdTopRowLayoutMax = kKbdTopRowLayoutCustom
-  };
-
   // Things that keyboard-related rewriter phases can change about an Event.
   struct MutableKeyState {
     MutableKeyState();
@@ -99,17 +69,17 @@ class EventRewriterChromeOS : public EventRewriter {
 
   class Delegate {
    public:
-    Delegate() {}
-
-    Delegate(const Delegate&) = delete;
-    Delegate& operator=(const Delegate&) = delete;
-
-    virtual ~Delegate() {}
+    virtual ~Delegate() = default;
 
     // Returns true only if the the key event was rewritten to ALTGR. For most
     // cases, it is expected that this function returns false as most key events
-    // do not involve ALTGR.
+    // do not involve ALTGR. Returns false if SuppressModifierKeyRewrites was
+    // called to suppress modifier rewrites.
     virtual bool RewriteModifierKeys() = 0;
+
+    // Suppresses all modifier key rewrites and makes |RewriteModifierKeys|
+    // always return false if |should_supress| is true.
+    virtual void SuppressModifierKeyRewrites(bool should_supress) = 0;
 
     // Returns true if get keyboard remapped preference value successfully and
     // the value will be stored in |value|.
@@ -135,11 +105,6 @@ class EventRewriterChromeOS : public EventRewriter {
     // The notification is only sent once per user session, and this function
     // returns true if the notification was shown.
     virtual bool NotifyDeprecatedRightClickRewrite() = 0;
-
-    // Used to send a notification about Search+Digit Fkey rewrites being
-    // deprecated. The notification is only sent once per user session,
-    // and this function returns true if the notification was shown.
-    virtual bool NotifyDeprecatedFKeyRewrite() = 0;
 
     // Used to send a notification about a Six Pack (PageUp, PageDown, Home,
     // End, Insert, Delete) key rewrite being deprecated. The notification
@@ -202,12 +167,13 @@ class EventRewriterChromeOS : public EventRewriter {
                                      std::unique_ptr<Event>* rewritten_event);
 
   // Given a keyboard device, returns its type.
-  static DeviceType GetDeviceType(const InputDevice& keyboard_device);
+  static KeyboardCapability::DeviceType GetDeviceType(
+      const InputDevice& keyboard_device);
 
   // Given a keyboard device, returns its top row layout. Will return default
   // kKbdTopRowLayoutDefault if the device is not tagged with a specific
   // layout, or when failing to retrieve device layout from udev.
-  static KeyboardTopRowLayout GetKeyboardTopRowLayout(
+  static KeyboardCapability::KeyboardTopRowLayout GetKeyboardTopRowLayout(
       const InputDevice& keyboard_device);
 
   // Given a keyboard device, identify the type of keyboard, and the top row
@@ -219,8 +185,8 @@ class EventRewriterChromeOS : public EventRewriter {
   // updated.
   static bool IdentifyKeyboard(
       const InputDevice& keyboard_device,
-      EventRewriterChromeOS::DeviceType* out_type,
-      EventRewriterChromeOS::KeyboardTopRowLayout* out_layout,
+      KeyboardCapability::DeviceType* out_type,
+      KeyboardCapability::KeyboardTopRowLayout* out_layout,
       base::flat_map<uint32_t, EventRewriterChromeOS::MutableKeyState>*
           out_scan_code_map);
 
@@ -240,8 +206,8 @@ class EventRewriterChromeOS : public EventRewriter {
 
  private:
   struct DeviceInfo {
-    DeviceType type;
-    KeyboardTopRowLayout top_row_layout;
+    KeyboardCapability::DeviceType type;
+    KeyboardCapability::KeyboardTopRowLayout top_row_layout;
   };
 
   void DeviceKeyPressedOrReleased(int device_id);
@@ -254,14 +220,14 @@ class EventRewriterChromeOS : public EventRewriter {
   // Adds a device to |device_id_to_info_| only if no failure occurs in
   // identifying the keyboard, and returns the device type of this keyboard
   // even if it wasn't stored in |device_id_to_info_|.
-  DeviceType KeyboardDeviceAdded(int device_id);
+  KeyboardCapability::DeviceType KeyboardDeviceAdded(int device_id);
 
   // Returns true if |last_keyboard_device_id_| is Hotrod remote.
   bool IsHotrodRemote() const;
   // Returns true if |last_keyboard_device_id_| is of given |device_type|.
-  bool IsLastKeyboardOfType(DeviceType device_type) const;
+  bool IsLastKeyboardOfType(KeyboardCapability::DeviceType device_type) const;
   // Returns the device type of |last_keyboard_device_id_|.
-  DeviceType GetLastKeyboardType() const;
+  KeyboardCapability::DeviceType GetLastKeyboardType() const;
 
   // Given modifier flags |original_flags|, returns the remapped modifiers
   // according to user preferences and/or event properties.
@@ -320,10 +286,11 @@ class EventRewriterChromeOS : public EventRewriter {
       ui::EventRewriterChromeOS::MutableKeyState* state);
 
   // Handle Fn/Action key remapping for Wilco keyboard layout.
-  bool RewriteTopRowKeysForLayoutWilco(const KeyEvent& key_event,
-                                       bool search_is_pressed,
-                                       MutableKeyState* state,
-                                       KeyboardTopRowLayout layout);
+  bool RewriteTopRowKeysForLayoutWilco(
+      const KeyEvent& key_event,
+      bool search_is_pressed,
+      MutableKeyState* state,
+      KeyboardCapability::KeyboardTopRowLayout layout);
 
   // Take the keys being pressed into consideration, in contrast to
   // RewriteKeyEvent which computes the rewritten event and event rewrite
@@ -388,6 +355,14 @@ class EventRewriterChromeOS : public EventRewriter {
   int pressed_modifier_latches_;
   int latched_modifier_latches_;
   int used_modifier_latches_;
+
+  // If a non-modifier key has been remapped to a modifier key,
+  // e.g. ESCAPE -> ALT, this stores the DomCode on the KeyPress event
+  // along with its associated previous modifier remap.
+  // Handles the case in which the original key's remap is no longer mapped to a
+  // modifier but there needs to be a way to reset the stickied modifier
+  // latches. See b/216049965 for more details.
+  base::flat_map<DomCode, ui::EventFlags> previous_non_modifier_latches_;
 
   ash::input_method::ImeKeyboard* const ime_keyboard_;
 

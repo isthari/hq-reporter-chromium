@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,8 +40,8 @@ class EventRewriterDelegateImpl : public ui::EventRewriterChromeOS::Delegate {
                                     int flags) const override;
   bool IsSearchKeyAcceleratorReserved() const override;
   bool NotifyDeprecatedRightClickRewrite() override;
-  bool NotifyDeprecatedFKeyRewrite() override;
   bool NotifyDeprecatedSixPackKeyRewrite(ui::KeyboardCode key_code) override;
+  void SuppressModifierKeyRewrites(bool should_suppress) override;
 
  private:
   const PrefService* GetPrefService() const;
@@ -52,6 +52,9 @@ class EventRewriterDelegateImpl : public ui::EventRewriterChromeOS::Delegate {
 
   // Handles showing notifications when deprecated event rewrites occur.
   std::unique_ptr<DeprecationNotificationController> deprecation_controller_;
+
+  // Tracks whether modifier rewrites should be suppressed or not.
+  bool suppress_modifier_key_rewrites_ = false;
 };
 
 }  // namespace ash

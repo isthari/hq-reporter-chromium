@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,8 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
-#include "base/memory/ref_counted.h"
+#include "base/functional/callback.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/values.h"
 #include "content/public/browser/global_routing_id.h"
 #include "extensions/browser/api/declarative_net_request/request_action.h"
@@ -42,9 +42,8 @@ struct WebRequestInfoInitParams {
   WebRequestInfoInitParams(
       uint64_t request_id,
       int render_process_id,
-      int render_frame_id,
+      int frame_routing_id,
       std::unique_ptr<ExtensionNavigationUIData> navigation_ui_data,
-      int32_t view_routing_id,
       const network::ResourceRequest& request,
       bool is_download,
       bool is_async,
@@ -63,15 +62,14 @@ struct WebRequestInfoInitParams {
   uint64_t id = 0;
   GURL url;
   int render_process_id = -1;
-  int view_routing_id = MSG_ROUTING_NONE;
-  int frame_id = -1;
+  int frame_routing_id = MSG_ROUTING_NONE;
   std::string method;
   bool is_navigation_request = false;
   absl::optional<url::Origin> initiator;
   WebRequestResourceType web_request_type = WebRequestResourceType::OTHER;
   bool is_async = false;
   net::HttpRequestHeaders extra_request_headers;
-  std::unique_ptr<base::DictionaryValue> request_body_data;
+  absl::optional<base::Value::Dict> request_body_data;
   bool is_web_view = false;
   int web_view_instance_id = -1;
   int web_view_rules_registry_id = -1;
@@ -111,12 +109,9 @@ struct WebRequestInfo {
   // applicable (i.e. if initiated by the browser).
   const int render_process_id;
 
-  // The routing ID of the object which initiated the request, if applicable.
-  const int view_routing_id = MSG_ROUTING_NONE;
-
-  // The render frame ID of the frame which initiated this request, or -1 if
-  // the request was not initiated by a frame.
-  const int frame_id;
+  // The frame routing ID of the frame which initiated this request, or
+  // MSG_ROUTING_NONE if the request was not initiated by a frame.
+  const int frame_routing_id = MSG_ROUTING_NONE;
 
   // The HTTP method used for the request, if applicable.
   const std::string method;
@@ -157,7 +152,7 @@ struct WebRequestInfo {
   // A dictionary of request body data matching the format expected by
   // WebRequest API consumers. This may have a "formData" key and/or a "raw"
   // key. See WebRequest API documentation for more details.
-  std::unique_ptr<base::DictionaryValue> request_body_data;
+  absl::optional<base::Value::Dict> request_body_data;
 
   // Indicates whether this request was initiated by a <webview> instance.
   const bool is_web_view;

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,6 +32,12 @@ class TreeWorker {
         onProgressHandler(event.data);
       }
     });
+  }
+
+  /** @public **/
+  dispose() {
+    this._worker.terminate();
+    delete this._worker;
   }
 
   /**
@@ -99,6 +105,10 @@ class TreeWorker {
  * @return {TreeWorker}
  */
 function restartWorker(onProgressHandler) {
+  if (window.supersize.worker) {
+    window.supersize.worker.dispose();
+    window.supersize.worker = null;
+  }
   const innerWorker = new Worker('tree-worker-wasm.js');
   window.supersize.worker = new TreeWorker(innerWorker, onProgressHandler);
   return window.supersize.worker;

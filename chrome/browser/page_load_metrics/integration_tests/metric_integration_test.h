@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -66,6 +66,8 @@ class MetricIntegrationTest : public InProcessBrowserTest {
   // resource at the URL "/test.html".
   void LoadHTML(const std::string& content);
 
+  content::RenderWidgetHost* GetRenderWidgetHost();
+
   // Begin trace collection for the specified trace categories. The
   // trace includes events from all processes (browser and renderer).
   void StartTracing(const std::vector<std::string>& categories);
@@ -91,10 +93,25 @@ class MetricIntegrationTest : public InProcessBrowserTest {
   // metric name and value.
   void ExpectUKMPageLoadMetric(base::StringPiece metric_name,
                                int64_t expected_value);
+  void ExpectUKMPageLoadMetricGreaterThan(base::StringPiece metric_name,
+                                          int64_t expected_value);
+  void ExpectUKMPageLoadMetricLowerThan(base::StringPiece metric_name,
+                                        int64_t expected_value);
 
+  int64_t GetUKMPageLoadMetricFlagSet(base::StringPiece metric_name);
+
+  // The expected being true means ALL the bits present in the expected
+  // flag_set should also be present in the flag_set retrieved from the ukm
+  // metrics.
+  // The expected being false means NONE of the bits present in the expected
+  // flag_set should be present in the flag_set retrieved from the ukm
+  // metrics.
   void ExpectUKMPageLoadMetricFlagSet(base::StringPiece metric_name,
                                       uint32_t flag_set,
                                       bool expected);
+
+  void ExpectUKMPageLoadMetricFlagSetExactMatch(base::StringPiece metric_name,
+                                                uint32_t flag_set);
 
   void ExpectUKMPageLoadMetricNear(base::StringPiece metric_name,
                                    double expected_value,
@@ -105,12 +122,38 @@ class MetricIntegrationTest : public InProcessBrowserTest {
   void ExpectUniqueUMAPageLoadMetricNear(base::StringPiece metric_name,
                                          double expected_value);
 
+  // Checks that the UMA entry is in the bucket for |expected_value| or within
+  // the bucket for |expected_value| +- `range`.
+  void ExpectUniqueUMAWithinRange(base::StringPiece metric_name,
+                                  double expected_value,
+                                  double below,
+                                  double above);
+
+  // Checks that the UMA bucket count precisely matches the provided value.
+  void ExpectUniqueUMABucketCount(base::StringPiece metric_name,
+                                  base::Histogram::Sample sample,
+                                  base::Histogram::Count count);
+
+  // Checks that we have a single UMA entry.
+  void ExpectUniqueUMA(base::StringPiece metric_name);
+
+  // Checks that the value of |metric_name| in the latest timing update trace
+  // event emitted by UkmPageLoadMetricsObserver is within |epsilon| of
+  // |expected_value|.
+  void ExpectMetricInLastUKMUpdateTraceEventNear(
+      trace_analyzer::TraceAnalyzer& trace_analyzer,
+      base::StringPiece metric_name,
+      double expected_value,
+      double epsilon);
+
  private:
   static std::unique_ptr<net::test_server::HttpResponse> HandleRequest(
       const std::string& relative_url,
       const std::string& content,
       base::TimeDelta delay,
       const net::test_server::HttpRequest& request);
+
+  const ukm::mojom::UkmEntryPtr GetEntry();
 
   absl::optional<ukm::TestAutoSetUkmRecorder> ukm_recorder_;
   absl::optional<base::HistogramTester> histogram_tester_;

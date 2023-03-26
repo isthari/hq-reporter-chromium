@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,7 @@
 #include "components/nacl/common/nacl_switches.h"
 #include "content/public/browser/browser_child_process_host.h"
 #include "content/public/browser/child_process_data.h"
-#include "content/public/common/child_process_host.h"
+#include "content/public/browser/child_process_host.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
 #include "sandbox/policy/mojom/sandbox.mojom.h"
@@ -39,6 +39,12 @@ class NaClBrokerSandboxedProcessLauncherDelegate
 
   sandbox::mojom::Sandbox GetSandboxType() override {
     return sandbox::mojom::Sandbox::kNoSandbox;
+  }
+
+  std::string GetSandboxTag() override {
+    // kNoSandbox does not use a TargetPolicy, if the sandbox type is changed
+    // then provide a unique tag here.
+    return "";
   }
 };
 }  // namespace

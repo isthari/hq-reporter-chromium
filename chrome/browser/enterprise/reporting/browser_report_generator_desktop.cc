@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,8 +58,7 @@ BrowserReportGeneratorDesktop::GetReportedProfiles() {
                                .GetAllProfilesAttributes()) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     // Skip sign-in and lock screen app profile on Chrome OS.
-    if (!ash::ProfileHelper::IsRegularProfilePath(
-            entry->GetPath().BaseName())) {
+    if (!ash::ProfileHelper::IsUserProfilePath(entry->GetPath().BaseName())) {
       continue;
     }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,16 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "ash/shell.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/location.h"
 #include "base/task/single_thread_task_runner.h"
 #include "remoting/host/chromeos/point_transformer.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_geometry.h"
 #include "ui/events/event.h"
+#include "ui/events/event_constants.h"
+#include "ui/events/event_target.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/platform/platform_event_observer.h"
 #include "ui/events/platform/platform_event_source.h"
@@ -21,6 +24,10 @@
 namespace remoting {
 
 namespace {
+
+bool IsInjectedByCrd(const ui::PlatformEvent& event) {
+  return event->source_device_id() == ui::ED_REMOTE_INPUT_DEVICE;
+}
 
 class LocalPointerInputMonitorChromeos : public LocalPointerInputMonitor {
  public:
@@ -61,10 +68,6 @@ class LocalPointerInputMonitorChromeos : public LocalPointerInputMonitor {
     // Used to send pointer event notifications.
     // Must be called on the |caller_task_runner_|.
     LocalInputMonitor::PointerMoveCallback on_pointer_move_;
-
-    // Used to rotate the local pointer positions appropriately based on the
-    // current display rotation settings.
-    std::unique_ptr<PointTransformer> point_transformer_;
   };
 
   // Task runner on which ui::events are received.
@@ -96,14 +99,15 @@ void LocalPointerInputMonitorChromeos::Core::Start() {
   // TODO(erg): Need to handle the mus case where PlatformEventSource is null
   // because we are in mus. This class looks like it can be rewritten with mus
   // EventMatchers. (And if that doesn't work, maybe a PointerObserver.)
-  if (ui::PlatformEventSource::GetInstance())
+  if (ui::PlatformEventSource::GetInstance()) {
     ui::PlatformEventSource::GetInstance()->AddPlatformEventObserver(this);
-  point_transformer_ = std::make_unique<PointTransformer>();
+  }
 }
 
 LocalPointerInputMonitorChromeos::Core::~Core() {
-  if (ui::PlatformEventSource::GetInstance())
+  if (ui::PlatformEventSource::GetInstance()) {
     ui::PlatformEventSource::GetInstance()->RemovePlatformEventObserver(this);
+  }
 }
 
 void LocalPointerInputMonitorChromeos::Core::WillProcessEvent(
@@ -113,6 +117,12 @@ void LocalPointerInputMonitorChromeos::Core::WillProcessEvent(
 
 void LocalPointerInputMonitorChromeos::Core::DidProcessEvent(
     const ui::PlatformEvent& event) {
+  // Do not pass on events remotely injected by CRD, as we're supposed to
+  // monitor for local input only.
+  if (IsInjectedByCrd(event)) {
+    return;
+  }
+
   ui::EventType type = ui::EventTypeFromNative(event);
   if (type == ui::ET_MOUSE_MOVED || type == ui::ET_TOUCH_MOVED) {
     HandlePointerMove(event, type);
@@ -122,13 +132,30 @@ void LocalPointerInputMonitorChromeos::Core::DidProcessEvent(
 void LocalPointerInputMonitorChromeos::Core::HandlePointerMove(
     const ui::PlatformEvent& event,
     ui::EventType type) {
-  auto position = gfx::PointF(ui::EventLocationFromNative(event));
-  position = point_transformer_->FromScreenCoordinates(position);
+  ui::LocatedEvent* located_event = event->AsLocatedEvent();
+  // The event we received has the location of the mouse in pixels
+  // *within the current display*. The event itself does not tell us what
+  // display the mouse is on (so the top-left of every display has coordinates
+  // 0x0 in the event).
+  // Luckily the cursor manager remembers the display the mouse is on.
+  const display::Display& current_display =
+      ash::Shell::Get()->cursor_manager()->GetDisplay();
+  const aura::Window* window =
+      ash::Shell::Get()->GetRootWindowForDisplayId(current_display.id());
+
+  gfx::PointF location_in_window_in_pixels = located_event->location_f();
+
+  gfx::PointF location_in_screen_in_dip =
+      PointTransformer::ConvertWindowInPixelToScreenInDip(
+          window, location_in_window_in_pixels);
+
+  gfx::Point pointer_position = gfx::ToRoundedPoint(location_in_screen_in_dip);
 
   caller_task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(on_pointer_move_,
-                     webrtc::DesktopVector(position.x(), position.y()), type));
+      FROM_HERE, base::BindOnce(on_pointer_move_,
+                                webrtc::DesktopVector(pointer_position.x(),
+                                                      pointer_position.y()),
+                                type));
 }
 
 }  // namespace

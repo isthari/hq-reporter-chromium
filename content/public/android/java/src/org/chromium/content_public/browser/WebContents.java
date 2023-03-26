@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@ import org.chromium.ui.OverscrollRefreshHandler;
 import org.chromium.ui.base.EventForwarder;
 import org.chromium.ui.base.ViewAndroidDelegate;
 import org.chromium.ui.base.WindowAndroid;
+import org.chromium.ui.mojom.VirtualKeyboardMode;
 import org.chromium.url.GURL;
 
 import java.util.List;
@@ -203,6 +204,12 @@ public interface WebContents extends Parcelable {
     GURL getVisibleUrl();
 
     /**
+     * @return The virtual keyboard mode of the WebContents' current primary page.
+     */
+    @VirtualKeyboardMode.EnumType
+    int getVirtualKeyboardMode();
+
+    /**
      * @return The character encoding for the current visible page.
      */
     String getEncoding();
@@ -368,14 +375,14 @@ public interface WebContents extends Parcelable {
     /**
      * Post a message to main frame.
      *
-     * @param message   The message
+     * @param messagePayload   The message payload.
      * @param targetOrigin  The target origin. If the target origin is a "*" or a
      *                  empty string, it indicates a wildcard target origin.
      * @param ports The sent message ports, if any. Pass null if there is no
      *                  message ports to pass.
      */
-    void postMessageToMainFrame(String message, String sourceOrigin, String targetOrigin,
-            @Nullable MessagePort[] ports);
+    void postMessageToMainFrame(MessagePayload messagePayload, String sourceOrigin,
+            String targetOrigin, @Nullable MessagePort[] ports);
 
     /**
      * Creates a message channel for sending postMessage requests and returns the ports for
@@ -417,6 +424,13 @@ public interface WebContents extends Parcelable {
      * Register a handler to handle smart clip data once extraction is done.
      */
     void setSmartClipResultHandler(final Handler smartClipHandler);
+
+    /**
+     * Set the handler that provides stylus handwriting recognition.
+     *
+     * @param stylusWritingHandler the object that implements StylusWritingHandler interface.
+     */
+    void setStylusWritingHandler(StylusWritingHandler stylusWritingHandler);
 
     /**
      * Returns {@link EventForwarder} which is used to forward input/view events
@@ -541,4 +555,11 @@ public interface WebContents extends Parcelable {
      * this. Min-height is the minimum visible height the controls can have.
      */
     void notifyBrowserControlsHeightChanged();
+
+    /**
+     * Called before the dialog overlay dismissing e.g. Activity.onUserLeaveHint. It's a signal to
+     * cleanup the tasks depending on the overlay surface, because the surface destroy may happen
+     * before SurfaceHolder.Callback2.surfaceDestroyed returns.
+     */
+    void tearDownDialogOverlays();
 }

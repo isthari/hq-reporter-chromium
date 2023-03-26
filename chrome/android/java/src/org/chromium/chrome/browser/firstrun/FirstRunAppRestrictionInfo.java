@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.base.task.TaskTraits;
+import org.chromium.components.policy.AbstractAppRestrictionsProvider;
 import org.chromium.components.policy.AppRestrictionsProvider;
 import org.chromium.components.policy.PolicySwitches;
 
@@ -144,6 +145,11 @@ class FirstRunAppRestrictionInfo {
             return;
         }
 
+        if (AbstractAppRestrictionsProvider.hasTestRestrictions()) {
+            onRestrictionDetected(true, startTime);
+            return;
+        }
+
         Context appContext = ContextUtils.getApplicationContext();
         try {
             mFetchAppRestrictionAsyncTask = new AsyncTask<Boolean>() {
@@ -154,7 +160,7 @@ class FirstRunAppRestrictionInfo {
                     Bundle bundle =
                             AppRestrictionsProvider.getApplicationRestrictionsFromUserManager(
                                     userManager, appContext.getPackageName());
-                    return !bundle.isEmpty();
+                    return bundle != null && !bundle.isEmpty();
                 }
 
                 @Override

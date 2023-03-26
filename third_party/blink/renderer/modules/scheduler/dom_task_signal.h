@@ -1,11 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_SCHEDULER_DOM_TASK_SIGNAL_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_SCHEDULER_DOM_TASK_SIGNAL_H_
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "third_party/blink/renderer/core/dom/abort_signal.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
@@ -29,14 +29,14 @@ class MODULES_EXPORT DOMTaskSignal final : public AbortSignal {
     kMaxValue = kPriorityHasChanged
   };
 
-  DOMTaskSignal(ExecutionContext*, const AtomicString& priority);
+  DOMTaskSignal(ExecutionContext*, const AtomicString& priority, SignalType);
   ~DOMTaskSignal() override;
 
   // task_signal.idl
   AtomicString priority();
   DEFINE_ATTRIBUTE_EVENT_LISTENER(prioritychange, kPrioritychange)
 
-  void AddPriorityChangeAlgorithm(base::OnceClosure algorithm);
+  void AddPriorityChangeAlgorithm(base::RepeatingClosure algorithm);
   void SignalPriorityChange(const AtomicString& priority, ExceptionState&);
 
   bool IsTaskSignal() const override { return true; }
@@ -53,7 +53,7 @@ class MODULES_EXPORT DOMTaskSignal final : public AbortSignal {
   PriorityChangeStatus priority_change_status_ =
       PriorityChangeStatus::kNoPriorityChange;
 
-  Vector<base::OnceClosure> priority_change_algorithms_;
+  Vector<base::RepeatingClosure> priority_change_algorithms_;
 
   bool is_priority_changing_ = false;
 };

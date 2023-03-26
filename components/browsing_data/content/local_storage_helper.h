@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include <map>
 #include <set>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "content/public/browser/dom_storage_context.h"
@@ -54,7 +54,7 @@ class LocalStorageHelper : public base::RefCounted<LocalStorageHelper> {
   friend class base::RefCounted<LocalStorageHelper>;
   virtual ~LocalStorageHelper();
 
-  raw_ptr<content::DOMStorageContext>
+  raw_ptr<content::DOMStorageContext, DanglingUntriaged>
       dom_storage_context_;  // Owned by the context
 };
 

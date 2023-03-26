@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
 #include "base/scoped_observation.h"
+#include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
@@ -27,6 +28,7 @@
 #include "extensions/common/extension_set.h"
 #include "extensions/common/manifest_handlers/background_info.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace extensions {
 class ExtensionUnloadedObserver : public ExtensionRegistryObserver {
@@ -102,7 +104,7 @@ class ComponentLoaderTest : public testing::Test {
 };
 
 TEST_F(ComponentLoaderTest, ParseManifest) {
-  std::unique_ptr<base::DictionaryValue> manifest;
+  absl::optional<base::Value::Dict> manifest;
 
   // Test invalid JSON.
   manifest = component_loader_.ParseManifest("{ 'test': 3 } invalid");
@@ -137,13 +139,14 @@ TEST_F(ComponentLoaderTest, ParseManifest) {
   manifest = component_loader_.ParseManifest(
       "{ \"test\": { \"one\": 1 }, \"two\": 2 }");
   ASSERT_TRUE(manifest);
-  EXPECT_EQ(1, manifest->FindIntPath("test.one"));
-  EXPECT_EQ(2, manifest->FindIntKey("two"));
+  EXPECT_EQ(1, manifest->FindIntByDottedPath("test.one"));
+  EXPECT_EQ(2, manifest->FindInt("two"));
 
-  std::string string_value;
   manifest = component_loader_.ParseManifest(manifest_contents_);
-  ASSERT_TRUE(manifest->GetString("background.page", &string_value));
-  EXPECT_EQ("backgroundpage.html", string_value);
+  const std::string* string_value =
+      manifest->FindStringByDottedPath("background.page");
+  ASSERT_TRUE(string_value);
+  EXPECT_EQ("backgroundpage.html", *string_value);
 }
 
 // Test that the extension isn't loaded if the extension service isn't ready.
@@ -212,7 +215,8 @@ TEST_F(ComponentLoaderTest, LoadAll) {
   EXPECT_EQ(default_count + 1, registry->enabled_extensions().size());
 }
 
-TEST_F(ComponentLoaderTest, AddOrReplace) {
+// Test is flaky. https://crbug.com/1306983
+TEST_F(ComponentLoaderTest, DISABLED_AddOrReplace) {
   ExtensionRegistry* registry = ExtensionRegistry::Get(&profile_);
   ExtensionUnloadedObserver unload_observer(registry);
   EXPECT_EQ(0u, component_loader_.registered_extensions_count());

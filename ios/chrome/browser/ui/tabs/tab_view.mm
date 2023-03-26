@@ -1,5 +1,4 @@
-
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,24 +6,25 @@
 
 #import <MaterialComponents/MaterialActivityIndicator.h>
 
-#include "base/i18n/rtl.h"
-#include "base/ios/ios_util.h"
-#include "base/strings/sys_string_conversions.h"
-#include "ios/chrome/browser/system_flags.h"
+#import "base/i18n/rtl.h"
+#import "base/ios/ios_util.h"
+#import "base/strings/sys_string_conversions.h"
+#import "ios/chrome/browser/flags/system_flags.h"
 #import "ios/chrome/browser/ui/elements/fade_truncating_label.h"
+#import "ios/chrome/browser/ui/icons/symbols.h"
 #import "ios/chrome/browser/ui/image_util/image_util.h"
-#include "ios/chrome/browser/ui/util/rtl_geometry.h"
+#import "ios/chrome/browser/ui/util/rtl_geometry.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/elements/highlight_button.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/l10n/l10n_util.h"
-#include "ui/base/l10n/l10n_util_mac.h"
-#include "ui/base/resource/resource_bundle.h"
-#include "ui/gfx/image/image.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util.h"
+#import "ui/base/l10n/l10n_util_mac.h"
+#import "ui/base/resource/resource_bundle.h"
+#import "ui/gfx/image/image.h"
 #import "ui/gfx/ios/uikit_util.h"
-#include "url/gurl.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -32,12 +32,14 @@
 
 namespace {
 
+// The size of the xmark symbol image.
+NSInteger kXmarkSymbolPointSize = 17;
+
 // Tab close button insets.
 const CGFloat kTabCloseTopInset = 1.0;
 const CGFloat kTabCloseLeftInset = 0.0;
 const CGFloat kTabCloseBottomInset = 0.0;
 const CGFloat kTabCloseRightInset = 0.0;
-const CGFloat kTabBackgroundLeftCapInset = 34.0;
 const CGFloat kFaviconLeftInset = 28;
 const CGFloat kFaviconVerticalOffset = 1.0;
 const CGFloat kTabStripLineMargin = 2.5;
@@ -51,12 +53,13 @@ const CGFloat kFaviconSize = 16.0;
 
 const CGFloat kFontSize = 14.0;
 
-// Returns a default favicon with |UIImageRenderingModeAlwaysTemplate|.
+// Returns a default favicon with `UIImageRenderingModeAlwaysTemplate`.
 UIImage* DefaultFaviconImage() {
   return [[UIImage imageNamed:@"default_world_favicon"]
       imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
 }
-}
+
+}  // namespace
 
 @interface TabView () <UIPointerInteractionDelegate> {
   __weak id<TabViewDelegate> _delegate;
@@ -69,7 +72,11 @@ UIImage* DefaultFaviconImage() {
 
   // Background image for this tab.
   UIImageView* _backgroundImageView;
+
   BOOL _incognitoStyle;
+
+  // Whether the Tab is pinned or not.
+  BOOL _pinned;
 
   // Set to YES when the layout constraints have been initialized.
   BOOL _layoutConstraintsInitialized;
@@ -77,7 +84,7 @@ UIImage* DefaultFaviconImage() {
   // Image view used to draw the favicon and spinner.
   UIImageView* _faviconView;
 
-  // If |YES|, this view will adjust its appearance and draw as a collapsed tab.
+  // If `YES`, this view will adjust its appearance and draw as a collapsed tab.
   BOOL _collapsed;
 
   MDCActivityIndicator* _activityIndicator;
@@ -107,13 +114,14 @@ UIImage* DefaultFaviconImage() {
 
 - (id)initWithEmptyView:(BOOL)emptyView selected:(BOOL)selected {
   if ((self = [super initWithFrame:CGRectZero])) {
+    _pinned = NO;
     [self setOpaque:NO];
     [self createCommonViews];
     if (!emptyView)
       [self createButtonsAndLabel];
 
     // -setSelected only calls -updateStyleForSelected if the selected state
-    // changes.  |isSelected| defaults to NO, so if |selected| is also NO,
+    // changes.  `isSelected` defaults to NO, so if `selected` is also NO,
     // -updateStyleForSelected needs to be called explicitly.
     [self setSelected:selected];
     if (!selected) {
@@ -136,8 +144,10 @@ UIImage* DefaultFaviconImage() {
 }
 
 - (void)setCollapsed:(BOOL)collapsed {
-  if (_collapsed != collapsed)
+  // If the item is pinned the `_closeButton` should remain hidden.
+  if (_collapsed != collapsed && !_pinned) {
     [_closeButton setHidden:collapsed];
+  }
 
   _collapsed = collapsed;
 }
@@ -175,6 +185,16 @@ UIImage* DefaultFaviconImage() {
                                         ? UIUserInterfaceStyleDark
                                         : UIUserInterfaceStyleUnspecified;
   return;
+}
+
+- (void)setPinned:(BOOL)pinned {
+  if (_pinned == pinned) {
+    return;
+  }
+  _pinned = pinned;
+  _titleLabel.hidden = pinned;
+  _closeButton.hidden = pinned;
+  [self setFrame:self.frame];
 }
 
 - (void)startProgressSpinner {
@@ -271,10 +291,13 @@ UIImage* DefaultFaviconImage() {
                                                       kTabCloseLeftInset,
                                                       kTabCloseBottomInset,
                                                       kTabCloseRightInset)];
-  [_closeButton
-      setImage:[[UIImage imageNamed:@"grid_cell_close_button"]
-                   imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate]
-      forState:UIControlStateNormal];
+  UIImage* closeButton =
+      UseSymbols()
+          ? DefaultSymbolTemplateWithPointSize(kXMarkSymbol,
+                                               kXmarkSymbolPointSize)
+          : [[UIImage imageNamed:@"grid_cell_close_button"]
+                imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+  [_closeButton setImage:closeButton forState:UIControlStateNormal];
   [_closeButton setAccessibilityLabel:l10n_util::GetNSString(
                                           IDS_IOS_TOOLS_MENU_CLOSE_TAB)];
   [_closeButton addTarget:self
@@ -339,21 +362,13 @@ UIImage* DefaultFaviconImage() {
   AddSameCenterYConstraint(self, _faviconView, _titleLabel);
 }
 
-// Updates this tab's style based on the value of |selected| and the current
+// Updates this tab's style based on the value of `selected` and the current
 // incognito style.
 - (void)updateStyleForSelected:(BOOL)selected {
   // Style the background image first.
   NSString* state = (selected ? @"foreground" : @"background");
   NSString* imageName = [NSString stringWithFormat:@"tabstrip_%@_tab", state];
-  CGFloat leftInset = kTabBackgroundLeftCapInset;
-  // As of iOS 13 Beta 4, resizable images are flaky for dark mode.
-  // Radar filled: b/137942721.
-  UIImage* resolvedImage = [UIImage imageNamed:imageName
-                                      inBundle:nil
-                 compatibleWithTraitCollection:self.traitCollection];
-  UIImage* backgroundImage =
-      StretchableImageFromUIImage(resolvedImage, leftInset, 0);
-  _backgroundImageView.image = backgroundImage;
+  _backgroundImageView.image = [UIImage imageNamed:imageName];
 
   if (selected) {
     if (_pointerInteraction)

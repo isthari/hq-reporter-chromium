@@ -35,7 +35,7 @@
 
 #include <memory>
 
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/time/time.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/network/public/mojom/url_loader_factory.mojom-forward.h"
@@ -51,13 +51,13 @@
 
 namespace base {
 class SingleThreadTaskRunner;
-}
+class WaitableEvent;
+}  // namespace base
 
 namespace network {
 class SharedURLLoaderFactory;
 struct ResourceRequest;
-struct URLLoaderCompletionStatus;
-}
+}  // namespace network
 
 namespace blink {
 
@@ -92,15 +92,6 @@ class BLINK_PLATFORM_EXPORT WebURLLoader {
   // The WebURLLoader may be deleted in a call to its client.
   virtual ~WebURLLoader();
 
-  static void PopulateURLResponse(const WebURL& url,
-                                  const network::mojom::URLResponseHead& head,
-                                  WebURLResponse* response,
-                                  bool report_security_info,
-                                  int request_id);
-  static WebURLError PopulateURLError(
-      const network::URLLoaderCompletionStatus& status,
-      const WebURL& url);
-
   // Load the request synchronously, returning results directly to the
   // caller upon completion.  There is no mechanism to interrupt a
   // synchronous load!!
@@ -118,7 +109,7 @@ class BLINK_PLATFORM_EXPORT WebURLLoader {
       absl::optional<WebURLError>& error,
       WebData& data,
       int64_t& encoded_data_length,
-      int64_t& encoded_body_length,
+      uint64_t& encoded_body_length,
       WebBlobInfo& downloaded_blob,
       std::unique_ptr<ResourceLoadInfoNotifierWrapper>
           resource_load_info_notifier_wrapper);

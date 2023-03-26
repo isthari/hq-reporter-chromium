@@ -1,4 +1,4 @@
-// Copyright 2018 The Crashpad Authors. All rights reserved.
+// Copyright 2018 The Crashpad Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -45,9 +45,9 @@
 #include "util/linux/socket.h"
 #include "util/misc/address_sanitizer.h"
 #include "util/misc/from_pointer_cast.h"
-#include "util/posix/double_fork_and_exec.h"
 #include "util/posix/scoped_mmap.h"
 #include "util/posix/signals.h"
+#include "util/posix/spawn_subprocess.h"
 
 namespace crashpad {
 
@@ -180,8 +180,10 @@ class SignalHandler {
 
     DCHECK(!handler_);
     handler_ = this;
-    return Signals::InstallCrashHandlers(
-        HandleOrReraiseSignal, SA_ONSTACK, &old_actions_, unhandled_signals);
+    return Signals::InstallCrashHandlers(HandleOrReraiseSignal,
+                                         SA_ONSTACK | SA_EXPOSE_TAGBITS,
+                                         &old_actions_,
+                                         unhandled_signals);
   }
 
   const ExceptionInformation& GetExceptionInfo() {
@@ -253,7 +255,12 @@ class SignalHandler {
   ExceptionInformation exception_information_ = {};
   CrashpadClient::FirstChanceHandler first_chance_handler_ = nullptr;
   int32_t dump_done_futex_ = kDumpNotDone;
+#if !defined(__cpp_lib_atomic_value_initialization) || \
+    __cpp_lib_atomic_value_initialization < 201911L
   std::atomic_flag disabled_ = ATOMIC_FLAG_INIT;
+#else
+  std::atomic_flag disabled_;
+#endif
 
   static SignalHandler* handler_;
 };
@@ -351,17 +358,11 @@ class RequestCrashDumpHandler : public SignalHandler {
       }
       pid = creds.pid;
     }
-    if (pid > 0 && prctl(PR_SET_PTRACER, pid, 0, 0, 0) != 0) {
-      PLOG(WARNING) << "prctl";
-      // TODO(jperaza): If this call to set the ptracer failed, it might be
-      // possible to try again just before a dump request, in case the
-      // environment has changed. Revisit ExceptionHandlerClient::SetPtracer()
-      // and consider saving the result of this call in ExceptionHandlerClient
-      // or as a member in this signal handler. ExceptionHandlerClient hasn't
-      // been responsible for maintaining state and a new ExceptionHandlerClient
-      // has been constructed as a local whenever a client needs to communicate
-      // with the handler. ExceptionHandlerClient lifetimes and ownership will
-      // need to be reconsidered if it becomes responsible for state.
+    if (pid > 0) {
+      pthread_atfork(nullptr, nullptr, SetPtracerAtFork);
+      if (prctl(PR_SET_PTRACER, pid, 0, 0, 0) != 0) {
+        PLOG(WARNING) << "prctl";
+      }
     }
     sock_to_handler_.reset(sock.release());
     handler_pid_ = pid;
@@ -382,6 +383,13 @@ class RequestCrashDumpHandler : public SignalHandler {
   }
 
   void HandleCrashImpl() override {
+    // Attempt to set the ptracer again, in case a crash occurs after a fork,
+    // before SetPtracerAtFork() has been called. Ignore errors because the
+    // system call may be disallowed if the sandbox is engaged.
+    if (handler_pid_ > 0) {
+      sys_prctl(PR_SET_PTRACER, handler_pid_, 0, 0, 0);
+    }
+
     ExceptionHandlerProtocol::ClientInformation info = {};
     info.exception_information_address =
         FromPointerCast<VMAddress>(&GetExceptionInfo());
@@ -403,6 +411,14 @@ class RequestCrashDumpHandler : public SignalHandler {
   RequestCrashDumpHandler() = default;
 
   ~RequestCrashDumpHandler() = delete;
+
+  static void SetPtracerAtFork() {
+    auto handler = RequestCrashDumpHandler::Get();
+    if (handler->handler_pid_ > 0 &&
+        prctl(PR_SET_PTRACER, handler->handler_pid_, 0, 0, 0) != 0) {
+      PLOG(WARNING) << "prctl";
+    }
+  }
 
   ScopedFileHandle sock_to_handler_;
   pid_t handler_pid_ = -1;
@@ -445,9 +461,10 @@ bool CrashpadClient::StartHandler(
 
   argv.push_back(FormatArgumentInt("initial-client-fd", handler_sock.get()));
   argv.push_back("--shared-client-connection");
-  if (!DoubleForkAndExec(argv, nullptr, handler_sock.get(), false, nullptr)) {
+  if (!SpawnSubprocess(argv, nullptr, handler_sock.get(), false, nullptr)) {
     return false;
   }
+  handler_sock.reset();
 
   pid_t handler_pid = -1;
   if (!IsRegularFile(base::FilePath("/proc/sys/kernel/yama/ptrace_scope"))) {
@@ -600,7 +617,7 @@ bool CrashpadClient::StartJavaHandlerForClient(
     int socket) {
   std::vector<std::string> argv = BuildAppProcessArgs(
       class_name, database, metrics_dir, url, annotations, arguments, socket);
-  return DoubleForkAndExec(argv, env, socket, false, nullptr);
+  return SpawnSubprocess(argv, env, socket, false, nullptr);
 }
 
 bool CrashpadClient::StartHandlerWithLinkerAtCrash(
@@ -649,7 +666,7 @@ bool CrashpadClient::StartHandlerWithLinkerForClient(
                                   annotations,
                                   arguments,
                                   socket);
-  return DoubleForkAndExec(argv, env, socket, false, nullptr);
+  return SpawnSubprocess(argv, env, socket, false, nullptr);
 }
 
 #endif
@@ -683,7 +700,7 @@ bool CrashpadClient::StartHandlerForClient(
 
   argv.push_back(FormatArgumentInt("initial-client-fd", socket));
 
-  return DoubleForkAndExec(argv, nullptr, socket, true, nullptr);
+  return SpawnSubprocess(argv, nullptr, socket, true, nullptr);
 }
 
 // static

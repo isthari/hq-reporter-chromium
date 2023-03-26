@@ -1,10 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/policy/remote_commands/device_command_wipe_users_job.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/system/user_removal_manager.h"
 #include "components/policy/core/common/remote_commands/remote_commands_service.h"
@@ -46,13 +46,13 @@ void DeviceCommandWipeUsersJob::RunImpl(CallbackWithResult succeeded_callback,
   // to log out only after the server got the ACK, otherwise we could log out
   // before ACKing and then the server would never get the ACK.
   service_->SetOnCommandAckedCallback(
-      base::BindOnce(&chromeos::user_removal_manager::LogOut));
+      base::BindOnce(&ash::user_removal_manager::LogOut));
 
   // Initiate the user removal process. Once the first part is done, the passed
   // callback gets called and signals that the command was successfully received
   // and will be executed.
-  chromeos::user_removal_manager::InitiateUserRemoval(
-      base::BindOnce(std::move(succeeded_callback), nullptr));
+  ash::user_removal_manager::InitiateUserRemoval(
+      base::BindOnce(std::move(succeeded_callback), absl::nullopt));
 }
 
 }  // namespace policy

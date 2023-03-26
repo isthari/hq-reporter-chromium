@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,8 @@
 #include <memory>
 
 #include "base/metrics/histogram_functions.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "gpu/command_buffer/service/mailbox_manager.h"
 #include "gpu/command_buffer/service/texture_manager.h"
 #include "media/base/media_log.h"
@@ -65,8 +67,7 @@ D3D11Status D3D11PictureBuffer::Init(
 
   if (!SUCCEEDED(hr)) {
     MEDIA_LOG(ERROR, media_log_) << "Failed to CreateVideoDecoderOutputView";
-    return HresultToStatus(hr,
-                           D3D11Status::Codes::kCreateDecoderOutputViewFailed);
+    return {D3D11Status::Codes::kCreateDecoderOutputViewFailed, hr};
   }
 
   return D3D11Status::Codes::kOk;

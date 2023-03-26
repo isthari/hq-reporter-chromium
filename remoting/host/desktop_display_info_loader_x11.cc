@@ -1,14 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "remoting/host/desktop_display_info_loader.h"
+#include "remoting/host/desktop_display_info_loader_x11.h"
 
 #include <algorithm>
 #include <memory>
 
-#include "base/numerics/safe_conversions.h"
+#include "base/memory/raw_ptr.h"
 #include "remoting/base/logging.h"
+#include "remoting/host/x11_display_util.h"
 #include "ui/base/x/x11_display_util.h"
 #include "ui/base/x/x11_util.h"
 #include "ui/gfx/x/connection.h"
@@ -24,37 +25,9 @@ namespace {
 // Monitors were added in XRANDR 1.5.
 constexpr int kMinRandrVersion = 105;
 
-constexpr int kDefaultScreenDpi = 96;
-constexpr double kMillimetersPerInch = 25.4;
+}  // namespace
 
-class DesktopDisplayInfoLoaderX11 : public DesktopDisplayInfoLoader,
-                                    public x11::EventObserver {
- public:
-  DesktopDisplayInfoLoaderX11() = default;
-  ~DesktopDisplayInfoLoaderX11() override;
-
-  // DesktopDisplayInfoLoader implementation.
-  void Init() override;
-  DesktopDisplayInfo GetCurrentDisplayInfo() override;
-
-  // x11::EventObserver implementation.
-  void OnEvent(const x11::Event& xevent) override;
-
- private:
-  // Queries the X server and updates |monitors_|.
-  void LoadMonitors();
-
-  // XRANDR version as MAJOR * 100 + MINOR, or 0 if XRANDR is not present.
-  int xrandr_version_ = 0;
-
-  x11::Connection* connection_ = nullptr;
-  x11::RandR* randr_ = nullptr;
-
-  // Selector for root window events.
-  std::unique_ptr<x11::XScopedEventSelector> root_window_events_;
-
-  std::vector<x11::RandR::MonitorInfo> monitors_;
-};
+DesktopDisplayInfoLoaderX11::DesktopDisplayInfoLoaderX11() = default;
 
 DesktopDisplayInfoLoaderX11::~DesktopDisplayInfoLoaderX11() {
   if (connection_) {
@@ -91,7 +64,6 @@ DesktopDisplayInfo DesktopDisplayInfoLoaderX11::GetCurrentDisplayInfo() {
 
   for (const auto& monitor : monitors_) {
     DisplayGeometry info;
-
     // webrtc::ScreenCapturerX11 uses the |name| Atom as the monitor ID.
     info.id = static_cast<int32_t>(monitor.name);
     info.is_default = monitor.primary;
@@ -99,16 +71,8 @@ DesktopDisplayInfo DesktopDisplayInfoLoaderX11::GetCurrentDisplayInfo() {
     info.y = monitor.y;
     info.width = monitor.width;
     info.height = monitor.height;
-    info.dpi = kDefaultScreenDpi;
+    info.dpi = GetMonitorDpi(monitor).x();
     info.bpp = 24;
-
-    // Calculate DPI if possible, using width in millimeters.
-    if (monitor.width_in_millimeters != 0) {
-      double pixelsPerMillimeter =
-          static_cast<double>(monitor.width) / monitor.width_in_millimeters;
-      double pixelsPerInch = pixelsPerMillimeter * kMillimetersPerInch;
-      info.dpi = base::ClampRound(pixelsPerInch);
-    }
 
     result.AddDisplay(info);
   }
@@ -134,8 +98,9 @@ void DesktopDisplayInfoLoaderX11::OnEvent(const x11::Event& xevent) {
 }
 
 void DesktopDisplayInfoLoaderX11::LoadMonitors() {
-  if (xrandr_version_ < kMinRandrVersion)
+  if (xrandr_version_ < kMinRandrVersion) {
     return;
+  }
 
   auto reply = randr_->GetMonitors({ui::GetX11RootWindow()}).Sync();
   if (reply) {
@@ -143,13 +108,6 @@ void DesktopDisplayInfoLoaderX11::LoadMonitors() {
   } else {
     LOG(ERROR) << "RRGetMonitors request failed.";
   }
-}
-
-}  // namespace
-
-// static
-std::unique_ptr<DesktopDisplayInfoLoader> DesktopDisplayInfoLoader::Create() {
-  return std::make_unique<DesktopDisplayInfoLoaderX11>();
 }
 
 }  // namespace remoting

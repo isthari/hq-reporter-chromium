@@ -36,7 +36,7 @@
     width: 40px;
   }
 </style>
-<settings-animated-pages id="pages" section="osPeople"
+<os-settings-animated-pages id="pages" section="osPeople"
     focus-config="[[focusConfig_]]">
   <div route-path="default">
     <div class="settings-box first two-line">
@@ -83,50 +83,32 @@
     </template>
   </div>
   <template is="dom-if" route-path="/osSyncSetup">
-    <settings-subpage
+    <os-settings-subpage
         page-title="$i18n{syncPageTitle}"
         learn-more-url="$i18n{syncAndGoogleServicesLearnMoreURL}">
-      <settings-sync-page
+      <os-settings-sync-page
           sync-status="[[syncStatus]]" prefs="{{prefs}}"
           page-visibility="[[pageVisibility.privacy]]"
           focus-config="[[focusConfig_]]">
-      </settings-sync-page>
-    </settings-subpage>
+      </os-settings-sync-page>
+    </os-settings-subpage>
   </template>
-  <!-- Pre-SyncSettingsCategorization we show the browser's sync controls.
-  -->
-  <template is="dom-if" if="[[!syncSettingsCategorizationEnabled_]]">
-    <template is="dom-if" route-path="/syncSetup/advanced">
-      <settings-subpage page-title="$i18n{syncAdvancedPageTitle}"
-          learn-more-url="$i18n{syncAndGoogleServicesLearnMoreURL}">
-        <settings-sync-controls sync-status="[[syncStatus]]">
-        </settings-sync-controls>
-      </settings-subpage>
-    </template>
-  </template>
-  <!-- Post-SyncSettingsCategorization we have separate OS sync controls.
-  -->
-  <template is="dom-if" if="[[syncSettingsCategorizationEnabled_]]">
-    <template is="dom-if" route-path="/osSync">
-      <settings-subpage page-title="$i18n{syncAndNonPersonalizedServices}"
-          learn-more-url="$i18n{syncAndGoogleServicesLearnMoreURL}">
-        <os-sync-controls sync-status="[[syncStatus]]"
-            profile-icon-url="[[profileIconUrl_]]"
-            profile-name="[[profileName_]]"
-            profile-email="[[profileEmail_]]">
-        </os-sync-controls>
-      </settings-subpage>
-    </template>
+  <template is="dom-if" route-path="/osSync">
+    <os-settings-subpage page-title="$i18n{syncAdvancedPageTitle}"
+        learn-more-url="$i18n{syncAndGoogleServicesLearnMoreURL}">
+      <os-sync-controls>
+      </os-sync-controls>
+    </os-settings-subpage>
   </template>
   <template is="dom-if" route-path="/accountManager">
-    <settings-subpage page-title="$i18n{accountManagerPageTitle}">
+    <os-settings-subpage page-title="$i18n{accountManagerPageTitle}">
       <settings-account-manager prefs="[[prefs]]">
       </settings-account-manager>
-    </settings-subpage>
+    </os-settings-subpage>
   </template>
-</settings-animated-pages>
+</os-settings-animated-pages>
 <template is="dom-if" if="[[showSignoutDialog_]]" restamp>
-  <settings-signout-dialog sync-status="[[syncStatus]]"
+  <os-settings-signout-dialog sync-status="[[syncStatus]]"
       on-close="onDisconnectDialogClosed_">
-  </settings-signout-dialog>
+  </os-settings-signout-dialog>
 </template>

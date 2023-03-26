@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -108,12 +108,12 @@ base::Value PageLoadTrackerDecorator::DescribePageNodeData(
   if (data == nullptr)
     return base::Value();
 
-  base::Value ret(base::Value::Type::DICTIONARY);
-  ret.SetStringKey("load_idle_state", ToString(data->load_idle_state()));
-  ret.SetBoolKey("is_loading", data->is_loading_);
-  ret.SetBoolKey("did_commit", data->did_commit_);
+  base::Value::Dict ret;
+  ret.Set("load_idle_state", ToString(data->load_idle_state()));
+  ret.Set("is_loading", data->is_loading_);
+  ret.Set("did_commit", data->did_commit_);
 
-  return ret;
+  return base::Value(std::move(ret));
 }
 
 void PageLoadTrackerDecorator::OnMainThreadTaskLoadIsLow(

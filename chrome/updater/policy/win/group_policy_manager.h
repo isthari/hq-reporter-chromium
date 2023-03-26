@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,53 +7,23 @@
 
 #include <string>
 
-#include "base/values.h"
-#include "chrome/updater/policy/manager.h"
+#include "chrome/updater/policy/policy_manager.h"
 
 namespace updater {
 
 // The GroupPolicyManager returns policies for domain-joined machines.
-class GroupPolicyManager : public PolicyManagerInterface {
+class GroupPolicyManager : public PolicyManager {
  public:
-  GroupPolicyManager();
+  explicit GroupPolicyManager(bool should_take_policy_critical_section);
   GroupPolicyManager(const GroupPolicyManager&) = delete;
   GroupPolicyManager& operator=(const GroupPolicyManager&) = delete;
-  ~GroupPolicyManager() override;
 
   // Overrides for PolicyManagerInterface.
   std::string source() const override;
-
-  bool IsManaged() const override;
-
-  bool GetLastCheckPeriodMinutes(int* minutes) const override;
-  bool GetUpdatesSuppressedTimes(
-      UpdatesSuppressedTimes* suppressed_times) const override;
-  bool GetDownloadPreferenceGroupPolicy(
-      std::string* download_preference) const override;
-  bool GetPackageCacheSizeLimitMBytes(int* cache_size_limit) const override;
-  bool GetPackageCacheExpirationTimeDays(int* cache_life_limit) const override;
-
-  bool GetEffectivePolicyForAppInstalls(const std::string& app_id,
-                                        int* install_policy) const override;
-  bool GetEffectivePolicyForAppUpdates(const std::string& app_id,
-                                       int* update_policy) const override;
-  bool GetTargetChannel(const std::string& app_id,
-                        std::string* channel) const override;
-  bool GetTargetVersionPrefix(
-      const std::string& app_id,
-      std::string* target_version_prefix) const override;
-  bool IsRollbackToTargetVersionAllowed(const std::string& app_id,
-                                        bool* rollback_allowed) const override;
-  bool GetProxyMode(std::string* proxy_mode) const override;
-  bool GetProxyPacUrl(std::string* proxy_pac_url) const override;
-  bool GetProxyServer(std::string* proxy_server) const override;
+  bool HasActiveDevicePolicies() const override;
 
  private:
-  void LoadAllPolicies();
-  bool GetIntPolicy(const std::string& key, int* value) const;
-  bool GetStringPolicy(const std::string& key, std::string* value) const;
-
-  base::Value policies_;
+  ~GroupPolicyManager() override;
 };
 
 }  // namespace updater

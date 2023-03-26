@@ -1,10 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/push_messaging/push_messaging_notification_manager.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
@@ -17,7 +17,7 @@
 #include <memory>
 
 #include "chrome/browser/ash/android_sms/fake_android_sms_app_manager.h"
-#include "chromeos/services/multidevice_setup/public/cpp/fake_multidevice_setup_client.h"
+#include "chromeos/ash/services/multidevice_setup/public/cpp/fake_multidevice_setup_client.h"
 #endif
 
 class PushMessagingNotificationManagerTest
@@ -64,11 +64,11 @@ TEST_F(PushMessagingNotificationManagerTest,
       std::make_unique<ash::android_sms::FakeAndroidSmsAppManager>();
   fake_android_sms_app_manager->SetInstalledAppUrl(app_url);
 
-  auto fake_multidevice_setup_client = std::make_unique<
-      chromeos::multidevice_setup::FakeMultiDeviceSetupClient>();
+  auto fake_multidevice_setup_client =
+      std::make_unique<ash::multidevice_setup::FakeMultiDeviceSetupClient>();
   fake_multidevice_setup_client->SetFeatureState(
-      chromeos::multidevice_setup::mojom::Feature::kMessages,
-      chromeos::multidevice_setup::mojom::FeatureState::kEnabledByUser);
+      ash::multidevice_setup::mojom::Feature::kMessages,
+      ash::multidevice_setup::mojom::FeatureState::kEnabledByUser);
 
   PushMessagingNotificationManager manager(profile());
   manager.SetTestMultiDeviceSetupClient(fake_multidevice_setup_client.get());

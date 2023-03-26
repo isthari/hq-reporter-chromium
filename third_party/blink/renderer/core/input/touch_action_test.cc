@@ -28,7 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/input/web_coalesced_input_event.h"
 #include "third_party/blink/public/common/input/web_touch_event.h"
@@ -239,8 +239,8 @@ WebViewImpl* TouchActionTest::SetupTest(String file) {
 
 gfx::Rect WindowClipRect(const LocalFrameView& frame_view) {
   PhysicalRect clip_rect(PhysicalOffset(), PhysicalSize(frame_view.Size()));
-  frame_view.GetLayoutView()->MapToVisualRectInAncestorSpace(
-      nullptr, clip_rect, 0, kDefaultVisualRectFlags);
+  frame_view.GetLayoutView()->MapToVisualRectInAncestorSpace(nullptr,
+                                                             clip_rect);
   return ToEnclosingRect(clip_rect);
 }
 
@@ -363,23 +363,28 @@ void TouchActionTest::RunTestOnTree(ContainerNode* root, WebView* web_view) {
           EXPECT_EQ(TouchAction::kAuto, widget->LastTouchAction())
               << failure_context_pos;
         } else if (expected_action == "none") {
-          EXPECT_EQ(TouchAction::kNone, widget->LastTouchAction())
+          EXPECT_EQ(TouchAction::kNone, widget->LastTouchAction() &
+                                            ~TouchAction::kInternalNotWritable)
               << failure_context_pos;
         } else if (expected_action == "pan-x") {
           EXPECT_EQ(TouchAction::kPanX, widget->LastTouchAction() &
-                                            ~TouchAction::kInternalPanXScrolls)
+                                            ~TouchAction::kInternalPanXScrolls &
+                                            ~TouchAction::kInternalNotWritable)
               << failure_context_pos;
         } else if (expected_action == "pan-y") {
-          EXPECT_EQ(TouchAction::kPanY, widget->LastTouchAction())
+          EXPECT_EQ(TouchAction::kPanY, widget->LastTouchAction() &
+                                            ~TouchAction::kInternalNotWritable)
               << failure_context_pos;
         } else if (expected_action == "pan-x-y") {
           EXPECT_EQ(TouchAction::kPan, widget->LastTouchAction() &
-                                           ~TouchAction::kInternalPanXScrolls)
+                                           ~TouchAction::kInternalPanXScrolls &
+                                           ~TouchAction::kInternalNotWritable)
               << failure_context_pos;
         } else if (expected_action == "manipulation") {
-          EXPECT_EQ(
-              TouchAction::kManipulation,
-              widget->LastTouchAction() & ~TouchAction::kInternalPanXScrolls)
+          EXPECT_EQ(TouchAction::kManipulation,
+                    widget->LastTouchAction() &
+                        ~TouchAction::kInternalPanXScrolls &
+                        ~TouchAction::kInternalNotWritable)
               << failure_context_pos;
         } else {
           FAIL() << "Unrecognized expected-action " << expected_action << " "

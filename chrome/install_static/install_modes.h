@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,6 +31,7 @@
 #include <string>
 
 #include "build/branding_buildflags.h"
+#include "chrome/browser/chrome_for_testing/buildflags.h"
 #include "chrome/install_static/install_constants.h"
 
 // Include the brand-specific values. Each of these must define:
@@ -40,6 +41,8 @@
 //   kInstallModes.
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
 #include "chrome/install_static/google_chrome_install_modes.h"
+#elif BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
+#include "chrome/install_static/google_chrome_for_testing_install_modes.h"
 #else
 #include "chrome/install_static/chromium_install_modes.h"
 #endif
@@ -59,10 +62,6 @@ extern const size_t kProductPathNameLength;
 
 // The brand-specific safe browsing client name.
 extern const char kSafeBrowsingName[];
-
-// The brand-specific device management server hostname, or an empty string if
-// the brand does not restrict runtime-configured server URLs.
-extern const char kDeviceManagementServerHostName[];
 
 // A brand's collection of install modes.
 extern const InstallConstants kInstallModes[];

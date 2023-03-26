@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,9 +14,10 @@
 #include "android_webview/browser/gfx/task_queue_webview.h"
 #include "android_webview/common/aw_features.h"
 #include "android_webview/public/browser/draw_gl.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/traced_value.h"
@@ -240,6 +241,11 @@ void RenderThreadManager::DestroyHardwareRendererOnRT(bool save_restore,
     hardware_renderer_->AbandonContext();
 
   hardware_renderer_.reset();
+
+  ui_loop_->PostTask(
+      FROM_HERE,
+      base::BindOnce(&CompositorFrameProducer::ChildSurfaceWasEvicted,
+                     producer_weak_ptr_));
 }
 
 void RenderThreadManager::RemoveFromCompositorFrameProducerOnUI() {
@@ -261,6 +267,11 @@ void RenderThreadManager::SetCompositorFrameProducer(
   producer_weak_ptr_ = compositor_frame_producer->GetWeakPtr();
 
   base::AutoLock lock(lock_);
+  root_frame_sink_getter_ = std::move(root_frame_sink_getter);
+}
+
+void RenderThreadManager::SetRootFrameSinkGetterForTesting(
+    RootFrameSinkGetter root_frame_sink_getter) {
   root_frame_sink_getter_ = std::move(root_frame_sink_getter);
 }
 

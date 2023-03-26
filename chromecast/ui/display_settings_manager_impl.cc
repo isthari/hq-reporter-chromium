@@ -1,12 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chromecast/ui/display_settings_manager_impl.h"
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/check.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/logging.h"
 #include "base/time/time.h"
 #include "chromecast/graphics/cast_window_manager.h"
@@ -86,7 +86,6 @@ void DisplaySettingsManagerImpl::SetColorInversion(bool enable) {
 #if defined(USE_AURA)
   gamma_configurator_->SetColorInversion(enable);
 #endif  // defined(USE_AURA)
-  window_manager_->NotifyColorInversionEnabled(enable);
 }
 
 void DisplaySettingsManagerImpl::AddReceiver(

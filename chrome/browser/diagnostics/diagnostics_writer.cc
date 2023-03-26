@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include <string>
 
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/notreached.h"
 #include "base/strings/string_util.h"
@@ -91,7 +90,7 @@ class WinConsole : public SimpleConsole {
     SetColor(SimpleConsole::DEFAULT);
     Write(u"Press [enter] to continue\n");
     wchar_t buf[256];
-    DWORD read = base::size(buf);
+    DWORD read = std::size(buf);
     ::ReadConsoleW(std_in_, buf, read, &read, NULL);
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include <memory>
 #include <utility>
 
-#include "base/cxx17_backports.h"
 #include "base/json/json_reader.h"
 #include "base/values.h"
 #include "remoting/host/setup/test_util.h"
@@ -39,8 +38,9 @@ void NativeMessagingWriterTest::SetUp() {
 }
 
 TEST_F(NativeMessagingWriterTest, GoodMessage) {
-  base::DictionaryValue message;
-  message.SetInteger("foo", 42);
+  base::Value::Dict dict;
+  dict.Set("foo", 42);
+  base::Value message(std::move(dict));
   EXPECT_TRUE(writer_->WriteMessage(message));
 
   // Read from the pipe and verify the content.
@@ -48,7 +48,7 @@ TEST_F(NativeMessagingWriterTest, GoodMessage) {
   int read = read_file_.ReadAtCurrentPos(reinterpret_cast<char*>(&length), 4);
   EXPECT_EQ(4, read);
   std::string content(length, '\0');
-  read = read_file_.ReadAtCurrentPos(base::data(content), length);
+  read = read_file_.ReadAtCurrentPos(std::data(content), length);
   EXPECT_EQ(static_cast<int>(length), read);
 
   // |content| should now contain serialized |message|.
@@ -65,9 +65,10 @@ TEST_F(NativeMessagingWriterTest, GoodMessage) {
 }
 
 TEST_F(NativeMessagingWriterTest, SecondMessage) {
-  base::DictionaryValue message1;
-  base::DictionaryValue message2;
-  message2.SetInteger("foo", 42);
+  base::Value message1(base::Value::Dict{});
+  base::Value::Dict dict2;
+  dict2.Set("foo", 42);
+  base::Value message2(std::move(dict2));
   EXPECT_TRUE(writer_->WriteMessage(message1));
   EXPECT_TRUE(writer_->WriteMessage(message2));
   writer_.reset(nullptr);
@@ -80,7 +81,7 @@ TEST_F(NativeMessagingWriterTest, SecondMessage) {
     read = read_file_.ReadAtCurrentPos(reinterpret_cast<char*>(&length), 4);
     EXPECT_EQ(4, read) << "i = " << i;
     content.resize(length);
-    read = read_file_.ReadAtCurrentPos(base::data(content), length);
+    read = read_file_.ReadAtCurrentPos(std::data(content), length);
     EXPECT_EQ(static_cast<int>(length), read) << "i = " << i;
   }
 
@@ -94,7 +95,7 @@ TEST_F(NativeMessagingWriterTest, FailedWrite) {
   // Close the read end so that writing fails immediately.
   read_file_.Close();
 
-  base::DictionaryValue message;
+  base::Value message(base::Value::Dict{});
   EXPECT_FALSE(writer_->WriteMessage(message));
 }
 

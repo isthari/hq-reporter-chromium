@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,12 +11,11 @@
 #include <utility>
 
 #include "base/big_endian.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/check_op.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "chromecast/net/io_buffer_pool.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
@@ -81,7 +80,7 @@ SmallMessageSocket::SmallMessageSocket(Delegate* delegate,
                                        std::unique_ptr<net::Socket> socket)
     : delegate_(delegate),
       socket_(std::move(socket)),
-      task_runner_(base::SequencedTaskRunnerHandle::Get()),
+      task_runner_(base::SequencedTaskRunner::GetCurrentDefault()),
       write_storage_(base::MakeRefCounted<net::GrowableIOBuffer>()),
       write_buffer_(base::MakeRefCounted<BufferWrapper>()),
       read_storage_(base::MakeRefCounted<net::GrowableIOBuffer>()),

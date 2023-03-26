@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -1092,7 +1092,7 @@ public class JavaBridgeArrayCoercionTest {
         Assert.assertEquals(4294967295L, mTestObject.waitForLongArray()[0]);
 
         mActivityTestRule.executeJavaScript("testObject.setFloatArray(uint32_array);");
-        Assert.assertEquals((new Long(4294967295L)).floatValue(),
+        Assert.assertEquals((Long.valueOf(4294967295L)).floatValue(),
                 mTestObject.waitForFloatArray()[0], ASSERTION_DELTA);
 
         mActivityTestRule.executeJavaScript("testObject.setDoubleArray(uint32_array);");

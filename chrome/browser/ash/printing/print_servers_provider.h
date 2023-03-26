@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <set>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ash/printing/print_server.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -21,7 +21,7 @@ namespace user_prefs {
 class PrefRegistrySyncable;
 }
 
-namespace chromeos {
+namespace ash {
 
 // This class observes values of policies related to external print servers
 // and calculates resultant list of available print servers. This list is
@@ -75,6 +75,6 @@ class PrintServersProvider
   PrintServersProvider() = default;
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_PRINT_SERVERS_PROVIDER_H_

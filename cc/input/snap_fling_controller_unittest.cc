@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -82,6 +82,23 @@ TEST_F(SnapFlingControllerTest, CreatesAndAnimatesCurveOnFirstInertialGSU) {
                                testing::Return(true)));
   EXPECT_CALL(mock_client_, RequestAnimationForSnapFling()).Times(1);
   EXPECT_CALL(mock_client_, ScrollByForSnapFling(testing::_)).Times(1);
+  EXPECT_TRUE(controller_->HandleGestureScrollUpdate(gsu));
+  testing::Mock::VerifyAndClearExpectations(&mock_client_);
+}
+
+TEST_F(SnapFlingControllerTest, ScrollEndWhenHasEqualOffsetsOnInertialGSU) {
+  SnapFlingController::GestureScrollUpdateInfo gsu;
+  gsu.delta = gfx::Vector2dF(0, -10);
+  gsu.is_in_inertial_phase = true;
+
+  EXPECT_CALL(mock_client_, GetSnapFlingInfoAndSetAnimatingSnapTarget(
+                                testing::_, testing::_, testing::_))
+      .WillOnce(testing::DoAll(testing::SetArgPointee<1>(gfx::PointF(0, 0)),
+                               testing::SetArgPointee<2>(gfx::PointF(0, 0)),
+                               testing::Return(true)));
+  EXPECT_CALL(mock_client_, RequestAnimationForSnapFling()).Times(0);
+  EXPECT_CALL(mock_client_, ScrollByForSnapFling(testing::_)).Times(0);
+  EXPECT_CALL(mock_client_, ScrollEndForSnapFling(true)).Times(1);
   EXPECT_TRUE(controller_->HandleGestureScrollUpdate(gsu));
   testing::Mock::VerifyAndClearExpectations(&mock_client_);
 }

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 
 #include "ash/components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "ash/components/arc/session/arc_bridge_service.h"
-#include "ash/components/audio/audio_device.h"
 #include "ash/public/cpp/system_tray.h"
 #include "base/logging.h"
 #include "base/memory/singleton.h"
+#include "chromeos/ash/components/audio/audio_device.h"
 
 namespace arc {
 namespace {

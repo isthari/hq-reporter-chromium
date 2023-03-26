@@ -1,10 +1,9 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.offlinepages;
 
-import android.annotation.TargetApi;
 import android.app.DownloadManager;
 import android.content.ContentResolver;
 import android.content.ContentValues;
@@ -69,11 +68,6 @@ public class OfflinePageArchivePublisherBridge {
     public static long addCompletedDownload(String title, String description, String path,
             long length, String uri, String referer) {
         try {
-            // Call the proper version of the pass through based on the supported API level.
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
-                return callAddCompletedDownload(title, description, path, length);
-            }
-
             return callAddCompletedDownload(title, description, path, length, uri, referer);
         } catch (Exception e) {
             // In case of exception, we return a download id of 0.
@@ -82,18 +76,6 @@ public class OfflinePageArchivePublisherBridge {
         }
     }
 
-    // Use this pass through before API level 24.
-    private static long callAddCompletedDownload(
-            String title, String description, String path, long length) {
-        DownloadManager downloadManager = getDownloadManager();
-        if (downloadManager == null) return 0;
-
-        return downloadManager.addCompletedDownload(title, description, IS_MEDIA_SCANNER_SCANNABLE,
-                MIME_TYPE, path, length, SHOW_NOTIFICATION);
-    }
-
-    // Use this pass through for API levels 24 and higher.
-    @TargetApi(Build.VERSION_CODES.N)
     private static long callAddCompletedDownload(String title, String description, String path,
             long length, String uri, String referer) {
         DownloadManager downloadManager = getDownloadManager();

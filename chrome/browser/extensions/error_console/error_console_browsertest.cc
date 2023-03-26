@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -285,7 +285,7 @@ class ErrorConsoleBrowserTest : public ExtensionBrowserTest {
   GURL test_url_;
 
   // Weak reference to the ErrorConsole.
-  raw_ptr<ErrorConsole> error_console_;
+  raw_ptr<ErrorConsole, DanglingUntriaged> error_console_;
 };
 
 // Test to ensure that we are successfully reporting manifest errors as an

@@ -1,18 +1,18 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/overlays/public/web_content_area/app_launcher_overlay.h"
 
-#include "components/strings/grit/components_strings.h"
+#import "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/overlays/public/overlay_request.h"
 #import "ios/chrome/browser/overlays/public/overlay_response.h"
 #import "ios/chrome/browser/overlays/public/web_content_area/alert_overlay.h"
 #import "ios/chrome/browser/overlays/public/web_content_area/app_launcher_overlay.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "testing/gtest_mac.h"
-#include "testing/platform_test.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "testing/gtest_mac.h"
+#import "testing/platform_test.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -43,8 +43,8 @@ TEST_F(AppLauncherOverlayTest, FirstRequestAlertSetup) {
 
   // There is an OK button and a Cancel button in app launch alerts.
   ASSERT_EQ(2U, config->button_configs().size());
-  const ButtonConfig& ok_button_config = config->button_configs()[0];
-  const ButtonConfig& cancel_button_config = config->button_configs()[1];
+  const ButtonConfig& ok_button_config = config->button_configs()[0][0];
+  const ButtonConfig& cancel_button_config = config->button_configs()[1][0];
 
   EXPECT_EQ(UIAlertActionStyleDefault, ok_button_config.style);
   EXPECT_NSEQ(
@@ -71,8 +71,8 @@ TEST_F(AppLauncherOverlayTest, RepeatedRequestAlertSetup) {
 
   // There is an OK button and a Cancel button in app launch alerts.
   ASSERT_EQ(2U, config->button_configs().size());
-  const ButtonConfig& ok_button_config = config->button_configs()[0];
-  const ButtonConfig& cancel_button_config = config->button_configs()[1];
+  const ButtonConfig& ok_button_config = config->button_configs()[0][0];
+  const ButtonConfig& cancel_button_config = config->button_configs()[1][0];
 
   EXPECT_EQ(UIAlertActionStyleDefault, ok_button_config.style);
   EXPECT_NSEQ(l10n_util::GetNSString(IDS_IOS_OPEN_REPEATEDLY_ANOTHER_APP_ALLOW),
@@ -92,7 +92,8 @@ TEST_F(AppLauncherOverlayTest, ResponseConversionOk) {
   AlertRequest* config = request->GetConfig<AlertRequest>();
   std::unique_ptr<OverlayResponse> alert_response =
       OverlayResponse::CreateWithInfo<AlertResponse>(
-          /*tapped_button_index=*/0, /*text_field_values=*/nil);
+          /*tapped_button_row_index=*/0, /*tapped_button_column_index=*/0,
+          /*text_field_values=*/nil);
 
   // Convert the response to the AllowAppLaunchResponse.
   std::unique_ptr<OverlayResponse> response =
@@ -111,7 +112,8 @@ TEST_F(AppLauncherOverlayTest, ResponseConversionCancel) {
   AlertRequest* config = request->GetConfig<AlertRequest>();
   std::unique_ptr<OverlayResponse> alert_response =
       OverlayResponse::CreateWithInfo<AlertResponse>(
-          /*tapped_button_index=*/1, /*text_field_values=*/nil);
+          /*tapped_button_row_index=*/1, /*tapped_button_column_index=*/0,
+          /*text_field_values=*/nil);
 
   // Convert the response and verify that no AllowAppLaunchResponse was created.
   std::unique_ptr<OverlayResponse> response =

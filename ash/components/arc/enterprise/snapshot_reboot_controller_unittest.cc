@@ -1,11 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/components/arc/enterprise/snapshot_reboot_controller.h"
 #include "ash/components/arc/test/fake_snapshot_reboot_notification.h"
 #include "base/test/task_environment.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power/fake_power_manager_client.h"
 #include "components/account_id/account_id.h"
 #include "components/session_manager/core/session_manager.h"
@@ -30,10 +29,6 @@ chromeos::FakePowerManagerClient* client() {
 class SnapshotRebootControllerTest : public testing::Test {
  public:
   void SetUp() override {
-    // Initialize fake D-Bus client.
-    chromeos::DBusThreadManager::Initialize();
-    EXPECT_TRUE(chromeos::DBusThreadManager::Get()->IsUsingFakes());
-
     chromeos::PowerManagerClient::InitializeFake();
 
     fake_user_manager_ = new user_manager::FakeUserManager();
@@ -44,17 +39,16 @@ class SnapshotRebootControllerTest : public testing::Test {
   void TearDown() override {
     chromeos::PowerManagerClient::Shutdown();
 
-    chromeos::DBusThreadManager::Shutdown();
     scoped_user_manager_.reset();
     fake_user_manager_ = nullptr;
   }
 
   void LoginUserSession() {
     auto account_id = AccountId::FromUserEmail(kPublicAccountEmail);
-    user_manager()->AddUser(account_id);
+    auto* user = user_manager()->AddUser(account_id);
 
-    user_manager()->UserLoggedIn(
-        account_id, account_id.GetUserEmail() + "-hash", false, false);
+    user_manager()->UserLoggedIn(account_id, user->username_hash(), false,
+                                 false);
   }
 
   void FastForwardAttempt() {

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,16 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "build/build_config.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_prefs.h"
 #include "components/prefs/pref_service.h"
-#include "components/sync/driver/sync_driver_switches.h"
+#include "components/sync/base/features.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_user_settings.h"
-#include "google_apis/gaia/google_service_auth_error.h"
 
 namespace browser_sync {
 
@@ -31,7 +30,8 @@ AutofillWalletModelTypeController::AutofillWalletModelTypeController(
       sync_service_(sync_service) {
   DCHECK(type == syncer::AUTOFILL_WALLET_DATA ||
          type == syncer::AUTOFILL_WALLET_METADATA ||
-         type == syncer::AUTOFILL_WALLET_OFFER);
+         type == syncer::AUTOFILL_WALLET_OFFER ||
+         type == syncer::AUTOFILL_WALLET_USAGE);
   SubscribeToPrefChanges();
   sync_service_->AddObserver(this);
 }
@@ -51,7 +51,8 @@ AutofillWalletModelTypeController::AutofillWalletModelTypeController(
       sync_service_(sync_service) {
   DCHECK(type == syncer::AUTOFILL_WALLET_DATA ||
          type == syncer::AUTOFILL_WALLET_METADATA ||
-         type == syncer::AUTOFILL_WALLET_OFFER);
+         type == syncer::AUTOFILL_WALLET_OFFER ||
+         type == syncer::AUTOFILL_WALLET_USAGE);
   SubscribeToPrefChanges();
   sync_service_->AddObserver(this);
 }
@@ -83,8 +84,7 @@ AutofillWalletModelTypeController::GetPreconditionState() const {
   bool preconditions_met =
       pref_service_->GetBoolean(
           autofill::prefs::kAutofillWalletImportEnabled) &&
-      pref_service_->GetBoolean(autofill::prefs::kAutofillCreditCardEnabled) &&
-      !sync_service_->GetAuthError().IsPersistentError();
+      pref_service_->GetBoolean(autofill::prefs::kAutofillCreditCardEnabled);
   return preconditions_met ? PreconditionState::kPreconditionsMet
                            : PreconditionState::kMustStopAndClearData;
 }
@@ -99,7 +99,7 @@ bool AutofillWalletModelTypeController::ShouldRunInTransportOnlyMode() const {
   }
   if (sync_service_->GetUserSettings()->IsUsingExplicitPassphrase() &&
       !base::FeatureList::IsEnabled(
-          switches::kSyncAllowWalletDataInTransportModeWithCustomPassphrase)) {
+          syncer::kSyncAllowWalletDataInTransportModeWithCustomPassphrase)) {
     return false;
   }
   return true;

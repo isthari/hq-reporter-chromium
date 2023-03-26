@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,6 +46,22 @@ MultiTabLoadingPageLoadMetricsObserver::OnStart(
       NumberOfTabsWithInflightLoad(navigation_handle);
   return num_loading_tabs_when_started_ > 0 ? CONTINUE_OBSERVING
                                             : STOP_OBSERVING;
+}
+
+page_load_metrics::PageLoadMetricsObserver::ObservePolicy
+MultiTabLoadingPageLoadMetricsObserver::OnFencedFramesStart(
+    content::NavigationHandle* navigation_handle,
+    const GURL& currently_committed_url) {
+  // This class doesn't use subframe information. No need to forward.
+  return STOP_OBSERVING;
+}
+
+page_load_metrics::PageLoadMetricsObserver::ObservePolicy
+MultiTabLoadingPageLoadMetricsObserver::OnPrerenderStart(
+    content::NavigationHandle* navigation_handle,
+    const GURL& currently_committed_url) {
+  // This class will be deprecated. No need to support.
+  return STOP_OBSERVING;
 }
 
 #define RECORD_HISTOGRAMS(suffix, sample)                                      \

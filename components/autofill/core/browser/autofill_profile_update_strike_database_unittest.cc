@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,13 +23,10 @@ class AutofillProfileUpdateStrikeDatabaseTest : public ::testing::Test {
 
   void SetUp() override {
     EXPECT_TRUE(temp_dir_.CreateUniqueTempDir());
-
     db_provider_ = std::make_unique<leveldb_proto::ProtoDatabaseProvider>(
         temp_dir_.GetPath());
-
     strike_database_service_ = std::make_unique<StrikeDatabase>(
         db_provider_.get(), temp_dir_.GetPath());
-
     strike_database_ = std::make_unique<AutofillProfileUpdateStrikeDatabase>(
         strike_database_service_.get());
   }
@@ -55,15 +52,15 @@ TEST_F(AutofillProfileUpdateStrikeDatabaseTest, AddAndRemoveStrikes) {
   std::string test_guid = "a21f010a-eac1-41fc-aee9-c06bbedfb292";
   strike_database_->AddStrike(test_guid);
   EXPECT_EQ(strike_database_->GetStrikes(test_guid), 1);
-  EXPECT_FALSE(strike_database_->IsMaxStrikesLimitReached(test_guid));
+  EXPECT_FALSE(strike_database_->ShouldBlockFeature(test_guid));
 
   strike_database_->AddStrikes(2, test_guid);
   EXPECT_EQ(strike_database_->GetStrikes(test_guid), 3);
-  EXPECT_TRUE(strike_database_->IsMaxStrikesLimitReached(test_guid));
+  EXPECT_TRUE(strike_database_->ShouldBlockFeature(test_guid));
 
   strike_database_->RemoveStrike(test_guid);
   EXPECT_EQ(strike_database_->GetStrikes(test_guid), 2);
-  EXPECT_FALSE(strike_database_->IsMaxStrikesLimitReached(test_guid));
+  EXPECT_FALSE(strike_database_->ShouldBlockFeature(test_guid));
 }
 
 }  // namespace

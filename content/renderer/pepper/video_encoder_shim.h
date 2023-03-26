@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,12 +12,9 @@
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
+#include "base/task/sequenced_task_runner.h"
 #include "media/base/bitrate.h"
 #include "media/video/video_encode_accelerator.h"
-
-namespace base {
-class SingleThreadTaskRunner;
-}
 
 namespace gfx {
 class Size;
@@ -43,8 +40,10 @@ class VideoEncoderShim : public media::VideoEncodeAccelerator {
   // media::VideoEncodeAccelerator implementation.
   media::VideoEncodeAccelerator::SupportedProfiles GetSupportedProfiles()
       override;
-  bool Initialize(const media::VideoEncodeAccelerator::Config& config,
-                  media::VideoEncodeAccelerator::Client* client) override;
+  bool Initialize(
+      const media::VideoEncodeAccelerator::Config& config,
+      media::VideoEncodeAccelerator::Client* client,
+      std::unique_ptr<media::MediaLog> media_log = nullptr) override;
   void Encode(scoped_refptr<media::VideoFrame> frame,
               bool force_keyframe) override;
   void UseOutputBitstreamBuffer(media::BitstreamBuffer buffer) override;
@@ -69,7 +68,7 @@ class VideoEncoderShim : public media::VideoEncodeAccelerator {
   PepperVideoEncoderHost* host_;
 
   // Task doing the encoding.
-  scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;
+  scoped_refptr<base::SequencedTaskRunner> media_task_runner_;
 
   base::WeakPtrFactory<VideoEncoderShim> weak_ptr_factory_{this};
 };

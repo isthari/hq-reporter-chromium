@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,11 @@ const char kAccountAppsAvailability[] =
 
 // Keys for `kAccountAppsAvailability`.
 const char kIsAvailableInArcKey[] = "is_available_in_arc";
+
+// Decides whether a Enterprise account can be added to a session as a Secondary
+// Account at OS level.
+const char kSecondaryGoogleAccountUsage[] =
+    "account_manager.secondary_google_account_usage";
 
 }  // namespace prefs
 }  // namespace account_manager

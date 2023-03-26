@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,11 @@
 
 #include <stdint.h>
 
+#include <type_traits>
 #include <utility>
 
 #include "base/compiler_specific.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/associated_interface_ptr_info.h"
 #include "mojo/public/cpp/bindings/lib/multiplex_router.h"
@@ -37,11 +39,6 @@ class PendingAssociatedRemote {
                           uint32_t version)
       : handle_(std::move(handle)), version_(version) {}
 
-  // Temporary helper for transitioning away from old types. Intentionally an
-  // implicit constructor.
-  PendingAssociatedRemote(AssociatedInterfacePtrInfo<Interface>&& ptr_info)
-      : PendingAssociatedRemote(ptr_info.PassHandle(), ptr_info.version()) {}
-
   // Disabled on NaCl since it crashes old version of clang.
 #if !BUILDFLAG(IS_NACL)
   // Move conversion operator for custom remote types. Only participates in
@@ -49,9 +46,9 @@ class PendingAssociatedRemote {
   template <typename T,
             std::enable_if_t<std::is_same<
                 PendingAssociatedRemote<Interface>,
-                std::result_of_t<decltype (&PendingAssociatedRemoteConverter<
-                                           T>::template To<Interface>)(T&&)>>::
-                                 value>* = nullptr>
+                std::invoke_result_t<decltype(&PendingAssociatedRemoteConverter<
+                                              T>::template To<Interface>),
+                                     T&&>>::value>* = nullptr>
   PendingAssociatedRemote(T&& other)
       : PendingAssociatedRemote(
             PendingAssociatedRemoteConverter<T>::template To<Interface>(
@@ -73,12 +70,6 @@ class PendingAssociatedRemote {
   explicit operator bool() const { return is_valid(); }
 
   void reset() { handle_.reset(); }
-
-  // Temporary helper for transitioning away from old bindings types. This is
-  // intentionally an implicit conversion.
-  operator AssociatedInterfacePtrInfo<Interface>() {
-    return AssociatedInterfacePtrInfo<Interface>(PassHandle(), version());
-  }
 
   ScopedInterfaceEndpointHandle PassHandle() { return std::move(handle_); }
   const ScopedInterfaceEndpointHandle& handle() const { return handle_; }
@@ -107,11 +98,11 @@ class PendingAssociatedRemote {
     scoped_refptr<internal::MultiplexRouter> router0 =
         internal::MultiplexRouter::CreateAndStartReceiving(
             std::move(pipe.handle0), internal::MultiplexRouter::MULTI_INTERFACE,
-            false, base::SequencedTaskRunnerHandle::Get());
+            false, base::SequencedTaskRunner::GetCurrentDefault());
     scoped_refptr<internal::MultiplexRouter> router1 =
         internal::MultiplexRouter::CreateAndStartReceiving(
             std::move(pipe.handle1), internal::MultiplexRouter::MULTI_INTERFACE,
-            true, base::SequencedTaskRunnerHandle::Get());
+            true, base::SequencedTaskRunner::GetCurrentDefault());
 
     InterfaceId id = router1->AssociateInterface(PassHandle());
     set_handle(router0->CreateLocalEndpointHandle(id));

@@ -1,34 +1,36 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/list_model/list_model.h"
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/mac/foundation_util.h"
-#include "base/strings/string_piece.h"
+#import "base/functional/bind.h"
+#import "base/functional/callback.h"
+#import "base/mac/foundation_util.h"
+#import "base/strings/string_piece.h"
 #import "ios/chrome/browser/ui/list_model/list_item.h"
-#include "testing/gtest/include/gtest/gtest.h"
-#include "testing/gtest_mac.h"
-#include "testing/platform_test.h"
+#import "testing/gtest/include/gtest/gtest.h"
+#import "testing/gtest_mac.h"
+#import "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-@interface ListModel (Testing)
+// Category adding convenience method to add ListItem* to the ListModel* with a
+// specific type. This helps keep the test methods short and to the point.
+@interface ListModel (ListModelTest)
 // Adds an item with the given type to the section with the given identifier.
 // It is possible to add multiple items with the same type to the same section.
 // Sharing types across sections is undefined behavior.
-- (void)addItemWithType:(NSInteger)itemType
-    toSectionWithIdentifier:(NSInteger)sectionIdentifier;
+- (void)crTest_addItemWithType:(NSInteger)itemType
+       toSectionWithIdentifier:(NSInteger)sectionIdentifier;
 @end
 
-@implementation ListModel (Testing)
+@implementation ListModel (ListModelTest)
 
-- (void)addItemWithType:(NSInteger)itemType
-    toSectionWithIdentifier:(NSInteger)sectionIdentifier {
+- (void)crTest_addItemWithType:(NSInteger)itemType
+       toSectionWithIdentifier:(NSInteger)sectionIdentifier {
   ListItem* item = [[ListItem alloc] initWithType:itemType];
   [self addItem:item toSectionWithIdentifier:sectionIdentifier];
 }
@@ -72,7 +74,7 @@ TEST_F(ListModelTest, GenericModelBoxing) {
   ListModel<TestListItemSubclass*, ListItem*>* specificModel =
       [[ListModel alloc] init];
 
-  // |generalModel| is a superclass of |specificModel|. So specificModel can be
+  // `generalModel` is a superclass of `specificModel`. So specificModel can be
   // boxed into generalModel, but not the other way around.
   // specificModel = generalModel would not compile.
   [[maybe_unused]] ListModel<ListItem*, ListItem*>* generalModel =
@@ -95,12 +97,12 @@ TEST_F(ListModelTest, SingleSection) {
   ListModel* model = [[ListModel alloc] init];
 
   [model addSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseCheddar
-      toSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseGouda
-      toSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheesePepperJack
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseCheddar
+        toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseGouda
+        toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheesePepperJack
+        toSectionWithIdentifier:SectionIdentifierCheese];
 
   // Check there are some items but not more.
   EXPECT_EQ(NO, [model hasItemAtIndexPath:nil]);
@@ -118,7 +120,8 @@ TEST_F(ListModelTest, SingleSection) {
   EXPECT_EQ(3, [model numberOfItemsInSection:0]);
 
   // Check the section identifier <-> section correspondance methods.
-  EXPECT_EQ(SectionIdentifierCheese, [model sectionIdentifierForSection:0]);
+  EXPECT_EQ(SectionIdentifierCheese,
+            [model sectionIdentifierForSectionIndex:0]);
   EXPECT_EQ(0, [model sectionForSectionIdentifier:SectionIdentifierCheese]);
 
   // Check the item type <-> item correspondance methods.
@@ -137,11 +140,11 @@ TEST_F(ListModelTest, SingleSectionWithMissingItems) {
   ListModel* model = [[ListModel alloc] init];
 
   [model addSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseCheddar
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseCheddar
+        toSectionWithIdentifier:SectionIdentifierCheese];
   // "Gouda" is intentionally omitted.
-  [model addItemWithType:ItemTypeCheesePepperJack
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheesePepperJack
+        toSectionWithIdentifier:SectionIdentifierCheese];
 
   // Check the item type <-> item correspondance methods.
   EXPECT_EQ(ItemTypeCheeseCheddar,
@@ -157,24 +160,26 @@ TEST_F(ListModelTest, MultipleSections) {
 
   [model addSectionWithIdentifier:SectionIdentifierCheese];
   // "Cheddar" and "Gouda" are intentionally omitted.
-  [model addItemWithType:ItemTypeCheesePepperJack
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheesePepperJack
+        toSectionWithIdentifier:SectionIdentifierCheese];
 
   [model addSectionWithIdentifier:SectionIdentifierWeasley];
   // "Ron" is intentionally omitted.
-  [model addItemWithType:ItemTypeWeasleyGinny
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyGinny
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
 
   // Check the collection view data sourcing methods.
   EXPECT_EQ(2, [model numberOfSections]);
   EXPECT_EQ(2, [model numberOfItemsInSection:1]);
 
   // Check the section identifier <-> section correspondance methods.
-  EXPECT_EQ(SectionIdentifierCheese, [model sectionIdentifierForSection:0]);
+  EXPECT_EQ(SectionIdentifierCheese,
+            [model sectionIdentifierForSectionIndex:0]);
   EXPECT_EQ(0, [model sectionForSectionIdentifier:SectionIdentifierCheese]);
-  EXPECT_EQ(SectionIdentifierWeasley, [model sectionIdentifierForSection:1]);
+  EXPECT_EQ(SectionIdentifierWeasley,
+            [model sectionIdentifierForSectionIndex:1]);
   EXPECT_EQ(1, [model sectionForSectionIdentifier:SectionIdentifierWeasley]);
 
   // Check the item type <-> item correspondance methods.
@@ -193,13 +198,13 @@ TEST_F(ListModelTest, GetIndexPathFromModelCoordinates) {
   ListModel* model = [[ListModel alloc] init];
 
   [model addSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheesePepperJack
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheesePepperJack
+        toSectionWithIdentifier:SectionIdentifierCheese];
   [model addSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyGinny
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyGinny
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
 
   // Check the index path retrieval method for a single item.
   NSIndexPath* indexPath =
@@ -220,17 +225,17 @@ TEST_F(ListModelTest, RepeatedItems) {
   ListModel* model = [[ListModel alloc] init];
 
   [model addSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheesePepperJack
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheesePepperJack
+        toSectionWithIdentifier:SectionIdentifierCheese];
   [model addSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyGinny
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyGinny
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
 
   NSIndexPath* indexPath =
       [model indexPathForItemType:ItemTypeWeasleyArthur
@@ -253,21 +258,21 @@ TEST_F(ListModelTest, RepeatedItemIndex) {
   ListModel* model = [[ListModel alloc] init];
 
   [model addSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheesePepperJack
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheesePepperJack
+        toSectionWithIdentifier:SectionIdentifierCheese];
   [model addSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyGinny
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyGinny
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyGinny
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyGinny
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
 
   // Check the index path <-> index in item type correspondance method.
   EXPECT_EQ(
@@ -337,22 +342,22 @@ TEST_F(ListModelTest, RemoveItems) {
   ListModel* model = [[ListModel alloc] init];
 
   [model addSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheesePepperJack
-      toSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseGouda
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheesePepperJack
+        toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseGouda
+        toSectionWithIdentifier:SectionIdentifierCheese];
 
   [model addSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyGinny
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyRon
-      toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyGinny
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyRon
+        toSectionWithIdentifier:SectionIdentifierWeasley];
 
   [model removeItemWithType:ItemTypeCheesePepperJack
       fromSectionWithIdentifier:SectionIdentifierCheese];
@@ -389,16 +394,16 @@ TEST_F(ListModelTest, RemoveAllItems) {
   ListModel* model = [[ListModel alloc] init];
 
   [model addSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheesePepperJack
-      toSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseGouda
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheesePepperJack
+        toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseGouda
+        toSectionWithIdentifier:SectionIdentifierCheese];
 
   [model addSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyGinny
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyGinny
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
 
   [model deleteAllItemsFromSectionWithIdentifier:SectionIdentifierCheese];
 
@@ -416,8 +421,8 @@ TEST_F(ListModelTest, RemoveAllItems) {
   EXPECT_EQ(1, indexPath.section);
   EXPECT_EQ(0, indexPath.item);
 
-  [model addItemWithType:ItemTypeCheeseGouda
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseGouda
+        toSectionWithIdentifier:SectionIdentifierCheese];
 
   // Check we could still add to the section.
   EXPECT_EQ(1, [model numberOfItemsInSection:0]);
@@ -430,10 +435,10 @@ TEST_F(ListModelTest, RemoveAllItemsFromAnEmptySection) {
   [model addSectionWithIdentifier:SectionIdentifierCheese];
 
   [model addSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyGinny
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyGinny
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
 
   // Check we have no more items in first section.
   EXPECT_EQ(0, [model numberOfItemsInSection:0]);
@@ -457,10 +462,10 @@ TEST_F(ListModelTest, RemoveSections) {
 
   // Section with items.
   [model addSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheesePepperJack
-      toSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseGouda
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheesePepperJack
+        toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseGouda
+        toSectionWithIdentifier:SectionIdentifierCheese];
 
   // Check the collection view data sourcing methods.
   EXPECT_EQ(2, [model numberOfSections]);
@@ -493,12 +498,12 @@ TEST_F(ListModelTest, QueryItemsFromModelCoordinates) {
 
   // Section with items.
   [model addSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheesePepperJack
-      toSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseGouda
-      toSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseGouda
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheesePepperJack
+        toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseGouda
+        toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseGouda
+        toSectionWithIdentifier:SectionIdentifierCheese];
 
   EXPECT_TRUE([model hasSectionForSectionIdentifier:SectionIdentifierCheese]);
   EXPECT_FALSE([model hasItemForItemType:ItemTypeCheeseCheddar
@@ -535,10 +540,10 @@ TEST_F(ListModelTest, InsertItemAtIndex) {
   ListModel* model = [[ListModel alloc] init];
 
   [model addSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheesePepperJack
-      toSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseGouda
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheesePepperJack
+        toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseGouda
+        toSectionWithIdentifier:SectionIdentifierCheese];
   ListItem* cheddarItem = [[ListItem alloc] initWithType:ItemTypeCheeseCheddar];
   [model insertItem:cheddarItem
       inSectionWithIdentifier:SectionIdentifierCheese
@@ -570,22 +575,22 @@ TEST_F(ListModelTest, IndexPathForItem) {
   ListModel* model = [[ListModel alloc] init];
 
   [model addSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyGinny
-      toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyGinny
+        toSectionWithIdentifier:SectionIdentifierWeasley];
   // Added at index 1.
   ListItem* item1 = [[ListItem alloc] initWithType:ItemTypeWeasleyRon];
   [model addItem:item1 toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyGinny
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyGinny
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
   // Repeated item added at index 4.
   ListItem* item4 = [[ListItem alloc] initWithType:ItemTypeWeasleyArthur];
   [model addItem:item4 toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
   // Item not added.
   ListItem* notAddedItem = [[ListItem alloc] initWithType:ItemTypeCheeseGouda];
 
@@ -608,31 +613,31 @@ TEST_F(ListModelTest, IndexPathsForItemTypeSectionIdentifier) {
 
   // 1st section: Cheddar, Cheddar, Ron, Cheddar, Ron.
   [model addSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseCheddar
-      toSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseCheddar
-      toSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeWeasleyRon
-      toSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseCheddar
-      toSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeWeasleyRon
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseCheddar
+        toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseCheddar
+        toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeWeasleyRon
+        toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseCheddar
+        toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeWeasleyRon
+        toSectionWithIdentifier:SectionIdentifierCheese];
 
   // 2nd section: Ron, Cheddar, Ron, Ron, Cheddar, Cheddar.
   [model addSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyRon
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeCheeseCheddar
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyRon
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyRon
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeCheeseCheddar
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeCheeseCheddar
-      toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyRon
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeCheeseCheddar
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyRon
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyRon
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeCheeseCheddar
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeCheeseCheddar
+        toSectionWithIdentifier:SectionIdentifierWeasley];
 
   NSArray<NSIndexPath*>* indexPaths =
       [model indexPathsForItemType:ItemTypeCheeseCheddar
@@ -668,15 +673,15 @@ TEST_F(ListModelTest, Headers) {
   ListItem* cheeseHeader = [[ListItem alloc] initWithType:ItemTypeCheeseHeader];
   [model setHeader:cheeseHeader
       forSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseGouda
-      toSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseCheddar
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseGouda
+        toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseCheddar
+        toSectionWithIdentifier:SectionIdentifierCheese];
   [model addSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyRon
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyGinny
-      toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyRon
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyGinny
+        toSectionWithIdentifier:SectionIdentifierWeasley];
 
   NSInteger cheeseSection =
       [model sectionForSectionIdentifier:SectionIdentifierCheese];
@@ -685,25 +690,25 @@ TEST_F(ListModelTest, Headers) {
 
   EXPECT_EQ(cheeseHeader,
             [model headerForSectionWithIdentifier:SectionIdentifierCheese]);
-  EXPECT_EQ(cheeseHeader, [model headerForSection:cheeseSection]);
+  EXPECT_EQ(cheeseHeader, [model headerForSectionIndex:cheeseSection]);
 
   EXPECT_FALSE([model headerForSectionWithIdentifier:SectionIdentifierWeasley]);
-  EXPECT_FALSE([model headerForSection:weasleySection]);
+  EXPECT_FALSE([model headerForSectionIndex:weasleySection]);
 }
 
 TEST_F(ListModelTest, Footers) {
   ListModel* model = [[ListModel alloc] init];
 
   [model addSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseGouda
-      toSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseCheddar
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseGouda
+        toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseCheddar
+        toSectionWithIdentifier:SectionIdentifierCheese];
   [model addSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyRon
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyGinny
-      toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyRon
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyGinny
+        toSectionWithIdentifier:SectionIdentifierWeasley];
   ListItem* weasleyFooter =
       [[ListItem alloc] initWithType:ItemTypeWeasleyFooter];
   [model setFooter:weasleyFooter
@@ -715,11 +720,11 @@ TEST_F(ListModelTest, Footers) {
       [model sectionForSectionIdentifier:SectionIdentifierWeasley];
 
   EXPECT_FALSE([model footerForSectionWithIdentifier:SectionIdentifierCheese]);
-  EXPECT_FALSE([model footerForSection:cheeseSection]);
+  EXPECT_FALSE([model footerForSectionIndex:cheeseSection]);
 
   EXPECT_EQ(weasleyFooter,
             [model footerForSectionWithIdentifier:SectionIdentifierWeasley]);
-  EXPECT_EQ(weasleyFooter, [model footerForSection:weasleySection]);
+  EXPECT_EQ(weasleyFooter, [model footerForSectionIndex:weasleySection]);
 }
 
 // Tests -[ListModel indexPathForItemType:].
@@ -727,20 +732,20 @@ TEST_F(ListModelTest, GetItemByItemType) {
   ListModel* model = [[ListModel alloc] init];
 
   [model addSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheesePepperJack
-      toSectionWithIdentifier:SectionIdentifierCheese];
-  [model addItemWithType:ItemTypeCheeseCheddar
-      toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheesePepperJack
+        toSectionWithIdentifier:SectionIdentifierCheese];
+  [model crTest_addItemWithType:ItemTypeCheeseCheddar
+        toSectionWithIdentifier:SectionIdentifierCheese];
 
   [model addSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyRon
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyGinny
-      toSectionWithIdentifier:SectionIdentifierWeasley];
-  [model addItemWithType:ItemTypeWeasleyArthur
-      toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyRon
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyGinny
+        toSectionWithIdentifier:SectionIdentifierWeasley];
+  [model crTest_addItemWithType:ItemTypeWeasleyArthur
+        toSectionWithIdentifier:SectionIdentifierWeasley];
 
   // Check that gouda cannot be found.
   EXPECT_EQ(nil, [model indexPathForItemType:ItemTypeCheeseGouda]);

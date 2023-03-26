@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,10 @@
 #include "base/files/file_path.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/types/expected.h"
+#include "base/values.h"
 #include "components/component_updater/component_installer.h"
 #include "components/crx_file/crx_verifier.h"
 #include "components/update_client/component_unpacker.h"
@@ -109,13 +111,17 @@ class RecoveryComponentActionHandler : public update_client::ActionHandler {
   void Unpack();
   void UnpackComplete(const update_client::ComponentUnpacker::Result& result);
   void RunCommand(const base::CommandLine& cmdline);
-  void WaitForCommand(base::Process process);
+
+  // `process` contains the process object, if the process was successfully
+  // created or an error value otherwise (if the error is available on that
+  // platform).
+  void WaitForCommand(base::expected<base::Process, int> process_or_error);
 
   SEQUENCE_CHECKER(sequence_checker_);
 
   // Executes tasks in the context of the sequence which created this object.
   scoped_refptr<base::SequencedTaskRunner> main_task_runner_ =
-      base::SequencedTaskRunnerHandle::Get();
+      base::SequencedTaskRunner::GetCurrentDefault();
 
   // The key hash and its proof for the inner CRX to be unpacked and run.
   const std::vector<uint8_t> key_hash_;
@@ -154,14 +160,14 @@ class RecoveryImprovedInstallerPolicy : public ComponentInstallerPolicy {
   bool SupportsGroupPolicyEnabledComponentUpdates() const override;
   bool RequiresNetworkEncryption() const override;
   update_client::CrxInstaller::Result OnCustomInstall(
-      const base::Value& manifest,
+      const base::Value::Dict& manifest,
       const base::FilePath& install_dir) override;
   void OnCustomUninstall() override;
-  bool VerifyInstallation(const base::Value& manifest,
+  bool VerifyInstallation(const base::Value::Dict& manifest,
                           const base::FilePath& install_dir) const override;
   void ComponentReady(const base::Version& version,
                       const base::FilePath& install_dir,
-                      base::Value manifest) override;
+                      base::Value::Dict manifest) override;
   base::FilePath GetRelativeInstallDir() const override;
   void GetHash(std::vector<uint8_t>* hash) const override;
   std::string GetName() const override;

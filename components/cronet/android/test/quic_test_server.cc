@@ -1,13 +1,13 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/android/path_utils.h"
-#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/test/test_support_android.h"
 #include "base/threading/thread.h"
@@ -17,7 +17,7 @@
 #include "net/base/ip_endpoint.h"
 #include "net/quic/crypto/proof_source_chromium.h"
 #include "net/test/test_data_directory.h"
-#include "net/third_party/quiche/src/quic/tools/quic_memory_cache_backend.h"
+#include "net/third_party/quiche/src/quiche/quic/tools/quic_memory_cache_backend.h"
 #include "net/tools/quic/quic_simple_server.h"
 
 using base::android::JavaParamRef;

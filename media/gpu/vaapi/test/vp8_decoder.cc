@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <va/va.h>
 #include <memory>
 
+#include "base/cxx17_backports.h"
 #include "media/filters/ivf_parser.h"
 #include "media/gpu/vaapi/test/macros.h"
 #include "media/parsers/vp8_parser.h"
@@ -30,13 +31,14 @@ void CheckedMemcpy(To& to, From& from) {
 Vp8Decoder::Vp8Decoder(std::unique_ptr<IvfParser> ivf_parser,
                        const VaapiDevice& va_device,
                        SharedVASurface::FetchPolicy fetch_policy)
-    : VideoDecoder(std::move(ivf_parser), va_device, fetch_policy),
+    : VideoDecoder(va_device, fetch_policy),
       va_config_(
-          std::make_unique<ScopedVAConfig>(va_device_,
+          std::make_unique<ScopedVAConfig>(*va_device_,
                                            VAProfile::VAProfileVP8Version0_3,
                                            VA_RT_FORMAT_YUV420)),
       vp8_parser_(std::make_unique<Vp8Parser>()),
-      ref_frames_(kNumVp8ReferenceBuffers) {
+      ref_frames_(kNumVp8ReferenceBuffers),
+      ivf_parser_(std::move(ivf_parser)) {
   std::fill(ref_frames_.begin(), ref_frames_.end(), nullptr);
 }
 
@@ -75,12 +77,11 @@ void Vp8Decoder::FillVp8DataStructures(const Vp8FrameHeader& frame_hdr,
                                        VASliceParameterBufferVP8& slice_param) {
   const Vp8SegmentationHeader& sgmnt_hdr = frame_hdr.segmentation_hdr;
   const Vp8QuantizationHeader& quant_hdr = frame_hdr.quantization_hdr;
-  static_assert(base::size(decltype(iq_matrix_buf.quantization_index){}) ==
-                    kMaxMBSegments,
-                "incorrect quantization matrix segment size");
   static_assert(
-      base::size(decltype(iq_matrix_buf.quantization_index){}[0]) == 6,
-      "incorrect quantization matrix Q index size");
+      std::size(decltype(iq_matrix_buf.quantization_index){}) == kMaxMBSegments,
+      "incorrect quantization matrix segment size");
+  static_assert(std::size(decltype(iq_matrix_buf.quantization_index){}[0]) == 6,
+                "incorrect quantization matrix Q index size");
   for (size_t i = 0; i < kMaxMBSegments; ++i) {
     int q = quant_hdr.y_ac_qi;
 
@@ -142,7 +143,7 @@ void Vp8Decoder::FillVp8DataStructures(const Vp8FrameHeader& frame_hdr,
   static_assert(std::extent<decltype(sgmnt_hdr.lf_update_value)>() ==
                     std::extent<decltype(pic_param.loop_filter_level)>(),
                 "loop filter level arrays mismatch");
-  for (size_t i = 0; i < base::size(sgmnt_hdr.lf_update_value); ++i) {
+  for (size_t i = 0; i < std::size(sgmnt_hdr.lf_update_value); ++i) {
     int lf_level = lf_hdr.level;
     if (sgmnt_hdr.segmentation_enabled) {
       if (sgmnt_hdr.segment_feature_mode ==
@@ -166,7 +167,7 @@ void Vp8Decoder::FillVp8DataStructures(const Vp8FrameHeader& frame_hdr,
   static_assert(std::extent<decltype(lf_hdr.ref_frame_delta)>() ==
                     std::extent<decltype(lf_hdr.mb_mode_delta)>(),
                 "loop filter deltas arrays size mismatch");
-  for (size_t i = 0; i < base::size(lf_hdr.ref_frame_delta); ++i) {
+  for (size_t i = 0; i < std::size(lf_hdr.ref_frame_delta); ++i) {
     pic_param.loop_filter_deltas_ref_frame[i] = lf_hdr.ref_frame_delta[i];
     pic_param.loop_filter_deltas_mode[i] = lf_hdr.mb_mode_delta[i];
   }
@@ -268,7 +269,7 @@ VideoDecoder::Result Vp8Decoder::DecodeNextFrame() {
 
     if (!va_context_ || new_size != va_context_->size()) {
       va_context_ =
-          std::make_unique<ScopedVAContext>(va_device_, *va_config_, new_size);
+          std::make_unique<ScopedVAContext>(*va_device_, *va_config_, new_size);
     }
   } else {
     frame_hdr.height = va_context_->size().height();
@@ -287,7 +288,7 @@ VideoDecoder::Result Vp8Decoder::DecodeNextFrame() {
   attribute.value.type = VAGenericValueTypeInteger;
   attribute.value.value.i = VA_SURFACE_ATTRIB_USAGE_HINT_DECODER;
   scoped_refptr<SharedVASurface> surface = SharedVASurface::Create(
-      va_device_, va_config_->va_rt_format(), va_context_->size(), attribute);
+      *va_device_, va_config_->va_rt_format(), va_context_->size(), attribute);
 
   // Create the VP8 data structures.
   VAIQMatrixBufferVP8 iq_matrix_buf{};
@@ -301,78 +302,79 @@ VideoDecoder::Result Vp8Decoder::DecodeNextFrame() {
   std::vector<VABufferID> buffers;
 
   VABufferID iq_matrix_id;
-  VAStatus res = vaCreateBuffer(va_device_.display(), va_context_->id(),
+  VAStatus res = vaCreateBuffer(va_device_->display(), va_context_->id(),
                                 VAIQMatrixBufferType, sizeof(iq_matrix_buf), 1u,
                                 nullptr, &iq_matrix_id);
   VA_LOG_ASSERT(res, "vaCreateBuffer");
   void* iq_matrix_data;
-  res = vaMapBuffer(va_device_.display(), iq_matrix_id, &iq_matrix_data);
+  res = vaMapBuffer(va_device_->display(), iq_matrix_id, &iq_matrix_data);
   VA_LOG_ASSERT(res, "vaMapBuffer");
   memcpy(iq_matrix_data, &iq_matrix_buf, sizeof(iq_matrix_buf));
   buffers.push_back(iq_matrix_id);
 
   VABufferID prob_buffer_id;
-  res = vaCreateBuffer(va_device_.display(), va_context_->id(),
+  res = vaCreateBuffer(va_device_->display(), va_context_->id(),
                        VAProbabilityBufferType, sizeof(prob_buf), 1u, nullptr,
                        &prob_buffer_id);
   VA_LOG_ASSERT(res, "vaCreateBuffer");
   void* prob_buffer_data;
-  res = vaMapBuffer(va_device_.display(), prob_buffer_id, &prob_buffer_data);
+  res = vaMapBuffer(va_device_->display(), prob_buffer_id, &prob_buffer_data);
   VA_LOG_ASSERT(res, "vaMapBuffer");
   memcpy(prob_buffer_data, &prob_buf, sizeof(prob_buf));
   buffers.push_back(prob_buffer_id);
 
   VABufferID picture_params_id;
-  res = vaCreateBuffer(va_device_.display(), va_context_->id(),
+  res = vaCreateBuffer(va_device_->display(), va_context_->id(),
                        VAPictureParameterBufferType, sizeof(pic_param), 1u,
                        nullptr, &picture_params_id);
   VA_LOG_ASSERT(res, "vaCreateBuffer");
   void* picture_params_data;
-  res = vaMapBuffer(va_device_.display(), picture_params_id,
+  res = vaMapBuffer(va_device_->display(), picture_params_id,
                     &picture_params_data);
   VA_LOG_ASSERT(res, "vaMapBuffer");
   memcpy(picture_params_data, &pic_param, sizeof(pic_param));
   buffers.push_back(picture_params_id);
 
   VABufferID slice_params_id;
-  res = vaCreateBuffer(va_device_.display(), va_context_->id(),
+  res = vaCreateBuffer(va_device_->display(), va_context_->id(),
                        VASliceParameterBufferType, sizeof(slice_param), 1u,
                        nullptr, &slice_params_id);
   VA_LOG_ASSERT(res, "vaCreateBuffer");
   void* slice_params_data;
-  res = vaMapBuffer(va_device_.display(), slice_params_id, &slice_params_data);
+  res = vaMapBuffer(va_device_->display(), slice_params_id, &slice_params_data);
   VA_LOG_ASSERT(res, "vaMapBuffer");
   memcpy(slice_params_data, &slice_param, sizeof(pic_param));
   buffers.push_back(slice_params_id);
 
   VABufferID encoded_data_id;
-  res = vaCreateBuffer(va_device_.display(), va_context_->id(),
+  res = vaCreateBuffer(va_device_->display(), va_context_->id(),
                        VASliceDataBufferType, frame_hdr.frame_size, 1u, nullptr,
                        &encoded_data_id);
   VA_LOG_ASSERT(res, "vaCreateBuffer");
   void* encoded_data;
-  res = vaMapBuffer(va_device_.display(), encoded_data_id, &encoded_data);
+  res = vaMapBuffer(va_device_->display(), encoded_data_id, &encoded_data);
   VA_LOG_ASSERT(res, "vaMapBuffer");
   memcpy(encoded_data, frame_hdr.data, frame_hdr.frame_size);
   buffers.push_back(encoded_data_id);
 
   // Time to render!
-  res = vaBeginPicture(va_device_.display(), va_context_->id(), surface->id());
+  res = vaBeginPicture(va_device_->display(), va_context_->id(), surface->id());
   VA_LOG_ASSERT(res, "vaBeginPicture");
-  res = vaRenderPicture(va_device_.display(), va_context_->id(), buffers.data(),
-                        base::checked_cast<int>(buffers.size()));
+  res =
+      vaRenderPicture(va_device_->display(), va_context_->id(), buffers.data(),
+                      base::checked_cast<int>(buffers.size()));
   VA_LOG_ASSERT(res, "vaRenderPicture");
-  res = vaEndPicture(va_device_.display(), va_context_->id());
+  res = vaEndPicture(va_device_->display(), va_context_->id());
   VA_LOG_ASSERT(res, "vaEndPicture");
 
   RefreshReferenceSlots(frame_hdr, surface);
   last_decoded_surface_ = surface;
 
   for (const auto buffer_id : buffers) {
-    res = vaUnmapBuffer(va_device_.display(), buffer_id);
+    res = vaUnmapBuffer(va_device_->display(), buffer_id);
     VA_LOG_ASSERT(res, "vaUnmapBuffer");
 
-    res = vaDestroyBuffer(va_device_.display(), buffer_id);
+    res = vaDestroyBuffer(va_device_->display(), buffer_id);
     VA_LOG_ASSERT(res, "vaDestroyBuffer");
   }
 

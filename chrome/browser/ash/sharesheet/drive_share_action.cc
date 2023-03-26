@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/sharesheet/sharesheet_controller.h"
 #include "chrome/browser/sharesheet/sharesheet_types.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
+#include "chromeos/components/sharesheet/constants.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/chromeos/strings/grit/ui_chromeos_strings.h"
 #include "url/gurl.h"
@@ -35,14 +35,16 @@ const gfx::VectorIcon& DriveShareAction::GetActionIcon() {
 void DriveShareAction::LaunchAction(
     ::sharesheet::SharesheetController* controller,
     views::View* root_view,
-    apps::mojom::IntentPtr intent) {
+    apps::IntentPtr intent) {
   controller_ = controller;
   DCHECK(intent->drive_share_url.has_value());
   if (!ash::NewWindowDelegate::GetPrimary()) {
     return;
   }
-  ash::NewWindowDelegate::GetPrimary()->OpenUrl(intent->drive_share_url.value(),
-                                                /*from_user_interaction=*/true);
+  ash::NewWindowDelegate::GetPrimary()->OpenUrl(
+      intent->drive_share_url.value(),
+      ash::NewWindowDelegate::OpenUrlFrom::kUserInteraction,
+      NewWindowDelegate::Disposition::kNewForegroundTab);
   controller_->CloseBubble(::sharesheet::SharesheetResult::kSuccess);
 }
 
@@ -51,7 +53,7 @@ void DriveShareAction::OnClosing(
   controller_ = nullptr;
 }
 
-bool DriveShareAction::ShouldShowAction(const apps::mojom::IntentPtr& intent,
+bool DriveShareAction::ShouldShowAction(const apps::IntentPtr& intent,
                                         bool contains_hosted_document) {
   return intent->drive_share_url.has_value() &&
          !intent->drive_share_url->is_empty();

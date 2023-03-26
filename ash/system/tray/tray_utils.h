@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <cstdint>
 
+#include "ash/system/tray/tray_popup_ink_drop_style.h"
 #include "components/session_manager/session_manager_types.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -36,8 +37,8 @@ void SetupConnectedScrollListItem(HoverHighlightView* view,
 // accessibility label.
 void SetupConnectingScrollListItem(HoverHighlightView* view);
 
-// Gets the current tray icon color for the given session state.
-SkColor TrayIconColor(session_manager::SessionState session_state);
+// Add `subtext` with warning color to `view`.
+void SetWarningSubText(HoverHighlightView* view, std::u16string subtext);
 
 // Returns the insets above the shelf for positioning the quick settings bubble.
 gfx::Insets GetTrayBubbleInsets();
@@ -49,6 +50,13 @@ int GetBubbleInsetHotseatCompensation();
 // Returns the separation above the shelf for positioning secondary tray
 // bubbles. (Palette Tray, IME Tray).
 gfx::Insets GetSecondaryBubbleInsets();
+
+// Gets the InkDrop insets based on `ink_drop_style`.
+gfx::Insets GetInkDropInsets(TrayPopupInkDropStyle ink_drop_style);
+
+// Gets the maximum height possible for a tray bubble based on the available
+// screen space.
+int CalculateMaxTrayBubbleHeight();
 
 }  // namespace ash
 

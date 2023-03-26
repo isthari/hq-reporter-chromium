@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,9 +35,9 @@ bool CdmContext::RequiresMediaFoundationRenderer() {
   return false;
 }
 
-bool CdmContext::GetMediaFoundationCdmProxy(
-    GetMediaFoundationCdmProxyCB get_mf_cdm_proxy_cb) {
-  return false;
+scoped_refptr<MediaFoundationCdmProxy>
+CdmContext::GetMediaFoundationCdmProxy() {
+  return nullptr;
 }
 #endif
 

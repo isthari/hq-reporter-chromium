@@ -1,4 +1,4 @@
-// Copyright 2014 The Crashpad Authors. All rights reserved.
+// Copyright 2014 The Crashpad Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,8 +21,8 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <iterator>
 
-#include "base/cxx17_backports.h"
 #include "base/files/scoped_file.h"
 #include "base/logging.h"
 #include "base/posix/eintr_wrapper.h"
@@ -161,7 +161,7 @@ void CloseMultipleNowOrOnExec(int fd, int preserve_fd) {
   int maxfilesperproc;
   size_t maxfilesperproc_size = sizeof(maxfilesperproc);
   if (sysctl(oid,
-             base::size(oid),
+             std::size(oid),
              &maxfilesperproc,
              &maxfilesperproc_size,
              nullptr,

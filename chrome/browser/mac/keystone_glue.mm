@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,11 @@
 #include <sys/param.h>
 #include <sys/stat.h>
 
+#include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/file_version_info.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/mac/authorization_util.h"
@@ -22,7 +23,6 @@
 #include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/version.h"
 #include "build/branding_buildflags.h"
@@ -902,22 +902,19 @@ NSString* const kVersionKey = @"KSVersion";
   NSString* prompt = l10n_util::GetNSStringFWithFixup(
       IDS_PROMOTE_AUTHENTICATION_PROMPT,
       l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
-  base::mac::ScopedAuthorizationRef authorization(
-      base::mac::AuthorizationCreateToRunAsRoot(
-          base::mac::NSToCFCast(prompt)));
+  base::mac::ScopedAuthorizationRef authorization =
+      base::mac::AuthorizationCreateToRunAsRoot(base::mac::NSToCFCast(prompt));
   if (!authorization.get()) {
     return;
   }
 
-  [self promoteTicketWithAuthorization:authorization.release() synchronous:NO];
+  [self promoteTicketWithAuthorization:std::move(authorization) synchronous:NO];
 }
 
-- (void)promoteTicketWithAuthorization:(AuthorizationRef)anAuthorization
+- (void)promoteTicketWithAuthorization:
+            (base::mac::ScopedAuthorizationRef)authorization
                            synchronous:(BOOL)synchronous {
   DCHECK(_registration);
-
-  base::mac::ScopedAuthorizationRef authorization(anAuthorization);
-  anAuthorization = nullptr;
 
   if ([self asyncOperationPending]) {
     // Starting a synchronous operation while an asynchronous one is pending
@@ -972,12 +969,8 @@ NSString* const kVersionKey = @"KSVersion";
 
   int exit_status;
   OSStatus status = base::mac::ExecuteWithPrivilegesAndWait(
-      authorization,
-      preflightPathC,
-      kAuthorizationFlagDefaults,
-      arguments,
-      NULL,  // pipe
-      &exit_status);
+      authorization, preflightPathC, kAuthorizationFlagDefaults, arguments,
+      /*pipe=*/nullptr, &exit_status);
   if (status != errAuthorizationSuccess) {
     // It's possible to get an OS-provided error string for this return code
     // using base::mac::DescriptionFromOSStatus, but most of those strings are
@@ -1002,7 +995,7 @@ NSString* const kVersionKey = @"KSVersion";
   // complete.  Do this before asking Keystone to promote the ticket, because
   // -promotionComplete: may be called from inside the Keystone promotion
   // call.
-  _authorization.swap(authorization);
+  _authorization = std::move(authorization);
 
   NSDictionary* parameters = [self keystoneParameters];
 

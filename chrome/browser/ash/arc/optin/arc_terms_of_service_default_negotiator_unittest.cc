@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "ash/components/arc/arc_prefs.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/hash/sha1.h"
 #include "base/run_loop.h"
 #include "base/values.h"

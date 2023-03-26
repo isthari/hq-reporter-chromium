@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,5 +39,6 @@ IOSChromePasswordChangeSuccessTrackerFactory::
 std::unique_ptr<KeyedService>
 IOSChromePasswordChangeSuccessTrackerFactory::BuildServiceInstanceFor(
     web::BrowserState* context) const {
-  return std::make_unique<password_manager::PasswordChangeSuccessTrackerImpl>();
+  return std::make_unique<password_manager::PasswordChangeSuccessTrackerImpl>(
+      ChromeBrowserState::FromBrowserState(context)->GetPrefs());
 }

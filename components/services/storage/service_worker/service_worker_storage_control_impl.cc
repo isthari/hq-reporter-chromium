@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/containers/contains.h"
 #include "base/debug/alias.h"
+#include "base/task/sequenced_task_runner.h"
 #include "components/services/storage/service_worker/service_worker_resource_ops.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
@@ -62,6 +63,8 @@ class ServiceWorkerLiveVersionRefImpl
     purgeable_resources_ = purgeable_resources;
   }
 
+  void clear_purgeable_resources() { purgeable_resources_.clear(); }
+
   const std::vector<int64_t>& purgeable_resources() const {
     return purgeable_resources_;
   }
@@ -77,6 +80,25 @@ class ServiceWorkerLiveVersionRefImpl
   std::vector<int64_t /*resource_id*/> purgeable_resources_;
   mojo::ReceiverSet<mojom::ServiceWorkerLiveVersionRef> receivers_;
 };
+
+// static
+mojo::SelfOwnedReceiverRef<mojom::ServiceWorkerStorageControl>
+ServiceWorkerStorageControlImpl::Create(
+    mojo::PendingReceiver<mojom::ServiceWorkerStorageControl> receiver,
+    const base::FilePath& user_data_directory,
+    scoped_refptr<base::SequencedTaskRunner> database_task_runner) {
+  return mojo::MakeSelfOwnedReceiver(
+      base::WrapUnique(new ServiceWorkerStorageControlImpl(
+          user_data_directory, std::move(database_task_runner))),
+      std::move(receiver));
+}
+
+ServiceWorkerStorageControlImpl::ServiceWorkerStorageControlImpl(
+    const base::FilePath& user_data_directory,
+    scoped_refptr<base::SequencedTaskRunner> database_task_runner)
+    : storage_(ServiceWorkerStorage::Create(user_data_directory,
+                                            std::move(database_task_runner))),
+      receiver_(this) {}
 
 ServiceWorkerStorageControlImpl::ServiceWorkerStorageControlImpl(
     const base::FilePath& user_data_directory,
@@ -143,7 +165,7 @@ void ServiceWorkerStorageControlImpl::FindRegistrationForClientUrl(
 void ServiceWorkerStorageControlImpl::FindRegistrationForScope(
     const GURL& scope,
     const blink::StorageKey& key,
-    FindRegistrationForClientUrlCallback callback) {
+    FindRegistrationForScopeCallback callback) {
   storage_->FindRegistrationForScope(
       scope, key,
       base::BindOnce(&ServiceWorkerStorageControlImpl::DidFindRegistration,
@@ -153,7 +175,7 @@ void ServiceWorkerStorageControlImpl::FindRegistrationForScope(
 void ServiceWorkerStorageControlImpl::FindRegistrationForId(
     int64_t registration_id,
     const absl::optional<blink::StorageKey>& key,
-    FindRegistrationForClientUrlCallback callback) {
+    FindRegistrationForIdCallback callback) {
   if (key.has_value()) {
     storage_->FindRegistrationForId(
         registration_id, *key,
@@ -193,10 +215,12 @@ void ServiceWorkerStorageControlImpl::StoreRegistration(
     mojom::ServiceWorkerRegistrationDataPtr registration,
     std::vector<mojom::ServiceWorkerResourceRecordPtr> resources,
     StoreRegistrationCallback callback) {
+  int64_t version_id = registration->version_id;
   storage_->StoreRegistrationData(
       std::move(registration), std::move(resources),
       base::BindOnce(&ServiceWorkerStorageControlImpl::DidStoreRegistration,
-                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback),
+                     version_id));
 }
 
 void ServiceWorkerStorageControlImpl::DeleteRegistration(
@@ -241,6 +265,15 @@ void ServiceWorkerStorageControlImpl::UpdateNavigationPreloadHeader(
     UpdateNavigationPreloadHeaderCallback callback) {
   storage_->UpdateNavigationPreloadHeader(registration_id, key, value,
                                           std::move(callback));
+}
+
+void ServiceWorkerStorageControlImpl::UpdateFetchHandlerType(
+    int64_t registration_id,
+    const blink::StorageKey& key,
+    blink::mojom::ServiceWorkerFetchHandlerType type,
+    UpdateFetchHandlerTypeCallback callback) {
+  storage_->UpdateFetchHandlerType(registration_id, key, type,
+                                   std::move(callback));
 }
 
 void ServiceWorkerStorageControlImpl::GetNewRegistrationId(
@@ -374,6 +407,21 @@ void ServiceWorkerStorageControlImpl::GetPurgingResourceIdsForTest(
   storage_->GetPurgingResourceIdsForTest(std::move(callback));  // IN-TEST
 }
 
+void ServiceWorkerStorageControlImpl::
+    GetPurgingResourceIdsForLiveVersionForTest(
+        int64_t version_id,
+        GetPurgeableResourceIdsForTestCallback callback) {
+  auto it = live_versions_.find(version_id);
+  if (it == live_versions_.end()) {
+    std::move(callback).Run(ServiceWorkerDatabase::Status::kErrorNotFound,
+                            std::vector<int64_t>{});
+    return;
+  }
+
+  std::move(callback).Run(ServiceWorkerDatabase::Status::kOk,
+                          it->second->purgeable_resources());
+}
+
 void ServiceWorkerStorageControlImpl::GetPurgeableResourceIdsForTest(
     GetPurgeableResourceIdsForTestCallback callback) {
   storage_->GetPurgeableResourceIdsForTest(std::move(callback));  // IN-TEST
@@ -442,11 +490,13 @@ void ServiceWorkerStorageControlImpl::DidGetRegistrationsForStorageKey(
 
 void ServiceWorkerStorageControlImpl::DidStoreRegistration(
     StoreRegistrationCallback callback,
+    int64_t stored_version_id,
     mojom::ServiceWorkerDatabaseStatus status,
     int64_t deleted_version_id,
     uint64_t deleted_resources_size,
     const std::vector<int64_t>& newly_purgeable_resources) {
   MaybePurgeResources(deleted_version_id, newly_purgeable_resources);
+  MaybeCancelPurgeResources(stored_version_id);
   std::move(callback).Run(status, deleted_resources_size);
 }
 
@@ -507,6 +557,15 @@ void ServiceWorkerStorageControlImpl::MaybePurgeResources(
   } else {
     storage_->PurgeResources(std::move(purgeable_resources));
   }
+}
+
+void ServiceWorkerStorageControlImpl::MaybeCancelPurgeResources(
+    int64_t version_id) {
+  auto it = live_versions_.find(version_id);
+  if (it == live_versions_.end())
+    return;
+
+  it->second->clear_purgeable_resources();
 }
 
 }  // namespace storage

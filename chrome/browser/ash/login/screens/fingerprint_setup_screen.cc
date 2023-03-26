@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,19 @@
 #include "base/metrics/histogram_functions.h"
 #include "chrome/browser/ash/login/quick_unlock/quick_unlock_utils.h"
 #include "chrome/browser/ash/login/users/chrome_user_manager_util.h"
+#include "chrome/browser/ash/login/wizard_context.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/ui/webui/chromeos/login/fingerprint_setup_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/fingerprint_setup_screen_handler.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/device_service.h"
 #include "ui/base/l10n/l10n_util.h"
+
+// Enable VLOG level 1.
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
 
 namespace ash {
 namespace {
@@ -101,28 +106,34 @@ std::string FingerprintSetupScreen::GetResultString(Result result) {
 }
 
 FingerprintSetupScreen::FingerprintSetupScreen(
-    FingerprintSetupScreenView* view,
+    base::WeakPtr<FingerprintSetupScreenView> view,
     const ScreenExitCallback& exit_callback)
     : BaseScreen(FingerprintSetupScreenView::kScreenId,
                  OobeScreenPriority::DEFAULT),
-      view_(view),
+      view_(std::move(view)),
       exit_callback_(exit_callback) {
   content::GetDeviceService().BindFingerprint(
       fp_service_.BindNewPipeAndPassReceiver());
   fp_service_->AddFingerprintObserver(receiver_.BindNewPipeAndPassRemote());
   DCHECK(view_);
-  view_->Bind(this);
 }
 
-FingerprintSetupScreen::~FingerprintSetupScreen() {
-  if (view_)
-    view_->Bind(nullptr);
-}
+FingerprintSetupScreen::~FingerprintSetupScreen() = default;
 
-bool FingerprintSetupScreen::MaybeSkip(WizardContext* context) {
-  if (!quick_unlock::IsFingerprintEnabled(
-          ProfileManager::GetActiveUserProfile()) ||
+bool FingerprintSetupScreen::ShouldBeSkipped(
+    const WizardContext& context) const {
+  if (context.skip_post_login_screens_for_tests ||
+      !quick_unlock::IsFingerprintEnabled(
+          ProfileManager::GetActiveUserProfile(),
+          quick_unlock::Purpose::kAny) ||
       chrome_user_manager_util::IsPublicSessionOrEphemeralLogin()) {
+    return true;
+  }
+  return false;
+}
+
+bool FingerprintSetupScreen::MaybeSkip(WizardContext& context) {
+  if (ShouldBeSkipped(context)) {
     exit_callback_.Run(Result::NOT_APPLICABLE);
     return true;
   }
@@ -131,7 +142,8 @@ bool FingerprintSetupScreen::MaybeSkip(WizardContext* context) {
 
 void FingerprintSetupScreen::ShowImpl() {
   StartAddingFinger();
-  view_->Show();
+  if (view_)
+    view_->Show();
 }
 
 void FingerprintSetupScreen::HideImpl() {
@@ -141,12 +153,12 @@ void FingerprintSetupScreen::HideImpl() {
         base::BindOnce(&FingerprintSetupScreen::OnCancelCurrentEnrollSession,
                        weak_ptr_factory_.GetWeakPtr()));
   }
-  view_->Hide();
 }
 
-void FingerprintSetupScreen::OnUserAction(const std::string& action_id) {
+void FingerprintSetupScreen::OnUserAction(const base::Value::List& args) {
+  const std::string& action_id = args[0].GetString();
   if (!IsFingerprintUserAction(action_id)) {
-    BaseScreen::OnUserAction(action_id);
+    BaseScreen::OnUserAction(args);
     return;
   }
   RecordUserAction(action_id);
@@ -172,16 +184,19 @@ void FingerprintSetupScreen::OnEnrollScanDone(
           << scan_result
           << ", enroll_session_complete=" << enroll_session_complete
           << ", percent_complete=" << percent_complete;
-  view_->OnEnrollScanDone(scan_result, enroll_session_complete,
-                          percent_complete);
-
+  if (view_) {
+    view_->OnEnrollScanDone(scan_result, enroll_session_complete,
+                            percent_complete);
+  }
   if (!enroll_session_complete)
     return;
 
   enroll_session_started_ = false;
   ++enrolled_finger_count_;
-  view_->EnableAddAnotherFinger(
-      /* enable = */ enrolled_finger_count_ < kMaxAllowedFingerprints);
+  if (view_) {
+    view_->EnableAddAnotherFinger(
+        /* enable = */ enrolled_finger_count_ < kMaxAllowedFingerprints);
+  }
 
   // Update the number of registered fingers, it's fine to override because
   // this is the first time user log in and have no finger registered.

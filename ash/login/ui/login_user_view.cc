@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,7 @@
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chromeos/ui/vector_icons/vector_icons.h"
@@ -39,8 +39,9 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/layout/grid_layout.h"
+#include "ui/views/layout/table_layout.h"
 #include "ui/views/painter.h"
+#include "ui/views/view_class_properties.h"
 
 namespace ash {
 namespace {
@@ -192,8 +193,9 @@ class LoginUserView::UserImage : public NonAccessibleView {
     // Set the initial image from |avatar| since we already have it available.
     // Then, decode the bytes via blink's PNG decoder and play any animated
     // frames if they are available.
-    if (!user.basic_user_info.avatar.image.isNull())
+    if (!user.basic_user_info.avatar.image.isNull()) {
       image_->SetImage(user.basic_user_info.avatar.image);
+    }
 
     // Decode the avatar using blink, as blink's PNG decoder supports APNG,
     // which is the format used for the animated avators.
@@ -304,8 +306,9 @@ class LoginUserView::UserLabel : public NonAccessibleView {
   void UpdateForUser(const LoginUserInfo& user) {
     std::string display_name = user.basic_user_info.display_name;
     // display_name can be empty in debug builds with stub users.
-    if (display_name.empty())
+    if (display_name.empty()) {
       display_name = user.basic_user_info.display_email;
+    }
 
     user_name_->SetText(gfx::ElideText(base::UTF8ToUTF16(display_name),
                                        user_name_->font_list(), label_width_,
@@ -472,15 +475,17 @@ LoginUserView::LoginUserView(
   };
   setup_layer(user_image_);
   setup_layer(user_label_);
-  if (dropdown_)
+  if (dropdown_) {
     setup_layer(dropdown_);
+  }
 
   hover_notifier_ = std::make_unique<HoverNotifier>(
       this,
       base::BindRepeating(&LoginUserView::OnHover, base::Unretained(this)));
 
-  if (ash::Shell::HasInstance())
+  if (ash::Shell::HasInstance()) {
     display_observation_.Observe(ash::Shell::Get()->display_configurator());
+  }
 }
 
 LoginUserView::~LoginUserView() {
@@ -493,8 +498,9 @@ void LoginUserView::UpdateForUser(const LoginUserInfo& user, bool animate) {
   DeleteDialog();
 
   remove_account_dialog_ = new LoginRemoveAccountDialog(
-      current_user_, dropdown_ /*anchor_view*/, dropdown_ /*bubble_opener*/,
-      on_remove_warning_shown_, on_remove_);
+      current_user_,
+      dropdown_ != nullptr ? dropdown_->AsWeakPtr() : nullptr /*anchor_view*/,
+      dropdown_ /*bubble_opener*/, on_remove_warning_shown_, on_remove_);
   remove_account_dialog_->SetVisible(false);
 
   if (animate) {
@@ -597,6 +603,20 @@ void LoginUserView::OnThemeChanged() {
   }
 }
 
+views::View::Views LoginUserView::GetChildrenInZOrder() {
+  auto children = views::View::GetChildrenInZOrder();
+  const auto move_child_to_top = [&](View* child) {
+    auto it = base::ranges::find(children, child);
+    DCHECK(it != children.end());
+    std::rotate(it, it + 1, children.end());
+  };
+  move_child_to_top(tap_button_);
+  if (dropdown_) {
+    move_child_to_top(dropdown_);
+  }
+  return children;
+}
+
 void LoginUserView::OnHover(bool has_hover) {
   UpdateOpacity();
 }
@@ -614,9 +634,10 @@ void LoginUserView::DropdownButtonPressed() {
   bool opener_focused = remove_account_dialog_->GetBubbleOpener() &&
                         remove_account_dialog_->GetBubbleOpener()->HasFocus();
 
-  if (!remove_account_dialog_->parent())
+  if (!remove_account_dialog_->parent()) {
     login_views_utils::GetBubbleContainer(this)->AddChildView(
         remove_account_dialog_);
+  }
 
   // Reset state in case the remove-user button was clicked once previously.
   remove_account_dialog_->ResetState();
@@ -625,8 +646,9 @@ void LoginUserView::DropdownButtonPressed() {
   // If the remove account dialog was opened by pressing Enter on the focused
   // dropdown, focus should automatically go to the remove-user button (for
   // keyboard accessibility).
-  if (opener_focused)
+  if (opener_focused) {
     remove_account_dialog_->RequestFocus();
+  }
 }
 
 void LoginUserView::UpdateCurrentUserState() {
@@ -664,8 +686,9 @@ void LoginUserView::UpdateOpacity() {
   bool was_opaque = is_opaque_;
   is_opaque_ =
       force_opaque_ || tap_button_->IsMouseHovered() || tap_button_->HasFocus();
-  if (was_opaque == is_opaque_)
+  if (was_opaque == is_opaque_) {
     return;
+  }
 
   // Animate to new opacity.
   auto build_settings = [](views::View* view)
@@ -696,94 +719,62 @@ void LoginUserView::UpdateOpacity() {
 }
 
 void LoginUserView::SetLargeLayout() {
-  // Add views in tabbing order; they are rendered in a different order below.
-  AddChildView(user_image_);
-  AddChildView(user_label_);
+  auto* layout = SetLayoutManager(std::make_unique<views::TableLayout>());
+  layout
+      ->AddColumn(views::LayoutAlignment::kEnd, views::LayoutAlignment::kCenter,
+                  1.0f, views::TableLayout::ColumnSize::kUsePreferred, 0, 0)
+      .AddPaddingColumn(views::TableLayout::kFixedSize,
+                        kDistanceBetweenUsernameAndDropdownDp)
+      .AddColumn(views::LayoutAlignment::kCenter,
+                 views::LayoutAlignment::kCenter,
+                 views::TableLayout::kFixedSize,
+                 views::TableLayout::ColumnSize::kUsePreferred, 0, 0)
+      .AddPaddingColumn(views::TableLayout::kFixedSize,
+                        kDistanceBetweenUsernameAndDropdownDp)
+      .AddColumn(views::LayoutAlignment::kStart,
+                 views::LayoutAlignment::kCenter, 1.0f,
+                 views::TableLayout::ColumnSize::kUsePreferred, 0, 0)
+      .AddRows(1, views::TableLayout::kFixedSize)
+      .AddPaddingRow(views::TableLayout::kFixedSize,
+                     kVerticalSpacingBetweenEntriesDp)
+      .AddRows(1, views::TableLayout::kFixedSize);
+
   AddChildView(tap_button_);
-  if (dropdown_)
+  layout->SetChildViewIgnoredByLayout(tap_button_, true);
+
+  AddChildView(user_image_);
+  user_image_->SetProperty(views::kTableColAndRowSpanKey, gfx::Size(5, 1));
+  user_image_->SetProperty(views::kTableHorizAlignKey,
+                           views::LayoutAlignment::kCenter);
+
+  auto* skip_column = AddChildView(std::make_unique<NonAccessibleView>());
+  if (dropdown_) {
+    skip_column->SetPreferredSize(dropdown_->GetPreferredSize());
+  }
+
+  AddChildView(user_label_);
+
+  if (dropdown_) {
     AddChildView(dropdown_);
-
-  // Use views::GridLayout instead of views::BoxLayout because views::BoxLayout
-  // lays out children according to the view->children order.
-  views::GridLayout* layout =
-      SetLayoutManager(std::make_unique<views::GridLayout>());
-
-  constexpr int kImageColumnId = 0;
-  constexpr int kLabelDropdownColumnId = 1;
-  constexpr int kLabelDomainColumnId = 2;
-
-  {
-    views::ColumnSet* image = layout->AddColumnSet(kImageColumnId);
-    image->AddColumn(views::GridLayout::CENTER, views::GridLayout::CENTER,
-                     1 /*resize_percent*/,
-                     views::GridLayout::ColumnSize::kUsePreferred,
-                     0 /*fixed_width*/, 0 /*min_width*/);
   }
-
-  {
-    views::ColumnSet* label_dropdown =
-        layout->AddColumnSet(kLabelDropdownColumnId);
-    label_dropdown->AddPaddingColumn(1.0f /*resize_percent*/, 0 /*width*/);
-    if (dropdown_) {
-      label_dropdown->AddPaddingColumn(
-          0 /*resize_percent*/, dropdown_->GetPreferredSize().width() +
-                                    kDistanceBetweenUsernameAndDropdownDp);
-    }
-    label_dropdown->AddColumn(views::GridLayout::CENTER,
-                              views::GridLayout::CENTER, 0 /*resize_percent*/,
-                              views::GridLayout::ColumnSize::kUsePreferred,
-                              0 /*fixed_width*/, 0 /*min_width*/);
-    if (dropdown_) {
-      label_dropdown->AddPaddingColumn(0 /*resize_percent*/,
-                                       kDistanceBetweenUsernameAndDropdownDp);
-      label_dropdown->AddColumn(views::GridLayout::CENTER,
-                                views::GridLayout::CENTER, 0 /*resize_percent*/,
-                                views::GridLayout::ColumnSize::kUsePreferred,
-                                0 /*fixed_width*/, 0 /*min_width*/);
-    }
-    label_dropdown->AddPaddingColumn(1.0f /*resize_percent*/, 0 /*width*/);
-  }
-
-  {
-    views::ColumnSet* label_domain = layout->AddColumnSet(kLabelDomainColumnId);
-    label_domain->AddColumn(views::GridLayout::CENTER,
-                            views::GridLayout::CENTER, 1 /*resize_percent*/,
-                            views::GridLayout::ColumnSize::kUsePreferred,
-                            0 /*fixed_width*/, 0 /*min_width*/);
-  }
-
-  auto add_padding = [&](int amount) {
-    layout->AddPaddingRow(0 /*vertical_resize*/, amount /*size*/);
-  };
-
-  // Add views in rendering order.
-  // Image
-  layout->StartRow(0 /*vertical_resize*/, kImageColumnId);
-  layout->AddExistingView(user_image_);
-
-  add_padding(kVerticalSpacingBetweenEntriesDp);
-
-  // Label/dropdown.
-  layout->StartRow(0 /*vertical_resize*/, kLabelDropdownColumnId);
-  layout->AddExistingView(user_label_);
-  if (dropdown_)
-    layout->AddExistingView(dropdown_);
 }
 
 void LoginUserView::SetSmallishLayout() {
   SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kHorizontal, gfx::Insets(),
       kSmallManyDistanceFromUserIconToUserLabelDp));
+  AddChildView(tap_button_);
+  tap_button_->SetProperty(views::kViewIgnoredByLayoutKey, true);
 
   AddChildView(user_image_);
   AddChildView(user_label_);
-  AddChildView(tap_button_);
 }
 
 void LoginUserView::DeleteDialog() {
   if (remove_account_dialog_) {
-    if (remove_account_dialog_->parent())
+    if (remove_account_dialog_->parent()) {
       remove_account_dialog_->parent()->RemoveChildView(remove_account_dialog_);
+    }
     delete remove_account_dialog_;
     remove_account_dialog_ = nullptr;
   }

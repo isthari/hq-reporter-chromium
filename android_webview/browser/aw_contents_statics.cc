@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,12 +11,13 @@
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "components/flags_ui/flags_ui_metrics.h"
 #include "components/google/core/common/google_util.h"
 #include "components/security_interstitials/core/urls.h"
+#include "components/variations/variations_ids_provider.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -159,6 +160,20 @@ void JNI_AwContentsStatics_LogFlagMetrics(
 // static
 jboolean JNI_AwContentsStatics_IsMultiProcessEnabled(JNIEnv* env) {
   return !content::RenderProcessHost::run_renderer_in_process();
+}
+
+// static
+ScopedJavaLocalRef<jstring> JNI_AwContentsStatics_GetVariationsHeader(
+    JNIEnv* env) {
+  const bool is_signed_in = false;
+  auto headers =
+      variations::VariationsIdsProvider::GetInstance()->GetClientDataHeaders(
+          is_signed_in);
+  if (!headers)
+    return base::android::ConvertUTF8ToJavaString(env, "");
+  return base::android::ConvertUTF8ToJavaString(
+      env,
+      headers->headers_map.at(variations::mojom::GoogleWebVisibility::ANY));
 }
 
 }  // namespace android_webview

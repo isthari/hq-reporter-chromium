@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 
 #include <memory>
 
-#include "base/callback_forward.h"
 #include "base/component_export.h"
+#include "base/functional/callback_forward.h"
 #include "ui/base/test/ui_controls.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/native_widget_types.h"
@@ -49,6 +49,15 @@ class OzoneUIControlsTestHelper {
                               const gfx::Point& mouse_loc,
                               const gfx::Point& mouse_root_loc,
                               base::OnceClosure closure) = 0;
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // Sends touch event and executes |closure| when done.
+  virtual void SendTouchEvent(gfx::AcceleratedWidget widget,
+                              int action,
+                              int id,
+                              const gfx::Point& touch_loc,
+                              base::OnceClosure closure) = 0;
+#endif
 
   // Executes closure after all pending ui events are sent.
   virtual void RunClosureAfterAllPendingUIEvents(base::OnceClosure closure) = 0;

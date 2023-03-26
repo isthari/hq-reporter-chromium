@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/pending_task.h"
 #include "base/task/sequence_manager/enqueue_order_generator.h"
@@ -111,7 +111,7 @@ class TaskQueueSelectorTest : public testing::Test {
     for (size_t i = 0; i < kTaskQueueCount; i++) {
       std::unique_ptr<TaskQueueImpl> task_queue =
           std::make_unique<TaskQueueImpl>(nullptr, nullptr,
-                                          TaskQueue::Spec("test"));
+                                          TaskQueue::Spec(QueueName::TEST_TQ));
       selector_.AddQueue(task_queue.get());
       task_queues_.push_back(std::move(task_queue));
     }
@@ -134,7 +134,7 @@ class TaskQueueSelectorTest : public testing::Test {
 
   std::unique_ptr<TaskQueueImpl> NewTaskQueueWithBlockReporting() {
     return std::make_unique<TaskQueueImpl>(nullptr, nullptr,
-                                           TaskQueue::Spec("test"));
+                                           TaskQueue::Spec(QueueName::TEST_TQ));
   }
 
   const size_t kTaskQueueCount =
@@ -203,21 +203,32 @@ TEST_F(TaskQueueSelectorTest, TestControlPriority) {
 TEST_F(TaskQueueSelectorTest, TestObserverWithEnabledQueue) {
   task_queues_[1]->SetQueueEnabled(false);
   selector_.DisableQueue(task_queues_[1].get());
-  MockObserver mock_observer;
-  selector_.SetTaskQueueSelectorObserver(&mock_observer);
-  EXPECT_CALL(mock_observer, OnTaskQueueEnabled(_)).Times(1);
-  task_queues_[1]->SetQueueEnabled(true);
-  selector_.EnableQueue(task_queues_[1].get());
+  {
+    MockObserver mock_observer;
+    selector_.SetTaskQueueSelectorObserver(&mock_observer);
+    EXPECT_CALL(mock_observer, OnTaskQueueEnabled(_)).Times(1);
+    task_queues_[1]->SetQueueEnabled(true);
+    selector_.EnableQueue(task_queues_[1].get());
+
+    // Clear observer before it goes out of scope.
+    selector_.SetTaskQueueSelectorObserver(nullptr);
+  }
 }
 
 TEST_F(TaskQueueSelectorTest,
        TestObserverWithSetQueuePriorityAndQueueAlreadyEnabled) {
   selector_.SetQueuePriority(task_queues_[1].get(),
                              TaskQueue::kHighestPriority);
-  MockObserver mock_observer;
-  selector_.SetTaskQueueSelectorObserver(&mock_observer);
-  EXPECT_CALL(mock_observer, OnTaskQueueEnabled(_)).Times(0);
-  selector_.SetQueuePriority(task_queues_[1].get(), TaskQueue::kNormalPriority);
+  {
+    MockObserver mock_observer;
+    selector_.SetTaskQueueSelectorObserver(&mock_observer);
+    EXPECT_CALL(mock_observer, OnTaskQueueEnabled(_)).Times(0);
+    selector_.SetQueuePriority(task_queues_[1].get(),
+                               TaskQueue::kNormalPriority);
+
+    // Clear observer before it goes out of scope.
+    selector_.SetTaskQueueSelectorObserver(nullptr);
+  }
 }
 
 TEST_F(TaskQueueSelectorTest, TestDisableEnable) {
@@ -244,6 +255,9 @@ TEST_F(TaskQueueSelectorTest, TestDisableEnable) {
   task_queues_[4]->SetQueueEnabled(true);
   selector_.EnableQueue(task_queues_[4].get());
   EXPECT_THAT(PopTasksAndReturnQueueIndices(), ElementsAre(4));
+
+  // Clear observer before it goes out of scope.
+  selector_.SetTaskQueueSelectorObserver(nullptr);
 }
 
 TEST_F(TaskQueueSelectorTest, TestDisableChangePriorityThenEnable) {
@@ -462,8 +476,8 @@ TEST_F(TaskQueueSelectorTest,
 }
 
 TEST_F(TaskQueueSelectorTest, TestObserverWithOneBlockedQueue) {
+  MockObserver mock_observer;  // Must outlive `selector`
   TaskQueueSelectorForTest selector(associated_thread_);
-  MockObserver mock_observer;
   selector.SetTaskQueueSelectorObserver(&mock_observer);
 
   EXPECT_CALL(mock_observer, OnTaskQueueEnabled(_)).Times(1);
@@ -487,8 +501,8 @@ TEST_F(TaskQueueSelectorTest, TestObserverWithOneBlockedQueue) {
 }
 
 TEST_F(TaskQueueSelectorTest, TestObserverWithTwoBlockedQueues) {
+  MockObserver mock_observer;  // Must outlive `selector`
   TaskQueueSelectorForTest selector(associated_thread_);
-  MockObserver mock_observer;
   selector.SetTaskQueueSelectorObserver(&mock_observer);
 
   std::unique_ptr<TaskQueueImpl> task_queue(NewTaskQueueWithBlockReporting());

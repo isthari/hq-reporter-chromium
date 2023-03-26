@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/timer/timer.h"
+#include "base/values.h"
 #include "chrome/browser/ash/login/users/avatar/user_image_manager.h"
 #include "chrome/browser/profiles/profile_downloader_delegate.h"
 #include "components/user_manager/user.h"
@@ -61,6 +62,7 @@ class UserImageManagerImpl : public UserImageManager,
   UserImageSyncObserver* GetSyncObserver() const override;
   void Shutdown() override;
 
+  bool IsUserImageManaged() const override;
   void OnExternalDataSet(const std::string& policy) override;
   void OnExternalDataCleared(const std::string& policy) override;
   void OnExternalDataFetched(const std::string& policy,
@@ -71,6 +73,7 @@ class UserImageManagerImpl : public UserImageManager,
 
   static void IgnoreProfileDataDownloadDelayForTesting();
   static void SkipProfileImageDownloadForTesting();
+  static void SkipDefaultUserImageDownloadForTesting();
 
   // Key for a dictionary that maps user IDs to user image data with images
   // stored in JPEG format.
@@ -79,6 +82,7 @@ class UserImageManagerImpl : public UserImageManager,
   static const char kImagePathNodeName[];
   static const char kImageIndexNodeName[];
   static const char kImageURLNodeName[];
+  static const char kImageCacheUpdated[];
 
  private:
   friend class UserImageManagerTestBase;
@@ -106,10 +110,6 @@ class UserImageManagerImpl : public UserImageManager,
   void OnProfileDownloadFailure(
       ProfileDownloader* downloader,
       ProfileDownloaderDelegate::FailureReason reason) override;
-
-  // Returns true if the user image for the user is managed by
-  // policy and the user is not allowed to change it.
-  bool IsUserImageManaged() const;
 
   // Randomly chooses one of the default images for the specified user, sends a
   // LOGIN_USER_IMAGE_CHANGED notification and updates local state.
@@ -148,6 +148,9 @@ class UserImageManagerImpl : public UserImageManager,
   // Create a sync observer if a user is logged in, the user's user image is
   // allowed to be synced and no sync observer exists yet.
   void TryToCreateImageSyncObserver();
+
+  // Returns the image properties for the user's user image.
+  const base::Value::Dict* GetImageProperties();
 
   // Returns immutable version of user with `user_id_`.
   const user_manager::User* GetUser() const;

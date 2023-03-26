@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@ import androidx.annotation.NonNull;
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ContextUtils;
+import org.chromium.ui.permissions.ActivityAndroidPermissionDelegate;
 
 import java.lang.ref.WeakReference;
 
@@ -21,7 +22,8 @@ import java.lang.ref.WeakReference;
  * Only instantiate this class when you need the implemented features.
  */
 public class ActivityWindowAndroid
-        extends WindowAndroid implements ApplicationStatus.ActivityStateListener {
+        extends WindowAndroid implements ApplicationStatus.ActivityStateListener,
+                                         ApplicationStatus.WindowFocusChangedListener {
     private final boolean mListenToActivityState;
 
     // Just create one ImmutableWeakReference object to avoid gc churn.
@@ -78,6 +80,7 @@ public class ActivityWindowAndroid
         mListenToActivityState = listenToActivityState;
         if (listenToActivityState) {
             ApplicationStatus.registerStateListenerForActivity(this, activity);
+            ApplicationStatus.registerWindowFocusChangedListener(this);
         }
 
         setKeyboardDelegate(activityKeyboardVisibilityDelegate);
@@ -110,6 +113,7 @@ public class ActivityWindowAndroid
             onActivityResumed();
         } else if (newState == ActivityState.DESTROYED) {
             onActivityDestroyed();
+            ApplicationStatus.unregisterWindowFocusChangedListener(this);
         }
     }
 
@@ -118,5 +122,10 @@ public class ActivityWindowAndroid
     public int getActivityState() {
         return mListenToActivityState ? ApplicationStatus.getStateForActivity(getActivity().get())
                                       : super.getActivityState();
+    }
+
+    @Override
+    public void onWindowFocusChanged(Activity activity, boolean hasFocus) {
+        if (getActivity().get() == activity) onWindowFocusChanged(hasFocus);
     }
 }

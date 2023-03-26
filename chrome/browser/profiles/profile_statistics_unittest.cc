@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/bookmarks/chrome_bookmark_client.h"
@@ -22,6 +22,7 @@
 #include "chrome/browser/profiles/profile_statistics_common.h"
 #include "chrome/browser/profiles/profile_statistics_factory.h"
 #include "chrome/browser/sync/bookmark_sync_service_factory.h"
+#include "chrome/browser/web_data_service_factory.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
@@ -95,10 +96,11 @@ TEST_F(ProfileStatisticsTest, WaitOrCountBookmarks) {
       {{BookmarkModelFactory::GetInstance(),
         base::BindRepeating(&BuildBookmarkModelWithoutLoad)},
        {HistoryServiceFactory::GetInstance(),
-        HistoryServiceFactory::GetDefaultFactory()}});
+        HistoryServiceFactory::GetDefaultFactory()},
+       {WebDataServiceFactory::GetInstance(),
+        WebDataServiceFactory::GetDefaultFactory()}});
 
   ASSERT_TRUE(profile);
-  profile->CreateWebDataService();
   PasswordStoreFactory::GetInstance()->SetTestingFactory(
       profile,
       base::BindRepeating(

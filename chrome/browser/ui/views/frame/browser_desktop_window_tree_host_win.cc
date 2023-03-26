@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,8 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/memory/ref_counted_delete_on_sequence.h"
 #include "base/process/process_handle.h"
 #include "base/strings/utf_string_conversions.h"
@@ -20,12 +21,12 @@
 #include "base/task/thread_pool.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/headless/headless_mode_util.h"
-#include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/lifetime/application_lifetime_desktop.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
+#include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/frame/browser_frame.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/browser_window_property_manager_win.h"
@@ -263,9 +264,6 @@ bool BrowserDesktopWindowTreeHostWin::UsesNativeSystemMenu() const {
 void BrowserDesktopWindowTreeHostWin::Init(
     const views::Widget::InitParams& params) {
   DesktopWindowTreeHostWin::Init(params);
-  if (base::win::GetVersion() < base::win::Version::WIN10)
-    return;  // VirtualDesktopManager isn't supported pre Win-10.
-
   virtual_desktop_helper_ = new VirtualDesktopHelper(params.workspace);
   virtual_desktop_helper_->Init(GetHWND());
 }
@@ -284,10 +282,17 @@ void BrowserDesktopWindowTreeHostWin::Show(ui::WindowShowState show_state,
     else
       OnHostWorkspaceChanged();
   }
-  // Avoid changing desktop window visibility state when browser is running in
-  // native headless mode.
-  if (!headless::IsChromeNativeHeadless())
-    DesktopWindowTreeHostWin::Show(show_state, restore_bounds);
+  DesktopWindowTreeHostWin::Show(show_state, restore_bounds);
+}
+
+void BrowserDesktopWindowTreeHostWin::HandleWindowMinimizedOrRestored(
+    bool restored) {
+  // This is necessary since OnWidgetVisibilityChanged() doesn't get called on
+  // Windows when the window is minimized or restored.
+  if (base::FeatureList::IsEnabled(
+          features::kStopLoadingAnimationForHiddenWindow)) {
+    browser_view_->UpdateLoadingAnimations(restored);
+  }
 }
 
 std::string BrowserDesktopWindowTreeHostWin::GetWorkspace() const {
@@ -332,8 +337,8 @@ bool BrowserDesktopWindowTreeHostWin::GetClientAreaInsets(
     int top_thickness = 0;
     if (ShouldCustomDrawSystemTitlebar() && GetWidget()->IsMaximized())
       top_thickness = frame_thickness;
-    *insets = gfx::Insets(top_thickness, frame_thickness, frame_thickness,
-                          frame_thickness);
+    *insets = gfx::Insets::TLBR(top_thickness, frame_thickness, frame_thickness,
+                                frame_thickness);
   }
   return true;
 }
@@ -358,20 +363,12 @@ bool BrowserDesktopWindowTreeHostWin::GetDwmFrameInsetsInPixels(
     *insets = gfx::Insets();
   } else {
     // The glass should extend to the bottom of the tabstrip.
-    HWND hwnd = GetHWND();
     gfx::Rect tabstrip_region_bounds(browser_frame_->GetBoundsForTabStripRegion(
         browser_view_->tab_strip_region_view()->GetMinimumSize()));
-    tabstrip_region_bounds =
-        display::win::ScreenWin::DIPToClientRect(hwnd, tabstrip_region_bounds);
+    tabstrip_region_bounds = display::win::ScreenWin::DIPToClientRect(
+        GetHWND(), tabstrip_region_bounds);
 
-    // The 2 px (not DIP) at the inner edges of Win 7 glass are a light and dark
-    // line, so we must inset further to account for those.
-    constexpr int kWin7GlassInset = 2;
-    const int inset = (base::win::GetVersion() < base::win::Version::WIN8)
-                          ? kWin7GlassInset
-                          : 0;
-    *insets = gfx::Insets(tabstrip_region_bounds.bottom() + inset, inset, inset,
-                          inset);
+    *insets = gfx::Insets::TLBR(tabstrip_region_bounds.bottom(), 0, 0, 0);
   }
   return true;
 }
@@ -471,9 +468,6 @@ void BrowserDesktopWindowTreeHostWin::PostHandleMSG(UINT message,
 }
 
 views::FrameMode BrowserDesktopWindowTreeHostWin::GetFrameMode() const {
-  if (IsOpaqueHostedAppFrame())
-    return views::FrameMode::CUSTOM_DRAWN;
-
   const views::FrameMode system_frame_mode =
       ShouldCustomDrawSystemTitlebar()
           ? views::FrameMode::SYSTEM_DRAWN_NO_CONTROLS
@@ -501,9 +495,6 @@ bool BrowserDesktopWindowTreeHostWin::ShouldUseNativeFrame() const {
   // This function can get called when the Browser window is closed i.e. in the
   // context of the BrowserView destructor.
   if (!browser_view_->browser())
-    return false;
-
-  if (IsOpaqueHostedAppFrame())
     return false;
 
   // We don't theme popup or app windows, so regardless of whether or not a
@@ -568,13 +559,6 @@ void BrowserDesktopWindowTreeHostWin::UpdateWorkspace() {
       GetHWND(),
       base::BindOnce(&BrowserDesktopWindowTreeHostWin::OnHostWorkspaceChanged,
                      weak_factory_.GetWeakPtr()));
-}
-
-bool BrowserDesktopWindowTreeHostWin::IsOpaqueHostedAppFrame() const {
-  // TODO(https://crbug.com/868239): Support Windows 7 Aero glass for web-app
-  // window titlebar controls.
-  return browser_view_->GetIsWebAppType() &&
-         base::win::GetVersion() < base::win::Version::WIN10;
 }
 
 SkBitmap GetBadgedIconBitmapForProfile(Profile* profile) {

@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -52,7 +52,7 @@ GpuMemoryBufferVideoFramePool::CloneHandleForDelivery(
   DCHECK(frame.HasGpuMemoryBuffer());
 
   gfx::GpuMemoryBufferHandle handle = frame.GetGpuMemoryBuffer()->CloneHandle();
-  handle.id = gfx::GpuMemoryBufferId(-1);
+  handle.id = gfx::GpuMemoryBufferHandle::kInvalidId;
 
   return media::mojom::VideoBufferHandle::NewGpuMemoryBufferHandle(
       std::move(handle));

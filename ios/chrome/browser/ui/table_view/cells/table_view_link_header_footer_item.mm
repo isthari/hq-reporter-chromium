@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,12 @@
 #import "base/check_op.h"
 #import "base/containers/contains.h"
 #import "ios/chrome/browser/net/crurl.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
 #import "ios/chrome/browser/ui/ui_feature_flags.h"
-#import "ios/chrome/browser/ui/util/ui_util.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/string_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
+#import "ios/chrome/common/ui/table_view/table_view_cells_constants.h"
+#import "ios/chrome/common/ui/util/text_view_util.h"
 #import "net/base/mac/url_conversions.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -67,7 +67,7 @@ const CGFloat kVerticalPadding = 8;
 
 @interface TableViewLinkHeaderFooterView ()<UITextViewDelegate>
 
-// UITextView corresponding to |text| from the item.
+// UITextView corresponding to `text` from the item.
 @property(nonatomic, readonly, strong) UITextView* textView;
 
 @end
@@ -82,7 +82,7 @@ const CGFloat kVerticalPadding = 8;
   self = [super initWithReuseIdentifier:reuseIdentifier];
   if (self) {
     urls_ = @[];
-    _textView = [[UITextView alloc] init];
+    _textView = CreateUITextViewWithTextKit1();
     _textView.scrollEnabled = NO;
     _textView.editable = NO;
     _textView.delegate = self;
@@ -174,8 +174,8 @@ const CGFloat kVerticalPadding = 8;
 }
 
 - (void)textViewDidChangeSelection:(UITextView*)textView {
-  // Always force the |selectedTextRange| to |nil| to prevent users from
-  // selecting text. Setting the |selectable| property to |NO| doesn't help
+  // Always force the `selectedTextRange` to `nil` to prevent users from
+  // selecting text. Setting the `selectable` property to `NO` doesn't help
   // since it makes links inside the text view untappable.
   textView.selectedTextRange = nil;
 }

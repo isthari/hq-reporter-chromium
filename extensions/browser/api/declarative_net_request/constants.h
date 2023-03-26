@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "base/containers/fixed_flat_map.h"
+#include "base/strings/string_piece.h"
 #include "extensions/common/api/declarative_net_request/constants.h"
 
 namespace extensions {
@@ -24,6 +26,10 @@ enum class ParseResult {
   ERROR_INVALID_RULE_PRIORITY,
   ERROR_NO_APPLICABLE_RESOURCE_TYPES,
   ERROR_EMPTY_DOMAINS_LIST,
+  ERROR_EMPTY_INITIATOR_DOMAINS_LIST,
+  ERROR_EMPTY_REQUEST_DOMAINS_LIST,
+  ERROR_DOMAINS_AND_INITIATOR_DOMAINS_BOTH_SPECIFIED,
+  ERROR_EXCLUDED_DOMAINS_AND_EXCLUDED_INITIATOR_DOMAINS_BOTH_SPECIFIED,
   ERROR_EMPTY_RESOURCE_TYPES_LIST,
   ERROR_EMPTY_REQUEST_METHODS_LIST,
   ERROR_EMPTY_URL_FILTER,
@@ -34,6 +40,10 @@ enum class ParseResult {
   ERROR_NON_ASCII_URL_FILTER,
   ERROR_NON_ASCII_DOMAIN,
   ERROR_NON_ASCII_EXCLUDED_DOMAIN,
+  ERROR_NON_ASCII_INITIATOR_DOMAIN,
+  ERROR_NON_ASCII_EXCLUDED_INITIATOR_DOMAIN,
+  ERROR_NON_ASCII_REQUEST_DOMAIN,
+  ERROR_NON_ASCII_EXCLUDED_REQUEST_DOMAIN,
 
   ERROR_INVALID_URL_FILTER,
   ERROR_INVALID_REDIRECT,
@@ -60,7 +70,7 @@ enum class ParseResult {
   ERROR_INVALID_HEADER_VALUE,
   ERROR_HEADER_VALUE_NOT_SPECIFIED,
   ERROR_HEADER_VALUE_PRESENT,
-  ERROR_APPEND_REQUEST_HEADER_UNSUPPORTED,
+  ERROR_APPEND_INVALID_REQUEST_HEADER,
 
   ERROR_EMPTY_TAB_IDS_LIST,
   ERROR_TAB_IDS_ON_NON_SESSION_RULE,
@@ -157,6 +167,7 @@ extern const char kErrorNonAscii[];
 extern const char kErrorInvalidKey[];
 extern const char kErrorInvalidTransformScheme[];
 extern const char kErrorQueryAndTransformBothSpecified[];
+extern const char kErrorDomainsAndInitiatorDomainsBothSpecified[];
 extern const char kErrorJavascriptRedirect[];
 extern const char kErrorMultipleFilters[];
 extern const char kErrorRegexSubstitutionWithoutFilter[];
@@ -167,7 +178,7 @@ extern const char kErrorInvalidHeaderName[];
 extern const char kErrorInvalidHeaderValue[];
 extern const char kErrorNoHeaderValueSpecified[];
 extern const char kErrorHeaderValuePresent[];
-extern const char kErrorCannotAppendRequestHeader[];
+extern const char kErrorAppendInvalidRequestHeader[];
 extern const char kErrorTabIdsOnNonSessionRule[];
 extern const char kErrorTabIdDuplicated[];
 
@@ -199,9 +210,17 @@ extern const char kEnabledRulesetsRegexRuleCountExceeded[];
 extern const char kInternalErrorUpdatingEnabledRulesets[];
 extern const char kEnabledRulesetCountExceeded[];
 
+// Static rule toggling API errors.
+extern const char kDisabledStaticRuleCountExceeded[];
+
 // setExtensionActionOptions API errors.
 extern const char kTabNotFoundError[];
 extern const char kIncrementActionCountWithoutUseAsBadgeTextError[];
+
+// testMatchOutcome API errors.
+extern const char kInvalidTestURLError[];
+extern const char kInvalidTestInitiatorError[];
+extern const char kInvalidTestTabIdError[];
 
 // Histogram names.
 extern const char kIndexAndPersistRulesTimeHistogram[];
@@ -223,9 +242,39 @@ extern const char kErrorGetMatchedRulesMissingPermissions[];
 // profile.
 constexpr int kMaxStaticRulesPerProfile = 300000;
 
+// The per-extension maximum amount of disabled static rules.
+constexpr int kMaxDisabledStaticRules = 5000;
+
 // Identifier for a Flatbuffer containing `flat::EmbedderConditions` as the
 // root.
 extern const char kEmbedderConditionsBufferIdentifier[];
+
+// An allowlist of request headers that can be appended onto, in the form of
+// (header name, header delimiter). Currently, this list contains all standard
+// HTTP request headers that support multiple values in a single entry. This
+// list may be extended in the future to support custom headers.
+constexpr auto kDNRRequestHeaderAppendAllowList =
+    base::MakeFixedFlatMap<base::StringPiece, base::StringPiece>(
+        {{"accept", ", "},
+         {"accept-encoding", ", "},
+         {"accept-language", ", "},
+         {"access-control-request-headers", ", "},
+         {"cache-control", ", "},
+         {"connection", ", "},
+         {"content-language", ", "},
+         {"cookie", "; "},
+         {"forwarded", ", "},
+         {"if-match", ", "},
+         {"if-none-match", ", "},
+         {"keep-alive", ", "},
+         {"range", ", "},
+         {"te", ", "},
+         {"trailer", ""},
+         {"transfer-encoding", ", "},
+         {"upgrade", ", "},
+         {"via", ", "},
+         {"want-digest", ", "},
+         {"x-forwarded-for", ", "}});
 
 }  // namespace declarative_net_request
 }  // namespace extensions

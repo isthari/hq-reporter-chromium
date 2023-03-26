@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,11 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ref.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/models/simple_menu_model.h"
+#include "ui/color/color_id.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/render_text.h"
 #include "ui/gfx/text_constants.h"
@@ -96,11 +98,9 @@ class VIEWS_EXPORT Label : public View,
   const std::u16string& GetText() const;
   virtual void SetText(const std::u16string& text);
 
-  // Set the accessibility name that will be announced by the screen reader.
-  // If this function is not called, the screen reader defaults to verbalizing
-  // the text value.
-  void SetAccessibleName(const std::u16string& name);
-  const std::u16string& GetAccessibleName() const;
+  // Returns the value of `accessible_name_` if it has been set, otherwise the
+  // text value.
+  const std::u16string& GetAccessibleName() const override;
 
   // Where the label appears in the UI. Passed in from the constructor. This is
   // a value from views::style::TextContext or an enum that extends it.
@@ -132,11 +132,14 @@ class VIEWS_EXPORT Label : public View,
   // enabled.
   SkColor GetEnabledColor() const;
   virtual void SetEnabledColor(SkColor color);
+  absl::optional<ui::ColorId> GetEnabledColorId() const;
+  void SetEnabledColorId(absl::optional<ui::ColorId> enabled_color_id);
 
   // Gets/Sets the background color. This won't be explicitly drawn, but the
   // label will force the text color to be readable over it.
   SkColor GetBackgroundColor() const;
   void SetBackgroundColor(SkColor color);
+  void SetBackgroundColorId(absl::optional<ui::ColorId> background_color_id);
 
   // Gets/Sets the selection text color. This will automatically force the color
   // to be readable over the selection background color, if auto color
@@ -193,8 +196,8 @@ class VIEWS_EXPORT Label : public View,
 
   // If multi-line, a non-zero value will cap the number of lines rendered, and
   // elide the rest (currently only ELIDE_TAIL supported). See gfx::RenderText.
-  int GetMaxLines() const;
-  void SetMaxLines(int max_lines);
+  size_t GetMaxLines() const;
+  void SetMaxLines(size_t max_lines);
 
   // If single-line, a non-zero value will help determine the amount of space
   // needed *after* elision, which may be less than the passed |max_width|.
@@ -309,6 +312,8 @@ class VIEWS_EXPORT Label : public View,
   // View:
   int GetBaseline() const override;
   gfx::Size CalculatePreferredSize() const override;
+  gfx::Size CalculatePreferredSize(
+      const SizeBounds& available_size) const override;
   gfx::Size GetMinimumSize() const override;
   int GetHeightForWidth(int w) const override;
   View* GetTooltipHandlerForPoint(const gfx::Point& point) override;
@@ -325,6 +330,11 @@ class VIEWS_EXPORT Label : public View,
   // which may exceed the local bounds of the label.
   gfx::Rect GetTextBounds() const;
 
+  // Returns the Y coordinate the font_list() will actually be drawn at, in
+  // local coordinates.  This may differ from GetTextBounds().y() since the font
+  // is positioned inside the display rect.
+  int GetFontListY() const;
+
   void PaintText(gfx::Canvas* canvas);
 
   // View:
@@ -334,7 +344,7 @@ class VIEWS_EXPORT Label : public View,
   void OnDeviceScaleFactorChanged(float old_device_scale_factor,
                                   float new_device_scale_factor) override;
   void OnThemeChanged() override;
-  gfx::NativeCursor GetCursor(const ui::MouseEvent& event) override;
+  ui::Cursor GetCursor(const ui::MouseEvent& event) override;
   void OnFocus() override;
   void OnBlur() override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
@@ -402,6 +412,10 @@ class VIEWS_EXPORT Label : public View,
   // Get the text size for the current layout.
   gfx::Size GetTextSize() const;
 
+  // Get the text size that ignores the current layout and respects
+  // `available_size`.
+  gfx::Size GetBoundedTextSize(const SizeBounds& available_size) const;
+
   // Returns the appropriate foreground color to use given the proposed
   // |foreground| and |background| colors.
   SkColor GetForegroundColor(SkColor foreground, SkColor background) const;
@@ -457,6 +471,9 @@ class VIEWS_EXPORT Label : public View,
   SkColor actual_selection_text_color_ = gfx::kPlaceholderColor;
   SkColor selection_background_color_ = gfx::kPlaceholderColor;
 
+  absl::optional<ui::ColorId> enabled_color_id_;
+  absl::optional<ui::ColorId> background_color_id_;
+
   // Set to true once the corresponding setter is invoked.
   bool enabled_color_set_ = false;
   bool background_color_set_ = false;
@@ -470,7 +487,7 @@ class VIEWS_EXPORT Label : public View,
   bool auto_color_readability_enabled_ = true;
   // TODO(mukai): remove |multi_line_| when all RenderText can render multiline.
   bool multi_line_ = false;
-  int max_lines_ = 0;
+  size_t max_lines_ = 0;
   std::u16string tooltip_text_;
   bool handles_tooltips_ = true;
   // Whether to collapse the label when it's not visible.
@@ -482,9 +499,6 @@ class VIEWS_EXPORT Label : public View,
   int max_width_single_line_ = 0;
 
   std::unique_ptr<SelectionController> selection_controller_;
-
-  // Accessibility data.
-  std::u16string accessible_name_;
 
   // Context menu related members.
   ui::SimpleMenuModel context_menu_contents_;
@@ -501,6 +515,8 @@ VIEW_BUILDER_PROPERTY(SkColor, EnabledColor)
 VIEW_BUILDER_PROPERTY(SkColor, BackgroundColor)
 VIEW_BUILDER_PROPERTY(SkColor, SelectionTextColor)
 VIEW_BUILDER_PROPERTY(SkColor, SelectionBackgroundColor)
+VIEW_BUILDER_PROPERTY(ui::ColorId, EnabledColorId)
+VIEW_BUILDER_PROPERTY(ui::ColorId, BackgroundColorId)
 VIEW_BUILDER_PROPERTY(const gfx::ShadowValues&, Shadows)
 VIEW_BUILDER_PROPERTY(bool, SubpixelRenderingEnabled)
 VIEW_BUILDER_PROPERTY(bool, SkipSubpixelRenderingOpacityCheck)

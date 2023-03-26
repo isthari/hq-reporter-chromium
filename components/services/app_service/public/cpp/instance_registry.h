@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
 #include "base/sequence_checker.h"
+#include "base/time/time.h"
 #include "components/services/app_service/public/cpp/instance.h"
 #include "components/services/app_service/public/cpp/instance_update.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -64,6 +65,8 @@ class InstanceRegistry {
     // indirectly (e.g. via base::ScopedObservation::Remove or via
     // Observe(nullptr)).
     virtual void OnInstanceRegistryWillBeDestroyed(InstanceRegistry* cache) = 0;
+
+    InstanceRegistry* instance_registry() const { return instance_registry_; }
 
    protected:
     // Use this constructor when the observer |this| is tied to a single

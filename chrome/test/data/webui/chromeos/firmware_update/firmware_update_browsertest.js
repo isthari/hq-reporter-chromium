@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,6 @@
 
 GEN_INCLUDE(['//chrome/test/data/webui/polymer_browser_test_base.js']);
 
-GEN('#include "ash/constants/ash_features.h"');
 GEN('#include "content/public/test/browser_test.h"');
 
 /**
@@ -32,9 +31,7 @@ FirmwareUpdateAppBrowserTest.prototype = {
 
   browsePreload: 'chrome://accessory-update/test_loader.html' +
       '?module=chromeos/firmware_update/' +
-      'firmware_update_unified_test.js',
-
-  featureList: {enabled: ['ash::features::kFirmwareUpdaterApp']},
+      'firmware_update_unified_test.js&host=test',
 };
 
 // List of names of suites in unified test to register for individual debugging.

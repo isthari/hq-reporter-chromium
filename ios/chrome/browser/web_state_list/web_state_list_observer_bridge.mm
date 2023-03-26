@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -119,6 +119,21 @@ void WebStateListObserverBridge::WebStateActivatedAt(
                   oldWebState:old_web_state
                       atIndex:active_index
                        reason:reason];
+}
+
+void WebStateListObserverBridge::WebStatePinnedStateChanged(
+    WebStateList* web_state_list,
+    web::WebState* web_state,
+    int index) {
+  const SEL selector = @selector(webStateList:
+              didChangePinnedStateForWebState:atIndex:);
+  if (![observer_ respondsToSelector:selector]) {
+    return;
+  }
+
+  [observer_ webStateList:web_state_list
+      didChangePinnedStateForWebState:web_state
+                              atIndex:index];
 }
 
 void WebStateListObserverBridge::WillBeginBatchOperation(

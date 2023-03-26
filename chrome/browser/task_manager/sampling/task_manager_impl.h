@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -129,7 +129,7 @@ class TaskManagerImpl : public TaskManagerInterface,
   void StartUpdating() override;
   void StopUpdating() override;
 
-  // Lookup a task by the global render frame host id. The empty
+  // Lookup a task by the global RenderFrameHost id. The empty
   // GlobalRenderFrameHostId works as well, which would lead to the task
   // being attributed to the browser process.
   Task* GetTaskByRoute(

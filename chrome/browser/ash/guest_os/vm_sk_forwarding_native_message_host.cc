@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
@@ -48,7 +48,7 @@ const char* const
 
 // static
 const size_t VmSKForwardingNativeMessageHost::kOriginCount =
-    base::size(kOrigins);
+    std::size(kOrigins);
 
 // static
 std::unique_ptr<extensions::NativeMessageHost>
@@ -110,7 +110,7 @@ void VmSKForwardingNativeMessageHost::OnMessage(const std::string& message) {
 
 scoped_refptr<base::SingleThreadTaskRunner>
 VmSKForwardingNativeMessageHost::task_runner() const {
-  return base::ThreadTaskRunnerHandle::Get();
+  return base::SingleThreadTaskRunner::GetCurrentDefault();
 }
 
 void VmSKForwardingNativeMessageHost::DeliverMessageToExtensionByID(

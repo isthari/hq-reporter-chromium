@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,10 +27,6 @@ EnumTraits<mojo_base::mojom::MessagePumpType, base::MessagePumpType>::ToMojom(
 #if BUILDFLAG(IS_APPLE)
     case base::MessagePumpType::NS_RUNLOOP:
       return mojo_base::mojom::MessagePumpType::kNsRunloop;
-#endif
-#if BUILDFLAG(IS_WIN)
-    case base::MessagePumpType::UI_WITH_WM_QUIT_SUPPORT:
-      return mojo_base::mojom::MessagePumpType::kUiWithWmQuitSupport;
 #endif
   }
   NOTREACHED();
@@ -62,11 +58,6 @@ bool EnumTraits<mojo_base::mojom::MessagePumpType, base::MessagePumpType>::
 #if BUILDFLAG(IS_APPLE)
     case mojo_base::mojom::MessagePumpType::kNsRunloop:
       *output = base::MessagePumpType::NS_RUNLOOP;
-      return true;
-#endif
-#if BUILDFLAG(IS_WIN)
-    case mojo_base::mojom::MessagePumpType::kUiWithWmQuitSupport:
-      *output = base::MessagePumpType::UI_WITH_WM_QUIT_SUPPORT;
       return true;
 #endif
   }

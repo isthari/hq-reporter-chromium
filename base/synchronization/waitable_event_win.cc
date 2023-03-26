@@ -1,10 +1,11 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/synchronization/waitable_event.h"
 
 #include <windows.h>
+
 #include <stddef.h>
 
 #include <algorithm>
@@ -29,65 +30,32 @@ WaitableEvent::WaitableEvent(ResetPolicy reset_policy,
                           nullptr)) {
   // We're probably going to crash anyways if this is ever NULL, so we might as
   // well make our stack reports more informative by crashing here.
-  CHECK(handle_.IsValid());
+  CHECK(handle_.is_valid());
 }
 
 WaitableEvent::WaitableEvent(win::ScopedHandle handle)
     : handle_(std::move(handle)) {
-  CHECK(handle_.IsValid()) << "Tried to create WaitableEvent from NULL handle";
+  CHECK(handle_.is_valid()) << "Tried to create WaitableEvent from NULL handle";
 }
 
 WaitableEvent::~WaitableEvent() = default;
 
 void WaitableEvent::Reset() {
-  ResetEvent(handle_.Get());
+  ResetEvent(handle_.get());
 }
 
-void WaitableEvent::Signal() {
-  SetEvent(handle_.Get());
+void WaitableEvent::SignalImpl() {
+  SetEvent(handle_.get());
 }
 
 bool WaitableEvent::IsSignaled() {
-  DWORD result = WaitForSingleObject(handle_.Get(), 0);
+  DWORD result = WaitForSingleObject(handle_.get(), 0);
   DCHECK(result == WAIT_OBJECT_0 || result == WAIT_TIMEOUT)
       << "Unexpected WaitForSingleObject result " << result;
   return result == WAIT_OBJECT_0;
 }
 
-void WaitableEvent::Wait() {
-  // Record the event that this thread is blocking upon (for hang diagnosis) and
-  // consider it blocked for scheduling purposes. Ignore this for non-blocking
-  // WaitableEvents.
-  absl::optional<debug::ScopedEventWaitActivity> event_activity;
-  absl::optional<internal::ScopedBlockingCallWithBaseSyncPrimitives>
-      scoped_blocking_call;
-  if (waiting_is_blocking_) {
-    event_activity.emplace(this);
-    scoped_blocking_call.emplace(FROM_HERE, BlockingType::MAY_BLOCK);
-  }
-
-  DWORD result = WaitForSingleObject(handle_.Get(), INFINITE);
-  // It is most unexpected that this should ever fail.  Help consumers learn
-  // about it if it should ever fail.
-  DPCHECK(result != WAIT_FAILED);
-  DCHECK_EQ(WAIT_OBJECT_0, result);
-}
-
-bool WaitableEvent::TimedWait(const TimeDelta& wait_delta) {
-  if (wait_delta <= TimeDelta())
-    return IsSignaled();
-
-  // Record the event that this thread is blocking upon (for hang diagnosis) and
-  // consider it blocked for scheduling purposes. Ignore this for non-blocking
-  // WaitableEvents.
-  absl::optional<debug::ScopedEventWaitActivity> event_activity;
-  absl::optional<internal::ScopedBlockingCallWithBaseSyncPrimitives>
-      scoped_blocking_call;
-  if (waiting_is_blocking_) {
-    event_activity.emplace(this);
-    scoped_blocking_call.emplace(FROM_HERE, BlockingType::MAY_BLOCK);
-  }
-
+bool WaitableEvent::TimedWaitImpl(TimeDelta wait_delta) {
   // TimeTicks takes care of overflow but we special case is_max() nonetheless
   // to avoid invoking TimeTicksNowIgnoringOverride() unnecessarily.
   // WaitForSingleObject(handle_.Get(), INFINITE) doesn't spuriously wakeup so
@@ -104,8 +72,8 @@ bool WaitableEvent::TimedWait(const TimeDelta& wait_delta) {
         remaining.is_max()
             ? INFINITE
             : saturated_cast<DWORD>(remaining.InMillisecondsRoundedUp());
-    const DWORD result = WaitForSingleObject(handle_.Get(), timeout_ms);
-    DCHECK(result == WAIT_OBJECT_0 || result == WAIT_TIMEOUT)
+    const DWORD result = WaitForSingleObject(handle_.get(), timeout_ms);
+    DPCHECK(result == WAIT_OBJECT_0 || result == WAIT_TIMEOUT)
         << "Unexpected WaitForSingleObject result " << result;
     switch (result) {
       case WAIT_OBJECT_0:

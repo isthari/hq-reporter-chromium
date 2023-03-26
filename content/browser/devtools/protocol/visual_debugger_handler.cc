@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,9 @@
 
 #include "base/json/json_writer.h"
 #include "base/task/bind_post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "content/browser/devtools/protocol/base_string_adapter.h"
 #include "content/browser/gpu/gpu_process_host.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -21,7 +21,6 @@
 namespace content {
 namespace protocol {
 
-static const int sMaxJsonDepth = 1000;
 VisualDebuggerHandler::VisualDebuggerHandler()
     : DevToolsDomainHandler(VisualDebugger::Metainfo::domainName) {}
 
@@ -35,11 +34,11 @@ void VisualDebuggerHandler::Wire(UberDispatcher* dispatcher) {
 }
 
 DispatchResponse VisualDebuggerHandler::FilterStream(
-    std::unique_ptr<protocol::DictionaryValue> in_filter) {
-  base::Value dict = toBaseValue(in_filter.get(), sMaxJsonDepth);
+    std::unique_ptr<base::Value::Dict> in_filter) {
+  base::Value dict(std::move(*in_filter));
 
   GpuProcessHost::CallOnIO(
-      GPU_PROCESS_KIND_SANDBOXED,
+      FROM_HERE, GPU_PROCESS_KIND_SANDBOXED,
       /*force_create=*/false,
       base::BindOnce(
           [](base::Value json, GpuProcessHost* host) {
@@ -53,7 +52,7 @@ DispatchResponse VisualDebuggerHandler::FilterStream(
 DispatchResponse VisualDebuggerHandler::StartStream() {
   enabled_ = true;
   GpuProcessHost::CallOnIO(
-      GPU_PROCESS_KIND_SANDBOXED,
+      FROM_HERE, GPU_PROCESS_KIND_SANDBOXED,
       /*force_create=*/false,
       base::BindOnce(
           [](base::RepeatingCallback<void(base::Value)> callback,
@@ -61,7 +60,7 @@ DispatchResponse VisualDebuggerHandler::StartStream() {
             host->gpu_host()->StartVisualDebugStream(callback);
           },
           base::BindPostTask(
-              base::ThreadTaskRunnerHandle::Get(),
+              base::SingleThreadTaskRunner::GetCurrentDefault(),
               base::BindRepeating(&VisualDebuggerHandler::OnFrameResponse,
                                   weak_ptr_factory_.GetWeakPtr()),
               FROM_HERE)));
@@ -72,14 +71,13 @@ void VisualDebuggerHandler::OnFrameResponse(base::Value json) {
   // This should be called via the 'BindPostTask' in 'StartStream' function
   // above and thus should be in the correct thread.
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  std::unique_ptr<protocol::DictionaryValue> dict =
-      protocol::DictionaryValue::cast(toProtocolValue(json, sMaxJsonDepth));
-  frontend_->FrameResponse(std::move(dict));
+  frontend_->FrameResponse(
+      std::make_unique<base::Value::Dict>(std::move(json).TakeDict()));
 }
 
 DispatchResponse VisualDebuggerHandler::StopStream() {
   if (enabled_) {
-    GpuProcessHost::CallOnIO(GPU_PROCESS_KIND_SANDBOXED,
+    GpuProcessHost::CallOnIO(FROM_HERE, GPU_PROCESS_KIND_SANDBOXED,
                              /*force_create=*/false,
                              base::BindOnce([](GpuProcessHost* host) {
                                host->gpu_host()->StopVisualDebugStream();

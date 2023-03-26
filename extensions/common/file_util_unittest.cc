@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 
 #include <utility>
 
-#include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/json/json_string_value_serializer.h"
@@ -16,6 +15,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/values_test_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "extensions/common/constants.h"
@@ -48,7 +48,7 @@ const base::FilePath::CharType kCustomManifestFilename[] =
     FILE_PATH_LITERAL("custom_manifest.json");
 
 scoped_refptr<Extension> LoadExtensionManifest(
-    const base::DictionaryValue& manifest,
+    const base::Value::Dict& manifest,
     const base::FilePath& manifest_dir,
     ManifestLocation location,
     int extra_flags,
@@ -70,8 +70,8 @@ scoped_refptr<Extension> LoadExtensionManifest(
   if (!result.get())
     return nullptr;
   CHECK_EQ(base::Value::Type::DICTIONARY, result->type());
-  return LoadExtensionManifest(*base::DictionaryValue::From(std::move(result)),
-                               manifest_dir, location, extra_flags, error);
+  return LoadExtensionManifest(std::move(*result).TakeDict(), manifest_dir,
+                               location, extra_flags, error);
 }
 
 void RunUnderscoreDirectoriesTest(
@@ -259,7 +259,7 @@ TEST_F(FileUtilTest, CheckIllegalFilenamesOnlyReserved) {
   static const base::FilePath::CharType* const folders[] = {
       kLocaleFolder, kPlatformSpecificFolder};
 
-  for (size_t i = 0; i < base::size(folders); i++) {
+  for (size_t i = 0; i < std::size(folders); i++) {
     base::FilePath src_path = temp.GetPath().Append(folders[i]);
     ASSERT_TRUE(base::CreateDirectory(src_path));
   }
@@ -377,19 +377,19 @@ TEST_F(FileUtilTest, BackgroundScriptsMustExist) {
   base::ScopedTempDir temp;
   ASSERT_TRUE(temp.CreateUniqueTempDir());
 
-  std::unique_ptr<base::DictionaryValue> value(new base::DictionaryValue());
-  value->SetString("name", "test");
-  value->SetString("version", "1");
-  value->SetInteger("manifest_version", 2);
+  base::Value::Dict value;
+  value.Set("name", "test");
+  value.Set("version", "1");
+  value.Set("manifest_version", 2);
 
-  base::ListValue* scripts =
-      value->SetList("background.scripts", std::make_unique<base::ListValue>());
+  base::Value::List* scripts =
+      value.EnsureDict("background")->EnsureList("scripts");
   scripts->Append("foo.js");
 
   std::string error;
   std::vector<InstallWarning> warnings;
   scoped_refptr<Extension> extension = LoadExtensionManifest(
-      *value, temp.GetPath(), ManifestLocation::kUnpacked, 0, &error);
+      value, temp.GetPath(), ManifestLocation::kUnpacked, 0, &error);
   ASSERT_TRUE(extension.get()) << error;
 
   EXPECT_FALSE(
@@ -399,10 +399,10 @@ TEST_F(FileUtilTest, BackgroundScriptsMustExist) {
             error);
   EXPECT_EQ(0U, warnings.size());
 
-  scripts->ClearList();
+  scripts->clear();
   scripts->Append("http://google.com/foo.js");
 
-  extension = LoadExtensionManifest(*value, temp.GetPath(),
+  extension = LoadExtensionManifest(value, temp.GetPath(),
                                     ManifestLocation::kUnpacked, 0, &error);
   ASSERT_TRUE(extension.get()) << error;
 
@@ -443,20 +443,20 @@ TEST_F(FileUtilTest, FindPrivateKeyFiles) {
   base::FilePath src_path = temp.GetPath().AppendASCII("some_dir");
   ASSERT_TRUE(base::CreateDirectory(src_path));
 
-  ASSERT_EQ(static_cast<int>(base::size(private_key)),
+  ASSERT_EQ(static_cast<int>(std::size(private_key)),
             base::WriteFile(src_path.AppendASCII("a_key.pem"), private_key,
-                            base::size(private_key)));
-  ASSERT_EQ(static_cast<int>(base::size(private_key)),
+                            std::size(private_key)));
+  ASSERT_EQ(static_cast<int>(std::size(private_key)),
             base::WriteFile(src_path.AppendASCII("second_key.pem"), private_key,
-                            base::size(private_key)));
+                            std::size(private_key)));
   // Shouldn't find a key with a different extension.
-  ASSERT_EQ(static_cast<int>(base::size(private_key)),
+  ASSERT_EQ(static_cast<int>(std::size(private_key)),
             base::WriteFile(src_path.AppendASCII("key.diff_ext"), private_key,
-                            base::size(private_key)));
+                            std::size(private_key)));
   // Shouldn't find a key that isn't parsable.
-  ASSERT_EQ(static_cast<int>(base::size(private_key)) - 30,
+  ASSERT_EQ(static_cast<int>(std::size(private_key)) - 30,
             base::WriteFile(src_path.AppendASCII("unparsable_key.pem"),
-                            private_key, base::size(private_key) - 30));
+                            private_key, std::size(private_key) - 30));
   std::vector<base::FilePath> private_keys =
       file_util::FindPrivateKeyFiles(temp.GetPath());
   EXPECT_EQ(2U, private_keys.size());
@@ -637,7 +637,7 @@ TEST_F(FileUtilTest, ExtensionURLToRelativeFilePath) {
   };
 #undef URL_PREFIX
 
-  for (size_t i = 0; i < base::size(test_cases); ++i) {
+  for (size_t i = 0; i < std::size(test_cases); ++i) {
     GURL url(test_cases[i].url);
     base::FilePath expected_path =
         base::FilePath::FromUTF8Unsafe(test_cases[i].expected_relative_path);

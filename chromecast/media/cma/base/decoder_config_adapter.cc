@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,6 +59,7 @@ SampleFormat ToSampleFormat(const ::media::SampleFormat sample_format) {
     case ::media::kSampleFormatDts:
     case ::media::kSampleFormatDtsxP2:
     case ::media::kSampleFormatMpegHAudio:
+    case ::media::kSampleFormatIECDts:
       return kUnknownSampleFormat;
     case ::media::kSampleFormatU8:
       return kSampleFormatU8;
@@ -356,14 +357,14 @@ VideoConfig DecoderConfigAdapter::ToCastVideoConfig(
 
     const auto& mm1 = hdr_metadata->color_volume_metadata;
     auto& mm2 = video_config.hdr_metadata.color_volume_metadata;
-    mm2.primary_r_chromaticity_x = mm1.primary_r.x();
-    mm2.primary_r_chromaticity_y = mm1.primary_r.y();
-    mm2.primary_g_chromaticity_x = mm1.primary_g.x();
-    mm2.primary_g_chromaticity_y = mm1.primary_g.y();
-    mm2.primary_b_chromaticity_x = mm1.primary_b.x();
-    mm2.primary_b_chromaticity_y = mm1.primary_b.y();
-    mm2.white_point_chromaticity_x = mm1.white_point.x();
-    mm2.white_point_chromaticity_y = mm1.white_point.y();
+    mm2.primary_r_chromaticity_x = mm1.primaries.fRX;
+    mm2.primary_r_chromaticity_y = mm1.primaries.fRY;
+    mm2.primary_g_chromaticity_x = mm1.primaries.fGX;
+    mm2.primary_g_chromaticity_y = mm1.primaries.fGY;
+    mm2.primary_b_chromaticity_x = mm1.primaries.fBX;
+    mm2.primary_b_chromaticity_y = mm1.primaries.fBY;
+    mm2.white_point_chromaticity_x = mm1.primaries.fWX;
+    mm2.white_point_chromaticity_y = mm1.primaries.fWY;
     mm2.luminance_max = mm1.luminance_max;
     mm2.luminance_min = mm1.luminance_min;
   }

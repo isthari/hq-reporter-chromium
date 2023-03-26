@@ -25,7 +25,6 @@
 
 #include "third_party/blink/renderer/platform/graphics/crossfade_generated_image.h"
 
-#include "third_party/blink/renderer/platform/graphics/dark_mode_filter_helper.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_canvas.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -57,7 +56,7 @@ void CrossfadeGeneratedImage::DrawCrossfade(
   cc::PaintFlags layer_flags;
   layer_flags.setBlendMode(flags.getBlendMode());
   PaintCanvasAutoRestore ar(canvas, false);
-  canvas->saveLayer(nullptr, &layer_flags);
+  canvas->saveLayer(layer_flags);
 
   cc::PaintFlags image_flags(flags);
   image_flags.setBlendMode(SkBlendMode::kSrcOver);
@@ -88,7 +87,7 @@ void CrossfadeGeneratedImage::Draw(cc::PaintCanvas* canvas,
   SkRect src_sk_rect = gfx::RectFToSkRect(src_rect);
   SkRect dst_sk_rect = gfx::RectFToSkRect(dst_rect);
   canvas->clipRect(dst_sk_rect);
-  canvas->concat(SkMatrix::RectToRect(src_sk_rect, dst_sk_rect));
+  canvas->concat(SkM44::RectToRect(src_sk_rect, dst_sk_rect));
   DrawCrossfade(canvas, flags, draw_options);
 }
 
@@ -103,7 +102,7 @@ void CrossfadeGeneratedImage::DrawTile(GraphicsContext& context,
   gfx::RectF dest_rect(size_);
   ImageDrawOptions draw_options(options);
   draw_options.sampling_options =
-      context.ComputeSamplingOptions(this, dest_rect, src_rect);
+      context.ComputeSamplingOptions(*this, dest_rect, src_rect);
   DrawCrossfade(context.Canvas(), flags, draw_options);
 }
 

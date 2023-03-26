@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,19 +14,19 @@
 #include "ash/test/ash_test_base.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chromeos/network/network_state_handler.h"
-#include "chromeos/network/network_state_test_helper.h"
-#include "chromeos/services/network_config/public/cpp/cros_network_config_test_helper.h"
+#include "chromeos/ash/components/network/network_state_handler.h"
+#include "chromeos/ash/components/network/network_state_test_helper.h"
+#include "chromeos/ash/services/network_config/public/cpp/cros_network_config_test_helper.h"
 #include "third_party/cros_system_api/dbus/shill/dbus-constants.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/image/image_unittest_util.h"
 
-using chromeos::network_config::mojom::ConnectionStateType;
-using chromeos::network_config::mojom::NetworkType;
-
 namespace ash {
 
 namespace {
+
+using ::chromeos::network_config::mojom::ConnectionStateType;
+using ::chromeos::network_config::mojom::NetworkType;
 
 const char kShillManagerClientStubCellularDevice[] =
     "/device/stub_cellular_device";
@@ -119,10 +119,9 @@ class ActiveNetworkIconTest : public AshTestBase {
     base::RunLoop().RunUntilIdle();
   }
 
-  gfx::ImageSkia ImageForNetwork(
-      chromeos::network_config::mojom::NetworkType type,
-      chromeos::network_config::mojom::ConnectionStateType connection_state,
-      int signal_strength = 100) {
+  gfx::ImageSkia ImageForNetwork(NetworkType type,
+                                 ConnectionStateType connection_state,
+                                 int signal_strength = 100) {
     std::string id = base::StringPrintf("reference_%d", reference_count_++);
     chromeos::network_config::mojom::NetworkStatePropertiesPtr
         reference_properties =
@@ -147,10 +146,10 @@ class ActiveNetworkIconTest : public AshTestBase {
     network_state_helper().SetServiceProperty(service_path, key, value);
   }
 
-  chromeos::NetworkStateTestHelper& network_state_helper() {
+  NetworkStateTestHelper& network_state_helper() {
     return network_config_helper_.network_state_helper();
   }
-  chromeos::NetworkStateHandler* network_state_handler() {
+  NetworkStateHandler* network_state_handler() {
     return network_state_helper().network_state_handler();
   }
   ActiveNetworkIcon* active_network_icon() {
@@ -167,7 +166,7 @@ class ActiveNetworkIconTest : public AshTestBase {
   network_icon::IconType icon_type() { return icon_type_; }
 
  private:
-  chromeos::network_config::CrosNetworkConfigTestHelper network_config_helper_;
+  network_config::CrosNetworkConfigTestHelper network_config_helper_;
   std::unique_ptr<TrayNetworkStateModel> network_state_model_;
   std::unique_ptr<ActiveNetworkIcon> active_network_icon_;
 
@@ -190,9 +189,11 @@ TEST_F(ActiveNetworkIconTest, GetConnectionStatusStrings) {
   EXPECT_EQ(l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_NETWORK_CONNECTED,
                                        kCellularNetworkGuid16),
             name);
+  std::u16string connected_string = l10n_util::GetStringFUTF16(
+      IDS_ASH_STATUS_TRAY_NETWORK_CONNECTED, kCellularNetworkGuid16);
   EXPECT_EQ(
       l10n_util::GetStringFUTF16(
-          IDS_ASH_STATUS_TRAY_NETWORK_CONNECTED_TOOLTIP, kCellularNetworkGuid16,
+          IDS_ASH_STATUS_TRAY_NETWORK_CONNECTED_TOOLTIP, connected_string,
           l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_NETWORK_SIGNAL_STRONG)),
       tooltip);
 }
@@ -264,7 +265,7 @@ TEST_F(ActiveNetworkIconTest, CellularScanning) {
   SetCellularUninitialized(true /* scanning */);
 
   ASSERT_TRUE(network_state_handler()->GetScanningByType(
-      chromeos::NetworkTypePattern::Cellular()));
+      NetworkTypePattern::Cellular()));
 
   bool animating;
   gfx::ImageSkia image = active_network_icon()->GetImage(
@@ -273,6 +274,18 @@ TEST_F(ActiveNetworkIconTest, CellularScanning) {
       AreImagesEqual(image, ImageForNetwork(NetworkType::kCellular,
                                             ConnectionStateType::kConnecting)));
   EXPECT_TRUE(animating);
+
+  // Set scanning property to false, expect no network connections icon.
+  network_state_helper().device_test()->SetDeviceProperty(
+      kShillManagerClientStubCellularDevice, shill::kScanningProperty,
+      base::Value(false), true /* notify_changed */);
+  base::RunLoop().RunUntilIdle();
+
+  image = active_network_icon()->GetImage(ActiveNetworkIcon::Type::kSingle,
+                                          icon_type(), &animating);
+  EXPECT_TRUE(AreImagesEqual(
+      image, network_icon::GetImageForWiFiNoConnections(icon_type())));
+  EXPECT_FALSE(animating);
 }
 
 TEST_F(ActiveNetworkIconTest, CellularDisable) {

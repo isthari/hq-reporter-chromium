@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
 #include "components/security_interstitials/content/ssl_blocking_page.h"
+#include "components/security_interstitials/content/urls.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/referrer.h"
@@ -16,14 +17,14 @@
 namespace {
 const char kHelpCenterConnectionHelpUrl[] =
     "https://support.google.com/chrome/answer/6098869";
-const char kBundledConnectionHelpUrl[] = "chrome://connection-help";
 
 void RedirectToBundledHelp(content::WebContents* web_contents) {
   GURL::Replacements replacements;
   std::string error_code = web_contents->GetLastCommittedURL().ref();
   replacements.SetRefStr(error_code);
   web_contents->GetController().LoadURL(
-      GURL(kBundledConnectionHelpUrl).ReplaceComponents(replacements),
+      GURL(security_interstitials::kChromeUIConnectionHelpURL)
+          .ReplaceComponents(replacements),
       content::Referrer(), ui::PageTransition::PAGE_TRANSITION_AUTO_TOPLEVEL,
       std::string());
 }

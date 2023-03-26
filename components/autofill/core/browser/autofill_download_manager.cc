@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 #include <utility>
 
 #include "base/base64url.h"
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/containers/cxx20_erase.h"
 #include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/metrics/field_trial_params.h"
@@ -23,7 +23,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_driver.h"
 #include "components/autofill/core/browser/logging/log_manager.h"
@@ -168,11 +168,10 @@ base::TimeDelta GetThrottleResetPeriod() {
 
 // Returns true if |id| is within |kAutofillExperimentRanges|.
 bool IsAutofillExperimentId(int id) {
-  for (const auto& range : kAutofillExperimentRanges) {
-    if (range.first <= id && id <= range.second)
-      return true;
-  }
-  return false;
+  return base::ranges::any_of(kAutofillExperimentRanges, [id](auto range) {
+    const auto& [low, high] = range;
+    return low <= id && id <= high;
+  });
 }
 
 // Helper to log the HTTP |response_code| and other data received for
@@ -236,8 +235,8 @@ void LogExponentialBackoffDelay(
 }
 
 net::NetworkTrafficAnnotationTag GetNetworkTrafficAnnotation(
-    const autofill::AutofillDownloadManager::RequestType& request_type) {
-  if (request_type == autofill::AutofillDownloadManager::REQUEST_QUERY) {
+    const AutofillDownloadManager::RequestType& request_type) {
+  if (request_type == AutofillDownloadManager::REQUEST_QUERY) {
     return net::DefineNetworkTrafficAnnotation("autofill_query", R"(
         semantics {
           sender: "Autofill"
@@ -269,7 +268,7 @@ net::NetworkTrafficAnnotationTag GetNetworkTrafficAnnotation(
         })");
   }
 
-  DCHECK_EQ(request_type, autofill::AutofillDownloadManager::REQUEST_UPLOAD);
+  DCHECK_EQ(request_type, AutofillDownloadManager::REQUEST_UPLOAD);
   return net::DefineNetworkTrafficAnnotation("autofill_upload", R"(
       semantics {
         sender: "Autofill"
@@ -322,7 +321,7 @@ const char* RequestTypeToString(AutofillDownloadManager::RequestType type) {
 }
 
 std::ostream& operator<<(std::ostream& out,
-                         const autofill::AutofillPageQueryRequest& query) {
+                         const AutofillPageQueryRequest& query) {
   out << "client_version: " << query.client_version();
   for (const auto& form : query.forms()) {
     out << "\nForm\n signature: " << form.signature();
@@ -338,7 +337,7 @@ std::ostream& operator<<(std::ostream& out,
 }
 
 std::ostream& operator<<(std::ostream& out,
-                         const autofill::AutofillUploadContents& upload) {
+                         const AutofillUploadContents& upload) {
   out << "client_version: " << upload.client_version() << "\n";
   out << "form_signature: " << upload.form_signature() << "\n";
   out << "data_present: " << upload.data_present() << "\n";
@@ -360,17 +359,6 @@ std::ostream& operator<<(std::ostream& out,
     }
     out << "]";
 
-    out << "\n (autofill_type, validity_states): [";
-    for (const auto& type_validities : field.autofill_type_validities()) {
-      out << "(type: " << type_validities.type() << ", validities: {";
-      for (int i = 0; i < type_validities.validity_size(); ++i) {
-        if (i)
-          out << ", ";
-        out << type_validities.validity(i);
-      }
-      out << "})";
-    }
-    out << "]\n";
     if (!field.name().empty())
       out << "\n name: " << field.name();
     if (!field.autocomplete().empty())
@@ -393,8 +381,7 @@ std::string FieldTypeToString(int type) {
        AutofillType(ToSafeServerFieldType(type, UNKNOWN_TYPE)).ToString()});
 }
 
-LogBuffer& operator<<(LogBuffer& out,
-                      const autofill::AutofillUploadContents& upload) {
+LogBuffer& operator<<(LogBuffer& out, const AutofillUploadContents& upload) {
   if (!out.active())
     return out;
   out << Tag{"div"} << Attrib{"class", "form"};
@@ -419,7 +406,7 @@ LogBuffer& operator<<(LogBuffer& out,
     out << Tr{} << "has_form_tag:" << upload.has_form_tag();
 
   if (upload.has_single_username_data()) {
-    LogBuffer single_username_data;
+    LogBuffer single_username_data(LogBuffer::IsActive(true));
     single_username_data << Tag{"span"} << "[";
     single_username_data
         << Tr{} << "username_form_signature:"
@@ -446,15 +433,6 @@ LogBuffer& operator<<(LogBuffer& out,
     for (int type : field.autofill_type())
       types_as_strings.emplace_back(FieldTypeToString(type));
     out << Tr{} << "autofill_type:" << types_as_strings;
-
-    LogBuffer validities;
-    validities << Tag{"span"} << "[";
-    for (const auto& type_validities : field.autofill_type_validities()) {
-      validities << "(type: " << type_validities.type()
-                 << ", validities: " << type_validities.validity() << ")";
-    }
-    validities << "]";
-    out << Tr{} << "validity_states" << std::move(validities);
 
     if (!field.name().empty())
       out << Tr{} << "name:" << field.name();
@@ -498,10 +476,9 @@ bool CanThrottleUpload(const FormStructure& form,
   std::string key = base::StringPrintf(
       "%03X",
       static_cast<int>(form.form_signature().value() % kNumUploadBuckets));
-  auto* upload_events =
-      pref_service->GetDictionary(prefs::kAutofillUploadEvents);
-  auto* found = upload_events->FindKeyOfType(key, base::Value::Type::INTEGER);
-  int value = found ? found->GetInt() : 0;
+  const auto& upload_events =
+      pref_service->GetDict(prefs::kAutofillUploadEvents);
+  int value = upload_events.FindInt(key).value_or(0);
 
   // Calculate the mask we expect to be set for the form's upload bucket.
   const int bit = static_cast<int>(form.submission_source());
@@ -513,8 +490,8 @@ bool CanThrottleUpload(const FormStructure& form,
   // event pref to set the appropriate bit.
   bool is_first_upload_for_event = ((value & mask) == 0);
   if (is_first_upload_for_event) {
-    DictionaryPrefUpdate update(pref_service, prefs::kAutofillUploadEvents);
-    update->SetKey(std::move(key), base::Value(value | mask));
+    ScopedDictPrefUpdate update(pref_service, prefs::kAutofillUploadEvents);
+    update->Set(std::move(key), value | mask);
   }
 
   return !is_first_upload_for_event;
@@ -594,8 +571,10 @@ bool GetAPIQueryPayload(const AutofillPageQueryRequest& query,
 }  // namespace
 
 struct AutofillDownloadManager::FormRequestData {
+  base::WeakPtr<Observer> observer;
   std::vector<FormSignature> form_signatures;
   RequestType request_type;
+  absl::optional<net::IsolationInfo> isolation_info;
   std::string payload;
   int num_attempts = 0;
 };
@@ -612,27 +591,21 @@ std::vector<variations::VariationID>*
     AutofillDownloadManager::active_experiments_ = nullptr;
 
 AutofillDownloadManager::AutofillDownloadManager(
-    AutofillDriver* driver,
-    Observer* observer,
+    AutofillClient* client,
     const std::string& api_key,
     IsRawMetadataUploadingEnabled is_raw_metadata_uploading_enabled,
     LogManager* log_manager)
-    : driver_(driver),
-      observer_(observer),
+    : client_(client),
       api_key_(api_key),
       log_manager_(log_manager),
       autofill_server_url_(GetAutofillServerURL()),
       throttle_reset_period_(GetThrottleResetPeriod()),
       max_form_cache_size_(kAutofillDownloadManagerMaxFormCacheSize),
       loader_backoff_(&kAutofillBackoffPolicy),
-      is_raw_metadata_uploading_enabled_(is_raw_metadata_uploading_enabled) {
-  DCHECK(observer_);
-}
+      is_raw_metadata_uploading_enabled_(is_raw_metadata_uploading_enabled) {}
 
-AutofillDownloadManager::AutofillDownloadManager(AutofillDriver* driver,
-                                                 Observer* observer)
-    : AutofillDownloadManager(driver,
-                              observer,
+AutofillDownloadManager::AutofillDownloadManager(AutofillClient* client)
+    : AutofillDownloadManager(client,
                               kDefaultAPIKey,
                               IsRawMetadataUploadingEnabled(false),
                               /*log_manager=*/nullptr) {}
@@ -640,7 +613,9 @@ AutofillDownloadManager::AutofillDownloadManager(AutofillDriver* driver,
 AutofillDownloadManager::~AutofillDownloadManager() = default;
 
 bool AutofillDownloadManager::StartQueryRequest(
-    const std::vector<FormStructure*>& forms) {
+    const std::vector<FormStructure*>& forms,
+    net::IsolationInfo isolation_info,
+    base::WeakPtr<Observer> observer) {
   if (!IsEnabled())
     return false;
 
@@ -675,10 +650,13 @@ bool AutofillDownloadManager::StartQueryRequest(
     return false;
   }
 
-  FormRequestData request_data;
-  request_data.form_signatures = std::move(queried_form_signatures);
-  request_data.request_type = AutofillDownloadManager::REQUEST_QUERY;
-  request_data.payload = std::move(payload);
+  FormRequestData request_data = {
+      .observer = observer,
+      .form_signatures = std::move(queried_form_signatures),
+      .request_type = AutofillDownloadManager::REQUEST_QUERY,
+      .isolation_info = std::move(isolation_info),
+      .payload = std::move(payload),
+  };
   AutofillMetrics::LogServerQueryMetric(AutofillMetrics::QUERY_SENT);
 
   std::string query_data;
@@ -692,8 +670,10 @@ bool AutofillDownloadManager::StartQueryRequest(
                   }
                   return form_sigs;
                 }();
-    observer_->OnLoadedServerPredictions(std::move(query_data),
-                                         request_data.form_signatures);
+    if (request_data.observer) {
+      request_data.observer->OnLoadedServerPredictions(
+          std::move(query_data), request_data.form_signatures);
+    }
     return true;
   }
 
@@ -708,7 +688,8 @@ bool AutofillDownloadManager::StartUploadRequest(
     const ServerFieldTypeSet& available_field_types,
     const std::string& login_form_signature,
     bool observed_submission,
-    PrefService* prefs) {
+    PrefService* prefs,
+    base::WeakPtr<Observer> observer) {
   if (!IsEnabled())
     return false;
 
@@ -727,57 +708,58 @@ bool AutofillDownloadManager::StartUploadRequest(
   if (!needs_logging && !allow_upload)
     return false;
 
-  AutofillUploadContents upload;
-  std::vector<FormSignature> form_signatures;
-  if (!form.EncodeUploadRequest(available_field_types, form_was_autofilled,
-                                login_form_signature, observed_submission,
-                                is_raw_metadata_uploading_enabled_, &upload,
-                                &form_signatures)) {
-    return false;
-  }
+  auto Upload = [&](AutofillUploadContents upload) {
+    // If this upload was a candidate for throttling, tag it and make sure that
+    // any throttling sensitive features are enforced.
+    if (can_throttle_upload) {
+      upload.set_was_throttleable(true);
 
-  // If this upload was a candidate for throttling, tag it and make sure that
-  // any throttling sensitive features are enforced.
-  if (can_throttle_upload) {
-    upload.set_was_throttleable(true);
-
-    // Don't send randomized metadata.
-    upload.clear_randomized_form_metadata();
-    for (auto& f : *upload.mutable_field()) {
-      f.clear_randomized_field_metadata();
+      // Don't send randomized metadata.
+      upload.clear_randomized_form_metadata();
+      for (auto& f : *upload.mutable_field())
+        f.clear_randomized_field_metadata();
     }
-  }
 
-  // Get the POST payload that contains upload data.
-  std::string payload;
-  bool is_payload = GetUploadPayloadForApi(upload, &payload);
-  // Indicate that we could not serialize upload in the payload.
-  if (!is_payload) {
-    return false;
-  }
+    // Get the POST payload that contains upload data.
+    std::string payload;
+    bool is_payload = GetUploadPayloadForApi(upload, &payload);
+    // Indicate that we could not serialize upload in the payload.
+    if (!is_payload) {
+      return false;
+    }
 
-  if (form.upload_required() == UPLOAD_NOT_REQUIRED) {
     // If we ever need notification that upload was skipped, add it here.
-    return false;
-  }
+    if (form.upload_required() == UPLOAD_NOT_REQUIRED) {
+      return false;
+    }
 
-  FormRequestData request_data;
-  request_data.form_signatures = std::move(form_signatures);
-  request_data.request_type = AutofillDownloadManager::REQUEST_UPLOAD;
-  request_data.payload = std::move(payload);
+    FormRequestData request_data = {
+        .observer = observer,
+        .form_signatures = {form.form_signature()},
+        .request_type = AutofillDownloadManager::REQUEST_UPLOAD,
+        .isolation_info = absl::nullopt,
+        .payload = std::move(payload),
+    };
 
-  DVLOG(1) << "Sending Autofill Upload Request:\n" << upload;
-  if (log_manager_) {
-    log_manager_->Log() << LoggingScope::kAutofillServer
-                        << LogMessage::kSendAutofillUpload << Br{}
-                        << "Allow upload?: " << allow_upload << Br{}
-                        << "Data: " << Br{} << upload;
-  }
+    DVLOG(1) << "Sending Autofill Upload Request:\n" << upload;
+    LOG_AF(log_manager_) << LoggingScope::kAutofillServer
+                         << LogMessage::kSendAutofillUpload << Br{}
+                         << "Allow upload?: " << allow_upload << Br{}
+                         << "Data: " << Br{} << upload;
 
-  if (!allow_upload)
-    return false;
+    if (!allow_upload)
+      return false;
 
-  return StartRequest(std::move(request_data));
+    return StartRequest(std::move(request_data));
+  };
+
+  std::vector<AutofillUploadContents> uploads = form.EncodeUploadRequest(
+      available_field_types, form_was_autofilled, login_form_signature,
+      observed_submission, is_raw_metadata_uploading_enabled_);
+  bool all_succeeded = !uploads.empty();
+  for (AutofillUploadContents& upload : uploads)
+    all_succeeded &= Upload(std::move(upload));
+  return all_succeeded;
 }
 
 void AutofillDownloadManager::ClearUploadHistory(PrefService* pref_service) {
@@ -823,9 +805,15 @@ std::tuple<GURL, std::string> AutofillDownloadManager::GetRequestURLAndMethod(
 }
 
 bool AutofillDownloadManager::StartRequest(FormRequestData request_data) {
-  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory =
-      driver_->GetURLLoaderFactory();
-  DCHECK(url_loader_factory);
+  // REQUEST_UPLOADs take no IsolationInfo because Password Manager uploads when
+  // RenderFrameHostImpl::DidCommitNavigation() is called, in which case
+  // AutofillDriver::IsolationInfo() may crash because there is no committing
+  // NavigationRequest. Not setting an IsolationInfo is safe because no
+  // information about the response is passed to the renderer, or is otherwise
+  // visible to a page. See crbug/1176635#c22.
+  DCHECK(
+      (request_data.request_type == AutofillDownloadManager::REQUEST_UPLOAD) ==
+      !request_data.isolation_info);
 
   // Get the URL and method to use for this request.
   auto [request_url, method] = GetRequestURLAndMethod(request_data);
@@ -847,24 +835,19 @@ bool AutofillDownloadManager::StartRequest(FormRequestData request_data) {
   // As it is shared, it is not trusted and we cannot assign trusted_params
   // to the network request.
 #if !BUILDFLAG(IS_IOS)
-  // Do not call IsolationInfo() for REQUEST_UPLOADs because Password Manager
-  // uploads when RenderFrameHostImpl::DidCommitNavigation() is called, in which
-  // case IsolationInfo() may crash because there is no committing
-  // NavigationRequest. This is safe because no information about the response
-  // is passed to the renderer, or is otherwise visible to a page.
-  // crbug/1176635#c22
-  if (request_data.request_type != AutofillDownloadManager::REQUEST_UPLOAD) {
+  if (request_data.isolation_info) {
     resource_request->trusted_params =
         network::ResourceRequest::TrustedParams();
-    resource_request->trusted_params->isolation_info = driver_->IsolationInfo();
+    resource_request->trusted_params->isolation_info =
+        *request_data.isolation_info;
   }
 #endif
 
   // Add Chrome experiment state to the request headers.
   variations::AppendVariationsHeaderUnknownSignedIn(
       request_url,
-      driver_->IsIncognito() ? variations::InIncognito::kYes
-                             : variations::InIncognito::kNo,
+      client_->IsOffTheRecord() ? variations::InIncognito::kYes
+                                : variations::InIncognito::kNo,
       resource_request.get());
 
   // Set headers specific to the API.
@@ -907,7 +890,7 @@ bool AutofillDownloadManager::StartRequest(FormRequestData request_data) {
   auto* raw_simple_loader = simple_loader.get();
   url_loaders_.push_back(std::move(simple_loader));
   raw_simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
-      url_loader_factory.get(),
+      client_->GetURLLoaderFactory().get(),
       base::BindOnce(&AutofillDownloadManager::OnSimpleLoaderComplete,
                      base::Unretained(this), std::move(--url_loaders_.end()),
                      std::move(request_data), AutofillTickClock::NowTicks()));
@@ -934,10 +917,10 @@ void AutofillDownloadManager::CacheQueryRequest(
 bool AutofillDownloadManager::CheckCacheForQueryRequest(
     const std::vector<FormSignature>& forms_in_query,
     std::string* query_data) const {
-  for (const auto& it : cached_forms_) {
-    if (it.first == forms_in_query) {
+  for (const auto& [signatures, cached_data] : cached_forms_) {
+    if (signatures == forms_in_query) {
       // We hit the cache, fill the data and return.
-      *query_data = it.second;
+      *query_data = cached_data;
       return true;
     }
   }
@@ -992,8 +975,11 @@ void AutofillDownloadManager::OnSimpleLoaderComplete(
              << response_code << " and error message from the server "
              << error_message;
 
-    observer_->OnServerRequestError(request_data.form_signatures.front(),
-                                    request_data.request_type, response_code);
+    if (request_data.observer) {
+      request_data.observer->OnServerRequestError(
+          request_data.form_signatures.front(), request_data.request_type,
+          response_code);
+    }
 
     LogFailingPayloadSize(request_data.request_type,
                           request_data.payload.length());
@@ -1011,7 +997,7 @@ void AutofillDownloadManager::OnSimpleLoaderComplete(
 
     // Reschedule with the appropriate delay, ignoring return value because
     // payload is already well formed.
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(
             base::IgnoreResult(&AutofillDownloadManager::StartRequest),
@@ -1024,15 +1010,19 @@ void AutofillDownloadManager::OnSimpleLoaderComplete(
     CacheQueryRequest(request_data.form_signatures, *response_body);
     UMA_HISTOGRAM_BOOLEAN("Autofill.Query.WasInCache",
                           simple_loader->LoadedFromCache());
-    observer_->OnLoadedServerPredictions(std::move(*response_body),
-                                         request_data.form_signatures);
+    if (request_data.observer) {
+      request_data.observer->OnLoadedServerPredictions(
+          std::move(*response_body), request_data.form_signatures);
+    }
     return;
   }
 
   DCHECK_EQ(request_data.request_type, AutofillDownloadManager::REQUEST_UPLOAD);
   DVLOG(1) << "AutofillDownloadManager: upload request has succeeded.";
 
-  observer_->OnUploadedPossibleFieldTypes();
+  if (request_data.observer) {
+    request_data.observer->OnUploadedPossibleFieldTypes();
+  }
 }
 
 void AutofillDownloadManager::InitActiveExperiments() {
@@ -1040,14 +1030,22 @@ void AutofillDownloadManager::InitActiveExperiments() {
       variations::VariationsIdsProvider::GetInstance();
   DCHECK(variations_ids_provider != nullptr);
 
-  delete active_experiments_;
-  active_experiments_ = new std::vector<variations::VariationID>(
+  // TODO(crbug.com/1331322): Retire the hardcoded GWS ID ranges and only read
+  // the finch parameter.
+  base::flat_set<int> active_experiments(
       variations_ids_provider->GetVariationsVector(
           {variations::GOOGLE_WEB_PROPERTIES_TRIGGER_ANY_CONTEXT,
            variations::GOOGLE_WEB_PROPERTIES_TRIGGER_FIRST_PARTY}));
-  base::EraseIf(*active_experiments_, [](variations::VariationID id) {
-    return !IsAutofillExperimentId(id);
-  });
+  base::EraseIf(active_experiments, base::not_fn(&IsAutofillExperimentId));
+  if (base::FeatureList::IsEnabled(
+          autofill::features::kAutofillServerBehaviors)) {
+    active_experiments.insert(
+        autofill::features::kAutofillServerBehaviorsParam.Get());
+  }
+
+  delete active_experiments_;
+  active_experiments_ = new std::vector<int>(active_experiments.begin(),
+                                             active_experiments.end());
   std::sort(active_experiments_->begin(), active_experiments_->end());
 }
 

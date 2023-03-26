@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@ package org.chromium.chrome.browser.incognito;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.content.Context;
-import android.os.Build;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.chrome.R;
@@ -38,9 +37,8 @@ public class IncognitoNotificationManager {
 
         // From Android N, notification by default has the app name and title should not be the same
         // as app name.
-        String title = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
-                ? context.getResources().getString(R.string.close_all_incognito_notification_title)
-                : context.getResources().getString(R.string.app_name);
+        String title =
+                context.getResources().getString(R.string.close_all_incognito_notification_title);
 
         NotificationWrapperBuilder builder =
                 NotificationWrapperBuilderFactory

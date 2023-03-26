@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -115,6 +115,12 @@ class QuietNotificationPermissionUiConfig {
   // Whether or not showing a console message in Developer Tools is enabled for
   // sites on the abusive content warning list.
   static bool IsAbusiveContentTriggeredRequestWarningEnabled();
+
+  // Whether or not triggering via the disruptive behavior list is enabled. This
+  // means that on sites with disruptive behavior permission request flows, the
+  // quiet UI will be shown as a one-off, even when it is not turned on for all
+  // sites in prefs.
+  static bool IsDisruptiveBehaviorRequestBlockingEnabled();
 };
 
 #endif  // CHROME_BROWSER_PERMISSIONS_QUIET_NOTIFICATION_PERMISSION_UI_CONFIG_H_

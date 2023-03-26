@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/cxx17_backports.h"
 #include "base/json/json_writer.h"
 #include "base/values.h"
 #include "dbus/message.h"
@@ -176,7 +175,7 @@ TEST(ValuesUtilTest, PopIntArray) {
   writer.CloseContainer(&sub_writer);
 
   // Create the expected value.
-  base::Value list_value(base::Value::Type::LIST);
+  base::Value::List list_value;
   for (size_t i = 0; i != data.size(); ++i)
     list_value.Append(data[i]);
 
@@ -199,7 +198,7 @@ TEST(ValuesUtilTest, PopStringArray) {
   writer.AppendArrayOfStrings(data);
 
   // Create the expected value.
-  base::Value list_value(base::Value::Type::LIST);
+  base::Value::List list_value;
   for (size_t i = 0; i != data.size(); ++i)
     list_value.Append(data[i]);
 
@@ -227,7 +226,7 @@ TEST(ValuesUtilTest, PopStruct) {
   writer.CloseContainer(&sub_writer);
 
   // Create the expected value.
-  base::Value list_value(base::Value::Type::LIST);
+  base::Value::List list_value;
   list_value.Append(kBoolValue);
   list_value.Append(kInt32Value);
   list_value.Append(kDoubleValue);
@@ -274,11 +273,11 @@ TEST(ValuesUtilTest, PopStringToVariantDictionary) {
   writer.CloseContainer(&sub_writer);
 
   // Create the expected value.
-  base::Value dictionary_value(base::Value::Type::DICTIONARY);
-  dictionary_value.SetBoolKey(kKey1, kBoolValue);
-  dictionary_value.SetIntKey(kKey2, kInt32Value);
-  dictionary_value.SetDoubleKey(kKey3, kDoubleValue);
-  dictionary_value.SetStringKey(kKey4, kStringValue);
+  base::Value::Dict dictionary_value;
+  dictionary_value.Set(kKey1, kBoolValue);
+  dictionary_value.Set(kKey2, kInt32Value);
+  dictionary_value.Set(kKey3, kDoubleValue);
+  dictionary_value.Set(kKey4, kStringValue);
 
   // Pop a dictinoary.
   MessageReader reader(response.get());
@@ -315,10 +314,10 @@ TEST(ValuesUtilTest, PopDictionaryWithDottedStringKey) {
   writer.CloseContainer(&sub_writer);
 
   // Create the expected value.
-  base::Value dictionary_value(base::Value::Type::DICTIONARY);
-  dictionary_value.SetKey(kKey1, base::Value(kBoolValue));
-  dictionary_value.SetKey(kKey2, base::Value(kInt32Value));
-  dictionary_value.SetKey(kKey3, base::Value(kDoubleValue));
+  base::Value::Dict dictionary_value;
+  dictionary_value.Set(kKey1, kBoolValue);
+  dictionary_value.Set(kKey2, kInt32Value);
+  dictionary_value.Set(kKey3, kDoubleValue);
 
   // Pop a dictinoary.
   MessageReader reader(response.get());
@@ -330,7 +329,7 @@ TEST(ValuesUtilTest, PopDictionaryWithDottedStringKey) {
 TEST(ValuesUtilTest, PopDoubleToIntDictionary) {
   // Create test data.
   const int32_t kValues[] = {0, 1, 1, 2, 3, 5, 8, 13, 21};
-  const std::vector<int32_t> values(kValues, kValues + base::size(kValues));
+  const std::vector<int32_t> values(kValues, kValues + std::size(kValues));
   std::vector<double> keys(values.size());
   for (size_t i = 0; i != values.size(); ++i)
     keys[i] = std::sqrt(values[i]);
@@ -350,11 +349,11 @@ TEST(ValuesUtilTest, PopDoubleToIntDictionary) {
   writer.CloseContainer(&sub_writer);
 
   // Create the expected value.
-  base::Value dictionary_value(base::Value::Type::DICTIONARY);
+  base::Value::Dict dictionary_value;
   for (size_t i = 0; i != values.size(); ++i) {
     std::string key_string;
     base::JSONWriter::Write(base::Value(keys[i]), &key_string);
-    dictionary_value.SetKey(key_string, base::Value(values[i]));
+    dictionary_value.Set(key_string, values[i]);
   }
 
   // Pop a dictionary.
@@ -494,21 +493,21 @@ TEST(ValuesUtilTest, AppendDictionary) {
   const double kDoubleValue = 4.9;
   const std::string kStringValue = "fifty";
 
-  base::Value list_value(base::Value::Type::LIST);
+  base::Value::List list_value;
   list_value.Append(kBoolValue);
   list_value.Append(kInt32Value);
 
-  base::Value dictionary_value(base::Value::Type::DICTIONARY);
-  dictionary_value.SetBoolKey(kKey1, kBoolValue);
-  dictionary_value.SetIntKey(kKey2, kDoubleValue);
+  base::Value::Dict dictionary_value;
+  dictionary_value.Set(kKey1, kBoolValue);
+  dictionary_value.Set(kKey2, kDoubleValue);
 
-  base::Value test_dictionary(base::Value::Type::DICTIONARY);
-  test_dictionary.SetBoolKey(kKey1, kBoolValue);
-  test_dictionary.SetIntKey(kKey2, kInt32Value);
-  test_dictionary.SetDoubleKey(kKey3, kDoubleValue);
-  test_dictionary.SetStringKey(kKey4, kStringValue);
-  test_dictionary.SetKey(kKey5, std::move(list_value));
-  test_dictionary.SetKey(kKey6, std::move(dictionary_value));
+  base::Value::Dict test_dictionary;
+  test_dictionary.Set(kKey1, kBoolValue);
+  test_dictionary.Set(kKey2, kInt32Value);
+  test_dictionary.Set(kKey3, kDoubleValue);
+  test_dictionary.Set(kKey4, kStringValue);
+  test_dictionary.Set(kKey5, std::move(list_value));
+  test_dictionary.Set(kKey6, std::move(dictionary_value));
 
   std::unique_ptr<Response> response(Response::CreateEmpty());
   MessageWriter writer(response.get());
@@ -541,21 +540,21 @@ TEST(ValuesUtilTest, AppendDictionaryAsVariant) {
   const double kDoubleValue = 4.9;
   const std::string kStringValue = "fifty";
 
-  base::Value list_value(base::Value::Type::LIST);
+  base::Value::List list_value;
   list_value.Append(kBoolValue);
   list_value.Append(kInt32Value);
 
-  base::Value dictionary_value(base::Value::Type::DICTIONARY);
-  dictionary_value.SetBoolKey(kKey1, kBoolValue);
-  dictionary_value.SetIntKey(kKey2, kDoubleValue);
+  base::Value::Dict dictionary_value;
+  dictionary_value.Set(kKey1, kBoolValue);
+  dictionary_value.Set(kKey2, kDoubleValue);
 
-  base::Value test_dictionary(base::Value::Type::DICTIONARY);
-  test_dictionary.SetBoolKey(kKey1, kBoolValue);
-  test_dictionary.SetIntKey(kKey2, kInt32Value);
-  test_dictionary.SetDoubleKey(kKey3, kDoubleValue);
-  test_dictionary.SetStringKey(kKey4, kStringValue);
-  test_dictionary.SetKey(kKey5, std::move(list_value));
-  test_dictionary.SetKey(kKey6, std::move(dictionary_value));
+  base::Value::Dict test_dictionary;
+  test_dictionary.Set(kKey1, kBoolValue);
+  test_dictionary.Set(kKey2, kInt32Value);
+  test_dictionary.Set(kKey3, kDoubleValue);
+  test_dictionary.Set(kKey4, kStringValue);
+  test_dictionary.Set(kKey5, std::move(list_value));
+  test_dictionary.Set(kKey6, std::move(dictionary_value));
 
   std::unique_ptr<Response> response(Response::CreateEmpty());
   MessageWriter writer(response.get());
@@ -584,15 +583,15 @@ TEST(ValuesUtilTest, AppendList) {
   const double kDoubleValue = 4.9;
   const std::string kStringValue = "fifty";
 
-  base::Value list_value(base::Value::Type::LIST);
+  base::Value::List list_value;
   list_value.Append(kBoolValue);
   list_value.Append(kInt32Value);
 
-  base::Value dictionary_value(base::Value::Type::DICTIONARY);
-  dictionary_value.SetBoolPath(kKey1, kBoolValue);
-  dictionary_value.SetIntPath(kKey2, kDoubleValue);
+  base::Value::Dict dictionary_value;
+  dictionary_value.Set(kKey1, kBoolValue);
+  dictionary_value.Set(kKey2, kDoubleValue);
 
-  base::Value test_list(base::Value::Type::LIST);
+  base::Value::List test_list;
   test_list.Append(kBoolValue);
   test_list.Append(kInt32Value);
   test_list.Append(kDoubleValue);
@@ -627,15 +626,15 @@ TEST(ValuesUtilTest, AppendListAsVariant) {
   const double kDoubleValue = 4.9;
   const std::string kStringValue = "fifty";
 
-  base::Value list_value(base::Value::Type::LIST);
+  base::Value::List list_value;
   list_value.Append(kBoolValue);
   list_value.Append(kInt32Value);
 
-  base::Value dictionary_value(base::Value::Type::DICTIONARY);
-  dictionary_value.SetBoolPath(kKey1, kBoolValue);
-  dictionary_value.SetIntPath(kKey2, kDoubleValue);
+  base::Value::Dict dictionary_value;
+  dictionary_value.Set(kKey1, kBoolValue);
+  dictionary_value.Set(kKey2, kDoubleValue);
 
-  base::Value test_list(base::Value::Type::LIST);
+  base::Value::List test_list;
   test_list.Append(kBoolValue);
   test_list.Append(kInt32Value);
   test_list.Append(kDoubleValue);

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,7 @@ suite('cr-toolbar-search-field', function() {
   }
 
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     field = document.createElement('cr-toolbar-search-field');
     searches = [];
     field.addEventListener('search-changed', function(event) {
@@ -44,8 +44,9 @@ suite('cr-toolbar-search-field', function() {
     // Need to attach listener event before the element is created, to catch
     // the unnecessary initial event.
     document.body.addEventListener('search-changed', onSearchChanged);
-    document.body.innerHTML =
-        '<cr-toolbar-search-field></cr-toolbar-search-field>';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
+    document.body.appendChild(
+        document.createElement('cr-toolbar-search-field'));
     // Remove event listener on |body| so that other tests are not affected.
     document.body.removeEventListener('search-changed', onSearchChanged);
 

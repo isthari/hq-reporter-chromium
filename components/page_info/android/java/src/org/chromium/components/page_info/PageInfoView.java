@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,19 +22,15 @@ public class PageInfoView extends FrameLayout implements OnClickListener {
     private PageInfoRowView mConnectionRow;
     private PageInfoRowView mPermissionsRow;
     private PageInfoRowView mCookiesRow;
-    private PageInfoRowView mPageZoomRow;
     private Button mForgetSiteButton;
     private TextView mHttpsImageCompressionMessage;
-    private Button mInstantAppButton;
     private Button mOpenOnlineButton;
     private Runnable mOnUiClosingCallback;
 
     /**  Parameters to configure the view of the page info popup. */
     public static class Params {
-        public boolean instantAppButtonShown = true;
         public boolean openOnlineButtonShown = true;
         public boolean httpsImageCompressionMessageShown;
-        public Runnable instantAppButtonClickCallback;
         public Runnable openOnlineButtonClickCallback;
         public Runnable onUiClosingCallback;
     }
@@ -50,10 +46,8 @@ public class PageInfoView extends FrameLayout implements OnClickListener {
         initConnection();
         initPermissions();
         initCookies(params);
-        initPageZoom();
         initForgetSiteButton();
         initHttpsImageCompression(params);
-        initInstantApp(params);
         initOpenOnline(params);
     }
 
@@ -75,10 +69,6 @@ public class PageInfoView extends FrameLayout implements OnClickListener {
         mOnUiClosingCallback = params.onUiClosingCallback;
     }
 
-    private void initPageZoom() {
-        mPageZoomRow = findViewById(R.id.page_info_page_zoom_row);
-    }
-
     private void initForgetSiteButton() {
         mForgetSiteButton = findViewById(R.id.page_info_forget_site_button);
         initializePageInfoViewChild(mForgetSiteButton, false, null);
@@ -89,12 +79,6 @@ public class PageInfoView extends FrameLayout implements OnClickListener {
                 findViewById(R.id.page_info_lite_mode_https_image_compression_message);
         initializePageInfoViewChild(
                 mHttpsImageCompressionMessage, params.httpsImageCompressionMessageShown, null);
-    }
-
-    private void initInstantApp(Params params) {
-        mInstantAppButton = findViewById(R.id.page_info_instant_app_button);
-        initializePageInfoViewChild(mInstantAppButton, params.instantAppButtonShown,
-                params.instantAppButtonClickCallback);
     }
 
     private void initOpenOnline(Params params) {
@@ -116,20 +100,12 @@ public class PageInfoView extends FrameLayout implements OnClickListener {
         return mCookiesRow;
     }
 
-    public PageInfoRowView getPageZoomRowView() {
-        return mPageZoomRow;
-    }
-
     public ViewGroup getRowWrapper() {
         return mRowWrapper;
     }
 
     public Button getForgetSiteButton() {
         return mForgetSiteButton;
-    }
-
-    public void disableInstantAppButton() {
-        mInstantAppButton.setEnabled(false);
     }
 
     private void initializePageInfoViewChild(View child, boolean shown, Runnable clickCallback) {

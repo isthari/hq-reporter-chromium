@@ -1,9 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_BUBBLE_BUBBLE_CONSTANTS_H_
 #define ASH_BUBBLE_BUBBLE_CONSTANTS_H_
+
+#include "ash/style/system_shadow.h"
 
 namespace ash {
 
@@ -14,6 +16,10 @@ constexpr int kBubbleCornerRadius = 16;
 // Padding used for bubbles that represent a menu of options, like the system
 // tray bubble or the switch access menu.
 constexpr int kBubbleMenuPadding = 8;
+
+// The elevation used for system tray bubble.
+constexpr SystemShadow::Type kBubbleShadowType =
+    SystemShadow::Type::kElevation12;
 
 }  // namespace ash
 

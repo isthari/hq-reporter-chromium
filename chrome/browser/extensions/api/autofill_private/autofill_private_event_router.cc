@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/browser_process.h"
@@ -57,8 +57,11 @@ void AutofillPrivateEventRouter::OnPersonalDataChanged() {
   autofill_util::CreditCardEntryList creditCardList =
       extensions::autofill_util::GenerateCreditCardList(*personal_data_);
 
+  autofill_util::IbanEntryList ibanList =
+      extensions::autofill_util::GenerateIbanList(*personal_data_);
+
   auto args(api::autofill_private::OnPersonalDataChanged::Create(
-      addressList, creditCardList));
+      addressList, creditCardList, ibanList));
 
   std::unique_ptr<Event> extension_event(
       new Event(events::AUTOFILL_PRIVATE_ON_PERSONAL_DATA_CHANGED,

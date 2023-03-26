@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,9 +32,9 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.CriteriaNotSatisfiedException;
+import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.FlakyTest;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
@@ -55,6 +55,7 @@ import org.chromium.content_public.browser.test.util.WebContentsUtils;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.ui.DropdownPopupWindowInterface;
 import org.chromium.ui.R;
+import org.chromium.ui.test.util.UiDisableIf;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -340,7 +341,7 @@ public class AutofillPopupTest {
     @Test
     @MediumTest
     @Feature({"autofill"})
-    @FlakyTest(message = "crbug.com/1075791")
+    @DisabledTest(message = "crbug.com/1075791")
     public void testNotLoggingInvalidOption() throws TimeoutException {
         loadAndFillForm(INVALID_OPTION, "o");
         final String profileFullName = FIRST_NAME + " " + LAST_NAME;
@@ -357,6 +358,7 @@ public class AutofillPopupTest {
     @MediumTest
     @Feature({"autofill"})
     @EnableFeatures(ChromeFeatureList.AUTOFILL_REFRESH_STYLE_ANDROID)
+    @DisableIf.Device(type = UiDisableIf.TABLET) // https://crbug.com/1399871
     public void testScreenOrientationPortrait() throws TimeoutException {
         runTestScreenOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
     }
@@ -365,6 +367,7 @@ public class AutofillPopupTest {
     @MediumTest
     @Feature({"autofill"})
     @EnableFeatures(ChromeFeatureList.AUTOFILL_REFRESH_STYLE_ANDROID)
+    @DisableIf.Device(type = UiDisableIf.TABLET) // https://crbug.com/1399871
     public void testScreenOrientationLandscape() throws TimeoutException {
         runTestScreenOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
     }

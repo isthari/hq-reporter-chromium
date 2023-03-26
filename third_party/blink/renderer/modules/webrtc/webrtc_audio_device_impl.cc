@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "base/trace_event/trace_event.h"
 #include "media/base/audio_bus.h"
 #include "media/base/audio_parameters.h"
+#include "media/base/audio_timestamp_helper.h"
 #include "media/base/sample_rates.h"
 #include "third_party/blink/public/platform/modules/webrtc/webrtc_logging.h"
 #include "third_party/blink/renderer/modules/mediastream/processed_local_audio_source.h"
@@ -30,13 +31,11 @@ void SendLogMessage(const std::string& message) {
 }  // namespace
 
 WebRtcAudioDeviceImpl::WebRtcAudioDeviceImpl()
-    : audio_processing_id_(base::UnguessableToken::Create()),
-      audio_transport_callback_(nullptr),
+    : audio_transport_callback_(nullptr),
       initialized_(false),
       playing_(false),
       recording_(false) {
-  SendLogMessage(base::StringPrintf("%s({id=%s})", __func__,
-                                    GetAudioProcessingId().ToString().c_str()));
+  SendLogMessage(base::StringPrintf("%s()", __func__));
   // This object can be constructed on either the signaling thread or the main
   // thread, so we need to detach these thread checkers here and have them
   // initialize automatically when the first methods are called.
@@ -48,17 +47,28 @@ WebRtcAudioDeviceImpl::WebRtcAudioDeviceImpl()
 }
 
 WebRtcAudioDeviceImpl::~WebRtcAudioDeviceImpl() {
-  SendLogMessage(base::StringPrintf("%s() [id=%s]", __func__,
-                                    GetAudioProcessingId().ToString().c_str()));
+  SendLogMessage(base::StringPrintf("%s()", __func__));
   DCHECK(!initialized_) << "Terminate must have been called.";
 }
 
-void WebRtcAudioDeviceImpl::RenderData(media::AudioBus* audio_bus,
-                                       int sample_rate,
-                                       base::TimeDelta audio_delay,
-                                       base::TimeDelta* current_time) {
+void WebRtcAudioDeviceImpl::RenderData(
+    media::AudioBus* audio_bus,
+    int sample_rate,
+    base::TimeDelta audio_delay,
+    base::TimeDelta* current_time,
+    const media::AudioGlitchInfo& glitch_info) {
+  TRACE_EVENT2("audio", "WebRtcAudioDeviceImpl::RenderData", "sample_rate",
+               sample_rate, "audio_delay_ms", audio_delay.InMilliseconds());
   {
     base::AutoLock auto_lock(lock_);
+    cumulative_glitch_info_ += glitch_info;
+    total_samples_count_ += audio_bus->frames();
+    // |total_playout_delay_| refers to the sum of playout delays for all
+    // samples, so we add the delay multiplied by the number of samples. See
+    // https://w3c.github.io/webrtc-stats/#dom-rtcaudioplayoutstats-totalplayoutdelay
+    total_playout_delay_ += audio_delay * audio_bus->frames();
+    total_samples_duration_ += media::AudioTimestampHelper::FramesToTime(
+        audio_bus->frames(), sample_rate);
 #if DCHECK_IS_ON()
     DCHECK(!renderer_ || renderer_->CurrentThreadIsRenderingThread());
     if (!audio_renderer_thread_checker_.CalledOnValidThread()) {
@@ -141,9 +151,10 @@ void WebRtcAudioDeviceImpl::AudioRendererThreadStopped() {
 void WebRtcAudioDeviceImpl::SetOutputDeviceForAec(
     const String& output_device_id) {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_checker_);
-  SendLogMessage(base::StringPrintf("%s({output_device_id=%s}) [id=%s]",
-                                    __func__, output_device_id.Utf8().c_str(),
-                                    GetAudioProcessingId().ToString().c_str()));
+  SendLogMessage(base::StringPrintf("%s({output_device_id=%s})", __func__,
+                                    output_device_id.Utf8().c_str()));
+  DVLOG(1) << __func__ << " current id=[" << output_device_id_for_aec_
+           << "], new id [" << output_device_id << "]";
   output_device_id_for_aec_ = output_device_id;
   base::AutoLock lock(lock_);
   for (auto* capturer : capturers_) {
@@ -151,15 +162,10 @@ void WebRtcAudioDeviceImpl::SetOutputDeviceForAec(
   }
 }
 
-base::UnguessableToken WebRtcAudioDeviceImpl::GetAudioProcessingId() const {
-  return audio_processing_id_;
-}
-
 int32_t WebRtcAudioDeviceImpl::RegisterAudioCallback(
     webrtc::AudioTransport* audio_callback) {
   DCHECK_CALLED_ON_VALID_THREAD(signaling_thread_checker_);
-  SendLogMessage(base::StringPrintf("%s() [id=%s]", __func__,
-                                    GetAudioProcessingId().ToString().c_str()));
+  SendLogMessage(base::StringPrintf("%s()", __func__));
   base::AutoLock lock(lock_);
   DCHECK_EQ(!audio_transport_callback_, !!audio_callback);
   audio_transport_callback_ = audio_callback;
@@ -271,8 +277,7 @@ bool WebRtcAudioDeviceImpl::Playing() const {
 int32_t WebRtcAudioDeviceImpl::StartRecording() {
   DCHECK_CALLED_ON_VALID_THREAD(worker_thread_checker_);
   DCHECK(initialized_);
-  SendLogMessage(base::StringPrintf("%s() [id=%s]", __func__,
-                                    GetAudioProcessingId().ToString().c_str()));
+  SendLogMessage(base::StringPrintf("%s()", __func__));
   base::AutoLock auto_lock(lock_);
   if (!audio_transport_callback_) {
     LOG(ERROR) << "Audio transport is missing";
@@ -294,8 +299,7 @@ int32_t WebRtcAudioDeviceImpl::StopRecording() {
   DCHECK(signaling_thread_checker_.CalledOnValidThread() ||
          worker_thread_checker_.CalledOnValidThread());
 #endif
-  SendLogMessage(base::StringPrintf("%s() [id=%s]", __func__,
-                                    GetAudioProcessingId().ToString().c_str()));
+  SendLogMessage(base::StringPrintf("%s()", __func__));
   base::AutoLock auto_lock(lock_);
   recording_ = false;
   return 0;
@@ -320,8 +324,7 @@ bool WebRtcAudioDeviceImpl::SetAudioRenderer(
     blink::WebRtcAudioRenderer* renderer) {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_checker_);
   DCHECK(renderer);
-  SendLogMessage(base::StringPrintf("%s() [id=%s]", __func__,
-                                    GetAudioProcessingId().ToString().c_str()));
+  SendLogMessage(base::StringPrintf("%s()", __func__));
 
   // Here we acquire |lock_| in order to protect the internal state.
   {
@@ -359,8 +362,7 @@ bool WebRtcAudioDeviceImpl::SetAudioRenderer(
 void WebRtcAudioDeviceImpl::AddAudioCapturer(
     ProcessedLocalAudioSource* capturer) {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_checker_);
-  SendLogMessage(base::StringPrintf("%s() [id=%s]", __func__,
-                                    GetAudioProcessingId().ToString().c_str()));
+  SendLogMessage(base::StringPrintf("%s()", __func__));
   DCHECK(capturer);
   DCHECK(!capturer->device().id.empty());
 
@@ -373,8 +375,7 @@ void WebRtcAudioDeviceImpl::AddAudioCapturer(
 void WebRtcAudioDeviceImpl::RemoveAudioCapturer(
     ProcessedLocalAudioSource* capturer) {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_checker_);
-  SendLogMessage(base::StringPrintf("%s() [id=%s]", __func__,
-                                    GetAudioProcessingId().ToString().c_str()));
+  SendLogMessage(base::StringPrintf("%s()", __func__));
   DCHECK(capturer);
   base::AutoLock auto_lock(lock_);
   capturers_.remove(capturer);
@@ -397,6 +398,19 @@ void WebRtcAudioDeviceImpl::RemovePlayoutSink(
   DCHECK(sink);
   base::AutoLock auto_lock(lock_);
   playout_sinks_.remove(sink);
+}
+
+absl::optional<webrtc::AudioDeviceModule::Stats>
+WebRtcAudioDeviceImpl::GetStats() const {
+  base::AutoLock auto_lock(lock_);
+  return absl::optional<webrtc::AudioDeviceModule::Stats>(
+      webrtc::AudioDeviceModule::Stats{
+          .synthesized_samples_duration_s =
+              cumulative_glitch_info_.duration.InSecondsF(),
+          .synthesized_samples_events = cumulative_glitch_info_.count,
+          .total_samples_duration_s = total_samples_duration_.InSecondsF(),
+          .total_playout_delay_s = total_playout_delay_.InSecondsF(),
+          .total_samples_count = total_samples_count_});
 }
 
 base::UnguessableToken

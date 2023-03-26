@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,39 +9,23 @@
 
 #include "base/logging.h"
 #include "crypto/nss_util.h"
-#include "net/cert/internal/cert_errors.h"
-#include "net/cert/internal/parsed_certificate.h"
-#include "net/cert/internal/trust_store.h"
+#include "net/base/features.h"
 #include "net/cert/known_roots_nss.h"
+#include "net/cert/pki/cert_errors.h"
+#include "net/cert/pki/parsed_certificate.h"
+#include "net/cert/pki/trust_store.h"
 #include "net/cert/scoped_nss_types.h"
-#include "net/cert/test_root_certs.h"
 #include "net/cert/x509_util.h"
 #include "net/cert/x509_util_nss.h"
 
 namespace net {
 
-TrustStoreNSS::TrustStoreNSS(SECTrustType trust_type)
-    : trust_type_(trust_type), filter_trusted_certs_by_slot_(false) {}
-
 TrustStoreNSS::TrustStoreNSS(SECTrustType trust_type,
-                             crypto::ScopedPK11Slot user_slot)
+                             SystemTrustSetting system_trust_setting,
+                             UserSlotTrustSetting user_slot_trust_setting)
     : trust_type_(trust_type),
-      filter_trusted_certs_by_slot_(true),
-      user_slot_(std::move(user_slot)) {
-  DCHECK(user_slot_);
-}
-
-TrustStoreNSS::TrustStoreNSS(
-    SECTrustType trust_type,
-    DisallowTrustForCertsOnUserSlots disallow_trust_for_certs_on_user_slots)
-    : trust_type_(trust_type), filter_trusted_certs_by_slot_(true) {}
-
-TrustStoreNSS::TrustStoreNSS(
-    SECTrustType trust_type,
-    IgnoreSystemTrustSettings ignore_system_trust_settings)
-    : trust_type_(trust_type),
-      ignore_system_trust_settings_(true),
-      filter_trusted_certs_by_slot_(false) {}
+      ignore_system_trust_settings_(system_trust_setting == kIgnoreSystemTrust),
+      user_slot_trust_setting_(std::move(user_slot_trust_setting)) {}
 
 TrustStoreNSS::~TrustStoreNSS() = default;
 
@@ -67,10 +51,11 @@ void TrustStoreNSS::SyncGetIssuersOf(const ParsedCertificate* cert,
   for (CERTCertListNode* node = CERT_LIST_HEAD(found_certs);
        !CERT_LIST_END(node, found_certs); node = CERT_LIST_NEXT(node)) {
     CertErrors parse_errors;
-    scoped_refptr<ParsedCertificate> cur_cert = ParsedCertificate::Create(
-        x509_util::CreateCryptoBuffer(
-            base::make_span(node->cert->derCert.data, node->cert->derCert.len)),
-        {}, &parse_errors);
+    std::shared_ptr<const ParsedCertificate> cur_cert =
+        ParsedCertificate::Create(
+            x509_util::CreateCryptoBuffer(base::make_span(
+                node->cert->derCert.data, node->cert->derCert.len)),
+            {}, &parse_errors);
 
     if (!cur_cert) {
       // TODO(crbug.com/634443): return errors better.
@@ -84,9 +69,8 @@ void TrustStoreNSS::SyncGetIssuersOf(const ParsedCertificate* cert,
   CERT_DestroyCertList(found_certs);
 }
 
-CertificateTrust TrustStoreNSS::GetTrust(
-    const ParsedCertificate* cert,
-    base::SupportsUserData* debug_data) const {
+CertificateTrust TrustStoreNSS::GetTrust(const ParsedCertificate* cert,
+                                         base::SupportsUserData* debug_data) {
   crypto::EnsureNSSInit();
 
   // TODO(eroman): Inefficient -- path building will convert between
@@ -114,13 +98,16 @@ CertificateTrust TrustStoreNSS::GetTrust(
     return CertificateTrust::ForUnspecified();
   }
 
-  int trust_flags = SEC_GET_TRUST_FLAGS(&trust, trust_type_);
+  unsigned int trust_flags = SEC_GET_TRUST_FLAGS(&trust, trust_type_);
 
   // Determine if the certificate is distrusted.
   if ((trust_flags & (CERTDB_TERMINAL_RECORD | CERTDB_TRUSTED_CA |
                       CERTDB_TRUSTED)) == CERTDB_TERMINAL_RECORD) {
     return CertificateTrust::ForDistrusted();
   }
+
+  bool is_trusted_ca = false;
+  bool is_trusted_leaf = false;
 
   // Determine if the certificate is a trust anchor.
   //
@@ -137,21 +124,34 @@ CertificateTrust TrustStoreNSS::GetTrust(
     // handling this may require iterating all the slots and manually computing
     // the trust settings directly, rather than CERT_GetCertTrust.
     if (!ignore_system_trust_settings_ || !IsKnownRoot(nss_cert.get())) {
-      return CertificateTrust::ForTrustAnchor();
+      is_trusted_ca = true;
     }
   }
 
-  // Trusted server certs (CERTDB_TERMINAL_RECORD + CERTDB_TRUSTED) are
-  // intentionally treated as unspecified. See https://crbug.com/814994.
+  if (base::FeatureList::IsEnabled(features::kTrustStoreTrustedLeafSupport)) {
+    constexpr unsigned int kTrustedPeerBits =
+        CERTDB_TERMINAL_RECORD | CERTDB_TRUSTED;
+    if ((trust_flags & kTrustedPeerBits) == kTrustedPeerBits) {
+      is_trusted_leaf = true;
+    }
+  }
+
+  if (is_trusted_ca && is_trusted_leaf) {
+    return CertificateTrust::ForTrustAnchorOrLeaf();
+  } else if (is_trusted_ca) {
+    return CertificateTrust::ForTrustAnchor();
+  } else if (is_trusted_leaf) {
+    return CertificateTrust::ForTrustedLeaf();
+  }
 
   return CertificateTrust::ForUnspecified();
 }
 
 bool TrustStoreNSS::IsCertAllowedForTrust(CERTCertificate* cert) const {
-  // If |filter_trusted_certs_by_slot_| is false, allow trust for any
-  // certificate, no matter which slot it is stored on.
-  if (!filter_trusted_certs_by_slot_)
+  if (absl::holds_alternative<UseTrustFromAllUserSlots>(
+          user_slot_trust_setting_)) {
     return true;
+  }
 
   crypto::ScopedPK11SlotList slots_for_cert(
       PK11_GetAllSlotsForCert(cert, nullptr));
@@ -169,8 +169,11 @@ bool TrustStoreNSS::IsCertAllowedForTrust(CERTCertificate* cert) const {
         PK11_HasRootCerts(slot) ||
         // Allow read-only internal slots.
         (PK11_IsInternal(slot) && !PK11_IsRemovable(slot)) ||
-        // Allow |user_slot_| if specified.
-        (user_slot_ && slot == user_slot_.get());
+        // Allow configured user slot if specified.
+        (absl::holds_alternative<crypto::ScopedPK11Slot>(
+             user_slot_trust_setting_) &&
+         slot ==
+             absl::get<crypto::ScopedPK11Slot>(user_slot_trust_setting_).get());
 
     if (allow_slot) {
       PK11_FreeSlotListElement(slots_for_cert.get(), slot_element);

@@ -26,6 +26,7 @@
 
 #include "third_party/blink/renderer/core/editing/editor.h"
 
+#include "third_party/blink/public/web/web_local_frame_client.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/clipboard/data_object.h"
 #include "third_party/blink/renderer/core/clipboard/data_transfer.h"
@@ -656,13 +657,12 @@ void Editor::SetBaseWritingDirection(
 
   auto* style =
       MakeGarbageCollected<MutableCSSPropertyValueSet>(kHTMLQuirksMode);
-  style->SetProperty(
+  style->ParseAndSetProperty(
       CSSPropertyID::kDirection,
-      direction == mojo_base::mojom::blink::TextDirection::LEFT_TO_RIGHT
-          ? "ltr"
-          : direction == mojo_base::mojom::blink::TextDirection::RIGHT_TO_LEFT
-                ? "rtl"
-                : "inherit",
+      direction == mojo_base::mojom::blink::TextDirection::LEFT_TO_RIGHT ? "ltr"
+      : direction == mojo_base::mojom::blink::TextDirection::RIGHT_TO_LEFT
+          ? "rtl"
+          : "inherit",
       /* important */ false, GetFrame().DomWindow()->GetSecureContextMode());
   ApplyParagraphStyleToSelection(
       style, InputEvent::InputType::kFormatSetBlockTextDirection);
@@ -715,6 +715,28 @@ EphemeralRange Editor::RangeForPoint(const gfx::Point& frame_point) const {
   return EphemeralRange();
 }
 
+EphemeralRange Editor::RangeBetweenPoints(const gfx::Point& start_point,
+                                          const gfx::Point& end_point) const {
+  const PositionWithAffinity start_position =
+      GetFrame().PositionForPoint(PhysicalOffset(start_point));
+  if (start_position.IsNull())
+    return EphemeralRange();
+  const VisiblePosition start_visible_position =
+      CreateVisiblePosition(start_position);
+  if (start_visible_position.IsNull())
+    return EphemeralRange();
+
+  const PositionWithAffinity end_position =
+      GetFrame().PositionForPoint(PhysicalOffset(end_point));
+  if (end_position.IsNull())
+    return EphemeralRange();
+  const VisiblePosition end_visible_position =
+      CreateVisiblePosition(end_position);
+  if (end_visible_position.IsNull())
+    return EphemeralRange();
+  return MakeRange(start_visible_position, end_visible_position);
+}
+
 void Editor::ComputeAndSetTypingStyle(CSSPropertyValueSet* style,
                                       InputEvent::InputType input_type) {
   if (!style || style->IsEmpty()) {
@@ -728,13 +750,15 @@ void Editor::ComputeAndSetTypingStyle(CSSPropertyValueSet* style,
   else
     typing_style_ = MakeGarbageCollected<EditingStyle>(style);
 
-  typing_style_->PrepareToApplyAt(
-      GetFrame()
-          .Selection()
-          .ComputeVisibleSelectionInDOMTreeDeprecated()
-          .VisibleStart()
-          .DeepEquivalent(),
-      EditingStyle::kPreserveWritingDirection);
+  const Position& position = GetFrame()
+                                 .Selection()
+                                 .ComputeVisibleSelectionInDOMTreeDeprecated()
+                                 .VisibleStart()
+                                 .DeepEquivalent();
+  if (position.IsNull())
+    return;
+  typing_style_->PrepareToApplyAt(position,
+                                  EditingStyle::kPreserveWritingDirection);
 
   // Handle block styles, substracting these from the typing style.
   EditingStyle* block_style =
@@ -822,7 +846,7 @@ Range* Editor::FindRangeOfString(
     const EphemeralRangeInFlatTree& reference_range,
     FindOptions options,
     bool* wrapped_around) {
-  if (target.IsEmpty())
+  if (target.empty())
     return nullptr;
 
   // Start from an edge of the reference range. Which edge is used depends on

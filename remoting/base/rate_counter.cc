@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,8 +39,9 @@ void RateCounter::EvictOldDataPoints(base::TimeTicks now) {
   base::TimeTicks window_start = now - time_window_;
 
   while (!data_points_.empty()) {
-    if (data_points_.front().first > window_start)
+    if (data_points_.front().first > window_start) {
       break;
+    }
 
     sum_ -= data_points_.front().second;
     data_points_.pop();

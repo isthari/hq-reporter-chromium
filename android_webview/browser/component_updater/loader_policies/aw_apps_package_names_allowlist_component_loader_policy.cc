@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,18 +15,19 @@
 
 #include "android_webview/browser/metrics/aw_metrics_service_client.h"
 #include "android_webview/common/aw_features.h"
+#include "android_webview/common/aw_switches.h"
 #include "android_webview/common/components/aw_apps_package_names_allowlist_component_utils.h"
 #include "android_webview/common/metrics/app_package_name_logging_rule.h"
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/command_line.h"
 #include "base/containers/flat_map.h"
 #include "base/feature_list.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "base/values.h"
@@ -36,6 +37,10 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace android_webview {
+
+const base::TimeDelta kWebViewAppsMinAllowlistThrottleTimeDelta =
+    base::Hours(1);
+const base::TimeDelta kWebViewAppsMaxAllowlistThrottleTimeDelta = base::Days(2);
 
 namespace {
 
@@ -117,6 +122,8 @@ void SetAppPackageNameLoggingRule(
   auto* metrics_service_client = AwMetricsServiceClient::GetInstance();
   DCHECK(metrics_service_client);
   metrics_service_client->SetAppPackageNameLoggingRule(record);
+  metrics_service_client->SetAppPackageNameLoggingRuleLastUpdateTime(
+      base::Time::Now());
 
   if (!record.has_value()) {
     VLOG(2) << "Failed to load WebView apps package allowlist";
@@ -131,6 +138,27 @@ void SetAppPackageNameLoggingRule(
   } else {
     VLOG(2) << "App package name shouldn't be recorded";
   }
+}
+
+bool ShouldThrottleAppPackageNamesAllowlistComponent(
+    base::Time last_update,
+    absl::optional<AppPackageNameLoggingRule> cached_record) {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kWebViewDisablePackageAllowlistThrottling) ||
+      last_update.is_null()) {
+    return false;
+  }
+  base::TimeDelta throttle_time_delta(
+      kWebViewAppsMinAllowlistThrottleTimeDelta);
+  if (cached_record.has_value()) {
+    base::Time expiry_date = cached_record.value().GetExpiryDate();
+    bool in_the_allowlist = !expiry_date.is_min();
+    bool is_allowlist_expired = expiry_date <= base::Time::Now();
+    if (!in_the_allowlist || !is_allowlist_expired) {
+      throttle_time_delta = kWebViewAppsMaxAllowlistThrottleTimeDelta;
+    }
+  }
+  return base::Time::Now() - last_update <= throttle_time_delta;
 }
 
 }  // namespace
@@ -171,15 +199,17 @@ AwAppsPackageNamesAllowlistComponentLoaderPolicy::
 void AwAppsPackageNamesAllowlistComponentLoaderPolicy::ComponentLoaded(
     const base::Version& version,
     base::flat_map<std::string, base::ScopedFD>& fd_map,
-    std::unique_ptr<base::DictionaryValue> manifest) {
+    base::Value::Dict manifest) {
   DCHECK(version.IsValid());
 
   // Have to use double because base::DictionaryValue doesn't support int64
   // values.
   absl::optional<double> expiry_date_ms =
-      manifest->FindDoublePath(kExpiryDateKey);
-  absl::optional<int> num_hash = manifest->FindIntPath(kBloomFilterNumHashKey);
-  absl::optional<int> num_bits = manifest->FindIntPath(kBloomFilterNumBitsKey);
+      manifest.FindDoubleByDottedPath(kExpiryDateKey);
+  absl::optional<int> num_hash =
+      manifest.FindIntByDottedPath(kBloomFilterNumHashKey);
+  absl::optional<int> num_bits =
+      manifest.FindIntByDottedPath(kBloomFilterNumBitsKey);
   // Being conservative and consider the allowlist expired when a valid expiry
   // date is absent.
   if (!expiry_date_ms.has_value() || !num_hash.has_value() ||
@@ -239,18 +269,33 @@ std::string AwAppsPackageNamesAllowlistComponentLoaderPolicy::GetMetricsSuffix()
 }
 
 void LoadPackageNamesAllowlistComponent(
-    component_updater::ComponentLoaderPolicyVector& policies) {
-  if (!base::FeatureList::IsEnabled(
-          android_webview::features::kWebViewAppsPackageNamesAllowlist)) {
+    component_updater::ComponentLoaderPolicyVector& policies,
+    AwMetricsServiceClient* metrics_service_client) {
+  DCHECK(metrics_service_client);
+
+  // Prevent loading of client-side allowlist if using server-side allowlist
+  if (base::FeatureList::IsEnabled(
+          android_webview::features::
+              kWebViewAppsPackageNamesServerSideAllowlist)) {
+    return;
+  }
+  absl::optional<AppPackageNameLoggingRule> cached_record =
+      metrics_service_client->GetCachedAppPackageNameLoggingRule();
+  base::Time last_update =
+      metrics_service_client->GetAppPackageNameLoggingRuleLastUpdateTime();
+
+  bool should_throttle = ShouldThrottleAppPackageNamesAllowlistComponent(
+      last_update, cached_record);
+  UMA_HISTOGRAM_BOOLEAN(
+      "Android.WebView.Metrics.PackagesAllowList.ThrottleStatus",
+      should_throttle);
+  if (should_throttle) {
     return;
   }
 
-  auto* metrics_service_client = AwMetricsServiceClient::GetInstance();
-  DCHECK(metrics_service_client);
   policies.push_back(
       std::make_unique<AwAppsPackageNamesAllowlistComponentLoaderPolicy>(
-          metrics_service_client->GetAppPackageName(),
-          metrics_service_client->GetCachedAppPackageNameLoggingRule(),
+          metrics_service_client->GetAppPackageName(), std::move(cached_record),
           base::BindOnce(&SetAppPackageNameLoggingRule)));
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 
 #include "base/files/file_path_watcher.h"
 #include "base/files/file_util.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/test/bind.h"
 #include "base/threading/thread_restrictions.h"
@@ -16,11 +15,11 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/dbus/cicerone/cicerone_service.pb.h"
-#include "chromeos/dbus/cicerone/fake_cicerone_client.h"
-#include "chromeos/dbus/concierge/fake_concierge_client.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/seneschal/seneschal_client.h"
+#include "chromeos/ash/components/dbus/cicerone/cicerone_service.pb.h"
+#include "chromeos/ash/components/dbus/cicerone/fake_cicerone_client.h"
+#include "chromeos/ash/components/dbus/concierge/fake_concierge_client.h"
+#include "chromeos/ash/components/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/seneschal/seneschal_client.h"
 #include "content/public/test/browser_test.h"
 
 using vm_tools::apps::ApplicationList;
@@ -31,17 +30,17 @@ class GuestOsRegistryServiceIconTest : public InProcessBrowserTest {
  public:
   void SetUpInProcessBrowserTestFixture() override {
     InProcessBrowserTest::SetUpInProcessBrowserTestFixture();
-    chromeos::CiceroneClient::InitializeFake();
-    chromeos::ConciergeClient::InitializeFake();
-    chromeos::SeneschalClient::InitializeFake();
-    fake_cicerone_client_ = chromeos::FakeCiceroneClient::Get();
+    ash::CiceroneClient::InitializeFake();
+    ash::ConciergeClient::InitializeFake();
+    ash::SeneschalClient::InitializeFake();
+    fake_cicerone_client_ = ash::FakeCiceroneClient::Get();
   }
 
   void TearDownInProcessBrowserTestFixture() override {
     service_.reset();
-    chromeos::SeneschalClient::Shutdown();
-    chromeos::ConciergeClient::Shutdown();
-    chromeos::CiceroneClient::Shutdown();
+    ash::SeneschalClient::Shutdown();
+    ash::ConciergeClient::Shutdown();
+    ash::CiceroneClient::Shutdown();
     InProcessBrowserTest::TearDownInProcessBrowserTestFixture();
   }
 
@@ -66,7 +65,7 @@ class GuestOsRegistryServiceIconTest : public InProcessBrowserTest {
               if (expect_loaded) {
                 EXPECT_FALSE(icon->is_placeholder_icon);
                 EXPECT_EQ(apps::IconType::kCompressed, icon->icon_type);
-                EXPECT_GT(icon->compressed.size(), 0);
+                EXPECT_GT(icon->compressed.size(), 0u);
               } else {
                 EXPECT_EQ(apps::IconType::kUnknown, icon->icon_type);
               }
@@ -103,8 +102,7 @@ class GuestOsRegistryServiceIconTest : public InProcessBrowserTest {
 
   std::string AddApp() {
     ApplicationList crostini_list;
-    crostini_list.set_vm_type(
-        GuestOsRegistryService::VmType::ApplicationList_VmType_TERMINA);
+    crostini_list.set_vm_type(VmType::TERMINA);
     crostini_list.set_vm_name("termina");
     crostini_list.set_container_name("penguin");
     *crostini_list.add_apps() =
@@ -125,15 +123,14 @@ class GuestOsRegistryServiceIconTest : public InProcessBrowserTest {
 
   void RemoveApps() {
     ApplicationList crostini_list;
-    crostini_list.set_vm_type(
-        GuestOsRegistryService::VmType::ApplicationList_VmType_TERMINA);
+    crostini_list.set_vm_type(VmType::TERMINA);
     crostini_list.set_vm_name("termina");
     crostini_list.set_container_name("penguin");
     service()->UpdateApplicationList(crostini_list);
   }
 
  protected:
-  chromeos::FakeCiceroneClient* fake_cicerone_client_;
+  ash::FakeCiceroneClient* fake_cicerone_client_;
   static constexpr char kSvgData[] =
       "<svg width='20px' height='20px' viewBox='0 0 24 24' "
       "fill='rgb(95,99,104)' "

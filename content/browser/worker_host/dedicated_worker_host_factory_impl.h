@@ -1,11 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CONTENT_BROWSER_WORKER_HOST_DEDICATED_WORKER_HOST_FACTORY_IMPL_H_
 #define CONTENT_BROWSER_WORKER_HOST_DEDICATED_WORKER_HOST_FACTORY_IMPL_H_
 
-#include "content/browser/net/cross_origin_embedder_policy_reporter.h"
+#include "content/browser/network/cross_origin_embedder_policy_reporter.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/global_routing_id.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -27,6 +27,10 @@ namespace content {
 class CONTENT_EXPORT DedicatedWorkerHostFactoryImpl
     : public blink::mojom::DedicatedWorkerHostFactory {
  public:
+  using CreateWorkerHostCallback = base::OnceCallback<void(
+      const network::CrossOriginEmbedderPolicy&,
+      mojo::PendingRemote<blink::mojom::BackForwardCacheControllerHost>)>;
+
   // Exactly one of `creator_render_frame_host_id` and `creator_worker_token`
   // must be specified.
   // `creator_client_security_state` specifies the client security state of
@@ -56,8 +60,7 @@ class CONTENT_EXPORT DedicatedWorkerHostFactoryImpl
       mojo::PendingReceiver<blink::mojom::BrowserInterfaceBroker>
           broker_receiver,
       mojo::PendingReceiver<blink::mojom::DedicatedWorkerHost> host_receiver,
-      base::OnceCallback<void(const network::CrossOriginEmbedderPolicy&)>
-          callback) override;
+      CreateWorkerHostCallback callback) override;
 
   // PlzDedicatedWorker:
   void CreateWorkerHostAndStartScriptLoad(

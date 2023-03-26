@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,11 +10,11 @@
 
 #include "base/android/jni_array.h"
 #include "base/android/jni_weak_ref.h"
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/observer_list.h"
 #include "base/time/time.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -155,8 +155,18 @@ class UI_ANDROID_EXPORT ViewAndroid {
   // Pass necessary |jdrop_data| to build Android ClipData for drag and drop.
   // |jshadow_image| is a bitmap presentation of the shadow image to be used
   // for dragging.
+  // |cursor_offset_x| is the x offset of the cursor w.r.t. to top-left corner
+  // of the drag-image.
+  // |cursor_offset_y| is the y offset of the cursor w.r.t. to top-left corner
+  // of the drag-image.
+  // |drag_obj_rect_width| is the width of the drag object.
+  // |drag_obj_rect_height| is the height of the drag object.
   bool StartDragAndDrop(const base::android::JavaRef<jobject>& jshadow_image,
-                        const base::android::JavaRef<jobject>& jdrop_data);
+                        const base::android::JavaRef<jobject>& jdrop_data,
+                        jint cursor_offset_x,
+                        jint cursor_offset_y,
+                        jint drag_obj_rect_width,
+                        jint drag_obj_rect_height);
 
   gfx::Size GetPhysicalBackingSize() const;
   gfx::Size GetSize() const;
@@ -169,6 +179,7 @@ class UI_ANDROID_EXPORT ViewAndroid {
       const gfx::Size& size,
       absl::optional<base::TimeDelta> deadline_override = absl::nullopt);
   void OnCursorChanged(const Cursor& cursor);
+  void SetHoverActionStylusWritable(bool stylus_writable);
   void OnBackgroundColorChanged(unsigned int color);
   void OnTopControlsChanged(float top_controls_offset,
                             float top_content_offset,
@@ -226,6 +237,8 @@ class UI_ANDROID_EXPORT ViewAndroid {
   void NotifyVirtualKeyboardOverlayRect(const gfx::Rect& keyboard_rect);
 
   void SetLayoutForTesting(int x, int y, int width, int height);
+
+  EventForwarder* event_forwarder() { return event_forwarder_.get(); }
 
  protected:
   void RemoveAllChildren(bool attached_to_window);

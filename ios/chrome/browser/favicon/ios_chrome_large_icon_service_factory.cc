@@ -1,10 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ios/chrome/browser/favicon/ios_chrome_large_icon_service_factory.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/no_destructor.h"
 #include "components/favicon/core/large_icon_service_impl.h"
 #include "components/image_fetcher/core/image_fetcher_impl.h"

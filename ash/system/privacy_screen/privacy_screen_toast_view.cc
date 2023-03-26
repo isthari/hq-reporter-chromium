@@ -1,9 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/privacy_screen/privacy_screen_toast_view.h"
 
+#include "ash/constants/ash_features.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
@@ -131,8 +132,12 @@ PrivacyScreenToastView::PrivacyScreenToastView(
   label_ = new PrivacyScreenToastLabelView();
   AddChildView(label_);
 
-  SetPaintToLayer();
-  layer()->SetFillsBoundsOpaquely(false);
+  // In dark light mode, we switch TrayBubbleView to use a textured layer
+  // instead of solid color layer, so no need to create an extra layer here.
+  if (!features::IsDarkLightModeEnabled()) {
+    SetPaintToLayer();
+    layer()->SetFillsBoundsOpaquely(false);
+  }
 }
 
 PrivacyScreenToastView::~PrivacyScreenToastView() {
@@ -146,16 +151,6 @@ void PrivacyScreenToastView::SetPrivacyScreenEnabled(bool enabled,
   button_->SetToggled(enabled);
   label_->SetPrivacyScreenEnabled(enabled, managed);
 
-  std::u16string state = l10n_util::GetStringUTF16(
-      is_enabled_ ? IDS_ASH_STATUS_TRAY_PRIVACY_SCREEN_ON_STATE
-                  : IDS_ASH_STATUS_TRAY_PRIVACY_SCREEN_OFF_STATE);
-  button_->SetTooltipText(l10n_util::GetStringFUTF16(
-      IDS_ASH_STATUS_TRAY_PRIVACY_SCREEN_TOOLTIP, state));
-
-  Layout();
-}
-
-std::u16string PrivacyScreenToastView::GetAccessibleName() {
   std::u16string enabled_state = l10n_util::GetStringUTF16(
       is_enabled_ ? IDS_ASH_STATUS_TRAY_PRIVACY_SCREEN_ON_STATE
                   : IDS_ASH_STATUS_TRAY_PRIVACY_SCREEN_OFF_STATE);
@@ -163,9 +158,14 @@ std::u16string PrivacyScreenToastView::GetAccessibleName() {
       is_managed_ ? l10n_util::GetStringUTF16(
                         IDS_ASH_STATUS_TRAY_PRIVACY_SCREEN_ENTERPRISE_MANAGED)
                   : std::u16string();
-  return l10n_util::GetStringFUTF16(
+  button_->SetTooltipText(l10n_util::GetStringFUTF16(
+      IDS_ASH_STATUS_TRAY_PRIVACY_SCREEN_TOOLTIP, enabled_state));
+
+  SetAccessibleName(l10n_util::GetStringFUTF16(
       IDS_ASH_STATUS_TRAY_PRIVACY_SCREEN_TOAST_ACCESSIBILITY_TEXT,
-      enabled_state, managed_state);
+      enabled_state, managed_state));
+
+  Layout();
 }
 
 bool PrivacyScreenToastView::IsButtonFocused() const {

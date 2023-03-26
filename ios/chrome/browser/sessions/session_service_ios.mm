@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,24 +6,23 @@
 
 #import <UIKit/UIKit.h>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
-#include "base/files/file_path.h"
-#include "base/format_macros.h"
-#include "base/location.h"
-#include "base/logging.h"
+#import "base/files/file_path.h"
+#import "base/format_macros.h"
+#import "base/functional/bind.h"
+#import "base/functional/callback_helpers.h"
+#import "base/location.h"
+#import "base/logging.h"
 #import "base/mac/foundation_util.h"
-#include "base/memory/ref_counted.h"
-#include "base/metrics/histogram_functions.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/task/post_task.h"
-#include "base/task/sequenced_task_runner.h"
-#include "base/task/thread_pool.h"
-#include "base/threading/scoped_blocking_call.h"
-#include "base/time/time.h"
+#import "base/memory/ref_counted.h"
+#import "base/metrics/histogram_functions.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/task/sequenced_task_runner.h"
+#import "base/task/thread_pool.h"
+#import "base/threading/scoped_blocking_call.h"
+#import "base/time/time.h"
 #import "ios/chrome/browser/sessions/scene_util.h"
-#include "ios/chrome/browser/sessions/session_features.h"
+#import "ios/chrome/browser/sessions/session_features.h"
 #import "ios/chrome/browser/sessions/session_ios.h"
 #import "ios/chrome/browser/sessions/session_ios_factory.h"
 #import "ios/chrome/browser/sessions/session_window_ios.h"
@@ -34,15 +33,6 @@
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
-
-// When C++ exceptions are disabled, the C++ library defines |try| and
-// |catch| so as to allow exception-expecting C++ code to build properly when
-// language support for exceptions is not present.  These macros interfere
-// with the use of |@try| and |@catch| in Objective-C files such as this one.
-// Undefine these macros here, after everything has been #included, since
-// there will be no C++ uses and only Objective-C uses from this point on.
-#undef try
-#undef catch
 
 namespace {
 const NSTimeInterval kSaveDelay = 2.5;     // Value taken from Desktop Chrome.
@@ -72,9 +62,10 @@ NSString* const kRootObjectKey = @"root";  // Key for the root object.
 
 - (instancetype)init {
   scoped_refptr<base::SequencedTaskRunner> taskRunner =
-      base::ThreadPool::CreateSequencedTaskRunner(
+      base::ThreadPool::CreateSingleThreadTaskRunner(
           {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
-           base::TaskShutdownBehavior::BLOCK_SHUTDOWN});
+           base::TaskShutdownBehavior::BLOCK_SHUTDOWN},
+          base::SingleThreadTaskRunnerThreadMode::DEDICATED);
   return [self initWithTaskRunner:taskRunner];
 }
 
@@ -99,6 +90,10 @@ NSString* const kRootObjectKey = @"root";  // Key for the root object.
   return self;
 }
 
+- (void)shutdownWithCompletion:(ProceduralBlock)completion {
+  _taskRunner->PostTask(FROM_HERE, base::BindOnce(completion));
+}
+
 - (void)saveSession:(__weak SessionIOSFactory*)factory
           sessionID:(NSString*)sessionID
           directory:(const base::FilePath&)directory
@@ -111,7 +106,7 @@ NSString* const kRootObjectKey = @"root";  // Key for the root object.
     [NSObject cancelPreviousPerformRequestsWithTarget:self];
     [self performSaveToPathInBackground:sessionPath];
   } else if (!hadPendingSession) {
-    // If there wasn't previously a delayed save pending for |sessionPath|,
+    // If there wasn't previously a delayed save pending for `sessionPath`,
     // enqueue one now.
     [self performSelector:@selector(performSaveToPathInBackground:)
                withObject:sessionPath
@@ -180,12 +175,6 @@ NSString* const kRootObjectKey = @"root";  // Key for the root object.
       contentsOfDirectoryAtPath:sessionsDirectory
                           error:nil];
 
-  // If there were no session ids, then scenes are not supported fall back to
-  // the original location.
-  if ([allSessionIDs count] == 0) {
-    allSessionIDs = @[ @"" ];
-  }
-
   [self deleteSessions:allSessionIDs
              directory:directory
             completion:std::move(callback)];
@@ -226,7 +215,7 @@ NSString* const kRootObjectKey = @"root";  // Key for the root object.
 
 #pragma mark - Private methods
 
-// Delete files/folders of the given |paths|.
+// Delete files/folders of the given `paths`.
 - (void)deletePaths:(NSArray<NSString*>*)paths
          completion:(base::OnceClosure)callback {
   _taskRunner->PostTaskAndReply(
@@ -371,7 +360,8 @@ NSString* const kRootObjectKey = @"root";  // Key for the root object.
   }
 
   NSDataWritingOptions options =
-      NSDataWritingAtomic | NSDataWritingFileProtectionComplete;
+      NSDataWritingAtomic |
+      NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication;
 
   NSMutableArray* filesToKeep =
       [NSMutableArray arrayWithArray:@[ sessionFilename ]];

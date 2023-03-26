@@ -1,10 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/apps/icon_standardizer.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/skia/include/core/SkCanvas.h"
+#include "third_party/skia/include/core/SkImage.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_operations.h"
 
@@ -31,6 +33,17 @@ bool AreBitmapsEqual(const SkBitmap& first_bitmap,
   }
 
   return bitmaps_equal;
+}
+
+bool DoesIconHaveWhiteBackgroundCircle(const SkBitmap& bitmap) {
+  const int y = kIconSize / 2;
+  SkColor* src_color = reinterpret_cast<SkColor*>(bitmap.getAddr32(0, y));
+  for (int x = 0; x < bitmap.width(); ++x) {
+    if (src_color[x] == SK_ColorWHITE) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace
@@ -67,6 +80,7 @@ TEST_F(CreateStandardIconTest, SquareIconToStandardIcon) {
       square_icon_bitmap, skia::ImageOperations::RESIZE_BEST, 36, 36);
   canvas.drawImage(scaled_bitmap.asImage(), 14, 14);
 
+  EXPECT_TRUE(DoesIconHaveWhiteBackgroundCircle(*standard_icon.bitmap()));
   EXPECT_TRUE(AreBitmapsEqual(*standard_icon.bitmap(), test_standard_bitmap));
 }
 
@@ -102,6 +116,8 @@ TEST_F(CreateStandardIconTest, CircularIconToStandardIcon) {
   SkCanvas canvas2(manually_scaled_bitmap);
   canvas2.drawImage(scaled_bitmap.asImage(), 3, 3);
 
+  EXPECT_FALSE(
+      DoesIconHaveWhiteBackgroundCircle(*generated_standard_icon.bitmap()));
   EXPECT_TRUE(AreBitmapsEqual(*generated_standard_icon.bitmap(),
                               manually_scaled_bitmap));
 }
@@ -126,5 +142,34 @@ TEST_F(CreateStandardIconTest, StandardCircularIconToStandardIcon) {
   gfx::ImageSkia standard_icon = apps::CreateStandardIconImage(
       gfx::ImageSkia::CreateFromBitmap(circle_icon_bitmap, 2.0f));
 
+  EXPECT_FALSE(DoesIconHaveWhiteBackgroundCircle(*standard_icon.bitmap()));
   EXPECT_TRUE(AreBitmapsEqual(*standard_icon.bitmap(), circle_icon_bitmap));
+}
+
+// Test that a circle icon that has an extra opaque area near the outside of the
+// circle will have a background circle added when standardized.
+TEST_F(CreateStandardIconTest, AlmostCircularIconToStandardIcon) {
+  // Create a bitmap with a red circle as a placeholder circular icon.
+  SkBitmap almost_circle_icon_bitmap;
+  almost_circle_icon_bitmap.allocN32Pixels(kIconSize, kIconSize);
+  almost_circle_icon_bitmap.eraseColor(SK_ColorTRANSPARENT);
+
+  SkCanvas canvas(almost_circle_icon_bitmap);
+  SkPaint paint_flags;
+  paint_flags.setAntiAlias(true);
+  paint_flags.setColor(SK_ColorRED);
+  paint_flags.setStyle(SkPaint::kFill_Style);
+  canvas.drawCircle(SkPoint::Make(kIconSize / 2.0f, kIconSize / 2.0f),
+                    kStandardCircleRadius, paint_flags);
+
+  // Draw a small square partially outside of the main red circle.
+  canvas.drawRect(SkRect::MakeXYWH(6, 6, 15, 15), paint_flags);
+
+  // Get the standard icon version of the almost red circle icon.
+  gfx::ImageSkia standard_icon = apps::CreateStandardIconImage(
+      gfx::ImageSkia::CreateFromBitmap(almost_circle_icon_bitmap, 2.0f));
+
+  EXPECT_TRUE(DoesIconHaveWhiteBackgroundCircle(*standard_icon.bitmap()));
+  EXPECT_FALSE(
+      AreBitmapsEqual(*standard_icon.bitmap(), almost_circle_icon_bitmap));
 }

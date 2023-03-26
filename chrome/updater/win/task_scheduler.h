@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,13 @@
 #include <stdint.h>
 
 #include <memory>
+#include <ostream>
 #include <string>
 #include <vector>
 
 #include "base/files/file_path.h"
+#include "base/strings/strcat.h"
+#include "base/strings/stringprintf.h"
 
 namespace base {
 class CommandLine;
@@ -85,9 +88,14 @@ class TaskScheduler {
     // The log-on requirements for the task's actions to be run. A bit mask with
     // the mapping defined by LogonType.
     uint32_t logon_type = 0;
+
+    // User ID under which the task runs.
+    std::wstring user_id;
+
+    TriggerType trigger_type = TRIGGER_TYPE_MAX;
   };
 
-  static std::unique_ptr<TaskScheduler> CreateInstance();
+  static std::unique_ptr<TaskScheduler> CreateInstance(UpdaterScope scope);
 
   TaskScheduler(const TaskScheduler&) = delete;
   TaskScheduler& operator=(const TaskScheduler&) = delete;
@@ -113,6 +121,9 @@ class TaskScheduler {
   // Return true if task exists and is enabled.
   virtual bool IsTaskEnabled(const wchar_t* task_name) = 0;
 
+  // Return true if task exists and is running.
+  virtual bool IsTaskRunning(const wchar_t* task_name) = 0;
+
   // List all currently registered scheduled tasks.
   virtual bool GetTaskNameList(std::vector<std::wstring>* task_names) = 0;
 
@@ -129,16 +140,28 @@ class TaskScheduler {
 
   // Register the task to run the specified application and using the given
   // |trigger_type|.
-  virtual bool RegisterTask(UpdaterScope scope,
-                            const wchar_t* task_name,
+  virtual bool RegisterTask(const wchar_t* task_name,
                             const wchar_t* task_description,
                             const base::CommandLine& run_command,
                             TriggerType trigger_type,
                             bool hidden) = 0;
 
+  // Returns true if the scheduled task specified by |task_name| can be started
+  // successfully or is currently running.
+  virtual bool StartTask(const wchar_t* task_name) = 0;
+
+  // Name of the sub-folder that the scheduled tasks are created in, prefixed
+  // with the company folder `GetTaskCompanyFolder`.
+  virtual std::wstring GetTaskSubfolderName() = 0;
+
  protected:
   TaskScheduler();
 };
+
+std::ostream& operator<<(std::ostream& stream,
+                         const TaskScheduler::TaskExecAction& t);
+std::ostream& operator<<(std::ostream& stream,
+                         const TaskScheduler::TaskInfo& t);
 
 }  // namespace updater
 

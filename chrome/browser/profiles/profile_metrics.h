@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,7 +55,7 @@ class ProfileMetrics {
 
   // These values are persisted to logs. Entries should not be renumbered and
   // numeric values should never be reused.
-  enum class ProfileAddSignInFlowOutcome {
+  enum class ProfileSignedInFlowOutcome {
     kConsumerSync = 0,
     kConsumerSigninOnly = 1,
     kConsumerSyncSettings = 2,
@@ -70,7 +70,9 @@ class ProfileMetrics {
     kAbortedBeforeSignIn = 10,
     kAbortedAfterSignIn = 11,
     kAbortedOnEnterpriseWelcome = 12,
-    kMaxValue = kAbortedOnEnterpriseWelcome,
+    kSkippedAlreadySyncing = 13,
+    kSkippedByPolicies = 14,
+    kMaxValue = kSkippedByPolicies,
   };
 
   // These values are persisted to logs. Entries should not be renumbered and
@@ -145,7 +147,14 @@ class ProfileMetrics {
     PROFILE_ANDROID_ACCOUNT_MANAGEMENT_MENU_CLICK_PRIMARY_ACCOUNT = 3,
     // User arrived at the Account management screen, and clicked on secondary.
     PROFILE_ANDROID_ACCOUNT_MANAGEMENT_MENU_CLICK_SECONDARY_ACCOUNT = 4,
-    // User arrived at the Account management screen, toggled Chrome signout.
+    // Despite the name of this enum, the following three interactions track
+    // actions triggered from all user-triggered entry points for the signout
+    // dialog.  Currently these are:
+    // * The Account management settings screen
+    // * The Sync settings screen
+    // * The Google Services settings screen
+    //
+    // User toggled Chrome signout.
     PROFILE_ANDROID_ACCOUNT_MANAGEMENT_MENU_TOGGLE_SIGNOUT = 5,
     // User toggled Chrome signout, and clicked Signout.
     PROFILE_ANDROID_ACCOUNT_MANAGEMENT_MENU_SIGNOUT_SIGNOUT = 6,
@@ -169,7 +178,9 @@ class ProfileMetrics {
   static void LogNumberOfProfiles(ProfileAttributesStorage* storage);
   static void LogProfileAddNewUser(ProfileAdd metric);
   static void LogProfileAddSignInFlowOutcome(
-      ProfileAddSignInFlowOutcome outcome);
+      ProfileSignedInFlowOutcome outcome);
+  static void LogLacrosPrimaryProfileFirstRunOutcome(
+      ProfileSignedInFlowOutcome outcome);
   static void LogProfileAvatarSelection(size_t icon_index);
   static void LogProfileDeleteUser(ProfileDelete metric);
   static void LogProfileSwitchGaia(ProfileGaia metric);
@@ -185,6 +196,10 @@ class ProfileMetrics {
   // into g_browser_process through a helper function.
   static void LogProfileLaunch(Profile* profile);
   static void LogProfileUpdate(const base::FilePath& profile_path);
+
+  // Records the count of KeyedService active for the System Profile histogram.
+  // Expects only System Profiles.
+  static void LogSystemProfileKeyedServicesCount(Profile* profile);
 };
 
 #endif  // CHROME_BROWSER_PROFILES_PROFILE_METRICS_H_

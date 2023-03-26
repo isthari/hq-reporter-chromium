@@ -23,25 +23,21 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_THEME_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_THEME_H_
 
+#include "base/time/time.h"
 #include "third_party/blink/public/mojom/frame/color_scheme.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css_value_keywords.h"
-#include "third_party/blink/renderer/core/scroll/scroll_types.h"
-#include "third_party/blink/renderer/platform/fonts/font_description.h"
-#include "third_party/blink/renderer/platform/fonts/font_selection_types.h"
-#include "third_party/blink/renderer/platform/geometry/layout_unit.h"
-#include "third_party/blink/renderer/platform/geometry/length_box.h"
-#include "third_party/blink/renderer/platform/geometry/length_size.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
 #include "third_party/blink/renderer/platform/theme_types.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
-#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace blink {
 
 class ComputedStyle;
+class ComputedStyleBuilder;
 class Document;
 class Element;
 class File;
@@ -70,10 +66,10 @@ class CORE_EXPORT LayoutTheme : public RefCounted<LayoutTheme> {
   // selection of control size based off the font, the disabling of appearance
   // when certain other properties like "border" are set, or if the appearance
   // is not supported by the theme.
-  void AdjustStyle(const Element*, ComputedStyle&);
+  void AdjustStyle(const Element*, ComputedStyleBuilder&);
 
   // The remaining methods should be implemented by the platform-specific
-  // portion of the theme, e.g., LayoutThemeMac.cpp for Mac OS X.
+  // portion of the theme, e.g., layout_theme_mac.mm for macOS.
 
   // These methods return the theme's extra style sheets rules, to let each
   // platform adjust the default CSS rules in html.css or quirks.css
@@ -82,7 +78,8 @@ class CORE_EXPORT LayoutTheme : public RefCounted<LayoutTheme> {
 
   // Whether or not the control has been styled enough by the author to disable
   // the native appearance.
-  virtual bool IsControlStyled(ControlPart part, const ComputedStyle&) const;
+  virtual bool IsControlStyled(ControlPart part,
+                               const ComputedStyleBuilder&) const;
 
   bool ShouldDrawDefaultFocusRing(const Node*, const ComputedStyle&) const;
 
@@ -149,7 +146,7 @@ class CORE_EXPORT LayoutTheme : public RefCounted<LayoutTheme> {
   virtual Color SystemColor(CSSValueID,
                             mojom::blink::ColorScheme color_scheme) const;
 
-  virtual void AdjustSliderThumbSize(ComputedStyle&) const;
+  virtual void AdjustSliderThumbSize(ComputedStyleBuilder&) const;
 
   virtual int PopupInternalPaddingStart(const ComputedStyle&) const {
     return 0;
@@ -182,7 +179,7 @@ class CORE_EXPORT LayoutTheme : public RefCounted<LayoutTheme> {
   virtual bool SupportsSelectionForegroundColors() const { return true; }
 
   // Adjust style as per platform selection.
-  virtual void AdjustControlPartStyle(ComputedStyle&);
+  virtual void AdjustControlPartStyle(ComputedStyleBuilder&);
 
   virtual bool IsAccentColorCustomized(
       mojom::blink::ColorScheme color_scheme) const {
@@ -215,21 +212,18 @@ class CORE_EXPORT LayoutTheme : public RefCounted<LayoutTheme> {
       mojom::blink::ColorScheme color_scheme) const;
 
   // Methods for each appearance value.
-  virtual void AdjustCheckboxStyle(ComputedStyle&) const;
-  virtual void SetCheckboxSize(ComputedStyle&) const {}
+  virtual void AdjustCheckboxStyle(ComputedStyleBuilder&) const;
+  virtual void AdjustRadioStyle(ComputedStyleBuilder&) const;
 
-  virtual void AdjustRadioStyle(ComputedStyle&) const;
-  virtual void SetRadioSize(ComputedStyle&) const {}
+  virtual void AdjustButtonStyle(ComputedStyleBuilder&) const;
+  virtual void AdjustInnerSpinButtonStyle(ComputedStyleBuilder&) const;
 
-  virtual void AdjustButtonStyle(ComputedStyle&) const;
-  virtual void AdjustInnerSpinButtonStyle(ComputedStyle&) const;
-
-  virtual void AdjustMenuListStyle(ComputedStyle&) const;
-  virtual void AdjustMenuListButtonStyle(ComputedStyle&) const;
-  virtual void AdjustSliderContainerStyle(const Element&, ComputedStyle&) const;
-  virtual void AdjustSliderThumbStyle(ComputedStyle&) const;
-  virtual void AdjustSearchFieldStyle(ComputedStyle&) const;
-  virtual void AdjustSearchFieldCancelButtonStyle(ComputedStyle&) const;
+  virtual void AdjustMenuListStyle(ComputedStyleBuilder&) const;
+  virtual void AdjustMenuListButtonStyle(ComputedStyleBuilder&) const;
+  virtual void AdjustSliderContainerStyle(const Element&,
+                                          ComputedStyleBuilder&) const;
+  virtual void AdjustSliderThumbStyle(ComputedStyleBuilder&) const;
+  virtual void AdjustSearchFieldCancelButtonStyle(ComputedStyleBuilder&) const;
 
   bool HasCustomFocusRingColor() const;
   Color GetCustomFocusRingColor() const;
@@ -245,11 +239,12 @@ class CORE_EXPORT LayoutTheme : public RefCounted<LayoutTheme> {
   // implementation to hand back the appropriate platform theme.
   static LayoutTheme& NativeTheme();
 
-  ControlPart AdjustAppearanceWithAuthorStyle(ControlPart part,
-                                              const ComputedStyle& style);
+  ControlPart AdjustAppearanceWithAuthorStyle(
+      ControlPart part,
+      const ComputedStyleBuilder& style);
 
-  ControlPart AdjustAppearanceWithElementType(const ComputedStyle& style,
-                                              const Element* element);
+  ControlPart AdjustAppearanceWithElementType(const ComputedStyleBuilder&,
+                                              const Element*);
 
   void UpdateForcedColorsState();
 
@@ -262,9 +257,11 @@ class CORE_EXPORT LayoutTheme : public RefCounted<LayoutTheme> {
 
   // This color is expected to be drawn on a semi-transparent overlay,
   // making it more transparent than its alpha value indicates.
-  static const RGBA32 kDefaultTapHighlightColor = 0x66000000;
+  static constexpr Color kDefaultTapHighlightColor =
+      Color::FromRGBA32(0x66000000);
 
-  static const RGBA32 kDefaultCompositionBackgroundColor = 0xFFFFDD55;
+  static constexpr Color kDefaultCompositionBackgroundColor =
+      Color::FromRGBA32(0xFFFFDD55);
 };
 
 }  // namespace blink

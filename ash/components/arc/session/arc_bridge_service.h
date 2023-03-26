@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,14 +35,11 @@ class BootPhaseMonitorInstance;
 class CameraHost;
 class CameraInstance;
 class CastReceiverInstance;
-class CertStoreHost;
-class CertStoreInstance;
 class ClipboardHost;
 class ClipboardInstance;
 class CompatibilityModeInstance;
 class CrashCollectorHost;
 class CrashCollectorInstance;
-class DarkThemeInstance;
 class DigitalGoodsInstance;
 class DiskQuotaHost;
 class DiskQuotaInstance;
@@ -95,13 +92,10 @@ class PropertyInstance;
 class RotationLockInstance;
 class ScreenCaptureHost;
 class ScreenCaptureInstance;
-class SensorHost;
-class SensorInstance;
 class SharesheetHost;
 class SharesheetInstance;
-class SmartCardManagerHost;
-class SmartCardManagerInstance;
 class StorageManagerInstance;
+class SystemUiInstance;
 class TimerHost;
 class TimerInstance;
 class TracingInstance;
@@ -192,10 +186,6 @@ class ArcBridgeService {
   ConnectionHolder<mojom::CastReceiverInstance>* cast_receiver() {
     return &cast_receiver_;
   }
-  ConnectionHolder<mojom::CertStoreInstance, mojom::CertStoreHost>*
-  cert_store() {
-    return &cert_store_;
-  }
   ConnectionHolder<mojom::ClipboardInstance, mojom::ClipboardHost>*
   clipboard() {
     return &clipboard_;
@@ -206,9 +196,6 @@ class ArcBridgeService {
   ConnectionHolder<mojom::CrashCollectorInstance, mojom::CrashCollectorHost>*
   crash_collector() {
     return &crash_collector_;
-  }
-  ConnectionHolder<mojom::DarkThemeInstance>* dark_theme() {
-    return &dark_theme_;
   }
   ConnectionHolder<mojom::DigitalGoodsInstance>* digital_goods() {
     return &digital_goods_;
@@ -305,22 +292,15 @@ class ArcBridgeService {
   screen_capture() {
     return &screen_capture_;
   }
-  ConnectionHolder<mojom::SensorInstance, mojom::SensorHost>* sensor() {
-    return &sensor_;
-  }
   ConnectionHolder<mojom::SharesheetInstance, mojom::SharesheetHost>*
   sharesheet() {
     return &sharesheet_;
-  }
-  ConnectionHolder<mojom::SmartCardManagerInstance,
-                   mojom::SmartCardManagerHost>*
-  smart_card_manager() {
-    return &smart_card_manager_;
   }
 
   ConnectionHolder<mojom::StorageManagerInstance>* storage_manager() {
     return &storage_manager_;
   }
+  ConnectionHolder<mojom::SystemUiInstance>* system_ui() { return &system_ui_; }
   ConnectionHolder<mojom::TimerInstance, mojom::TimerHost>* timer() {
     return &timer_;
   }
@@ -364,12 +344,10 @@ class ArcBridgeService {
       boot_phase_monitor_;
   ConnectionHolder<mojom::CameraInstance, mojom::CameraHost> camera_;
   ConnectionHolder<mojom::CastReceiverInstance> cast_receiver_;
-  ConnectionHolder<mojom::CertStoreInstance, mojom::CertStoreHost> cert_store_;
   ConnectionHolder<mojom::ClipboardInstance, mojom::ClipboardHost> clipboard_;
   ConnectionHolder<mojom::CompatibilityModeInstance> compatibility_mode_;
   ConnectionHolder<mojom::CrashCollectorInstance, mojom::CrashCollectorHost>
       crash_collector_;
-  ConnectionHolder<mojom::DarkThemeInstance> dark_theme_;
   ConnectionHolder<mojom::DigitalGoodsInstance> digital_goods_;
   ConnectionHolder<mojom::DiskQuotaInstance, mojom::DiskQuotaHost> disk_quota_;
   ConnectionHolder<mojom::EnterpriseReportingInstance,
@@ -412,12 +390,10 @@ class ArcBridgeService {
   ConnectionHolder<mojom::RotationLockInstance> rotation_lock_;
   ConnectionHolder<mojom::ScreenCaptureInstance, mojom::ScreenCaptureHost>
       screen_capture_;
-  ConnectionHolder<mojom::SensorInstance, mojom::SensorHost> sensor_;
   ConnectionHolder<mojom::SharesheetInstance, mojom::SharesheetHost>
       sharesheet_;
-  ConnectionHolder<mojom::SmartCardManagerInstance, mojom::SmartCardManagerHost>
-      smart_card_manager_;
   ConnectionHolder<mojom::StorageManagerInstance> storage_manager_;
+  ConnectionHolder<mojom::SystemUiInstance> system_ui_;
   ConnectionHolder<mojom::TimerInstance, mojom::TimerHost> timer_;
   ConnectionHolder<mojom::TracingInstance> tracing_;
   ConnectionHolder<mojom::TtsInstance, mojom::TtsHost> tts_;

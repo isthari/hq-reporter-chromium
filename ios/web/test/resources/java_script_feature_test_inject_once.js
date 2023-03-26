@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,8 @@
  * @fileoverview Setup functions used in JavaScriptFeature inttests. This file
  * will be executed once for a given |window| JS object.
  */
-goog.provide('__crWeb.javaScriptFeatureTestInjectOnce');
+
+import {sendWebKitMessage} from '//ios/web/public/js_messaging/resources/utils.js';
 
 /**
  * Namespace for this file. It depends on |__gCrWeb| having already been
@@ -31,9 +32,15 @@ __gCrWeb.javaScriptFeatureTest.replaceDivContents = function() {
 };
 
 __gCrWeb.javaScriptFeatureTest.replyWithPostMessage = function(messageBody) {
-  window.webkit.messageHandlers['FakeHandlerName'].postMessage(messageBody);
+  sendWebKitMessage('FakeHandlerName', messageBody);
 };
 
-document.getElementsByTagName("body")[0].appendChild(
-  document.createTextNode("injected_script_loaded")
-);
+// This function offers the same functionality as `replyWithPostMessage`, but
+// uses the sendWebKitMessage implementation in __gCrWeb.common.
+__gCrWeb.javaScriptFeatureTest.replyWithPostMessageCommonHelper = function(
+    messageBody) {
+  __gCrWeb.common.sendWebKitMessage('FakeHandlerName', messageBody);
+};
+
+document.getElementsByTagName('body')[0].appendChild(
+    document.createTextNode('injected_script_loaded'));

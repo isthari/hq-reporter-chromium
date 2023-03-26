@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_util.h"
 #include "extensions/browser/process_manager.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/manifest_handlers/incognito_info.h"
 #include "extensions/common/mojom/view_type.mojom.h"
 
@@ -64,7 +65,7 @@ std::unique_ptr<ExtensionViewHost> CreateViewHostForIncognito(
   NOTREACHED() <<
       "We shouldn't be trying to create an incognito extension view unless "
       "it has been enabled for incognito.";
-  return NULL;
+  return nullptr;
 }
 
 // Returns the extension associated with |url| in |profile|. Returns NULL if
@@ -72,7 +73,7 @@ std::unique_ptr<ExtensionViewHost> CreateViewHostForIncognito(
 const Extension* GetExtensionForUrl(Profile* profile, const GURL& url) {
   ExtensionRegistry* registry = ExtensionRegistry::Get(profile);
   if (!registry)
-    return NULL;
+    return nullptr;
   std::string extension_id = url.host();
   return registry->enabled_extensions().GetByID(extension_id);
 }
@@ -89,7 +90,7 @@ std::unique_ptr<ExtensionViewHost> CreateViewHost(
 
   const Extension* extension = GetExtensionForUrl(profile, url);
   if (!extension)
-    return NULL;
+    return nullptr;
   if (profile->IsOffTheRecord()) {
     return CreateViewHostForIncognito(
         extension, url, profile, browser, view_type);
@@ -114,7 +115,19 @@ std::unique_ptr<ExtensionViewHost> ExtensionViewHostFactory::CreateDialogHost(
     const GURL& url,
     Profile* profile) {
   DCHECK(profile);
-  return CreateViewHost(url, profile, NULL, mojom::ViewType::kExtensionDialog);
+  return CreateViewHost(url, profile, nullptr,
+                        mojom::ViewType::kExtensionDialog);
+}
+
+// static
+std::unique_ptr<ExtensionViewHost>
+ExtensionViewHostFactory::CreateSidePanelHost(const GURL& url,
+                                              Browser* browser) {
+  DCHECK(browser);
+  DCHECK(base::FeatureList::IsEnabled(
+      extensions_features::kExtensionSidePanelIntegration));
+  return CreateViewHost(url, browser->profile(), browser,
+                        mojom::ViewType::kExtensionSidePanel);
 }
 
 }  // namespace extensions

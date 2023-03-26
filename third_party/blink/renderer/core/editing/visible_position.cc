@@ -28,6 +28,7 @@
 #include "third_party/blink/renderer/core/editing/visible_position.h"
 
 #include <ostream>  // NOLINT
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
@@ -90,18 +91,10 @@ static inline bool InDifferentLinesOfSameInlineFormattingContext(
   if (InSameLine(position1, position2))
     return false;
   // Return whether the positions are in the same inline formatting context.
-  if (RuntimeEnabledFeatures::LayoutNGEnabled()) {
-    const LayoutBlockFlow* block1 =
-        NGInlineFormattingContextOf(position1.GetPosition());
-    return block1 &&
-           block1 == NGInlineFormattingContextOf(position2.GetPosition());
-  }
-  const InlineBox* inline_box1 = ComputeInlineBoxPosition(position1).inline_box;
-  if (!inline_box1)
-    return false;
-  const InlineBox* inline_box2 = ComputeInlineBoxPosition(position2).inline_box;
-  return inline_box2 &&
-         inline_box1->Root().LineBoxes() == inline_box2->Root().LineBoxes();
+  const LayoutBlockFlow* block1 =
+      NGInlineFormattingContextOf(position1.GetPosition());
+  return block1 &&
+         block1 == NGInlineFormattingContextOf(position2.GetPosition());
 }
 
 template <typename Strategy>

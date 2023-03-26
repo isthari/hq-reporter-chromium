@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,13 +15,11 @@
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/shadow_controller.h"
 
-#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && \
-    BUILDFLAG(ENABLE_DESKTOP_AURA)
-#include "ui/views/widget/desktop_aura/desktop_window_tree_host_linux.h"
+#if BUILDFLAG(ENABLE_DESKTOP_AURA)
+#include "ui/views/widget/desktop_aura/desktop_window_tree_host_platform.h"
 #endif
 
-namespace views {
-namespace test {
+namespace views::test {
 
 namespace {
 
@@ -70,15 +68,14 @@ BOOL CALLBACK FindAllWindowsCallback(HWND hwnd, LPARAM param) {
 
 std::vector<aura::Window*> GetAllTopLevelWindows() {
   std::vector<aura::Window*> roots;
-#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && \
-    BUILDFLAG(ENABLE_DESKTOP_AURA)
-  roots = DesktopWindowTreeHostLinux::GetAllOpenWindows();
-#elif BUILDFLAG(IS_WIN)
+#if BUILDFLAG(IS_WIN)
   {
     FindAllWindowsData data = {&roots};
     EnumThreadWindows(GetCurrentThreadId(), FindAllWindowsCallback,
                       reinterpret_cast<LPARAM>(&data));
   }
+#elif BUILDFLAG(ENABLE_DESKTOP_AURA)
+  roots = DesktopWindowTreeHostPlatform::GetAllOpenWindows();
 #endif
   aura::test::AuraTestHelper* aura_test_helper =
       aura::test::AuraTestHelper::GetInstance();
@@ -139,7 +136,7 @@ ui::EventSink* WidgetTest::GetEventSink(Widget* widget) {
 }
 
 // static
-ui::internal::InputMethodDelegate* WidgetTest::GetInputMethodDelegateForWidget(
+ui::ImeKeyEventDispatcher* WidgetTest::GetImeKeyEventDispatcherForWidget(
     Widget* widget) {
   return widget->GetNativeWindow()->GetRootWindow()->GetHost();
 }
@@ -175,5 +172,4 @@ Widget::Widgets WidgetTest::GetAllWidgets() {
 // static
 void WidgetTest::WaitForSystemAppActivation() {}
 
-}  // namespace test
-}  // namespace views
+}  // namespace views::test

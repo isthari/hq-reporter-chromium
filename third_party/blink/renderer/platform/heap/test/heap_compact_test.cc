@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,7 +36,7 @@ class IntWrapper : public blink::GarbageCollected<IntWrapper> {
     return other.Value() == Value();
   }
 
-  unsigned GetHash() { return IntHash<int>::GetHash(x_); }
+  unsigned GetHash() { return WTF::GetHash(x_); }
 
   explicit IntWrapper(int x) : x_(x) {}
 

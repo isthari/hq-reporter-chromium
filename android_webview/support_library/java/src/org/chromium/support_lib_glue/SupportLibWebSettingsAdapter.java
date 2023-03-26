@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,8 @@ import org.chromium.android_webview.AwSettings;
 import org.chromium.base.Log;
 import org.chromium.support_lib_boundary.WebSettingsBoundaryInterface;
 import org.chromium.support_lib_glue.SupportLibWebViewChromiumFactory.ApiCall;
+
+import java.util.Set;
 
 /**
  * Adapter between WebSettingsBoundaryInterface and AwSettings.
@@ -132,6 +134,27 @@ class SupportLibWebSettingsAdapter implements WebSettingsBoundaryInterface {
     }
 
     @Override
+    public void setAlgorithmicDarkeningAllowed(boolean allow) {
+        if (!AwDarkMode.isSimplifiedDarkModeEnabled()) {
+            Log.w(TAG,
+                    "setAlgorithmicDarkeningAllowed() is a no-op in an app with"
+                            + "targetSdkVersion<T");
+            return;
+        }
+        mAwSettings.setAlgorithmicDarkeningAllowed(allow);
+    }
+
+    @Override
+    public boolean isAlgorithmicDarkeningAllowed() {
+        if (!AwDarkMode.isSimplifiedDarkModeEnabled()) {
+            Log.w(TAG,
+                    "isAlgorithmicDarkeningAllowed() is a no-op in an app with targetSdkVersion<T");
+            return false;
+        }
+        return mAwSettings.isAlgorithmicDarkeningAllowed();
+    }
+
+    @Override
     public void setWebAuthnSupport(int support) {
         // Currently a no-op while this functionality is built out.
     }
@@ -140,5 +163,34 @@ class SupportLibWebSettingsAdapter implements WebSettingsBoundaryInterface {
     public int getWebAuthnSupport() {
         // Currently a no-op while this functionality is built out.
         return WebAuthnSupport.NONE;
+    }
+
+    @Override
+    public void setRequestedWithHeaderOriginAllowList(Set<String> allowedOriginRules) {
+        recordApiCall(ApiCall.WEB_SETTINGS_SET_REQUESTED_WITH_HEADER_ORIGIN_ALLOWLIST);
+        mAwSettings.setRequestedWithHeaderOriginAllowList(allowedOriginRules);
+    }
+
+    @Override
+    public Set<String> getRequestedWithHeaderOriginAllowList() {
+        recordApiCall(ApiCall.WEB_SETTINGS_GET_REQUESTED_WITH_HEADER_ORIGIN_ALLOWLIST);
+        return mAwSettings.getRequestedWithHeaderOriginAllowList();
+    }
+
+    @Override
+    public void setEnterpriseAuthenticationAppLinkPolicyEnabled(boolean enabled) {
+        recordApiCall(ApiCall.WEB_SETTINGS_SET_ENTERPRISE_AUTHENTICATION_APP_LINK_POLICY_ENABLED);
+        mAwSettings.setEnterpriseAuthenticationAppLinkPolicyEnabled(enabled);
+    }
+    @Override
+    public boolean getEnterpriseAuthenticationAppLinkPolicyEnabled() {
+        recordApiCall(ApiCall.WEB_SETTINGS_GET_ENTERPRISE_AUTHENTICATION_APP_LINK_POLICY_ENABLED);
+        return mAwSettings.getEnterpriseAuthenticationAppLinkPolicyEnabled();
+    }
+
+    @Override
+    public void enableRestrictSensitiveWebContent() {
+        recordApiCall(ApiCall.RESTRICT_SENSITIVE_WEB_CONTENT);
+        mAwSettings.enableRestrictSensitiveWebContent();
     }
 }

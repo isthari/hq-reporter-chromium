@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright 2022 The Chromium Authors. All rights reserved.
+# Copyright 2022 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -64,7 +64,7 @@ def _process_file(file):
     # The only two color types that have transparency and can be used for icons
     # are types 3 (indexed) and 6 (direct RGBA).
     if ihdr_color_type not in (3, 6):
-        raise FormatError(file, 'disallowed color type', color_type)
+        raise FormatError(file, 'disallowed color type', ihdr_color_type)
     if ihdr_color_type == 3 and b'PLTE' not in chunks:
         raise FormatError(file, 'indexed color requires \'PLTE\' chunk')
     if ihdr_color_type == 3 and b'tRNS' not in chunks:

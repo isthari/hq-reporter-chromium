@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,10 +34,6 @@ class VrTabHelper : public content::WebContentsUserData<VrTabHelper> {
   static bool IsContentDisplayedInHeadset(content::WebContents* contents);
   static void SetIsContentDisplayedInHeadset(content::WebContents* contents,
                                              bool state);
-
-  // If suppressed, this function will log a UMA stat.
-  static bool IsUiSuppressedInVr(content::WebContents* contents,
-                                 UiSuppressedElement element);
 
   static void ExitVrPresentation();
 

@@ -1,18 +1,20 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/safe_browsing/content/browser/ui_manager.h"
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/observer_list.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "components/no_state_prefetch/browser/no_state_prefetch_contents.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/content/browser/safe_browsing_blocking_page.h"
 #include "components/safe_browsing/content/browser/threat_details.h"
+#include "components/safe_browsing/content/browser/web_ui/safe_browsing_ui.h"
 #include "components/safe_browsing/core/browser/db/v4_protocol_manager_util.h"
 #include "components/safe_browsing/core/browser/ping_manager.h"
 #include "components/safe_browsing/core/common/features.h"
@@ -161,7 +163,7 @@ void SafeBrowsingUIManager::StartDisplayingBlockingPage(
   // destroyed once the request is failed.
   if (resource.IsMainPageLoadBlocked()) {
     content::NavigationEntry* entry =
-        web_contents->GetController().GetPendingEntry();
+        security_interstitials::GetNavigationEntryForResource(resource);
     if (entry) {
       security_interstitials::UnsafeResource resource_copy(resource);
       resource_copy.navigation_url = entry->GetURL();
@@ -171,6 +173,41 @@ void SafeBrowsingUIManager::StartDisplayingBlockingPage(
     }
   }
   DisplayBlockingPage(resource);
+}
+
+void SafeBrowsingUIManager::CheckLookupMechanismExperimentEligibility(
+    security_interstitials::UnsafeResource resource,
+    base::OnceCallback<void(bool)> callback,
+    scoped_refptr<base::SequencedTaskRunner> callback_task_runner) {
+  content::WebContents* web_contents =
+      security_interstitials::GetWebContentsForResource(resource);
+  auto determine_if_is_prerender = [resource, web_contents]() {
+    const content::GlobalRenderFrameHostId rfh_id(resource.render_process_id,
+                                                  resource.render_frame_id);
+    content::RenderFrameHost* rfh = content::RenderFrameHost::FromID(rfh_id);
+    return web_contents->IsPrerenderedFrame(resource.frame_tree_node_id) ||
+           (rfh && rfh->GetLifecycleState() ==
+                       content::RenderFrameHost::LifecycleState::kPrerendering);
+  };
+  // These checks parallel the ones performed by StartDisplayingBlockingPage to
+  // determine if a blocking page would be shown for a mainframe URL. The
+  // experiment is only eligible if the blocking page would be shown.
+  bool is_ineligible =
+      !web_contents ||
+      delegate_->GetNoStatePrefetchContentsIfExists(web_contents) ||
+      determine_if_is_prerender() ||
+      delegate_->IsHostingExtension(web_contents) || IsAllowlisted(resource);
+  callback_task_runner->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), !is_ineligible));
+}
+
+void SafeBrowsingUIManager::CheckExperimentEligibilityAndStartBlockingPage(
+    security_interstitials::UnsafeResource resource,
+    base::OnceCallback<void(bool)> callback,
+    scoped_refptr<base::SequencedTaskRunner> callback_task_runner) {
+  CheckLookupMechanismExperimentEligibility(resource, std::move(callback),
+                                            callback_task_runner);
+  StartDisplayingBlockingPage(resource);
 }
 
 bool SafeBrowsingUIManager::ShouldSendHitReport(const HitReport& hit_report,
@@ -194,17 +231,23 @@ void SafeBrowsingUIManager::MaybeReportSafeBrowsingHit(
   if (!ShouldSendHitReport(hit_report, web_contents))
     return;
 
-  // The service may delete the ping manager (i.e. when user disabling service,
-  // etc). This happens on the IO thread.
-  if (shut_down_ || !delegate_->GetPingManagerIfExists())
+  if (shut_down_)
     return;
 
   DVLOG(1) << "ReportSafeBrowsingHit: " << hit_report.malicious_url << " "
            << hit_report.page_url << " " << hit_report.referrer_url << " "
            << hit_report.is_subresource << " " << hit_report.threat_type;
-  delegate_->GetPingManagerIfExists()->ReportSafeBrowsingHit(
-      delegate_->GetURLLoaderFactory(web_contents->GetBrowserContext()),
-      hit_report);
+  delegate_->GetPingManager(web_contents->GetBrowserContext())
+      ->ReportSafeBrowsingHit(hit_report);
+
+  // The following is to log this HitReport on any open chrome://safe-browsing
+  // pages.
+  auto hit_report_copy = std::make_unique<HitReport>(hit_report);
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
+      base::BindOnce(&WebUIInfoSingleton::AddToHitReportsSent,
+                     base::Unretained(WebUIInfoSingleton::GetInstance()),
+                     std::move(hit_report_copy)));
 }
 
 // Static.
@@ -227,6 +270,10 @@ std::string SafeBrowsingUIManager::GetThreatTypeStringForInterstitial(
       return "UNWANTED_SOFTWARE";
     case safe_browsing::SB_THREAT_TYPE_BILLING:
       return "THREAT_TYPE_UNSPECIFIED";
+    case safe_browsing::SB_THREAT_TYPE_MANAGED_POLICY_WARN:
+      return "MANAGED_POLICY_WARN";
+    case safe_browsing::SB_THREAT_TYPE_MANAGED_POLICY_BLOCK:
+      return "MANAGED_POLICY_BLOCK";
     case safe_browsing::SB_THREAT_TYPE_UNUSED:
     case safe_browsing::SB_THREAT_TYPE_SAFE:
     case safe_browsing::SB_THREAT_TYPE_URL_BINARY_MALWARE:
@@ -247,7 +294,6 @@ std::string SafeBrowsingUIManager::GetThreatTypeStringForInterstitial(
     case safe_browsing::SB_THREAT_TYPE_ENTERPRISE_PASSWORD_REUSE:
     case safe_browsing::SB_THREAT_TYPE_APK_DOWNLOAD:
     case safe_browsing::SB_THREAT_TYPE_HIGH_CONFIDENCE_ALLOWLIST:
-    case safe_browsing::SB_THREAT_TYPE_ACCURACY_TIPS:
       NOTREACHED();
       break;
   }
@@ -281,21 +327,17 @@ const GURL SafeBrowsingUIManager::default_safe_page() const {
 
 // If the user had opted-in to send ThreatDetails, this gets called
 // when the report is ready.
-void SafeBrowsingUIManager::SendSerializedThreatDetails(
+void SafeBrowsingUIManager::SendThreatDetails(
     content::BrowserContext* browser_context,
-    const std::string& serialized) {
+    std::unique_ptr<ClientSafeBrowsingReportRequest> report) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  // The service may delete the ping manager (i.e. when user disabling service,
-  // etc). This happens on the IO thread.
-  if (shut_down_ || !delegate_->GetPingManagerIfExists())
+  if (shut_down_)
     return;
 
-  if (!serialized.empty()) {
-    DVLOG(1) << "Sending serialized threat details.";
-    delegate_->GetPingManagerIfExists()->ReportThreatDetails(
-        delegate_->GetURLLoaderFactory(browser_context), serialized);
-  }
+  DVLOG(1) << "Sending threat details.";
+  delegate_->GetPingManager(browser_context)
+      ->ReportThreatDetails(std::move(report));
 }
 
 void SafeBrowsingUIManager::OnBlockingPageDone(
@@ -307,12 +349,23 @@ void SafeBrowsingUIManager::OnBlockingPageDone(
   BaseUIManager::OnBlockingPageDone(resources, proceed, web_contents,
                                     main_frame_url, showed_interstitial);
   if (proceed && !resources.empty()) {
+#if !BUILDFLAG(IS_ANDROID)
+    if (base::FeatureList::IsEnabled((kRealTimeUrlFilteringForEnterprise)) &&
+        resources[0].threat_type ==
+            safe_browsing::SB_THREAT_TYPE_MANAGED_POLICY_WARN) {
+      delegate_->TriggerUrlFilteringInterstitialExtensionEventIfDesired(
+          web_contents, main_frame_url, "ENTERPRISE_WARNED_BYPASS",
+          resources[0].rt_lookup_response);
+      return;
+    }
+#endif
     delegate_->TriggerSecurityInterstitialProceededExtensionEventIfDesired(
         web_contents, main_frame_url,
         GetThreatTypeStringForInterstitial(resources[0].threat_type),
         /*net_error_code=*/0);
   }
 }
+
 // Static.
 GURL SafeBrowsingUIManager::GetMainFrameAllowlistUrlForResourceForTesting(
     const security_interstitials::UnsafeResource& resource) {
@@ -346,5 +399,15 @@ void SafeBrowsingUIManager::
   delegate_->TriggerSecurityInterstitialShownExtensionEventIfDesired(
       web_contents, page_url, reason, net_error_code);
 }
-
+#if !BUILDFLAG(IS_ANDROID)
+void SafeBrowsingUIManager::
+    ForwardUrlFilteringInterstitialExtensionEventToEmbedder(
+        content::WebContents* web_contents,
+        const GURL& page_url,
+        const std::string& threat_type,
+        safe_browsing::RTLookupResponse rt_lookup_response) {
+  delegate_->TriggerUrlFilteringInterstitialExtensionEventIfDesired(
+      web_contents, page_url, threat_type, rt_lookup_response);
+}
+#endif
 }  // namespace safe_browsing

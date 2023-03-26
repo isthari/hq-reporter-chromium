@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,16 @@ class WebContents;
 namespace autofill {
 
 class AutofillBubbleBase;
+
+// Enum for the current showing state of the bubble.
+enum class BubbleState {
+  // The bubble and the omnibox icon should be hidden.
+  kHidden = 0,
+  // Only the omnibox icon should be visible.
+  kShowingIcon = 1,
+  // The bubble and the omnibox icon should be both visible.
+  kShowingIconAndBubble = 2,
+};
 
 // Interface that exposes controller functionality to all autofill bubbles.
 class AutofillBubbleControllerBase : public content::WebContentsObserver {

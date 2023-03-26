@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,7 +37,6 @@ class SequencedTaskRunner;
 namespace mojo {
 
 class AsyncFlusher;
-class MessageHeaderValidator;
 class PendingFlush;
 
 namespace internal {
@@ -198,8 +197,8 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) MultiplexRouter
     return connector_.handle();
   }
 
-  bool SimulateReceivingMessageForTesting(Message* message) {
-    return dispatcher_.Accept(message);
+  bool SimulateReceivingMessageForTesting(ScopedMessageHandle handle) {
+    return connector_.SimulateReadMessage(std::move(handle));
   }
 
  private:
@@ -302,11 +301,6 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) MultiplexRouter
   const bool set_interface_id_namespace_bit_;
 
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
-
-  // Owned by |dispatcher_| below.
-  // `header_validator_` is not a raw_ptr<...> for performance reasons (based on
-  // analysis of sampling profiler data).
-  MessageHeaderValidator* header_validator_ = nullptr;
 
   MessageDispatcher dispatcher_;
   Connector connector_;

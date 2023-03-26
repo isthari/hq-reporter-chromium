@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,13 @@ import org.chromium.components.browser_ui.widget.selectable_list.SelectableListL
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate;
 import org.chromium.components.favicon.LargeIconBridge;
 
+import java.util.List;
+
 /**
  * Interface used by UI components in the main bookmarks UI to broadcast UI change notifications
  * and get bookmark data model.
  */
-interface BookmarkDelegate {
-
+public interface BookmarkDelegate {
     /**
      * Delegate used to open urls for main fragment on tablet.
      */
@@ -58,9 +59,16 @@ interface BookmarkDelegate {
 
     /**
      * Closes the Bookmark UI (if on phone) and opens the given bookmark.
-     * @param bookmark       bookmark to open.
+     * @param bookmark Bookmark to open.
      */
     void openBookmark(BookmarkId bookmark);
+
+    /**
+     * Closes the Bookmark UI (if on phone) and opens the given list of bookmarks in new tabs.
+     * @param bookmarks Bookmarks to open.
+     * @param incognito Whether the bookmarks should be opened in an incognito tab.
+     */
+    void openBookmarksInNewTabs(List<BookmarkId> bookmark, boolean incognito);
 
     /**
      * Shows the search UI.

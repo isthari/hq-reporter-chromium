@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,7 @@ void NoopWebURLLoader::LoadSynchronously(
     absl::optional<WebURLError>&,
     WebData&,
     int64_t& encoded_data_length,
-    int64_t& encoded_body_length,
+    uint64_t& encoded_body_length,
     WebBlobInfo& downloaded_blob,
     std::unique_ptr<blink::ResourceLoadInfoNotifierWrapper>
         resource_load_info_notifier_wrapper) {

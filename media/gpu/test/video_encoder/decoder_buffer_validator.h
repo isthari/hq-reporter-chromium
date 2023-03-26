@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -83,8 +83,6 @@ class H264Validator : public DecoderBufferValidator {
   // The expected h264 level of |decoder_buffer|. Check if it is not
   // absl::nullopt.
   absl::optional<uint8_t> level_;
-
-  size_t num_temporal_layers_;
 };
 
 class VP8Validator : public DecoderBufferValidator {

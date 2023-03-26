@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {FakeMethodResolver} from 'chrome://resources/ash/common/fake_method_resolver.js';
 
-import {assertEquals} from '../../chai_assert.js';
+import {assertEquals} from 'chrome://webui-test/chromeos/chai_assert.js';
 
 export function fakeMethodResolverTestSuite() {
   let resolver = null;

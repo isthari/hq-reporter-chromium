@@ -32,10 +32,8 @@
 #include "third_party/blink/renderer/bindings/core/v8/to_v8_traits.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_image_bitmap_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_float32array_uint16array_uint8clampedarray.h"
-#include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/html/canvas/predefined_color_space.h"
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap.h"
-#include "third_party/blink/renderer/platform/graphics/color_behavior.h"
 #include "v8/include/v8.h"
 
 namespace blink {
@@ -48,13 +46,8 @@ ImageData* ImageData::ValidateAndCreate(
     ValidateAndCreateParams params,
     ExceptionState& exception_state) {
   gfx::Size size;
-  if (params.require_canvas_color_management &&
-      !RuntimeEnabledFeatures::CanvasColorManagementEnabled()) {
-    exception_state.ThrowTypeError("Overload resolution failed.");
-    return nullptr;
-  }
-  if (params.require_canvas_color_management_v2 &&
-      !RuntimeEnabledFeatures::CanvasColorManagementV2Enabled()) {
+  if (params.require_canvas_floating_point &&
+      !RuntimeEnabledFeatures::CanvasFloatingPointEnabled()) {
     exception_state.ThrowTypeError("Overload resolution failed.");
     return nullptr;
   }
@@ -305,7 +298,7 @@ ScriptPromise ImageData::CreateImageBitmap(ScriptState* script_state,
   }
   return ImageBitmapSource::FulfillImageBitmap(
       script_state, MakeGarbageCollected<ImageBitmap>(this, crop_rect, options),
-      exception_state);
+      options, exception_state);
 }
 
 PredefinedColorSpace ImageData::GetPredefinedColorSpace() const {
@@ -322,14 +315,6 @@ String ImageData::colorSpace() const {
 
 String ImageData::storageFormat() const {
   return ImageDataStorageFormatName(storage_format_);
-}
-
-ImageDataSettings* ImageData::getSettings() const {
-  // TODO(https://crbug.com/1198606): Remove this.
-  ImageDataSettings* settings = ImageDataSettings::Create();
-  settings->setColorSpace(colorSpace());
-  settings->setStorageFormat(storageFormat());
-  return settings;
 }
 
 bool ImageData::IsBufferBaseDetached() const {

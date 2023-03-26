@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@ package org.chromium.chrome.browser.ui.autofill;
 import static org.chromium.chrome.browser.ui.autofill.OtpVerificationDialogProperties.ANIMATION_DURATION_MS;
 
 import android.content.Context;
-import android.os.Build.VERSION_CODES;
 import android.text.Editable;
 import android.text.SpannableString;
 import android.text.TextWatcher;
@@ -17,8 +16,6 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
-
-import androidx.annotation.RequiresApi;
 
 import org.chromium.chrome.browser.ui.autofill.OtpVerificationDialogProperties.ViewDelegate;
 import org.chromium.chrome.browser.ui.autofill.internal.R;
@@ -72,7 +69,6 @@ public class OtpVerificationDialogView extends RelativeLayout {
      *
      * @param viewDelegate The view delegate for this specific view.
      */
-    @RequiresApi(api = VERSION_CODES.N)
     void setViewDelegate(ViewDelegate viewDelegate) {
         mOtpEditText.addTextChangedListener(buildTextWatcher(viewDelegate));
         mOtpResendMessageTextView.setText(buildOtpResendMessageLink(getContext(), viewDelegate));
@@ -107,7 +103,6 @@ public class OtpVerificationDialogView extends RelativeLayout {
      * @param errorMessage The error message that gets displayed to the user. Can be empty,
      * indicating there should be no error message shown on the dialog (so we hide it).
      */
-    @RequiresApi(api = VERSION_CODES.N)
     void showOtpErrorMessage(Optional<String> errorMessage) {
         mOtpErrorMessageTextView.setVisibility(View.VISIBLE);
         mOtpErrorMessageTextView.setText(errorMessage.get());
@@ -151,14 +146,13 @@ public class OtpVerificationDialogView extends RelativeLayout {
     }
 
     /** Builds Otp Resend Message Link **/
-    @RequiresApi(api = VERSION_CODES.N)
     private SpannableString buildOtpResendMessageLink(Context context, ViewDelegate viewDelegate) {
         return SpanApplier.applySpans(
                 context.getResources().getString(
                         org.chromium.chrome.browser.ui.autofill.internal.R.string
                                 .autofill_payments_otp_verification_dialog_cant_find_code_message),
                 new SpanInfo("<link>", "</link>",
-                        new NoUnderlineClickableSpan(context.getResources(),
-                                textView -> { viewDelegate.onResendLinkClicked(); })));
+                        new NoUnderlineClickableSpan(
+                                context, textView -> { viewDelegate.onResendLinkClicked(); })));
     }
 }

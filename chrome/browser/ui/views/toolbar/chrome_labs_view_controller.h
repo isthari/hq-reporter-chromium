@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,8 +44,8 @@ class ChromeLabsViewController {
 
   bool ShouldLabShowNewBadge(Profile* profile, const LabInfo& lab);
 
-  raw_ptr<const ChromeLabsBubbleViewModel> model_;
-  raw_ptr<ChromeLabsBubbleView> chrome_labs_bubble_view_;
+  raw_ptr<const ChromeLabsBubbleViewModel, DanglingUntriaged> model_;
+  raw_ptr<ChromeLabsBubbleView, DanglingUntriaged> chrome_labs_bubble_view_;
   base::CallbackListSubscription restart_callback_;
   raw_ptr<Browser> browser_;
   raw_ptr<flags_ui::FlagsState> flags_state_;

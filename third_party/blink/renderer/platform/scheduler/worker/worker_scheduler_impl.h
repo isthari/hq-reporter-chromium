@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "base/task/sequence_manager/task_queue.h"
 #include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/public/platform/task_type.h"
+#include "third_party/blink/renderer/platform/allow_discouraged_type.h"
 #include "third_party/blink/renderer/platform/scheduler/common/back_forward_cache_disabling_feature_tracker.h"
 #include "third_party/blink/renderer/platform/scheduler/common/tracing_helper.h"
 #include "third_party/blink/renderer/platform/scheduler/public/worker_scheduler.h"
@@ -56,15 +57,23 @@ class PLATFORM_EXPORT WorkerSchedulerImpl : public WorkerScheduler {
 
   // FrameOrWorkerScheduler implementation:
   SchedulingLifecycleState CalculateLifecycleState(ObserverType) const override;
-  void OnStartedUsingFeature(SchedulingPolicy::Feature feature,
-                             const SchedulingPolicy& policy) override;
-  void OnStoppedUsingFeature(SchedulingPolicy::Feature feature,
-                             const SchedulingPolicy& policy) override;
-  base::WeakPtr<FrameOrWorkerScheduler> GetSchedulingAffectingFeatureWeakPtr()
+  void OnStartedUsingNonStickyFeature(
+      SchedulingPolicy::Feature feature,
+      const SchedulingPolicy& policy,
+      std::unique_ptr<SourceLocation> source_location,
+      SchedulingAffectingFeatureHandle* handle) override;
+  void OnStartedUsingStickyFeature(
+      SchedulingPolicy::Feature feature,
+      const SchedulingPolicy& policy,
+      std::unique_ptr<SourceLocation> source_location) override;
+  void OnStoppedUsingNonStickyFeature(
+      SchedulingAffectingFeatureHandle* handle) override;
+  base::WeakPtr<FrameOrWorkerScheduler> GetFrameOrWorkerSchedulerWeakPtr()
       override;
   void SetPreemptedForCooperativeScheduling(Preempted) override {}
   std::unique_ptr<WebSchedulingTaskQueue> CreateWebSchedulingTaskQueue(
       WebSchedulingPriority) override;
+  scoped_refptr<base::SingleThreadTaskRunner> CompositorTaskRunner() override;
 
  protected:
   scoped_refptr<NonMainThreadTaskQueue> ThrottleableTaskQueue();
@@ -96,9 +105,10 @@ class PLATFORM_EXPORT WorkerSchedulerImpl : public WorkerScheduler {
   scoped_refptr<NonMainThreadTaskQueue> pausable_task_queue_;
   scoped_refptr<NonMainThreadTaskQueue> unpausable_task_queue_;
 
-  using TaskQueueVoterMap = std::map<
-      scoped_refptr<NonMainThreadTaskQueue>,
-      std::unique_ptr<base::sequence_manager::TaskQueue::QueueEnabledVoter>>;
+  using TaskQueueVoterMap ALLOW_DISCOURAGED_TYPE("TODO(crbug.com/1404327)") =
+      std::map<scoped_refptr<NonMainThreadTaskQueue>,
+               std::unique_ptr<
+                   base::sequence_manager::TaskQueue::QueueEnabledVoter>>;
 
   TaskQueueVoterMap task_runners_;
 

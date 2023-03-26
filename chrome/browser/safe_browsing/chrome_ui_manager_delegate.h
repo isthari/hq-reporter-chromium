@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,14 +33,20 @@ class ChromeSafeBrowsingUIManagerDelegate
       const GURL& page_url,
       const std::string& reason,
       int net_error_code) override;
+#if !BUILDFLAG(IS_ANDROID)
+  void TriggerUrlFilteringInterstitialExtensionEventIfDesired(
+      content::WebContents* web_contents,
+      const GURL& page_url,
+      const std::string& threat_type,
+      safe_browsing::RTLookupResponse rt_lookup_response) override;
+#endif
   prerender::NoStatePrefetchContents* GetNoStatePrefetchContentsIfExists(
       content::WebContents* web_contents) override;
   bool IsHostingExtension(content::WebContents* web_contents) override;
   PrefService* GetPrefs(content::BrowserContext* browser_context) override;
   history::HistoryService* GetHistoryService(
       content::BrowserContext* browser_context) override;
-  PingManager* GetPingManagerIfExists() override;
-  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory(
+  PingManager* GetPingManager(
       content::BrowserContext* browser_context) override;
   bool IsMetricsAndCrashReportingEnabled() override;
   bool IsSendingOfHitReportsEnabled() override;

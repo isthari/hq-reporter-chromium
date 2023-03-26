@@ -1,15 +1,18 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <algorithm>
 
+#include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/files/scoped_temp_dir.h"
 #include "base/notreached.h"
 #include "base/path_service.h"
 #include "base/sync_socket.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -30,7 +33,9 @@
 #include "content/public/test/browser_test.h"
 #include "media/audio/audio_device_description.h"
 #include "media/audio/wav_audio_handler.h"
+#include "media/base/audio_bus.h"
 #include "media/base/media_switches.h"
+#include "media/mojo/mojom/audio_data.mojom.h"
 #include "media/mojo/mojom/audio_data_pipe.mojom.h"
 #include "media/mojo/mojom/audio_input_stream.mojom.h"
 #include "media/mojo/mojom/audio_stream_factory.mojom.h"
@@ -39,6 +44,7 @@
 #include "sandbox/policy/switches.h"
 #include "services/audio/public/cpp/fake_stream_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "third_party/abseil-cpp/absl/utility/utility.h"
 
 #if BUILDFLAG(IS_WIN)
 #include <windows.h>
@@ -75,7 +81,8 @@ class TestStreamFactory : public audio::FakeStreamFactory {
       uint32_t shared_memory_count,
       bool enable_agc,
       base::ReadOnlySharedMemoryRegion key_press_count_buffer,
-      CreateInputStreamCallback created_callback) {
+      media::mojom::AudioProcessingConfigPtr processing_config,
+      CreateInputStreamCallback created_callback) override {
     device_id_ = device_id;
     params_ = params;
     if (stream_receiver_.is_bound())
@@ -88,7 +95,7 @@ class TestStreamFactory : public audio::FakeStreamFactory {
     base::SyncSocket socket1, socket2;
     base::SyncSocket::CreatePair(&socket1, &socket2);
     std::move(created_callback)
-        .Run({base::in_place,
+        .Run({absl::in_place,
               base::ReadOnlySharedMemoryRegion::Create(kShMemSize).region,
               mojo::PlatformHandle(socket1.Take())},
              false /*initially muted*/, base::UnguessableToken::Create());
@@ -173,6 +180,8 @@ class SpeechRecognitionServiceTest
   base::FilePath test_data_dir_;
 
   base::test::ScopedFeatureList scoped_feature_list_;
+  mojo::Remote<media::mojom::AudioSourceSpeechRecognitionContext>
+      audio_source_speech_recognition_context_;
   mojo::Remote<media::mojom::SpeechRecognitionContext>
       speech_recognition_context_;
 
@@ -252,24 +261,20 @@ void SpeechRecognitionServiceTest::LaunchService() {
       static_cast<content::BrowserContext*>(browser()->profile());
   auto* service = new ChromeSpeechRecognitionService(browser_context);
 
-  mojo::PendingReceiver<media::mojom::SpeechRecognitionContext>
-      speech_recognition_context_receiver =
-          speech_recognition_context_.BindNewPipeAndPassReceiver();
-  service->Create(std::move(speech_recognition_context_receiver));
-
-  mojo::PendingReceiver<media::mojom::SpeechRecognitionRecognizer>
-      pending_recognizer_receiver =
-          speech_recognition_recognizer_.BindNewPipeAndPassReceiver();
+  service->BindSpeechRecognitionContext(
+      speech_recognition_context_.BindNewPipeAndPassReceiver());
 
   bool is_multichannel_supported = true;
   auto run_loop = std::make_unique<base::RunLoop>();
   // Bind the recognizer pipes used to send audio and receive results.
   speech_recognition_context_->BindRecognizer(
-      std::move(pending_recognizer_receiver),
+      speech_recognition_recognizer_.BindNewPipeAndPassReceiver(),
       speech_recognition_client_receiver_.BindNewPipeAndPassRemote(),
       media::mojom::SpeechRecognitionOptions::New(
           media::mojom::SpeechRecognitionMode::kCaption,
-          /*enable_formatting=*/true, "en-US"),
+          /*enable_formatting=*/true, kUsEnglishLocale,
+          /*is_server_based=*/false,
+          media::mojom::RecognizerClientType::kLiveCaption),
       base::BindOnce(
           [](bool* p_is_multichannel_supported, base::RunLoop* run_loop,
              bool is_multichannel_supported) {
@@ -288,20 +293,18 @@ void SpeechRecognitionServiceTest::LaunchServiceWithAudioSourceFetcher() {
       static_cast<content::BrowserContext*>(browser()->profile());
   auto* service = new ChromeSpeechRecognitionService(browser_context);
 
-  mojo::PendingReceiver<media::mojom::SpeechRecognitionContext>
-      speech_recognition_context_receiver =
-          speech_recognition_context_.BindNewPipeAndPassReceiver();
-  service->Create(std::move(speech_recognition_context_receiver));
+  service->BindAudioSourceSpeechRecognitionContext(
+      audio_source_speech_recognition_context_.BindNewPipeAndPassReceiver());
 
   bool is_multichannel_supported = true;
   auto run_loop = std::make_unique<base::RunLoop>();
   // Bind the recognizer pipes used to send audio and receive results.
-  speech_recognition_context_->BindAudioSourceFetcher(
+  audio_source_speech_recognition_context_->BindAudioSourceFetcher(
       audio_source_fetcher_.BindNewPipeAndPassReceiver(),
       speech_recognition_client_receiver_.BindNewPipeAndPassRemote(),
       media::mojom::SpeechRecognitionOptions::New(
           media::mojom::SpeechRecognitionMode::kIme,
-          /*enable_formatting=*/false, "en-US"),
+          /*enable_formatting=*/false, kUsEnglishLocale),
       base::BindOnce(
           [](bool* p_is_multichannel_supported, base::RunLoop* run_loop,
              bool is_multichannel_supported) {
@@ -384,11 +387,11 @@ IN_PROC_BROWSER_TEST_F(SpeechRecognitionServiceTest, RecognizePhrase) {
   speech_recognition_recognizer_.reset();
   base::RunLoop().RunUntilIdle();
 
-  // Sleep for 50ms to ensure SODA has returned real-time results.
+  // Sleep for 100ms to ensure SODA has returned real-time results.
 #if BUILDFLAG(IS_WIN)
-  ::Sleep(50);
+  ::Sleep(100);
 #else
-  usleep(50000);
+  usleep(100000);
 #endif
   ASSERT_GT(static_cast<int>(recognition_results_.size()), kReplayAudioCount);
   ASSERT_EQ(recognition_results_.back(), "Hey Google Hey Google");
@@ -458,11 +461,11 @@ IN_PROC_BROWSER_TEST_F(SpeechRecognitionServiceTest,
   speech_recognition_recognizer_.reset();
   base::RunLoop().RunUntilIdle();
 
-  // Sleep for 50ms to ensure SODA has returned real-time results.
+  // Sleep for 100ms to ensure SODA has returned real-time results.
 #if BUILDFLAG(IS_WIN)
-  ::Sleep(50);
+  ::Sleep(100);
 #else
-  usleep(50000);
+  usleep(100000);
 #endif
   ASSERT_GT(static_cast<int>(recognition_results_.size()), 3);
   ASSERT_EQ(recognition_results_.back(), "Hey Google Hey Google");
@@ -489,7 +492,8 @@ IN_PROC_BROWSER_TEST_F(SpeechRecognitionServiceTest, CreateAudioSourceFetcher) {
   // TestStreamFactory::stream_, to test end-to-end.
   std::string device_id = media::AudioDeviceDescription::kDefaultDeviceId;
   media::AudioParameters params(media::AudioParameters::AUDIO_PCM_LOW_LATENCY,
-                                media::CHANNEL_LAYOUT_STEREO, 10000, 1000);
+                                media::ChannelLayoutConfig::Stereo(), 10000,
+                                1000);
 
   // Create a fake stream factory.
   std::unique_ptr<StrictMock<TestStreamFactory>> stream_factory =
@@ -504,6 +508,54 @@ IN_PROC_BROWSER_TEST_F(SpeechRecognitionServiceTest, CreateAudioSourceFetcher) {
 #endif
 
   audio_source_fetcher_->Stop();
+  base::RunLoop().RunUntilIdle();
+}
+
+IN_PROC_BROWSER_TEST_F(SpeechRecognitionServiceTest, CompromisedRenderer) {
+  // Create temporary SODA files.
+  SetUpPrefs();
+  base::ScopedAllowBlockingForTesting allow_blocking;
+  base::FilePath config_dir =
+      GetSodaLanguagePacksDirectory()
+          .AppendASCII(kUsEnglishLocale)
+          .Append(FILE_PATH_LITERAL("1.1.1"))
+          .Append(kSodaLanguagePackDirectoryRelativePath);
+  base::CreateDirectory(config_dir);
+  ASSERT_TRUE(base::PathExists(config_dir));
+  base::FilePath config_file_path =
+      config_dir.Append(FILE_PATH_LITERAL("config_file"));
+  ASSERT_EQ(base::WriteFile(config_file_path, nullptr, 0), 0);
+  ASSERT_TRUE(base::PathExists(config_file_path));
+  g_browser_process->local_state()->SetFilePath(prefs::kSodaEnUsConfigPath,
+                                                config_file_path);
+
+  // Launch the Speech Recognition service.
+  auto* browser_context =
+      static_cast<content::BrowserContext*>(browser()->profile());
+  auto* service = new ChromeSpeechRecognitionService(browser_context);
+  service->BindSpeechRecognitionContext(
+      speech_recognition_context_.BindNewPipeAndPassReceiver());
+
+  // Bind the recognizer pipes used to send audio and receive results.
+  auto run_loop = std::make_unique<base::RunLoop>();
+  speech_recognition_context_->BindRecognizer(
+      speech_recognition_recognizer_.BindNewPipeAndPassReceiver(),
+      speech_recognition_client_receiver_.BindNewPipeAndPassRemote(),
+      media::mojom::SpeechRecognitionOptions::New(
+          media::mojom::SpeechRecognitionMode::kCaption,
+          /*enable_formatting=*/true, kUsEnglishLocale,
+          /*is_server_based=*/false,
+          media::mojom::RecognizerClientType::kLiveCaption),
+      base::BindOnce([](base::RunLoop* run_loop,
+                        bool is_multichannel_supported) { run_loop->Quit(); },
+                     run_loop.get()));
+  run_loop->Run();
+
+  // Simulate a compromised renderer by changing the language and immediately
+  // resetting the recognizer and verify that the subsequent callbacks do not
+  // cause any crashes.
+  speech_recognition_recognizer_->OnLanguageChanged(kUsEnglishLocale);
+  speech_recognition_recognizer_.reset();
   base::RunLoop().RunUntilIdle();
 }
 

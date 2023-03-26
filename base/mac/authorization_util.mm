@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 
 #include <string>
 
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/mac/bundle_locations.h"
 #include "base/mac/foundation_util.h"
@@ -23,18 +22,18 @@
 
 namespace base::mac {
 
-AuthorizationRef GetAuthorizationRightsWithPrompt(
+ScopedAuthorizationRef GetAuthorizationRightsWithPrompt(
     AuthorizationRights* rights,
     CFStringRef prompt,
-    AuthorizationFlags extraFlags) {
+    AuthorizationFlags extra_flags) {
   // Create an empty AuthorizationRef.
   ScopedAuthorizationRef authorization;
-  OSStatus status = AuthorizationCreate(NULL, kAuthorizationEmptyEnvironment,
-                                        kAuthorizationFlagDefaults,
-                                        authorization.get_pointer());
+  OSStatus status = AuthorizationCreate(
+      /*rights=*/nullptr, kAuthorizationEmptyEnvironment,
+      kAuthorizationFlagDefaults, authorization.InitializeInto());
   if (status != errAuthorizationSuccess) {
     OSSTATUS_LOG(ERROR, status) << "AuthorizationCreate";
-    return NULL;
+    return ScopedAuthorizationRef();
   }
 
   // Never consider the current WatchHangsInScope as hung. There was most likely
@@ -48,8 +47,7 @@ AuthorizationRef GetAuthorizationRightsWithPrompt(
   AuthorizationFlags flags = kAuthorizationFlagDefaults |
                              kAuthorizationFlagInteractionAllowed |
                              kAuthorizationFlagExtendRights |
-                             kAuthorizationFlagPreAuthorize |
-                             extraFlags;
+                             kAuthorizationFlagPreAuthorize | extra_flags;
 
   // product_logo_32.png is used instead of app.icns because Authorization
   // Services can't deal with .icns files.
@@ -70,34 +68,30 @@ AuthorizationRef GetAuthorizationRightsWithPrompt(
     {kAuthorizationEnvironmentPrompt, prompt_length, (void*)prompt_c, 0}
   };
 
-  AuthorizationEnvironment environment = {base::size(environment_items),
+  AuthorizationEnvironment environment = {std::size(environment_items),
                                           environment_items};
 
-  status = AuthorizationCopyRights(authorization,
-                                   rights,
-                                   &environment,
-                                   flags,
-                                   NULL);
+  status = AuthorizationCopyRights(authorization, rights, &environment, flags,
+                                   nullptr);
 
   if (status != errAuthorizationSuccess) {
     if (status != errAuthorizationCanceled) {
       OSSTATUS_LOG(ERROR, status) << "AuthorizationCopyRights";
     }
-    return NULL;
+    return ScopedAuthorizationRef();
   }
 
-  return authorization.release();
+  return authorization;
 }
 
-AuthorizationRef AuthorizationCreateToRunAsRoot(CFStringRef prompt) {
+ScopedAuthorizationRef AuthorizationCreateToRunAsRoot(CFStringRef prompt) {
   // Specify the "system.privilege.admin" right, which allows
   // AuthorizationExecuteWithPrivileges to run commands as root.
   AuthorizationItem right_items[] = {
-    {kAuthorizationRightExecute, 0, NULL, 0}
-  };
-  AuthorizationRights rights = {base::size(right_items), right_items};
+      {kAuthorizationRightExecute, 0, nullptr, 0}};
+  AuthorizationRights rights = {std::size(right_items), right_items};
 
-  return GetAuthorizationRightsWithPrompt(&rights, prompt, 0);
+  return GetAuthorizationRightsWithPrompt(&rights, prompt, /*extra_flags=*/0);
 }
 
 OSStatus ExecuteWithPrivilegesAndGetPID(AuthorizationRef authorization,

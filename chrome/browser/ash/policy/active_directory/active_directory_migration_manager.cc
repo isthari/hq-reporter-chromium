@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,11 @@
 #include <utility>
 
 #include "ash/constants/ash_pref_names.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/time/time.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -155,7 +155,7 @@ void ActiveDirectoryMigrationManager::TryToStartMigration() {
 
   // Theoretically, the following reschedule logic is not necessary. However, it
   // was added as a fallback, in case any of the signals this class listens is
-  // not triggered as expected. Ultimatelly, we want to avoid inactive devices
+  // not triggered as expected. Ultimately, we want to avoid inactive devices
   // getting stuck and not migrating.
   if (is_on_login_screen && !retry_already_scheduled_) {
     retry_already_scheduled_ = true;
@@ -180,12 +180,15 @@ void ActiveDirectoryMigrationManager::RetryToStartMigration() {
 }
 
 void ActiveDirectoryMigrationManager::StartPowerwash() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
   local_state_->SetTime(prefs::kLastChromadMigrationAttemptTime,
                         base::Time::Now());
 
-  // Unsigned remote powerwash requests are allowed in AD mode.
-  chromeos::SessionManagerClient::Get()->StartRemoteDeviceWipe(
-      em::SignedData());
+  // Unsigned remote powerwash requests and em::PolicyFetchRequest::NONE
+  // signature type are allowed in AD mode.
+  ash::SessionManagerClient::Get()->StartRemoteDeviceWipe(
+      em::SignedData(), em::PolicyFetchRequest::NONE);
 }
 
 void ActiveDirectoryMigrationManager::MaybeRunStatusCallback(bool started,

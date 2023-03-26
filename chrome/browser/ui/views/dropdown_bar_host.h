@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/animation/animation_delegate_views.h"
 #include "ui/views/focus/focus_manager.h"
+#include "ui/views/widget/unique_widget_ptr.h"
 #include "ui/views/widget/widget_delegate.h"
 
 class BrowserView;
@@ -159,17 +160,17 @@ class DropdownBarHost : public ui::AcceleratorTarget,
   void SetHostViewNative(views::View* host_view);
 
   // The BrowserView that created us.
-  raw_ptr<BrowserView> browser_view_;
+  raw_ptr<BrowserView, DanglingUntriaged> browser_view_;
 
   // Our view, which is responsible for drawing the UI.
-  raw_ptr<views::View> view_ = nullptr;
-  raw_ptr<DropdownBarHostDelegate> delegate_ = nullptr;
+  raw_ptr<views::View, DanglingUntriaged> view_ = nullptr;
+  raw_ptr<DropdownBarHostDelegate, DanglingUntriaged> delegate_ = nullptr;
 
   // The animation class to use when opening the Dropdown widget.
   std::unique_ptr<gfx::SlideAnimation> animation_;
 
   // The focus manager we register with to keep track of focus changes.
-  raw_ptr<views::FocusManager> focus_manager_ = nullptr;
+  raw_ptr<views::FocusManager, DanglingUntriaged> focus_manager_ = nullptr;
 
   // True if the accelerator target for Esc key is registered.
   bool esc_accel_target_registered_ = false;
@@ -181,7 +182,7 @@ class DropdownBarHost : public ui::AcceleratorTarget,
 
   // Host is the Widget implementation that is created and maintained by the
   // dropdown bar. It contains the DropdownBarView.
-  std::unique_ptr<views::Widget> host_;
+  views::UniqueWidgetPtr host_;
 
   // A flag to manually manage visibility. GTK/X11 is asynchronous and
   // the state of the widget can be out of sync.

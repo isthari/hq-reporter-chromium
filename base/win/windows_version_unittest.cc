@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,16 +24,20 @@ TEST(WindowsVersion, GetVersionExAndKernelOsVersionMatch) {
 }
 
 TEST(OSInfo, MajorMinorBuildToVersion) {
+  EXPECT_EQ(OSInfo::MajorMinorBuildToVersion(11, 0, 0), Version::WIN11);
   EXPECT_EQ(OSInfo::MajorMinorBuildToVersion(10, 0, 32767),
-            Version::WIN11);
-  EXPECT_EQ(OSInfo::MajorMinorBuildToVersion(10, 0, 22000),
-            Version::WIN11);
+            Version::WIN11_22H2);
+  EXPECT_EQ(OSInfo::MajorMinorBuildToVersion(10, 0, 22621),
+            Version::WIN11_22H2);
+  EXPECT_EQ(OSInfo::MajorMinorBuildToVersion(10, 0, 22000), Version::WIN11);
   EXPECT_EQ(OSInfo::MajorMinorBuildToVersion(10, 0, 21999),
             Version::SERVER_2022);
   EXPECT_EQ(OSInfo::MajorMinorBuildToVersion(10, 0, 20348),
             Version::SERVER_2022);
   EXPECT_EQ(OSInfo::MajorMinorBuildToVersion(10, 0, 20347),
-            Version::WIN10_21H2);
+            Version::WIN10_22H2);
+  EXPECT_EQ(OSInfo::MajorMinorBuildToVersion(10, 0, 19045),
+            Version::WIN10_22H2);
   EXPECT_EQ(OSInfo::MajorMinorBuildToVersion(10, 0, 19044),
             Version::WIN10_21H2);
   EXPECT_EQ(OSInfo::MajorMinorBuildToVersion(10, 0, 19043),

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/json/json_writer.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
@@ -116,11 +116,10 @@ class WebrtcAudioPrivateTest : public AudioWaitingExtensionTest {
   }
 
  protected:
-  void AppendTabIdToRequestInfo(base::ListValue* params, int tab_id) {
-    std::unique_ptr<base::DictionaryValue> request_info(
-        new base::DictionaryValue());
-    request_info->SetInteger("tabId", tab_id);
-    params->Append(std::move(request_info));
+  void AppendTabIdToRequestInfo(base::Value::List* params, int tab_id) {
+    base::Value::Dict request_info;
+    request_info.Set("tabId", tab_id);
+    params->Append(base::Value(std::move(request_info)));
   }
 
   std::unique_ptr<base::Value> InvokeGetSinks() {
@@ -143,24 +142,24 @@ IN_PROC_BROWSER_TEST_F(WebrtcAudioPrivateTest, GetSinks) {
   GetAudioDeviceDescriptions(false, &devices);
 
   std::unique_ptr<base::Value> result = InvokeGetSinks();
-  const base::ListValue& sink_list = base::Value::AsListValue(*result);
+  const base::Value::List& sink_list = result->GetList();
 
   std::string result_string;
   JSONWriter::Write(*result, &result_string);
   VLOG(2) << result_string;
 
-  EXPECT_EQ(devices.size(), sink_list.GetList().size());
+  EXPECT_EQ(devices.size(), sink_list.size());
 
   // Iterate through both lists in lockstep and compare. The order
   // should be identical.
   size_t ix = 0;
   AudioDeviceDescriptions::const_iterator it = devices.begin();
-  for (; ix < sink_list.GetList().size() && it != devices.end(); ++ix, ++it) {
-    const base::Value& value = sink_list.GetList()[ix];
+  for (; ix < sink_list.size() && it != devices.end(); ++ix, ++it) {
+    const base::Value& value = sink_list[ix];
     EXPECT_TRUE(value.is_dict());
-    const base::DictionaryValue& dict = base::Value::AsDictionaryValue(value);
-    std::string sink_id;
-    dict.GetString("sinkId", &sink_id);
+    const base::Value::Dict& dict = value.GetDict();
+    const std::string* sink_id = dict.FindString("sinkId");
+    EXPECT_TRUE(sink_id);
 
     std::string expected_id =
         media::AudioDeviceDescription::IsDefaultDevice(it->unique_id)
@@ -170,16 +169,16 @@ IN_PROC_BROWSER_TEST_F(WebrtcAudioPrivateTest, GetSinks) {
                   url::Origin::Create(source_url_.DeprecatedGetOriginAsURL()),
                   it->unique_id);
 
-    EXPECT_EQ(expected_id, sink_id);
-    std::string sink_label;
-    dict.GetString("sinkLabel", &sink_label);
-    EXPECT_EQ(it->device_name, sink_label);
+    EXPECT_EQ(expected_id, *sink_id);
+    const std::string* sink_label = dict.FindString("sinkLabel");
+    EXPECT_TRUE(sink_label);
+    EXPECT_EQ(it->device_name, *sink_label);
 
     // TODO(joi): Verify the contents of these once we start actually
     // filling them in.
-    EXPECT_TRUE(dict.HasKey("isDefault"));
-    EXPECT_TRUE(dict.HasKey("isReady"));
-    EXPECT_TRUE(dict.HasKey("sampleRate"));
+    EXPECT_TRUE(dict.Find("isDefault"));
+    EXPECT_TRUE(dict.Find("isReady"));
+    EXPECT_TRUE(dict.Find("sampleRate"));
   }
 }
 #endif  // BUILDFLAG(IS_MAC)
@@ -204,7 +203,7 @@ IN_PROC_BROWSER_TEST_F(WebrtcAudioPrivateTest, GetAssociatedSink) {
         profile()->GetMediaDeviceIDSalt(), url::Origin::Create(origin),
         raw_device_id);
 
-    base::ListValue parameters;
+    base::Value::List parameters;
     parameters.Append(origin.spec());
     parameters.Append(source_id_in_origin);
     std::string parameter_string;

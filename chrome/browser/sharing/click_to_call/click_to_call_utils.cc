@@ -1,12 +1,12 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/sharing/click_to_call/click_to_call_utils.h"
 
-#include <algorithm>
 #include <cctype>
 
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -91,8 +91,10 @@ absl::optional<std::string> ExtractPhoneNumberForClickToCall(
   if (selection_text.size() > kSelectionTextMaxLength)
     return absl::nullopt;
 
-  int digits = std::count_if(selection_text.begin(), selection_text.end(),
-                             [](char c) { return std::isdigit(c); });
+  // See https://en.cppreference.com/w/cpp/string/byte/isdigit for why this uses
+  // unsigned char.
+  int digits = base::ranges::count_if(
+      selection_text, [](unsigned char c) { return std::isdigit(c); });
   if (digits > kSelectionTextMaxDigits)
     return absl::nullopt;
 
@@ -108,7 +110,7 @@ bool IsUrlSafeForClickToCall(const GURL& url) {
   std::string unescaped = GetUnescapedURLContent(url);
   // We don't allow any number that contains any of these characters as they
   // might be used to create USSD codes.
-  return !unescaped.empty() &&
-         std::none_of(unescaped.begin(), unescaped.end(),
-                      [](char c) { return c == '#' || c == '*' || c == '%'; });
+  return !unescaped.empty() && base::ranges::none_of(unescaped, [](char c) {
+    return c == '#' || c == '*' || c == '%';
+  });
 }

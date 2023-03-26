@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,9 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/toolbar/browser_app_menu_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
-#include "chrome/browser/ui/views/user_education/user_education_test_util.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "chrome/test/interaction/interaction_test_util_browser.h"
+#include "chrome/test/interaction/widget_focus_waiter.h"
 #include "content/public/test/browser_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/interaction/element_tracker.h"
@@ -36,8 +37,9 @@ class BrowserFeaturePromoControllerUiTest : public InProcessBrowserTest {
   }
 
  protected:
-  raw_ptr<BrowserView> browser_view_ = nullptr;
-  raw_ptr<BrowserFeaturePromoController> controller_ = nullptr;
+  raw_ptr<BrowserView, DanglingUntriaged> browser_view_ = nullptr;
+  raw_ptr<BrowserFeaturePromoController, DanglingUntriaged> controller_ =
+      nullptr;
 };
 
 IN_PROC_BROWSER_TEST_F(BrowserFeaturePromoControllerUiTest, CanShowPromo) {

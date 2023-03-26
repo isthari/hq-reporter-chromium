@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,12 @@
 #include <memory>
 
 #include "base/containers/lru_cache.h"
+#include "base/memory/raw_ptr.h"
 #include "base/sequence_checker.h"
-#include "gpu/ipc/service/gpu_memory_buffer_factory.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/time/time.h"
 #include "media/base/video_decoder.h"
-#include "media/gpu/test/video_player/video_decoder_client.h"
+#include "media/gpu/test/video_player/decoder_wrapper.h"
 #include "media/media_buildflags.h"
 #include "media/video/video_decode_accelerator.h"
 
@@ -23,7 +25,7 @@ class VideoFrame;
 
 namespace test {
 
-class FrameRenderer;
+class FrameRendererDummy;
 
 // The test VDA video decoder translates between the media::VideoDecoder and the
 // media::VideoDecodeAccelerator interfaces. This makes it possible to run
@@ -36,8 +38,7 @@ class TestVDAVideoDecoder : public media::VideoDecoder,
   TestVDAVideoDecoder(bool use_vd_vda,
                       OnProvidePictureBuffersCB on_provide_picture_buffers_cb,
                       const gfx::ColorSpace& target_color_space,
-                      FrameRenderer* const frame_renderer,
-                      gpu::GpuMemoryBufferFactory* gpu_memory_buffer_factory,
+                      FrameRendererDummy* const frame_renderer,
                       bool linear_output = false);
 
   TestVDAVideoDecoder(const TestVDAVideoDecoder&) = delete;
@@ -114,11 +115,9 @@ class TestVDAVideoDecoder : public media::VideoDecoder,
   const gfx::ColorSpace target_color_space_;
 
   // Frame renderer used to manage GL context.
-  FrameRenderer* const frame_renderer_;
+  const raw_ptr<FrameRendererDummy> frame_renderer_;
 
 #if BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
-  // Owned by VideoDecoderClient.
-  gpu::GpuMemoryBufferFactory* const gpu_memory_buffer_factory_;
   // Whether the decoder output buffers should be allocated with a linear
   // layout.
   const bool linear_output_;

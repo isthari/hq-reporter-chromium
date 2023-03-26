@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -122,7 +122,10 @@ public class RadioButtonGroupPreloadPagesSettings extends Preference
      */
     public void setManagedPreferenceDelegate(ManagedPreferenceDelegate delegate) {
         mManagedPrefDelegate = delegate;
-        ManagedPreferencesUtils.initPreference(mManagedPrefDelegate, this);
+        // The value of `allowManagedIcon` doesn't matter, because the corresponding layout doesn't
+        // define an icon view.
+        ManagedPreferencesUtils.initPreference(
+                mManagedPrefDelegate, this, /*allowManagedIcon=*/true, /*hasCustomLayout=*/true);
     }
 
     /**

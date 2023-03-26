@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <stddef.h>
 
 #include "base/android/jni_string.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "chrome/android/chrome_jni_headers/ForeignSessionHelper_jni.h"
 #include "chrome/browser/android/tab_android.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -212,11 +212,11 @@ jboolean ForeignSessionHelper::GetForeignSessions(
   // Use a pref to keep track of sessions that were collapsed by the user.
   // To prevent the pref from accumulating stale sessions, clear it each time
   // and only add back sessions that are still current.
-  DictionaryPrefUpdate pref_update(profile_->GetPrefs(),
+  ScopedDictPrefUpdate pref_update(profile_->GetPrefs(),
                                    prefs::kNtpCollapsedForeignSessions);
-  base::Value* pref_collapsed_sessions = pref_update.Get();
-  base::Value collapsed_sessions(pref_collapsed_sessions->Clone());
-  pref_collapsed_sessions->DictClear();
+  base::Value::Dict& pref_collapsed_sessions = pref_update.Get();
+  base::Value::Dict collapsed_sessions = pref_collapsed_sessions.Clone();
+  pref_collapsed_sessions.clear();
 
   ScopedJavaLocalRef<jobject> last_pushed_session;
 
@@ -227,15 +227,15 @@ jboolean ForeignSessionHelper::GetForeignSessions(
       continue;
 
     const bool is_collapsed =
-        (collapsed_sessions.FindKey(session.session_tag) != nullptr);
+        (collapsed_sessions.Find(session.GetSessionTag()) != nullptr);
 
     if (is_collapsed)
-      pref_collapsed_sessions->SetBoolKey(session.session_tag, true);
+      pref_collapsed_sessions.Set(session.GetSessionTag(), true);
 
     last_pushed_session.Reset(Java_ForeignSessionHelper_pushSession(
-        env, result, ConvertUTF8ToJavaString(env, session.session_tag),
-        ConvertUTF8ToJavaString(env, session.session_name), session.device_type,
-        session.modified_time.ToJavaTime()));
+        env, result, ConvertUTF8ToJavaString(env, session.GetSessionTag()),
+        ConvertUTF8ToJavaString(env, session.GetSessionName()),
+        session.GetModifiedTime().ToJavaTime()));
 
     // Push the full session, with tabs ordered by visual position.
     JNI_ForeignSessionHelper_CopySessionToJava(env, session,

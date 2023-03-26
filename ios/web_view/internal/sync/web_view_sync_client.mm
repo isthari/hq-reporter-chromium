@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,11 @@
 
 #include <algorithm>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/notreached.h"
-#include "base/task/post_task.h"
 #include "components/autofill/core/browser/webdata/autofill_profile_sync_bridge.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/invalidation/impl/profile_invalidation_provider.h"
@@ -102,12 +101,12 @@ WebViewSyncClient::WebViewSyncClient(
       sync_invalidations_service_(sync_invalidations_service) {
   component_factory_ =
       std::make_unique<browser_sync::SyncApiComponentFactoryImpl>(
-          this, version_info::Channel::STABLE,
-          base::CreateSingleThreadTaskRunner({web::WebThread::UI}),
+          this, version_info::Channel::STABLE, web::GetUIThreadTaskRunner({}),
           profile_web_data_service_->GetDBTaskRunner(),
           profile_web_data_service_, account_web_data_service_,
           profile_password_store_, account_password_store_,
-          /*bookmark_sync_service=*/nullptr);
+          /*bookmark_sync_service=*/nullptr,
+          /*power_bookmark_service=*/nullptr);
   trusted_vault_client_ = std::make_unique<WebViewTrustedVaultClient>();
 }
 
@@ -135,15 +134,15 @@ syncer::DeviceInfoSyncService* WebViewSyncClient::GetDeviceInfoSyncService() {
   return device_info_sync_service_;
 }
 
-bookmarks::BookmarkModel* WebViewSyncClient::GetBookmarkModel() {
-  return nullptr;
-}
-
 favicon::FaviconService* WebViewSyncClient::GetFaviconService() {
   return nullptr;
 }
 
 history::HistoryService* WebViewSyncClient::GetHistoryService() {
+  return nullptr;
+}
+
+ReadingListModel* WebViewSyncClient::GetReadingListModel() {
   return nullptr;
 }
 
@@ -166,10 +165,6 @@ WebViewSyncClient::CreateDataTypeControllers(
     syncer::SyncService* sync_service) {
   return component_factory_->CreateCommonDataTypeControllers(GetDisabledTypes(),
                                                              sync_service);
-}
-
-BookmarkUndoService* WebViewSyncClient::GetBookmarkUndoService() {
-  return nullptr;
 }
 
 invalidation::InvalidationService* WebViewSyncClient::GetInvalidationService() {

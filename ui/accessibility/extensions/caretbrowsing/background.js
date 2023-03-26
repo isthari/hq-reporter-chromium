@@ -1,4 +1,4 @@
-// Copyright (c) 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,12 @@
  * @fileoverview Script that runs on the background page.
  */
 
+importScripts('storage.js');
+Storage.initialize();
+
 CONTENT_SCRIPTS = [
-  'accessibility_utils.js',
-  'traverse_util.js',
-  'caret_browsing.js'
+  'accessibility_utils.js', 'node_util.js', 'selection_util.js',
+  'traverse_util.js', 'storage.js', 'caret_browsing.js'
 ];
 
 /**
@@ -22,22 +24,15 @@ CONTENT_SCRIPTS = [
 const CaretBkgnd = function() {};
 
 /**
- * Flag indicating whether caret browsing is enabled. Global, applies to
- * all tabs simultaneously.
- * @type {boolean}
- */
-CaretBkgnd.isEnabled;
-
-/**
  * Change the browser action icon and tooltip based on the enabled state.
  */
 CaretBkgnd.setIcon = function() {
   chrome.action.setIcon(
-      {'path': CaretBkgnd.isEnabled ?
+      {'path': Storage.enabled ?
                '../caret_19_on.png' :
                '../caret_19.png'});
   chrome.action.setTitle(
-      {'title': CaretBkgnd.isEnabled ?
+      {'title': Storage.enabled ?
                 'Turn Off Caret Browsing (F7)' :
                 'Turn On Caret Browsing (F7)' });
 };
@@ -71,10 +66,7 @@ CaretBkgnd.injectContentScripts = function() {
  * all open tabs.
  */
 CaretBkgnd.toggle = function() {
-  CaretBkgnd.isEnabled = !CaretBkgnd.isEnabled;
-  var obj = {};
-  obj['enabled'] = CaretBkgnd.isEnabled;
-  chrome.storage.sync.set(obj);
+  Storage.enabled = !Storage.enabled;
   CaretBkgnd.setIcon();
 };
 
@@ -86,22 +78,10 @@ CaretBkgnd.toggle = function() {
  * and send them to content scripts.
  */
 CaretBkgnd.init = function() {
-  chrome.storage.sync.get('enabled', function(result) {
-    CaretBkgnd.isEnabled = result['enabled'];
-    CaretBkgnd.setIcon();
-    CaretBkgnd.injectContentScripts();
-
-    chrome.action.onClicked.addListener(function(tab) {
-      CaretBkgnd.toggle();
-    });
-  });
-
-  chrome.storage.onChanged.addListener(function() {
-    chrome.storage.sync.get('enabled', function(result) {
-      CaretBkgnd.isEnabled = result['enabled'];
-      CaretBkgnd.setIcon();
-    });
-  });
+  CaretBkgnd.setIcon();
+  chrome.action.onClicked.addListener(CaretBkgnd.toggle);
+  Storage.ENABLED.listeners.push(CaretBkgnd.setIcon);
 };
 
 CaretBkgnd.init();
+self.addEventListener('install', CaretBkgnd.injectContentScripts);

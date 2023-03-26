@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/synchronization/lock.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
+#include "base/time/time.h"
 #include "third_party/blink/public/platform/web_data.h"
 #include "third_party/blink/renderer/platform/disk_data_metadata.h"
 #include "third_party/blink/renderer/platform/graphics/rw_buffer.h"
@@ -22,7 +23,7 @@ namespace blink {
 class SegmentReader;
 class ParkableImageManager;
 
-PLATFORM_EXPORT extern const base::Feature kDelayParkingImages;
+PLATFORM_EXPORT BASE_DECLARE_FEATURE(kDelayParkingImages);
 
 // Implementation of ParkableImage. See ParkableImage below.
 // We split ParkableImage like this because we want to avoid destroying the
@@ -78,7 +79,8 @@ class PLATFORM_EXPORT ParkableImageImpl final
 
   // Attempt to park to disk. Returns false if it cannot be parked right now for
   // whatever reason, true if we will _attempt_ to park it to disk.
-  bool MaybePark() LOCKS_EXCLUDED(lock_);
+  bool MaybePark(scoped_refptr<base::SingleThreadTaskRunner> task_runner)
+      LOCKS_EXCLUDED(lock_);
 
   // Unpark the data from disk. This is blocking, on the same thread (since we
   // cannot expect to continue with anything that needs the data until we have

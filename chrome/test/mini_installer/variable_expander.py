@@ -1,4 +1,4 @@
-# Copyright 2013 The Chromium Authors. All rights reserved.
+# Copyright 2013 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -6,6 +6,7 @@ import base64
 import hashlib
 import os
 import string
+import sys
 import win32api
 import win32file
 import win32com.client
@@ -57,8 +58,8 @@ def _GetUserSpecificRegistrySuffix():
     user_sid, _ = win32security.GetTokenInformation(token_handle,
                                                     win32security.TokenUser)
     user_sid_string = win32security.ConvertSidToStringSid(user_sid)
-    md5_digest = hashlib.md5(user_sid_string).digest()
-    return '.' + base64.b32encode(md5_digest).rstrip('=')
+    md5_digest = hashlib.md5(user_sid_string.encode('utf-8')).digest()
+    return '.' + base64.b32encode(md5_digest).decode('utf-8').rstrip('=')
 
 
 class VariableExpander:
@@ -71,18 +72,21 @@ class VariableExpander:
 
         The constructor initializes a variable dictionary that maps variables to
         their values. These are the only acceptable variables:
-        * $BRAND: the browser brand (e.g., "Google Chrome" or "Chromium").
-        * $CHROME_DIR: the directory of Chrome (or Chromium) from the base
-            installation directory.
-        * $CHROME_HTML_PROG_ID: 'ChromeHTML' (or 'ChromiumHTM').
-        * $CHROME_LONG_NAME: 'Google Chrome' (or 'Chromium').
+        * $BRAND: the browser brand (e.g., 'Google Chrome' or 'Chromium' or
+          "Google Chrome for Testing").
+        * $CHROME_DIR: the directory of Chrome (or 'Chromium' or
+          'Chrome for Testing') from the base installation directory.
+        * $CHROME_HTML_PROG_ID: 'ChromeHTML' (or 'ChromiumHTM' or 'CfTHTML').
+        * $CHROME_LONG_NAME: 'Google Chrome' (or 'Chromium' or
+          'Google Chrome for Testing').
         * $CHROME_LONG_NAME_BETA: 'Google Chrome Beta' if $BRAND is 'Google
         *   Chrome'.
         * $CHROME_LONG_NAME_DEV: 'Google Chrome Dev' if $BRAND is 'Google
         *   Chrome'.
         * $CHROME_LONG_NAME_SXS: 'Google Chrome SxS' if $BRAND is 'Google
         *   Chrome'.
-        * $CHROME_SHORT_NAME: 'Chrome' (or 'Chromium').
+        * $CHROME_SHORT_NAME: 'Chrome' (or 'Chromium' or
+          'Google Chrome for Testing').
         * $CHROME_SHORT_NAME_BETA: 'ChromeBeta' if $BRAND is 'Google Chrome'.
         * $CHROME_SHORT_NAME_DEV: 'ChromeDev' if $BRAND is 'Google Chrome'.
         * $CHROME_SHORT_NAME_SXS: 'ChromeCanary' if $BRAND is 'Google Chrome'.
@@ -111,6 +115,8 @@ class VariableExpander:
         * $PREVIOUS_VERSION_MINI_INSTALLER_FILE_VERSION: the file version of
             $PREVIOUS_VERSION_MINI_INSTALLER.
         * $PROGRAM_FILES: the unquoted path to the Program Files folder.
+        * $PYTHON_INTERPRETER: the python interpreter. This is used to propagate
+            vpython VirtualEnv properly.
         * $USER_SPECIFIC_REGISTRY_SUFFIX: the output from the function
             _GetUserSpecificRegistrySuffix().
         * $VERSION_[XP/SERVER_2003/VISTA/WIN7/WIN8/WIN8_1/WIN10]: a 2-tuple
@@ -187,6 +193,8 @@ class VariableExpander:
                 0, shellcon.CSIDL_PROGRAM_FILES
                 if _GetFileBitness(mini_installer_abspath) == '64' else
                 shellcon.CSIDL_PROGRAM_FILESX86, None, 0),
+            'PYTHON_INTERPRETER':
+            sys.executable,
             'USER_SPECIFIC_REGISTRY_SUFFIX':
             _GetUserSpecificRegistrySuffix(),
             'VERSION_SERVER_2003':
@@ -346,6 +354,35 @@ class VariableExpander:
                 'ChromiumElevationService',
                 'CHROME_ELEVATION_SERVICE_DISPLAY_NAME':
                 ('Chromium Elevation Service (ChromiumElevationService)'),
+            })
+        elif mini_installer_product_name == ('Google Chrome for Testing '
+                                             'Installer'):
+            self._variable_mapping.update({
+                'BRAND':
+                'Google Chrome for Testing',
+                'CHROME_DIR':
+                'Google\\Chrome for Testing',
+                'CHROME_HTML_PROG_ID':
+                'CfTHTML',
+                'CHROME_LONG_NAME':
+                'Google Chrome for Testing',
+                'CHROME_SHORT_NAME':
+                'Google Chrome for Testing',
+                'CHROME_UPDATE_REGISTRY_SUBKEY':
+                'Software\\Chrome for Testing',
+                'CHROME_CLIENT_STATE_KEY':
+                'Software\\Chrome for Testing',
+                'CHROME_TOAST_ACTIVATOR_CLSID':
+                ('{77ED8F9B-E27A-499F-8E2F-D7C04157CF64}'),
+                'CHROME_ELEVATOR_CLSID':
+                ('{724349BF-E1CF-4481-A64D-8CD10183CA03}'),
+                'CHROME_ELEVATOR_IID':
+                ('{3DC48E97-47D0-476F-8F89-0792FC611567}'),
+                'CHROME_ELEVATION_SERVICE_NAME':
+                'GoogleChromeforTestingElevationService',
+                'CHROME_ELEVATION_SERVICE_DISPLAY_NAME':
+                ('Google Chrome for Testing Elevation Service ' +
+                 '(GoogleChromeforTestingElevationService)'),
             })
         else:
             raise KeyError("Unknown mini_installer product name '%s'" %

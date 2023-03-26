@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,6 @@ package org.chromium.chrome.browser.vr;
 import static org.chromium.chrome.browser.vr.XrTestFramework.PAGE_LOAD_TIMEOUT_S;
 import static org.chromium.chrome.browser.vr.XrTestFramework.POLL_TIMEOUT_LONG_MS;
 import static org.chromium.chrome.browser.vr.XrTestFramework.POLL_TIMEOUT_SHORT_MS;
-
-import android.os.Build;
 
 import androidx.test.filters.MediumTest;
 
@@ -23,7 +21,6 @@ import org.chromium.base.test.params.ParameterAnnotations.UseRunnerDelegate;
 import org.chromium.base.test.params.ParameterSet;
 import org.chromium.base.test.params.ParameterizedRunner;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.DisableIf;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.vr.rules.XrActivityRestriction;
 import org.chromium.chrome.browser.vr.util.VrTestRuleUtils;
@@ -91,8 +88,6 @@ public class WebXrVrPermissionTest {
     @Test
     @MediumTest
     @XrActivityRestriction({XrActivityRestriction.SupportedActivity.ALL})
-    @DisableIf.
-    Build(message = "https://crbug.com/1091800", sdk_is_less_than = Build.VERSION_CODES.M)
     public void testVrPermissionPersistance() {
         mWebXrVrPermissionTestFramework.loadFileAndAwaitInitialization(
                 "generic_webxr_page", PAGE_LOAD_TIMEOUT_S);

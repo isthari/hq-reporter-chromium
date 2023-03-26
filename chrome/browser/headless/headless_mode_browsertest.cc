@@ -1,15 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/headless/headless_mode_util.h"
+#include "chrome/browser/headless/headless_mode_browsertest.h"
 
 #include "build/build_config.h"
 
-// Native headless is currently available only on Linux and Windows platforms.
+// Native headless is currently available on Linux, Windows and Mac platforms.
 // More platforms will be added later, so avoid function level clutter by
 // providing a compile time condition over the entire file.
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
 
 #include <memory>
 #include <string>
@@ -22,68 +22,81 @@
 #include "base/test/multiprocess_test.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_timeouts.h"
-#include "build/build_config.h"
 #include "chrome/browser/chrome_process_singleton.h"
+#include "chrome/browser/headless/headless_mode_util.h"
 #include "chrome/browser/process_singleton.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/browser_commands.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_test.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/test/base/in_process_browser_test.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_task_environment.h"
-#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/multiprocess_func_list.h"
 #include "ui/gfx/switches.h"
 
-#if BUILDFLAG(IS_LINUX)
-#include "ui/ozone/public/ozone_platform.h"
-#endif  // BUILDFLAG(IS_LINUX)
+namespace headless {
+
+namespace switches {
+// This switch runs tests in headful mode, intended for experiments only because
+// not all tests are expected to pass in headful mode.
+static const char kHeadfulMode[] = "headful-mode";
+}  // namespace switches
 
 namespace {
-const char kChrome[] = "chrome";
 const int kErrorResultCode = -1;
 }  // namespace
 
-class HeadlessModeBrowserTest : public InProcessBrowserTest {
- public:
-  HeadlessModeBrowserTest() = default;
+HeadlessModeBrowserTest::HeadlessModeBrowserTest() {
+  base::FilePath test_data(
+      FILE_PATH_LITERAL("chrome/browser/headless/test/data"));
+  embedded_test_server()->AddDefaultHandlers(test_data);
+}
 
-  HeadlessModeBrowserTest(const HeadlessModeBrowserTest&) = delete;
-  HeadlessModeBrowserTest& operator=(const HeadlessModeBrowserTest&) = delete;
+void HeadlessModeBrowserTest::SetUpCommandLine(
+    base::CommandLine* command_line) {
+  InProcessBrowserTest::SetUpCommandLine(command_line);
 
-  ~HeadlessModeBrowserTest() override = default;
-
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    InProcessBrowserTest::SetUpCommandLine(command_line);
-
-    command_line->AppendSwitchASCII(switches::kHeadless, kChrome);
+  if (command_line->HasSwitch(switches::kHeadfulMode)) {
+    headful_mode_ = true;
+  } else {
+    command_line->AppendSwitchASCII(::switches::kHeadless,
+                                    kHeadlessSwitchValue);
     headless::SetUpCommandLine(command_line);
   }
+}
 
-  void SetUpOnMainThread() override {
-    InProcessBrowserTest::SetUpOnMainThread();
+void HeadlessModeBrowserTest::SetUpOnMainThread() {
+  InProcessBrowserTest::SetUpOnMainThread();
 
-    ASSERT_TRUE(headless::IsChromeNativeHeadless());
+  ASSERT_TRUE(headless::IsHeadlessMode() || headful_mode_);
+}
+
+void HeadlessModeBrowserTestWithStartWindowMode::SetUpCommandLine(
+    base::CommandLine* command_line) {
+  HeadlessModeBrowserTest::SetUpCommandLine(command_line);
+
+  switch (start_window_mode()) {
+    case kStartWindowNormal:
+      break;
+    case kStartWindowMaximized:
+      command_line->AppendSwitch(::switches::kStartMaximized);
+      break;
+    case kStartWindowFullscreen:
+      command_line->AppendSwitch(::switches::kStartFullscreen);
+      break;
   }
-
- private:
-};
-
-#if BUILDFLAG(IS_LINUX)
-IN_PROC_BROWSER_TEST_F(HeadlessModeBrowserTest, OzonePlatformHeadless) {
-  // On Linux, the Native Headless Chrome uses Ozone/Headless.
-  ASSERT_NE(ui::OzonePlatform::GetInstance(), nullptr);
-  EXPECT_EQ(ui::OzonePlatform::GetPlatformNameForTest(), "headless");
 }
-#endif  // BUILDFLAG(IS_LINUX)
 
-#if BUILDFLAG(IS_WIN)
-IN_PROC_BROWSER_TEST_F(HeadlessModeBrowserTest, BrowserDesktopWindowHidden) {
-  // On Windows, the Native Headless Chrome browser window exists but is hidden.
-  EXPECT_FALSE(browser()->window()->IsVisible());
+void ToggleFullscreenModeSync(Browser* browser) {
+  FullscreenNotificationObserver observer(browser);
+  chrome::ToggleFullscreenMode(browser);
+  observer.Wait();
 }
-#endif  // BUILDFLAG(IS_WIN)
+
+namespace {
 
 class HeadlessModeBrowserTestWithUserDataDir : public HeadlessModeBrowserTest {
  public:
@@ -102,7 +115,7 @@ class HeadlessModeBrowserTestWithUserDataDir : public HeadlessModeBrowserTest {
     ASSERT_TRUE(user_data_dir_.CreateUniqueTempDir());
     ASSERT_TRUE(base::IsDirectoryEmpty(user_data_dir()));
 
-    command_line->AppendSwitchPath(switches::kUserDataDir, user_data_dir());
+    command_line->AppendSwitchPath(::switches::kUserDataDir, user_data_dir());
   }
 
   const base::FilePath& user_data_dir() const {
@@ -113,23 +126,6 @@ class HeadlessModeBrowserTestWithUserDataDir : public HeadlessModeBrowserTest {
   base::ScopedTempDir user_data_dir_;
 };
 
-class MockChromeProcessSingleton : public ChromeProcessSingleton {
- public:
-  explicit MockChromeProcessSingleton(const base::FilePath& user_data_dir)
-      : ChromeProcessSingleton(
-            user_data_dir,
-            base::BindRepeating(
-                &MockChromeProcessSingleton::NotificationCallback,
-                base::Unretained(this))) {}
-
- private:
-  bool NotificationCallback(const base::CommandLine& command_line,
-                            const base::FilePath& current_directory) {
-    NOTREACHED();
-    return true;
-  }
-};
-
 IN_PROC_BROWSER_TEST_F(HeadlessModeBrowserTestWithUserDataDir,
                        ChromeProcessSingletonExists) {
   // Pass the user data dir to the child process which will try
@@ -137,7 +133,7 @@ IN_PROC_BROWSER_TEST_F(HeadlessModeBrowserTestWithUserDataDir,
   // expected to fail.
   base::CommandLine command_line(
       base::GetMultiProcessTestChildBaseCommandLine());
-  command_line.AppendSwitchPath(switches::kUserDataDir, user_data_dir());
+  command_line.AppendSwitchPath(::switches::kUserDataDir, user_data_dir());
 
   base::Process child_process =
       base::SpawnMultiProcessTestChild("ChromeProcessSingletonChildProcessMain",
@@ -156,15 +152,19 @@ MULTIPROCESS_TEST_MAIN(ChromeProcessSingletonChildProcessMain) {
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   const base::FilePath user_data_dir =
-      command_line->GetSwitchValuePath(switches::kUserDataDir);
+      command_line->GetSwitchValuePath(::switches::kUserDataDir);
   if (user_data_dir.empty())
     return kErrorResultCode;
 
-  MockChromeProcessSingleton chrome_process_singleton(user_data_dir);
+  ChromeProcessSingleton chrome_process_singleton(user_data_dir);
   ProcessSingleton::NotifyResult notify_result =
       chrome_process_singleton.NotifyOtherProcessOrCreate();
 
   return static_cast<int>(notify_result);
 }
 
-#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+}  // namespace
+
+}  // namespace headless
+
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)

@@ -1,13 +1,13 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_SERVICES_FILE_UTIL_PUBLIC_CPP_SANDBOXED_DMG_ANALYZER_MAC_H_
 #define CHROME_SERVICES_FILE_UTIL_PUBLIC_CPP_SANDBOXED_DMG_ANALYZER_MAC_H_
 
-#include "base/callback.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
 #include "base/memory/ref_counted.h"
 #include "chrome/services/file_util/public/mojom/file_util_service.mojom.h"
 #include "chrome/services/file_util/public/mojom/safe_archive_analyzer.mojom.h"
@@ -15,6 +15,7 @@
 #include "mojo/public/cpp/bindings/remote.h"
 
 namespace safe_browsing {
+enum class ArchiveAnalysisResult;
 struct ArchiveAnalyzerResults;
 }
 
@@ -48,7 +49,7 @@ class SandboxedDMGAnalyzer
   void PrepareFileToAnalyze();
 
   // If file preparation failed, analysis has failed: report failure.
-  void ReportFileFailure();
+  void ReportFileFailure(safe_browsing::ArchiveAnalysisResult reason);
 
   // Starts the utility process and sends it a file analyze request.
   void AnalyzeFile(base::File file);

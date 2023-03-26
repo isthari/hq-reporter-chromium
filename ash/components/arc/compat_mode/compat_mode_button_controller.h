@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,6 +38,9 @@ class CompatModeButtonController {
   virtual void Update(ArcResizeLockPrefDelegate* pref_delegate,
                       aura::Window* window);
 
+  // virtual for unittest.
+  virtual void OnButtonPressed();
+
   base::WeakPtr<CompatModeButtonController> GetWeakPtr();
 
  private:
@@ -51,6 +54,8 @@ class CompatModeButtonController {
                               ArcResizeLockPrefDelegate* pref_delegate);
 
   std::unique_ptr<ResizeToggleMenu> resize_toggle_menu_;
+
+  bool visible_when_button_pressed_{false};
 
   base::WeakPtrFactory<CompatModeButtonController> weak_ptr_factory_{this};
 };

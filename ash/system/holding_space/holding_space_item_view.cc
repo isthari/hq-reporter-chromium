@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,18 @@
 #include "ash/public/cpp/holding_space/holding_space_controller.h"
 #include "ash/public/cpp/holding_space/holding_space_item.h"
 #include "ash/public/cpp/holding_space/holding_space_progress.h"
+#include "ash/public/cpp/holding_space/holding_space_util.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/resources/vector_icons/vector_icons.h"
-#include "ash/style/ash_color_provider.h"
+#include "ash/style/ash_color_id.h"
+#include "ash/style/dark_light_mode_controller_impl.h"
 #include "ash/system/holding_space/holding_space_util.h"
 #include "ash/system/holding_space/holding_space_view_delegate.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "ui/base/class_property.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/models/image_model.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_palette.h"
@@ -132,9 +135,20 @@ HoldingSpaceItemView::HoldingSpaceItemView(HoldingSpaceViewDelegate* delegate,
   SetNotifyEnterExitOnChild(true);
 
   // Accessibility.
-  GetViewAccessibility().OverrideName(item->GetAccessibleName());
-  GetViewAccessibility().OverrideDescription(base::EmptyString16());
   GetViewAccessibility().OverrideRole(ax::mojom::Role::kListItem);
+  GetViewAccessibility().OverrideName(item->GetAccessibleName());
+
+  // When the description is not specified, tooltip text will be used.
+  // That text is redundant to the name, but different enough that it is
+  // still exposed to assistive technologies which may then present both.
+  // To avoid that redundant presentation, set the description explicitly
+  // to the empty string. See crrev.com/c/3218112.
+  GetViewAccessibility().OverrideDescription(
+      std::u16string(), ax::mojom::DescriptionFrom::kAttributeExplicitlyEmpty);
+
+  // Background.
+  SetBackground(views::CreateThemedRoundedRectBackground(
+      kColorAshControlBackgroundColorInactive, kHoldingSpaceCornerRadius));
 
   // Layer.
   SetPaintToLayer();
@@ -252,46 +266,10 @@ void HoldingSpaceItemView::OnMouseReleased(const ui::MouseEvent& event) {
 
 void HoldingSpaceItemView::OnThemeChanged() {
   views::View::OnThemeChanged();
-  AshColorProvider* const ash_color_provider = AshColorProvider::Get();
-
-  // Background.
-  SetBackground(views::CreateRoundedRectBackground(
-      ash_color_provider->GetControlsLayerColor(
-          AshColorProvider::ControlsLayerType::kControlBackgroundColorInactive),
-      kHoldingSpaceCornerRadius));
-
-  // Checkmark.
-  checkmark_->SetBackground(holding_space_util::CreateCircleBackground(
-      ash_color_provider->GetControlsLayerColor(
-          AshColorProvider::ControlsLayerType::kFocusRingColor),
-      kCheckmarkBackgroundSize));
-  checkmark_->SetImage(gfx::CreateVectorIcon(
-      kCheckIcon, kHoldingSpaceIconSize,
-      ash_color_provider->IsDarkModeEnabled() ? gfx::kGoogleGrey900
-                                              : SK_ColorWHITE));
 
   // Focused/selected layers.
   InvalidateLayer(focused_layer_owner_->layer());
   InvalidateLayer(selected_layer_owner_->layer());
-
-  if (!primary_action_container_)
-    return;
-
-  // Cancel.
-  const SkColor icon_color = AshColorProvider::Get()->GetContentLayerColor(
-      AshColorProvider::ContentLayerType::kButtonIconColor);
-  primary_action_cancel_->SetImage(
-      views::Button::STATE_NORMAL,
-      gfx::CreateVectorIcon(kCancelIcon, kHoldingSpaceIconSize, icon_color));
-
-  // Pin.
-  const gfx::ImageSkia unpinned_icon = gfx::CreateVectorIcon(
-      views::kUnpinIcon, kHoldingSpaceIconSize, icon_color);
-  const gfx::ImageSkia pinned_icon =
-      gfx::CreateVectorIcon(views::kPinIcon, kHoldingSpaceIconSize, icon_color);
-  primary_action_pin_->SetImage(views::Button::STATE_NORMAL, unpinned_icon);
-  primary_action_pin_->SetToggledImage(views::Button::STATE_NORMAL,
-                                       &pinned_icon);
 }
 
 void HoldingSpaceItemView::OnHoldingSpaceItemUpdated(
@@ -350,7 +328,11 @@ HoldingSpaceItemView::CreateCheckmarkBuilder() {
   auto checkmark = views::Builder<views::ImageView>();
   checkmark.CopyAddressTo(&checkmark_)
       .SetID(kHoldingSpaceItemCheckmarkId)
-      .SetVisible(selected());
+      .SetVisible(selected())
+      .SetBackground(holding_space_util::CreateCircleBackground(
+          ui::kColorAshFocusRing, kCheckmarkBackgroundSize))
+      .SetImage(ui::ImageModel::FromVectorIcon(
+          kCheckIcon, kColorAshCheckmarkIconColor, kHoldingSpaceIconSize));
   return checkmark;
 }
 
@@ -379,6 +361,10 @@ views::Builder<views::View> HoldingSpaceItemView::CreatePrimaryActionBuilder(
                   &HoldingSpaceItemView::OnPrimaryActionPressed,
                   base::Unretained(this)))
               .SetFocusBehavior(views::View::FocusBehavior::NEVER)
+              .SetImageModel(views::Button::STATE_NORMAL,
+                             ui::ImageModel::FromVectorIcon(
+                                 kCancelIcon, kColorAshButtonIconColor,
+                                 kHoldingSpaceIconSize))
               .SetImageHorizontalAlignment(HorizontalAlignment::ALIGN_CENTER)
               .SetImageVerticalAlignment(VerticalAlignment::ALIGN_MIDDLE)
               .SetPreferredSize(preferred_size)
@@ -391,6 +377,15 @@ views::Builder<views::View> HoldingSpaceItemView::CreatePrimaryActionBuilder(
                   &HoldingSpaceItemView::OnPrimaryActionPressed,
                   base::Unretained(this)))
               .SetFocusBehavior(views::View::FocusBehavior::NEVER)
+              .SetImageModel(views::Button::STATE_NORMAL,
+                             ui::ImageModel::FromVectorIcon(
+                                 views::kUnpinIcon, kColorAshButtonIconColor,
+                                 kHoldingSpaceIconSize))
+              .SetToggledImageModel(
+                  views::Button::STATE_NORMAL,
+                  ui::ImageModel::FromVectorIcon(views::kPinIcon,
+                                                 kColorAshButtonIconColor,
+                                                 kHoldingSpaceIconSize))
               .SetImageHorizontalAlignment(HorizontalAlignment::ALIGN_CENTER)
               .SetImageVerticalAlignment(VerticalAlignment::ALIGN_MIDDLE)
               .SetPreferredSize(preferred_size)
@@ -412,8 +407,7 @@ void HoldingSpaceItemView::OnPaintFocus(gfx::Canvas* canvas, gfx::Size size) {
 
   cc::PaintFlags flags;
   flags.setAntiAlias(true);
-  flags.setColor(AshColorProvider::Get()->GetControlsLayerColor(
-      AshColorProvider::ControlsLayerType::kFocusRingColor));
+  flags.setColor(GetColorProvider()->GetColor(ui::kColorAshFocusRing));
   flags.setStrokeWidth(views::FocusRing::kDefaultHaloThickness);
   flags.setStyle(cc::PaintFlags::kStroke_Style);
 
@@ -427,8 +421,7 @@ void HoldingSpaceItemView::OnPaintSelect(gfx::Canvas* canvas, gfx::Size size) {
     return;
 
   const SkColor color =
-      SkColorSetA(AshColorProvider::Get()->GetControlsLayerColor(
-                      AshColorProvider::ControlsLayerType::kFocusRingColor),
+      SkColorSetA(GetColorProvider()->GetColor(ui::kColorAshFocusRing),
                   kHoldingSpaceSelectedOverlayOpacity * 0xFF);
 
   cc::PaintFlags flags;
@@ -452,7 +445,10 @@ void HoldingSpaceItemView::OnPrimaryActionPressed() {
 
   // Cancel.
   if (primary_action_cancel_->GetVisible()) {
-    HoldingSpaceController::Get()->client()->CancelItems({item()});
+    if (!holding_space_util::ExecuteInProgressCommand(
+            item(), HoldingSpaceCommandId::kCancelItem)) {
+      NOTREACHED();
+    }
     return;
   }
 
@@ -485,10 +481,11 @@ void HoldingSpaceItemView::UpdatePrimaryAction() {
   }
 
   // Cancel.
-  // NOTE: Only download type items currently support cancellation.
+  // NOTE: Only in-progress items currently support cancellation.
   const bool is_item_in_progress = !item()->progress().IsComplete();
   primary_action_cancel_->SetVisible(
-      is_item_in_progress && HoldingSpaceItem::IsDownload(item()->type()));
+      is_item_in_progress && holding_space_util::SupportsInProgressCommand(
+                                 item(), HoldingSpaceCommandId::kCancelItem));
 
   // Pin.
   const bool is_item_pinned =

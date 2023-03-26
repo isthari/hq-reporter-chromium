@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,22 +7,22 @@
 #import <Foundation/Foundation.h>
 #import <StoreKit/StoreKit.h>
 
-#include <vector>
+#import <vector>
 
-#include "base/check.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/metrics/user_metrics.h"
-#include "base/metrics/user_metrics_action.h"
-#include "base/strings/string_split.h"
-#include "base/strings/sys_string_conversions.h"
-#import "ios/chrome/browser/store_kit/store_kit_tab_helper.h"
-#include "ios/web/public/browser_state.h"
+#import "base/check.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/metrics/user_metrics.h"
+#import "base/metrics/user_metrics_action.h"
+#import "base/strings/string_split.h"
+#import "base/strings/sys_string_conversions.h"
+#import "ios/chrome/browser/ui/commands/web_content_commands.h"
+#import "ios/web/public/browser_state.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/navigation/web_state_policy_decider.h"
 #import "net/base/mac/url_conversions.h"
-#include "net/base/url_util.h"
-#include "url/gurl.h"
+#import "net/base/url_util.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -50,7 +50,7 @@ void RecordStoreKitHandlingResult(ITunesUrlsStoreKitHandlingResult result) {
                             ITunesUrlsStoreKitHandlingResult::kCount);
 }
 
-// Returns true, it the given |url| is iTunes product URL.
+// Returns true, it the given `url` is iTunes product URL.
 // iTunes URL should start with apple host and has product id.
 bool IsITunesProductUrl(const GURL& url) {
   if (!url.SchemeIsHTTPOrHTTPS() ||
@@ -60,14 +60,12 @@ bool IsITunesProductUrl(const GURL& url) {
     return false;
 
   std::string file_name = url.ExtractFileName();
-  // The first |kITunesProductIdLength| characters must be
-  // |kITunesProductIdPrefix|, followed by the app ID.
-  size_t prefix_length = strlen(kITunesProductIdPrefix);
-  return (file_name.length() > prefix_length &&
-          file_name.substr(0, prefix_length) == kITunesProductIdPrefix);
+  // The first `kITunesProductIdLength` characters must be
+  // `kITunesProductIdPrefix`, followed by the app ID.
+  return base::StartsWith(file_name, kITunesProductIdPrefix);
 }
 
-// Extracts iTunes product parameters from the given |url| to be used with the
+// Extracts iTunes product parameters from the given `url` to be used with the
 // StoreKit launcher.
 NSDictionary* ExtractITunesProductParameters(const GURL& url) {
   NSMutableDictionary<NSString*, NSString*>* params_dictionary =
@@ -134,17 +132,22 @@ void ITunesUrlsHandlerTabHelper::ShouldAllowRequest(
   std::move(callback).Run(web::WebStatePolicyDecider::PolicyDecision::Cancel());
 }
 
-// private
+void ITunesUrlsHandlerTabHelper::SetWebContentsHandler(
+    id<WebContentCommands> handler) {
+  web_content_handler_ = handler;
+}
+
+#pragma mark - Private
+
 void ITunesUrlsHandlerTabHelper::HandleITunesUrl(const GURL& url) {
   ITunesUrlsStoreKitHandlingResult handling_result =
-      ITunesUrlsStoreKitHandlingResult::kSingleAppUrlHandled;
-  StoreKitTabHelper* tab_helper = StoreKitTabHelper::FromWebState(web_state());
-  if (tab_helper) {
+      ITunesUrlsStoreKitHandlingResult::kUrlHandlingFailed;
+  if (web_content_handler_) {
     base::RecordAction(
         base::UserMetricsAction("ITunesLinksHandler_StoreKitLaunched"));
-    tab_helper->OpenAppStore(ExtractITunesProductParameters(url));
-  } else {
-    handling_result = ITunesUrlsStoreKitHandlingResult::kUrlHandlingFailed;
+    handling_result = ITunesUrlsStoreKitHandlingResult::kSingleAppUrlHandled;
+    [web_content_handler_
+        showAppStoreWithParameters:ExtractITunesProductParameters(url)];
   }
   RecordStoreKitHandlingResult(handling_result);
 }

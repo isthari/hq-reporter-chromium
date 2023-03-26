@@ -10,8 +10,9 @@
     --emoji-spacing: 0;
     --emoji-per-row: 0;
     /* Values set in css only. */
-    --emoji-group-heading-padding-bottom: 10px;
-    --emoji-group-heading-padding-top: 16px;
+    --emoji-group-clear-recents-icon-size: 16px;
+    --emoji-group-heading-padding-bottom: 6px;
+    --emoji-group-heading-padding-top: 10px;
     --emoji-group-heading-size: 32px;
     --emoji-group-tabs-left: 0;
     --emoji-hover-background: var(--cros-ripple-color);
@@ -21,6 +22,8 @@
             + var(--emoji-spacing) * (var(--emoji-per-row) - 1));
     --emoji-picker-group-highlight-bar-width: 24px;
     --emoji-picker-subcategory-bar-inline-margin: 18px;
+    --emoji-tooltip-delay-in: 500ms;
+    --emoji-tooltip-delay-out: 500ms;
     /* Actual properties of the emoji picker */
     background-color: var(--cros-bg-color);
     display: flex;
@@ -55,24 +58,13 @@
     grid-gap: var(--emoji-spacing);
     grid-template-columns: repeat(18,1fr);
     left: var(--emoji-group-tabs-left);
-    overflow-x: scroll;
-    padding-bottom: 10px;
-    padding-top: 10px; /* Search field also has some padding below which adds to this. */
+    overflow-x: hidden;
+    padding-bottom: 6px;
+    padding-top: 0; /* Search field also has some padding below which adds to this. */
     scroll-behavior: smooth;
     scroll-padding: var(--emoji-size);
     scroll-snap-type: x mandatory;
     width: 100%;
-  }
-
-  /* Mark the first and 10th group as scroll targets to get the correct scroll
-   * snapping behavior. Scroll snapping is applied in emoji picker v1. */
-  :host(:not([v2-enabled])) #tabs :nth-child(2) {
-    scroll-snap-align: center;
-    scroll-snap-stop: always;
-  }
-  :host(:not([v2-enabled])) #tabs :nth-child(14) {
-    scroll-snap-align: center;
-    scroll-snap-stop: always;
   }
 
   #tabs::-webkit-scrollbar {
@@ -118,13 +110,17 @@
 
   .divider {
     border-top: 1px solid var(--cros-separator-color);
-    width: var(--emoji-picker-width);
+    margin-inline: var(--emoji-picker-subcategory-bar-inline-margin);
   }
 
   .sr-only {
     color: transparent;
     position: absolute;
     z-index: -2;
+  }
+
+  .hidden {
+    display: none;
   }
 
   #bar {
@@ -154,6 +150,17 @@
     width: var(--emoji-size);
   }
 
+  /* Invisible dummy tab used to dynamically calculate width of GIF tabs */
+  #dummyTab {
+    border: 0;
+    height: 1em;
+    line-height: 0;
+    margin: 0;
+    padding: 0;
+    position: absolute;
+    visibility: hidden;
+  }
+
   .sr-only {
     user-select: none;
   }
@@ -164,42 +171,32 @@
     width: var(--emoji-picker-width);
   }
 
-  :host([v2-enabled]) {
-    height:
-      calc(var(--v2-emoji-picker-height) - var(--emoji-picker-top-padding));
-    width: var(--v2-emoji-picker-width);
+
+
+  :host(:not([text-subcategory-bar-enabled])) #tabs {
+    grid-gap: var(--emoji-group-spacing);
   }
 
-  :host([v2-enabled]) #tabs {
-    padding-bottom: 5px;
-    padding-top: 12px;
-  }
-
-  /* v2Enabled without text bar specifies the v2 emoji-based subcategory bar. */
-  :host([v2-enabled]:not([text-subcategory-bar-enabled])) #tabs {
-    grid-gap: var(--v2-emoji-group-spacing);
-  }
-
-  :host([v2-enabled]:not([text-subcategory-bar-enabled])) #left-chevron {
+  :host(:not([text-subcategory-bar-enabled])) #left-chevron {
     display: none;
   }
 
-  :host([v2-enabled]:not([text-subcategory-bar-enabled])) #right-chevron {
+  :host(:not([text-subcategory-bar-enabled])) #right-chevron {
     display: none;
   }
 
   :host([text-subcategory-bar-enabled]) .chevron {
-    --cr-icon-button-size: var(--v2-emoji-size);
-    width: var(--v2-emoji-size);
+    --cr-icon-button-size: var(--emoji-size);
+    width: var(--emoji-size);
   }
 
   :host([text-subcategory-bar-enabled]) #left-chevron {
     left: var(--emoji-picker-subcategory-bar-inline-margin);
-    margin-inline-end: var(--v2-tab-button-margin);
+    margin-inline-end: var(--tab-button-margin);
   }
 
   :host([text-subcategory-bar-enabled]) #right-chevron {
-    left: calc(var(--v2-emoji-picker-width) - var(--v2-emoji-size)
+    left: calc(var(--emoji-picker-width) - var(--emoji-size)
     - var(--emoji-picker-subcategory-bar-inline-margin));
     padding-inline-end: 0;
   }
@@ -215,7 +212,7 @@
     padding-inline: 0;
   }
 
-  :host([v2-enabled]:not([text-subcategory-bar-enabled])) #bar {
+  :host(:not([text-subcategory-bar-enabled])) #bar {
     /*
      * Introduce some margin to align the highlight bar vertically centered with
      * the emoji button.
@@ -224,7 +221,7 @@
     padding-inline: 0;
   }
 
-  :host([v2-enabled]) .category-gap {
+  .category-gap {
     height: 16px;
   }
 </style>
@@ -239,10 +236,11 @@
   <emoji-search
     class="side-padding"
     id="search-container"
-    emoji-data="[[emojiData]]"
-    search="{{search}}"
+    categories-data="[[categoriesData]]"
+    lazy-indexing="[[searchLazyIndexing]]"
     on-scroll="onSearchScroll"
-    v2-enabled="[[v2Enabled]]">
+    category-metadata="[[getCategoryMetadata(gifSupport, category)]]"
+    gif-support="[[gifSupport]]">
   </emoji-search>
 
 <div id="list-container">
@@ -260,7 +258,8 @@
             active="[[item.active]]"
             disabled="[[item.disabled]]"
             icon="[[item.icon]]" name="[[item.name]]"
-            v2-enabled$="[[v2Enabled]]">>
+            on-focus="preventV2TabScrolling"
+            custom-tab-index="[[getTabIndex(item.pagination,pagination)]]">>
           </emoji-group-button>
         </template>
         <!--Fake group button to increase maximum scrolling, need an icon to
@@ -294,9 +293,11 @@
             icon="[[emojiGroupTabs.0.icon]]"
             name="[[emojiGroupTabs.0.name]]"
             class="tab"
-            v2-enabled$="[[v2Enabled]]">
+            on-focus="preventV2TabScrolling"
+            custom-tab-index="[[getTabIndex(item.pagination,pagination)]]">
           </emoji-group-button>
           <!-- Render non history tab. -->
+          <!-- If text-group-button is changed, update dummyTab below. -->
           <template is="dom-repeat"
             items="[[emojiGroupTabs]]"
             filter="[[filterGroupTabByPagination(1)]]">
@@ -305,7 +306,10 @@
               active="[[item.active]]"
               disabled="[[item.disabled]]"
               name="[[item.name]]"
-              class="tab">
+              class="tab"
+              on-focus="preventV2TabScrolling"
+              custom-tab-index=
+              "[[getTabIndex(item.pagination,pagination)]]">
             </text-group-button>
           </template>
         </div>
@@ -320,7 +324,10 @@
                 active="[[item.active]]"
                 disabled="[[item.disabled]]"
                 name="[[item.name]]"
-                class="tab">
+                class="tab"
+                on-focus="preventV2TabScrolling"
+                custom-tab-index=
+                "[[getTabIndex(item.pagination,pagination)]]">
               </text-group-button>
             </template>
           </div>
@@ -339,42 +346,43 @@
       on-transitionstart="onBarTransitionStart"></div>
   </div>
   <div class="divider"></div>
-
   <div class="side-padding" id="groups" on-scroll="onEmojiScroll">
-    <!--
-      history is the "recently used" group and is populated in code,
-      whereas the other groups are created from the emoji metadata.
-    -->
-    <div data-group="history">
-      <template is="dom-if" if="[[emojiHistory.emoji.length]]">
-        <emoji-group data="[[emojiHistory]]" preferred="{}" clearable
-          class="group" v2-enabled$="[[v2Enabled]]">
-        </emoji-group>
-      </template>
-    </div>
-    <template is="dom-repeat" items="[[emojiData]]">
-      <div data-group$="[[getDataGroupIndex('emoji', index)]]">
-        <emoji-group data="[[item]]" preferred="[[preferenceMapping]]"
-          class="group" v2-enabled$="[[v2Enabled]]">
-        </emoji-group>
-      </div>
-    </template>
-    <div class="category-gap"></div>
-    <template is="dom-if" if="[[v2Enabled]]">
-      <div data-group="emoticon-history">
-        <template is="dom-if" if="[[emoticonHistory.emoji.length]]">
-            <emoticon-group data="[[emoticonHistory]]" class="group"
-              data-group="emoticon-history">
-            </emoticon-group>
-        </template>
-      </div>
-      <template is="dom-repeat" items="[[emoticonData]]">
-        <div data-group$="[[getDataGroupIndex('emoticon', index)]]">
-          <emoticon-group data="[[item]]" class="group">
-          </emoticon-group>
+    <template is="dom-if" if="[[!isInfinite(category)]]">
+      <template is="dom-repeat" items="[[categoriesGroupElements]]">
+        <div data-group$="[[item.groupId]]">
+          <emoji-group data="[[item.emoji]]"
+            group="[[item.name]]"
+            preferred="[[item.preferences]]"
+            clearable$="[[item.isHistory]]"
+            category$="[[item.category]]"
+            class$="[[getEmojiGroupClassNames(item.isHistory,item.emoji)]]">
+          </emoji-group>
         </div>
       </template>
     </template>
+    <template is="dom-if" if="[[isInfinite(category)]]">
+        <div data-group$="[[activeInfiniteGroupElements]]">
+          <emoji-group data="[[activeInfiniteGroupElements.emoji]]"
+            group="[[activeInfiniteGroupElements.name]]"
+            preferred="[[activeInfiniteGroupElements.preferences]]"
+            clearable$="[[activeInfiniteGroupElements.isHistory]]"
+            category$="[[activeInfiniteGroupElements.category]]"
+            class$="[[getEmojiGroupClassNames(activeInfiniteGroupElements.isHistory,activeInfiniteGroupElements.emoji)]]">
+          </emoji-group>
+        </div>
+    </template>
   </div>
-
+  <!-- Render invisible dummy tab to temporarily calculate width of a tab. -->
+  <div id="dummyTab">
+    <text-group-button data-group$="[[dummyTab]]"
+      group-id="[[dummyTab.groupId]]"
+      active="[[dummyTab.active]]"
+      disabled="[[dummyTab.disabled]]"
+      name="[[dummyTab.name]]"
+      class="tab"
+      on-focus="preventV2TabScrolling"
+      custom-tab-index=
+      "[[getTabIndex(dummyTab.pagination,pagination)]]">
+    </text-group-button>
+  </div>
 </div>

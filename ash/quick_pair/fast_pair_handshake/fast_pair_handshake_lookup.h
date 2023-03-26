@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include <memory>
 
 #include "ash/quick_pair/common/pair_failure.h"
-#include "base/bind.h"
-#include "base/callback_forward.h"
 #include "base/containers/flat_map.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/singleton.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -22,7 +22,7 @@ class BluetoothAdapter;
 namespace ash {
 namespace quick_pair {
 
-struct Device;
+class Device;
 class FastPairHandshake;
 
 // This class creates, deletes and exposes FastPairHandshake instances.
@@ -51,6 +51,9 @@ class FastPairHandshakeLookup {
 
   // Erases the FastPairHandshake instance for |device| if exists.
   bool Erase(scoped_refptr<Device> device);
+
+  // Erases the FastPairHandshake instance for |address| if exists.
+  bool Erase(const std::string& address);
 
   // Deletes all existing FastPairHandshake instances.
   void Clear();

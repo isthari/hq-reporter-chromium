@@ -1,10 +1,12 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 import("//build/config/rust.gni")
-import("//build/rust/rust_source_set.gni")
+import("//build/rust/rust_bindgen.gni")
+import("//build/rust/rust_static_library.gni")
 import("//build/rust/rust_unit_test.gni")
+import("//build/rust/rust_unit_tests_group.gni")
 
 # Meta target to build everything
 group("rust") {
@@ -12,23 +14,14 @@ group("rust") {
 }
 
 # Meta target to build test binaries, if supported.
-group("tests") {
-  testonly = true
+rust_unit_tests_group("mojo_rust_tests") {
   deps = []
-  if (build_rust_unit_tests) {
+  if (can_build_rust_unit_tests) {
     deps += [ ":mojo_rust_unittests" ]
   }
   if (rustc_can_link) {
     deps += [ ":mojo_rust_extra_tests" ]
   }
-}
-
-static_library("c_support") {
-  sources = [ "support.cc" ]
-  deps = [
-    "//mojo/public/c/system",
-    "//mojo/public/cpp/system",
-  ]
 }
 
 static_library("c_test_support") {
@@ -39,14 +32,30 @@ static_library("c_test_support") {
     "//mojo/core/embedder",
     "//mojo/public/cpp/bindings/tests:mojo_public_bindings_test_utils",
   ]
+  visibility = [ ":*" ]
 }
 
-rust_source_set("mojo_rust") {
+source_set("mojo_c_system_wrapper") {
+  sources = [ "system/wrapper.h" ]
+  deps = [ "//mojo/public/c/system:headers" ]
+  visibility = [ ":*" ]
+}
+
+rust_bindgen("mojo_c_system_binding") {
+  header = "system/wrapper.h"
+  deps = [ ":mojo_c_system_wrapper" ]
+  visibility = [ ":*" ]
+}
+
+rust_static_library("mojo_rust") {
   crate_root = "lib.rs"
   unit_test_target =
       "mojo_rust_unittests"  # avoids conflict with C++ target elsewhere
   crate_name = "mojo"
   edition = "2018"
+
+  # TODO(danakj): Move to a gtest target.
+  build_native_rust_unit_tests = true
   sources = [
     "bindings/decoding.rs",
     "bindings/encoding.rs",
@@ -65,10 +74,20 @@ rust_source_set("mojo_rust") {
     "system/mod.rs",
     "system/mojo_types.rs",
     "system/shared_buffer.rs",
+    "system/trap.rs",
+    "system/wait.rs",
     "system/wait_set.rs",
   ]
 
-  deps = [ ":c_support" ]
+  deps = [
+    ":mojo_c_system_binding",
+    ":mojo_c_system_wrapper",
+    "//third_party/rust/bitflags/v1:lib",
+  ]
+
+  bindgen_output = get_target_outputs(":mojo_c_system_binding")
+  inputs = bindgen_output
+  rustenv = [ "BINDGEN_RS_FILE=" + rebase_path(bindgen_output[0]) ]
 }
 
 if (rustc_can_link) {
@@ -84,6 +103,7 @@ if (rustc_can_link) {
       ":c_test_support",
       ":mojo_rust",
       "//mojo/public/c/system",
+      "//third_party/rust/lazy_static/v1:test_support",
     ]
   }
 }

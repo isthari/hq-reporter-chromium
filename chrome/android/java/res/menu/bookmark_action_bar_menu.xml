@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Copyright 2015 The Chromium Authors. All rights reserved.
-     Use of this source code is governed by a BSD-style license that can be
-     found in the LICENSE file. -->
+<!--
+Copyright 2015 The Chromium Authors
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
 
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto" >
@@ -57,6 +59,13 @@
             android:id="@+id/selection_open_in_incognito_tab_id"
             android:title="@string/contextmenu_open_in_incognito_tab"
             app:showAsAction="never" />
+        <item
+            android:id="@+id/reading_list_mark_as_read_id"
+            android:title="@string/reading_list_mark_as_read"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/reading_list_mark_as_unread_id"
+            android:title="@string/reading_list_mark_as_unread"
+            app:showAsAction="never" />
     </group>
-
 </menu>

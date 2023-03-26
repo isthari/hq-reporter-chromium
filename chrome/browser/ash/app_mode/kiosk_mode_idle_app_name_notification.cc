@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <memory>
 
-#include "base/bind.h"
 #include "base/check.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "chrome/browser/ash/notifications/idle_app_name_notification_view.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_switches.h"
@@ -33,7 +33,7 @@ const int kMessageVisibilityTimeMs = 3000;
 const int kMessageAnimationTimeMs = 200;
 
 // Our global instance of the Kiosk mode message.
-KioskModeIdleAppNameNotification* g_kiosk_mode_idle_app_message = NULL;
+KioskModeIdleAppNameNotification* g_kiosk_mode_idle_app_message = nullptr;
 
 }  // namespace
 
@@ -47,7 +47,7 @@ void KioskModeIdleAppNameNotification::Initialize() {
 void KioskModeIdleAppNameNotification::Shutdown() {
   if (g_kiosk_mode_idle_app_message) {
     delete g_kiosk_mode_idle_app_message;
-    g_kiosk_mode_idle_app_message = NULL;
+    g_kiosk_mode_idle_app_message = nullptr;
   }
 }
 

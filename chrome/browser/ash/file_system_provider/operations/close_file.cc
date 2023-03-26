@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,11 @@ namespace ash {
 namespace file_system_provider {
 namespace operations {
 
-CloseFile::CloseFile(extensions::EventRouter* event_router,
+CloseFile::CloseFile(RequestDispatcher* dispatcher,
                      const ProvidedFileSystemInfo& file_system_info,
                      int open_request_id,
                      storage::AsyncFileUtil::StatusCallback callback)
-    : Operation(event_router, file_system_info),
+    : Operation(dispatcher, file_system_info),
       open_request_id_(open_request_id),
       callback_(std::move(callback)) {}
 

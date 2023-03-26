@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -253,6 +253,10 @@ class UpgradeDetector {
   // Notifies that a critical update has been installed. No details are
   // expected.
   void NotifyCriticalUpgradeInstalled();
+
+  // Notifies that an update is downloaded but deferred. Set `use_notification`
+  // to true to enable system tray notification.
+  void NotifyUpdateDeferred(bool use_notification);
 
   // The function that sends out a notification that lets the rest of the UI
   // know we should notify the user that a new update is available to download

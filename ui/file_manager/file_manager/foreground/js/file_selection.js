@@ -1,16 +1,19 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {dispatchSimpleEvent} from 'chrome://resources/js/cr.m.js';
-import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
+import {dispatchSimpleEvent} from 'chrome://resources/ash/common/cr_deprecated.js';
+import {assert} from 'chrome://resources/ash/common/assert.js';
+import {NativeEventTarget as EventTarget} from 'chrome://resources/ash/common/event_target.js';
 
 import {FileType} from '../../common/js/file_type.js';
 import {util} from '../../common/js/util.js';
 import {AllowedPaths} from '../../common/js/volume_manager_types.js';
 import {FileOperationManager} from '../../externs/background/file_operation_manager.js';
+import {Store} from '../../externs/ts/store.js';
 import {VolumeManager} from '../../externs/volume_manager.js';
+import {updateSelection} from '../../state/actions/current_directory.js';
+import {getStore} from '../../state/store.js';
 
 import {constants} from './constants.js';
 import {DirectoryModel} from './directory_model.js';
@@ -70,11 +73,6 @@ export class FileSelection {
     this.anyFilesHosted = true;
 
     /**
-     * @public {?string}
-     */
-    this.iconType = null;
-
-    /**
      * @private {Promise<boolean>}
      */
     this.additionalPromise_ = null;
@@ -83,15 +81,6 @@ export class FileSelection {
     this.hasReadOnlyEntry_ = false;
 
     entries.forEach(entry => {
-      if (this.iconType == null) {
-        this.iconType = FileType.getIcon(entry);
-      } else if (this.iconType != 'unknown') {
-        const iconType = FileType.getIcon(entry);
-        if (this.iconType != iconType) {
-          this.iconType = 'unknown';
-        }
-      }
-
       if (entry.isFile) {
         this.fileCount += 1;
       } else {
@@ -195,6 +184,15 @@ export class FileSelectionHandler extends EventTarget {
     this.selectionUpdateTimer_ = 0;
 
     /**
+     * requestAnimationFrame used to debounce the calls to update the Store.
+     * @private {?number}
+     */
+    this.updateStoreRaf_ = null;
+
+    /** @private {!Store} */
+    this.store_ = getStore();
+
+    /**
      * The time, in ms since the epoch, when it is OK to post next throttled
      * selection event. Can be directly compared with Date.now().
      * @private {number}
@@ -207,10 +205,11 @@ export class FileSelectionHandler extends EventTarget {
      */
     this.allowedPaths_ = allowedPaths;
 
-    util.addEventListenerToBackgroundComponent(
-        assert(fileOperationManager), 'entries-changed',
-        this.onFileSelectionChanged.bind(this));
-    // Register evnets to update file selections.
+    // Listens to changes in the selection model to propagate to other parts.
+    directoryModel.getFileListSelection().addEventListener(
+        'change', this.onFileSelectionChanged.bind(this));
+
+    // Register events to update file selections.
     directoryModel.addEventListener(
         'directory-changed', this.onFileSelectionChanged.bind(this));
   }
@@ -246,6 +245,10 @@ export class FileSelectionHandler extends EventTarget {
       updateDelay = 1;
     }
 
+    if (!this.updateStoreRaf_) {
+      this.updateStoreRaf_ = requestAnimationFrame(() => this.updateStore_());
+    }
+
     const selection = this.selection;
     this.selectionUpdateTimer_ = setTimeout(() => {
       this.selectionUpdateTimer_ = null;
@@ -277,6 +280,19 @@ export class FileSelectionHandler extends EventTarget {
       dispatchSimpleEvent(
           this, FileSelectionHandler.EventType.CHANGE_THROTTLED);
     });
+  }
+
+  /**
+   * Sends the current selection to the Store.
+   * @private
+   */
+  updateStore_() {
+    this.updateStoreRaf_ = null;
+    const entries = this.selection.entries;
+    this.store_.dispatch(updateSelection({
+      selectedKeys: entries.map(e => e.toURL()),
+      entries,
+    }));
   }
 
   /**
@@ -315,6 +331,39 @@ export class FileSelectionHandler extends EventTarget {
     return this.allowedPaths_ !== AllowedPaths.ANY_PATH_OR_URL &&
         this.selection.anyFilesHosted;
   }
+
+  /**
+   * Returns true if any file/directory in the selection is blocked by DLP
+   * policy.
+   * @return {boolean}
+   */
+  isDlpBlocked() {
+    if (!util.isDlpEnabled()) {
+      return false;
+    }
+
+    const selectedIndexes =
+        this.directoryModel_.getFileListSelection().selectedIndexes;
+    const selectedEntries = selectedIndexes.map(index => {
+      return /** @type {!Entry} */ (
+          this.directoryModel_.getFileList().item(index));
+    });
+    // Check if any of the selected entries are blocked by DLP:
+    // a volume/directory in case of file-saveas (managed by the VolumeManager),
+    // or a file in case file-open dialogs (stored in the metadata).
+    for (const entry of selectedEntries) {
+      const volumeInfo = this.volumeManager_.getVolumeInfo(entry);
+      if (volumeInfo && this.volumeManager_.isDisabled(volumeInfo.volumeType)) {
+        return true;
+      }
+      const metadata = this.metadataModel_.getCache(
+          [entry], ['isRestrictedForDestination'])[0];
+      if (metadata && !!metadata.isRestrictedForDestination) {
+        return true;
+      }
+    }
+    return false;
+  }
 }
 
 /**
@@ -331,7 +380,7 @@ FileSelectionHandler.EventType = {
    * If multiple changes are happened during the term, only one CHANGE_THROTTLED
    * event is dispatched.
    */
-  CHANGE_THROTTLED: 'changethrottled'
+  CHANGE_THROTTLED: 'changethrottled',
 };
 
 /**

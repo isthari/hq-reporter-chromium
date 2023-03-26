@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,9 @@
 
 #import "ios/chrome/browser/ui/download/download_manager_consumer.h"
 
-@class DownloadManagerStateView;
 @class DownloadManagerViewController;
+@class LayoutGuideCenter;
+@class LegacyDownloadManagerStateView;
 @class RadialProgressView;
 
 @protocol DownloadManagerViewControllerDelegate<NSObject>
@@ -41,8 +42,8 @@
 
 @property(nonatomic, weak) id<DownloadManagerViewControllerDelegate> delegate;
 
-// Controls the height of the bottom margin.
-@property(nonatomic) NSLayoutDimension* bottomMarginHeightAnchor;
+// The layout guide center to use to retrieve the bottom margin.
+@property(nonatomic, strong) LayoutGuideCenter* layoutGuideCenter;
 
 @end
 
@@ -53,7 +54,7 @@
 @property(nonatomic, readonly) UIButton* closeButton;
 
 // Icon that represents the current download status.
-@property(nonatomic, readonly) DownloadManagerStateView* stateIcon;
+@property(nonatomic, readonly) LegacyDownloadManagerStateView* legacyStateIcon;
 
 // Label that describes the current download status.
 @property(nonatomic, readonly) UILabel* statusLabel;

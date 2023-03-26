@@ -1,10 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ios/chrome/browser/overlays/overlay_callback_manager_impl.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "ios/chrome/browser/overlays/public/overlay_response.h"
 #include "ios/chrome/browser/overlays/test/fake_overlay_user_data.h"
 #include "ios/chrome/browser/overlays/test/overlay_test_macros.h"
@@ -23,7 +23,7 @@ using OverlayCallbackManagerImplTest = PlatformTest;
 TEST_F(OverlayCallbackManagerImplTest, CompletionCallbacks) {
   OverlayCallbackManagerImpl manager;
   void* kResponseData = &kResponseData;
-  // Add two completion callbacks that increment |callback_execution_count|.
+  // Add two completion callbacks that increment `callback_execution_count`.
   __block size_t callback_execution_count = 0;
   void (^callback_block)(OverlayResponse* response) =
       ^(OverlayResponse* response) {

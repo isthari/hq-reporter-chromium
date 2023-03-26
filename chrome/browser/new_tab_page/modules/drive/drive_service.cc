@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -103,7 +103,9 @@ constexpr char kFakeData[] = R"({
         "mimeType": "application/vnd.google-apps.document"
       },
       "justification": {
-        "displayText": { "textSegment": [{"text": "You opened yesterday"}]}
+        "unstructuredJustificationDescription": {
+          "textSegment": [{"text": "You opened yesterday"}]
+        }
       }
     },
     {
@@ -114,7 +116,9 @@ constexpr char kFakeData[] = R"({
         "mimeType": "application/vnd.google-apps.spreadsheet"
       },
       "justification": {
-        "displayText": { "textSegment": [{"text": "You opened today"}]}
+        "unstructuredJustificationDescription": {
+          "textSegment": [{"text": "You opened today"}]
+        }
       }
     },
     {
@@ -125,7 +129,9 @@ constexpr char kFakeData[] = R"({
         "mimeType": "application/vnd.google-apps.presentation"
       },
       "justification": {
-        "displayText": { "textSegment": [{"text": "You opened on Monday"}]}
+        "unstructuredJustificationDescription": {
+          "textSegment": [{"text": "You opened on Monday"}]
+        }
       }
     }
   ]
@@ -290,14 +296,14 @@ void DriveService::OnJsonReceived(const std::string& token,
 
 void DriveService::OnJsonParsed(
     data_decoder::DataDecoder::ValueOrError result) {
-  if (!result.value) {
+  if (!result.has_value()) {
     for (auto& callback : callbacks_) {
       std::move(callback).Run(std::vector<drive::mojom::FilePtr>());
     }
     callbacks_.clear();
     return;
   }
-  auto* items = result.value->FindListPath("item");
+  auto* items = result->FindListPath("item");
   if (!items) {
     for (auto& callback : callbacks_) {
       std::move(callback).Run(std::vector<drive::mojom::FilePtr>());
@@ -309,8 +315,8 @@ void DriveService::OnJsonParsed(
   for (const auto& item : items->GetList()) {
     auto* title = item.FindStringPath("driveItem.title");
     auto* mime_type = item.FindStringPath("driveItem.mimeType");
-    auto* justification_text_segments =
-        item.FindListPath("justification.displayText.textSegment");
+    auto* justification_text_segments = item.FindListPath(
+        "justification.unstructuredJustificationDescription.textSegment");
     if (!justification_text_segments ||
         justification_text_segments->GetList().size() == 0) {
       continue;

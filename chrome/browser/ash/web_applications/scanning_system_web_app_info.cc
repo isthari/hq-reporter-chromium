@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,10 @@
 
 #include <memory>
 
-#include "ash/grit/ash_scanning_app_resources.h"
+#include "ash/webui/grit/ash_scanning_app_resources.h"
 #include "ash/webui/scanning/url_constants.h"
 #include "chrome/browser/ash/web_applications/system_web_app_install_utils.h"
+#include "chrome/browser/web_applications/mojom/user_display_mode.mojom.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
@@ -40,16 +41,16 @@ std::unique_ptr<WebAppInstallInfo> CreateWebAppInfoForScanningSystemWebApp() {
   info->background_color = info->theme_color;
   info->dark_mode_background_color = info->dark_mode_theme_color;
   info->display_mode = blink::mojom::DisplayMode::kStandalone;
-  info->user_display_mode = blink::mojom::DisplayMode::kStandalone;
+  info->user_display_mode = web_app::mojom::UserDisplayMode::kStandalone;
 
   return info;
 }
 
 ScanningSystemAppDelegate::ScanningSystemAppDelegate(Profile* profile)
-    : web_app::SystemWebAppDelegate(web_app::SystemAppType::SCANNING,
-                                    "Scanning",
-                                    GURL("chrome://scanning"),
-                                    profile) {}
+    : ash::SystemWebAppDelegate(ash::SystemWebAppType::SCANNING,
+                                "Scanning",
+                                GURL("chrome://scanning"),
+                                profile) {}
 
 std::unique_ptr<WebAppInstallInfo> ScanningSystemAppDelegate::GetWebAppInfo()
     const {
@@ -57,7 +58,7 @@ std::unique_ptr<WebAppInstallInfo> ScanningSystemAppDelegate::GetWebAppInfo()
 }
 
 bool ScanningSystemAppDelegate::ShouldShowInLauncher() const {
-  return false;
+  return true;
 }
 
 bool ScanningSystemAppDelegate::ShouldCaptureNavigations() const {

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,6 +49,9 @@ constexpr char kPrivacyScreenPropertyNameLegacy[] = "privacy-screen";
 constexpr char kPrivacyScreenHwStatePropertyName[] = "privacy-screen hw-state";
 constexpr char kPrivacyScreenSwStatePropertyName[] = "privacy-screen sw-state";
 
+constexpr char kVrrCapablePropertyName[] = "vrr_capable";
+constexpr char kVrrEnabledPropertyName[] = "VRR_ENABLED";
+
 // DRM property enum to internal type mappings.
 template <typename InternalType>
 struct DrmPropertyEnumToInternalTypeMapping {
@@ -95,6 +98,8 @@ class HardwareDisplayControllerInfo {
   drmModeCrtc* crtc() const { return crtc_.get(); }
   uint8_t index() const { return index_; }
 
+  ScopedDrmConnectorPtr ReleaseConnector() { return std::move(connector_); }
+
  private:
   ScopedDrmConnectorPtr connector_;
   ScopedDrmCrtcPtr crtc_;
@@ -135,7 +140,8 @@ std::unique_ptr<display::DisplaySnapshot> CreateDisplaySnapshot(
     int fd,
     const base::FilePath& sys_path,
     uint8_t device_index,
-    const gfx::Point& origin);
+    const gfx::Point& origin,
+    const display::DrmFormatsAndModifiers& drm_formats_and_modifiers);
 
 int GetFourCCFormatForOpaqueFramebuffer(gfx::BufferFormat format);
 
@@ -155,6 +161,14 @@ const gfx::Size ModeSize(const drmModeModeInfo& mode);
 float ModeRefreshRate(const drmModeModeInfo& mode);
 
 bool ModeIsInterlaced(const drmModeModeInfo& mode);
+
+bool IsVrrCapable(int fd, drmModeConnector* connector);
+
+bool IsVrrEnabled(int fd, drmModeCrtc* crtc);
+
+display::VariableRefreshRateState GetVariableRefreshRateState(
+    int fd,
+    HardwareDisplayControllerInfo* info);
 
 uint64_t GetEnumValueForName(int fd, int property_id, const char* str);
 

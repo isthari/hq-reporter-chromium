@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,7 +48,7 @@ const DEFAULT_PREFS = {
   profile: {password_manager_leak_detection: {value: true}},
   signin: {
     allowed_on_next_startup:
-        {type: chrome.settingsPrivate.PrefType.BOOLEAN, value: true}
+        {type: chrome.settingsPrivate.PrefType.BOOLEAN, value: true},
   },
   safebrowsing:
       {enabled: {value: true}, scout_reporting_enabled: {value: true}},
@@ -76,7 +76,7 @@ suite('Chrome OS', function() {
     accountManagerBrowserProxy = new TestAccountManagerBrowserProxy();
     AccountManagerBrowserProxyImpl.setInstance(accountManagerBrowserProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     peoplePage = document.createElement('settings-people-page');
     peoplePage.prefs = DEFAULT_PREFS;
     peoplePage.pageVisibility = pageVisibility;
@@ -135,7 +135,7 @@ suite('Chrome OS with account manager disabled', function() {
     profileInfoBrowserProxy = new TestProfileInfoBrowserProxy();
     ProfileInfoBrowserProxyImpl.setInstance(profileInfoBrowserProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     peoplePage = document.createElement('settings-people-page');
     peoplePage.prefs = DEFAULT_PREFS;
     peoplePage.pageVisibility = pageVisibility;

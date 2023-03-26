@@ -1,10 +1,11 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "media/base/mime_util.h"
+
 #include <stddef.h>
 
-#include "base/cxx17_backports.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_command_line.h"
@@ -12,7 +13,6 @@
 #include "media/base/audio_codecs.h"
 #include "media/base/media.h"
 #include "media/base/media_switches.h"
-#include "media/base/mime_util.h"
 #include "media/base/mime_util_internal.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_color_space.h"
@@ -23,8 +23,7 @@
 #include "base/android/build_info.h"
 #endif
 
-namespace media {
-namespace internal {
+namespace media::internal {
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
 // TODO(https://crbug.com/1117275): Remove conditioning of kUsePropCodecs when
@@ -53,8 +52,7 @@ static std::vector<bool> CreateTestVector(bool test_all_values,
                                           bool single_value) {
   const bool kTestStates[] = {true, false};
   if (test_all_values)
-    return std::vector<bool>(kTestStates,
-                             kTestStates + base::size(kTestStates));
+    return std::vector<bool>(kTestStates, kTestStates + std::size(kTestStates));
   return std::vector<bool>(1, single_value);
 }
 
@@ -124,7 +122,11 @@ static MimeUtil::PlatformInfo VaryAllFields() {
 // This is to validate MimeUtil::IsCodecSupportedOnPlatform(), which is used
 // only on Android platform.
 static bool HasDolbyVisionSupport() {
+#if BUILDFLAG(ENABLE_PLATFORM_DOLBY_VISION)
+  return true;
+#else
   return false;
+#endif
 }
 
 static bool HasEac3Support() {
@@ -150,8 +152,8 @@ TEST(MimeUtilTest, CommonMediaMimeType) {
 
   EXPECT_EQ(kHlsSupported, IsSupportedMediaMimeType("application/x-mpegurl"));
   EXPECT_EQ(kHlsSupported, IsSupportedMediaMimeType("Application/X-MPEGURL"));
-  EXPECT_EQ(kHlsSupported, IsSupportedMediaMimeType(
-      "application/vnd.apple.mpegurl"));
+  EXPECT_EQ(kHlsSupported,
+            IsSupportedMediaMimeType("application/vnd.apple.mpegurl"));
   EXPECT_EQ(kHlsSupported, IsSupportedMediaMimeType("audio/mpegurl"));
   EXPECT_EQ(kHlsSupported, IsSupportedMediaMimeType("audio/x-mpegurl"));
   EXPECT_TRUE(IsSupportedMediaMimeType("audio/mp4"));
@@ -212,18 +214,18 @@ TEST(MimeUtilTest, SplitAndStripCodecs) {
       {",", 2, {"", ""}, {"", ""}},
   };
 
-  for (size_t i = 0; i < base::size(tests); ++i) {
+  for (const auto& test : tests) {
     std::vector<std::string> codecs_out;
 
-    SplitCodecs(tests[i].original, &codecs_out);
-    ASSERT_EQ(tests[i].expected_size, codecs_out.size());
-    for (size_t j = 0; j < tests[i].expected_size; ++j)
-      EXPECT_EQ(tests[i].split_results[j], codecs_out[j]);
+    SplitCodecs(test.original, &codecs_out);
+    ASSERT_EQ(test.expected_size, codecs_out.size());
+    for (size_t j = 0; j < test.expected_size; ++j)
+      EXPECT_EQ(test.split_results[j], codecs_out[j]);
 
     StripCodecs(&codecs_out);
-    ASSERT_EQ(tests[i].expected_size, codecs_out.size());
-    for (size_t j = 0; j < tests[i].expected_size; ++j)
-      EXPECT_EQ(tests[i].strip_results[j], codecs_out[j]);
+    ASSERT_EQ(test.expected_size, codecs_out.size());
+    for (size_t j = 0; j < test.expected_size; ++j)
+      EXPECT_EQ(test.strip_results[j], codecs_out[j]);
   }
 }
 
@@ -727,5 +729,4 @@ TEST(IsCodecSupportedOnAndroidTest, AndroidHLSAAC) {
   // platform support).
 }
 
-}  // namespace internal
-}  // namespace media
+}  // namespace media::internal

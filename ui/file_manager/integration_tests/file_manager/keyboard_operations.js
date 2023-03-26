@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -169,9 +169,7 @@ async function renameFile(appId, oldName, newName) {
   const textInput = '#file-list .table-row[renaming] input.rename';
 
   // Select the file.
-  chrome.test.assertTrue(
-      await remoteCall.callRemoteTestUtil('selectFile', appId, [oldName]),
-      'selectFile failed');
+  await remoteCall.waitUntilSelected(appId, oldName);
 
   // Press Ctrl+Enter key to rename the file.
   const key = ['#file-list', 'Enter', true, false, false];
@@ -345,8 +343,9 @@ testcase.renameRemovableWithKeyboardOnFileList = async () => {
 
   // Wait for partitions to show up.
   const expectedRows = [
-    ['partition-1', '--', 'ntfs', ''], ['partition-2', '--', 'ext4', ''],
-    ['partition-3', '--', 'vfat', '']
+    ['partition-1', '--', 'ntfs', ''],
+    ['partition-2', '--', 'ext4', ''],
+    ['partition-3', '--', 'vfat', ''],
   ];
   await remoteCall.waitForFiles(
       appId, expectedRows, {ignoreLastModifiedTime: true});
@@ -454,6 +453,51 @@ testcase.keyboardFocusOutlineVisibleMouse = async () => {
 };
 
 /**
+ * Tests that the root html element .pointer-active class will be removed with
+ * pointerup event triggered by touch.
+ */
+testcase.pointerActiveRemovedByTouch = async () => {
+  // Open Files app.
+  const appId =
+      await setupAndWaitUntilReady(RootPath.DOWNLOADS, [ENTRIES.hello], []);
+
+  // Send pointerdown to the list container.
+  chrome.test.assertTrue(await remoteCall.callRemoteTestUtil(
+      'fakeEvent', appId, ['#list-container', 'pointerdown']));
+
+  // Check: the html element should have pointer-active class.
+  const htmlPointerActive = ['html.pointer-active'];
+  await remoteCall.waitForElementsCount(appId, htmlPointerActive, 1);
+
+  // Send pointerup with touch to the list container.
+  chrome.test.assertTrue(await remoteCall.callRemoteTestUtil(
+      'fakeEvent', appId,
+      ['#list-container', 'pointerup', {pointerType: 'touch'}]));
+
+  // Check: the html element should not have pointer-active class.
+  await remoteCall.waitForElementLost(appId, htmlPointerActive);
+};
+
+/**
+ * Tests that the root html element .pointer-active class should not be added if
+ * the PointerDown event is triggered by touch.
+ */
+testcase.noPointerActiveOnTouch = async () => {
+  // Open Files app.
+  const appId =
+      await setupAndWaitUntilReady(RootPath.DOWNLOADS, [ENTRIES.hello], []);
+
+  // Send pointerdown with touch to the list container.
+  chrome.test.assertTrue(await remoteCall.callRemoteTestUtil(
+      'fakeEvent', appId,
+      ['#list-container', 'pointerdown', {pointerType: 'touch'}]));
+
+  // Check: the html element should not have pointer-active class.
+  const htmlPointerActive = ['html.pointer-active'];
+  await remoteCall.waitForElementLost(appId, htmlPointerActive);
+};
+
+/**
  * Test that selecting "Google Drive" in the directory tree with the keyboard
  * expands it and selects "My Drive".
  */
@@ -499,9 +543,7 @@ testcase.keyboardDisableCopyWhenDialogDisplayed = async () => {
       await setupAndWaitUntilReady(RootPath.DRIVE, [], [ENTRIES.hello]);
 
   // Select a file for deletion.
-  chrome.test.assertTrue(
-      !!await remoteCall.callRemoteTestUtil('selectFile', appId, ['hello.txt']),
-      'selectFile failed');
+  await remoteCall.waitUntilSelected(appId, ENTRIES.hello.nameText);
   await remoteCall.waitForElement(appId, '.table-row[selected]');
 
   // Click delete button in the toolbar.

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -85,6 +85,11 @@ class MEDIA_EXPORT AudioManagerMac : public AudioManagerBase {
   static AudioDeviceID GetAudioDeviceIdByUId(bool is_input,
                                              const std::string& device_id);
 
+  // Returns a vector with the IDs of all devices related to the given
+  // |device_id|. The vector is empty if there are no related devices or
+  // if there is an error.
+  std::vector<AudioObjectID> GetRelatedDeviceIDs(AudioObjectID device_id);
+
   // OSX has issues with starting streams as the system goes into suspend and
   // immediately after it wakes up from resume.  See http://crbug.com/160920.
   // As a workaround we delay Start() when it occurs after suspend and for a
@@ -111,15 +116,11 @@ class MEDIA_EXPORT AudioManagerMac : public AudioManagerBase {
   // lower than the current device buffer size. The buffer size can also be
   // modified under other conditions. See comments in the corresponding cc-file
   // for more details.
-  // |size_was_changed| is set to true if the device's buffer size was changed
-  // and |io_buffer_frame_size| contains the new buffer size.
   // Returns false if an error occurred.
   bool MaybeChangeBufferSize(AudioDeviceID device_id,
                              AudioUnit audio_unit,
                              AudioUnitElement element,
-                             size_t desired_buffer_size,
-                             bool* size_was_changed,
-                             size_t* io_buffer_frame_size);
+                             size_t desired_buffer_size);
 
   // Returns the latency for the given audio unit and device. Total latency is
   // the sum of the latency of the AudioUnit, device, and stream. If any one
@@ -158,6 +159,34 @@ class MEDIA_EXPORT AudioManagerMac : public AudioManagerBase {
   AudioParameters GetPreferredOutputStreamParameters(
       const std::string& output_device_id,
       const AudioParameters& input_params) override;
+
+  // Returns a vector with the IDs of all bluetooth devices related to the given
+  // |device_id|, which is also a bluetooth device. The vector is empty if there
+  // are no related devices or if there is an error.
+  std::vector<AudioObjectID> GetRelatedBluetoothDeviceIDs(
+      AudioObjectID device_id);
+
+  // Virtual for testing.
+
+  // Returns a vector with the IDs of all audio devices in the system.
+  // The vector is empty if there are no devices or if there is an error.
+  virtual std::vector<AudioObjectID> GetAllAudioDeviceIDs();
+
+  // Returns a vector with the IDs of all non-bluetooth devices related to the
+  // given |device_id|, which is also a non-bluetooth device. The vector is
+  // empty if there are no related devices or if there is an error.
+  virtual std::vector<AudioObjectID> GetRelatedNonBluetoothDeviceIDs(
+      AudioObjectID device_id);
+
+  // Returns a string with a unique device ID for the given |device_id|, or no
+  // value if there is an error.
+  virtual absl::optional<std::string> GetDeviceUniqueID(
+      AudioObjectID device_id);
+
+  // Returns the transport type of the given |device_id|, or no value if
+  // |device_id| has no source or if there is an error.
+  virtual absl::optional<uint32_t> GetDeviceTransportType(
+      AudioObjectID device_id);
   void ShutdownOnAudioThread() override;
 
  private:

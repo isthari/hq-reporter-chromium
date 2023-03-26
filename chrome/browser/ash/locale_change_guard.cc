@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <algorithm>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -54,14 +54,16 @@ LocaleChangeGuard::~LocaleChangeGuard() {
 }
 
 void LocaleChangeGuard::OnLogin() {
-  if (session_observation_.IsObserving()) {
-    DCHECK(session_observation_.IsObservingSource(
-        session_manager::SessionManager::Get()));
-    return;
+  if (session_manager::SessionManager::Get()->IsSessionStarted()) {
+    Check();
+  } else {
+    if (session_observation_.IsObserving()) {
+      DCHECK(session_observation_.IsObservingSource(
+          session_manager::SessionManager::Get()));
+      return;
+    }
+    session_observation_.Observe(session_manager::SessionManager::Get());
   }
-  session_observation_.Observe(session_manager::SessionManager::Get());
-  registrar_.Add(this, content::NOTIFICATION_LOAD_COMPLETED_MAIN_FRAME,
-                 content::NotificationService::AllBrowserContextsAndSources());
 }
 
 void LocaleChangeGuard::RevertLocaleChange() {
@@ -78,25 +80,9 @@ void LocaleChangeGuard::RevertLocaleChange() {
   chrome::AttemptUserExit();
 }
 
-void LocaleChangeGuard::Observe(int type,
-                                const content::NotificationSource& source,
-                                const content::NotificationDetails& details) {
-  DCHECK_EQ(type, content::NOTIFICATION_LOAD_COMPLETED_MAIN_FRAME);
-  if (profile_ != content::Source<WebContents>(source)->GetBrowserContext())
-    return;
-
-  main_frame_loaded_ = true;
-  // We need to perform locale change check only once, so unsubscribe.
-  registrar_.Remove(this, content::NOTIFICATION_LOAD_COMPLETED_MAIN_FRAME,
-                    content::NotificationService::AllSources());
-  if (session_manager::SessionManager::Get()->IsSessionStarted())
-    Check();
-}
-
 void LocaleChangeGuard::OnUserSessionStarted(bool is_primary_user) {
   session_observation_.Reset();
-  if (main_frame_loaded_)
-    Check();
+  Check();
 }
 
 void LocaleChangeGuard::OwnershipStatusChanged() {
@@ -122,7 +108,7 @@ void LocaleChangeGuard::Check() {
   }
 
   PrefService* prefs = profile_->GetPrefs();
-  if (prefs == NULL) {
+  if (prefs == nullptr) {
     NOTREACHED();
     return;
   }
@@ -189,7 +175,7 @@ void LocaleChangeGuard::AcceptLocaleChange() {
   if (reverted_)
     return;
   PrefService* prefs = profile_->GetPrefs();
-  if (prefs == NULL) {
+  if (prefs == nullptr) {
     NOTREACHED();
     return;
   }
@@ -249,7 +235,7 @@ LocaleChangeGuard::GetSkipShowNotificationLanguagesForTesting() {
 
 // static
 size_t LocaleChangeGuard::GetSkipShowNotificationLanguagesSizeForTesting() {
-  return base::size(kSkipShowNotificationLanguages);
+  return std::size(kSkipShowNotificationLanguages);
 }
 
 }  // namespace ash

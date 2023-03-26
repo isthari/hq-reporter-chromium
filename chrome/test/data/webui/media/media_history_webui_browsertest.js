@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,7 +53,7 @@ TEST_F('MediaHistoryStatsWebUIBrowserTest', 'MAYBE_All', async function() {
   });
 
   test('check stats table is loaded', () => {
-    let statsRows =
+    const statsRows =
         Array.from(document.getElementById('stats-table-body').children);
 
     assertDeepEquals(
@@ -92,13 +92,15 @@ TEST_F('MediaHistoryOriginsWebUIBrowserTest', 'MAYBE_All', async function() {
   });
 
   test('check data table is loaded', () => {
-    let dataHeaderRows =
+    const dataHeaderRows =
         Array.from(document.querySelector('#origins-table thead tr').children);
 
     assertDeepEquals(
         [
-          'Origin', 'Last Updated', 'Audio + Video Watchtime (secs, cached)',
-          'Audio + Video Watchtime (secs, actual)'
+          'Origin',
+          'Last Updated',
+          'Audio + Video Watchtime (secs, cached)',
+          'Audio + Video Watchtime (secs, actual)',
         ],
         dataHeaderRows.map(x => x.textContent.trim()));
   });
@@ -126,7 +128,7 @@ TEST_F('MediaHistoryPlaybacksWebUIBrowserTest', 'MAYBE_All', async function() {
   });
 
   test('check data table is loaded', () => {
-    let dataHeaderRows = Array.from(
+    const dataHeaderRows = Array.from(
         document.querySelector('#playbacks-table thead tr').children);
 
     assertDeepEquals(
@@ -157,13 +159,20 @@ TEST_F('MediaHistorySessionsWebUIBrowserTest', 'MAYBE_All', async function() {
   });
 
   test('check data table is loaded', () => {
-    let dataHeaderRows =
+    const dataHeaderRows =
         Array.from(document.querySelector('#sessions-table thead tr').children);
 
     assertDeepEquals(
         [
-          'URL', 'Last Updated', 'Position (secs)', 'Duration (secs)', 'Title',
-          'Artist', 'Album', 'Source Title', 'Artwork'
+          'URL',
+          'Last Updated',
+          'Position (secs)',
+          'Duration (secs)',
+          'Title',
+          'Artist',
+          'Album',
+          'Source Title',
+          'Artwork',
         ],
         dataHeaderRows.map(x => x.textContent.trim()));
   });

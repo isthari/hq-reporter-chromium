@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,6 @@
 #include <lib/fidl/cpp/binding_set.h>
 #include <lib/fpromise/promise.h>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/containers/flat_set.h"
 #include "base/containers/unique_ptr_adapters.h"
 #include "base/files/file_enumerator.h"
@@ -17,11 +15,14 @@
 #include "base/files/file_util.h"
 #include "base/fuchsia/file_utils.h"
 #include "base/fuchsia/fuchsia_logging.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/hash/hash.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
+#include "base/time/time.h"
 #include "media/fuchsia/cdm/service/provisioning_fetcher_impl.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/origin.h"
@@ -135,6 +136,8 @@ absl::optional<base::File::Error> CreateStorageDirectory(base::FilePath path) {
   }
   return {};
 }
+
+FuchsiaCdmManager* g_fuchsia_cdm_manager_instance = nullptr;
 
 }  // namespace
 
@@ -262,6 +265,11 @@ class FuchsiaCdmManager::KeySystemClient {
   base::flat_map<base::FilePath, DataStoreId> data_store_ids_by_path_;
 };
 
+// static
+FuchsiaCdmManager* FuchsiaCdmManager::GetInstance() {
+  return g_fuchsia_cdm_manager_instance;
+}
+
 FuchsiaCdmManager::FuchsiaCdmManager(
     CreateKeySystemCallbackMap create_key_system_callbacks_by_name,
     base::FilePath cdm_data_path,
@@ -278,9 +286,15 @@ FuchsiaCdmManager::FuchsiaCdmManager(
   // start.
   if (cdm_data_quota_bytes_)
     ApplyCdmStorageQuota(cdm_data_path_, *cdm_data_quota_bytes_);
+
+  DCHECK(!g_fuchsia_cdm_manager_instance);
+  g_fuchsia_cdm_manager_instance = this;
 }
 
-FuchsiaCdmManager::~FuchsiaCdmManager() = default;
+FuchsiaCdmManager::~FuchsiaCdmManager() {
+  DCHECK_EQ(g_fuchsia_cdm_manager_instance, this);
+  g_fuchsia_cdm_manager_instance = nullptr;
+}
 
 void FuchsiaCdmManager::CreateAndProvision(
     const std::string& key_system,

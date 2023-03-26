@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "net/base/load_flags.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -61,8 +61,9 @@ void ChromiumUrlRequest::Start(OnResultCallback on_result_callback) {
 
   url_loader_ = network::SimpleURLLoader::Create(std::move(resource_request_),
                                                  traffic_annotation_);
-  if (method == "POST")
+  if (method == "POST") {
     url_loader_->AttachStringForUpload(post_data_, post_data_content_type_);
+  }
 
   url_loader_->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
       url_loader_factory_.get(),

@@ -1,12 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-#include <algorithm>
 
 #include "components/password_manager/core/browser/bulk_leak_check_service.h"
 
 #include "base/memory/raw_ptr.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
@@ -34,12 +33,11 @@ constexpr char16_t kUsername[] = u"user";
 constexpr char16_t kPassword[] = u"password123";
 
 MATCHER_P(CredentialsAre, credentials, "") {
-  return std::equal(arg.begin(), arg.end(), credentials.get().begin(),
-                    credentials.get().end(),
-                    [](const auto& lhs, const auto& rhs) {
-                      return lhs.username() == rhs.username() &&
-                             lhs.password() == rhs.password();
-                    });
+  return base::ranges::equal(arg, credentials.get(),
+                             [](const auto& lhs, const auto& rhs) {
+                               return lhs.username() == rhs.username() &&
+                                      lhs.password() == rhs.password();
+                             });
   ;
 }
 
@@ -240,7 +238,6 @@ TEST_F(BulkLeakCheckServiceTest, FailedToCreateCheckWithError) {
   expected_counts
       ["PasswordManager.BulkCheck.CheckedCredentialsOnErrorOrCanceled"] = 1;
   expected_counts["PasswordManager.BulkCheck.Error"] = 1;
-  expected_counts["PasswordManager.BulkCheck.LeaksFoundOnErrorOrCanceled"] = 1;
   EXPECT_THAT(
       histogram_tester().GetTotalCountsForPrefix("PasswordManager.BulkCheck"),
       expected_counts);
@@ -288,8 +285,6 @@ TEST_F(BulkLeakCheckServiceTest, CancelSomething) {
   EXPECT_EQ(0u, service().GetPendingChecksCount());
   histogram_tester().ExpectUniqueSample(
       "PasswordManager.BulkCheck.CanceledTime", kMockElapsedTime, 1);
-  histogram_tester().ExpectUniqueSample(
-      "PasswordManager.BulkCheck.LeaksFoundOnErrorOrCanceled", 1, 1);
   histogram_tester().ExpectUniqueSample(
       "PasswordManager.BulkCheck.CheckedCredentialsOnErrorOrCanceled",
       TestCredentials().size(), 1);
@@ -446,7 +441,6 @@ TEST_F(BulkLeakCheckServiceTest, CheckFinishedWithError) {
   expected_counts
       ["PasswordManager.BulkCheck.CheckedCredentialsOnErrorOrCanceled"] = 1;
   expected_counts["PasswordManager.BulkCheck.Error"] = 1;
-  expected_counts["PasswordManager.BulkCheck.LeaksFoundOnErrorOrCanceled"] = 1;
   EXPECT_THAT(
       histogram_tester().GetTotalCountsForPrefix("PasswordManager.BulkCheck"),
       expected_counts);
@@ -478,7 +472,6 @@ TEST_F(BulkLeakCheckServiceTest, CheckFinishedWithQuotaLimit) {
   expected_counts
       ["PasswordManager.BulkCheck.CheckedCredentialsOnErrorOrCanceled"] = 1;
   expected_counts["PasswordManager.BulkCheck.Error"] = 1;
-  expected_counts["PasswordManager.BulkCheck.LeaksFoundOnErrorOrCanceled"] = 1;
   EXPECT_THAT(
       histogram_tester().GetTotalCountsForPrefix("PasswordManager.BulkCheck"),
       expected_counts);

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -101,7 +101,7 @@ void WebLayerMetricsServiceClient::RegisterExternalExperiments(
     return;
   }
 
-  GetMetricsService()->synthetic_trial_registry()->RegisterExternalExperiments(
+  GetMetricsService()->GetSyntheticTrialRegistry()->RegisterExternalExperiments(
       "WebLayerExperiments", experiment_ids,
       variations::SyntheticTrialRegistry::kOverrideExistingIds);
 }

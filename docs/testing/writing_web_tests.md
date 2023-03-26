@@ -22,8 +22,8 @@ Web tests should be used to accomplish one of the following goals:
 
 Note: if you are looking for a guide for the Web Platform Test, you should read
 ["Web platform tests"](./web_platform_tests.md) (WPT). This document does not
-cover WPT specific features/behaviors. The WPT is recommended today rather than
-test types mentioned below!
+cover WPT specific features/behaviors. **The WPT is recommended today rather than
+test types mentioned below!**
 
 *** promo
 If you know that Blink web tests are upstreamed to other projects, such as
@@ -231,9 +231,9 @@ other tests that use it, or reading its source code.
 
 For example, the most popular Blink-specific API is `testRunner`, which is
 implemented in
-[content/shell/renderer/web_test/test_runner.h](../../content/shell/renderer/web_test/test_runner.h)
+[content/web_test/renderer/test_runner.h](../../content/web_test/renderer/test_runner.h)
 and
-[content/shell/renderer/web_test/test_runner.cc](../../content/shell/renderer/web_test/test_runner.cc).
+[content/web_test/renderer/test_runner.cc](../../content/web_test/renderer/test_runner.cc).
 By skimming the `TestRunnerBindings::Install` method, we learn that the
 testRunner API is presented by the `.testRunner` etc. objects. Reading the
 `TestRunnerBindings::GetObjectTemplateBuilder` method tells us what properties

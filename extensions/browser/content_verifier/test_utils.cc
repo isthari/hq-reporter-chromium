@@ -1,16 +1,16 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "extensions/browser/content_verifier/test_utils.h"
 
 #include "base/base64url.h"
-#include "base/bind.h"
 #include "base/containers/contains.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/json/json_writer.h"
 #include "base/strings/stringprintf.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "crypto/sha2.h"
 #include "crypto/signature_creator.h"
@@ -309,7 +309,7 @@ ContentHashResult::~ContentHashResult() = default;
 
 // ContentHashWaiter ----------------------------------------------------------
 ContentHashWaiter::ContentHashWaiter()
-    : reply_task_runner_(base::SequencedTaskRunnerHandle::Get()) {}
+    : reply_task_runner_(base::SequencedTaskRunner::GetCurrentDefault()) {}
 ContentHashWaiter::~ContentHashWaiter() = default;
 
 std::unique_ptr<ContentHashResult> ContentHashWaiter::CreateAndWaitForCallback(
@@ -422,7 +422,7 @@ std::string TestExtensionBuilder::CreateVerifiedContents() const {
       std::string(signature_value.begin(), signature_value.end()),
       base::Base64UrlEncodePolicy::OMIT_PADDING, &signature_b64);
 
-  std::unique_ptr<base::Value> signatures =
+  base::Value::List signatures =
       ListBuilder()
           .Append(DictionaryBuilder()
                       .Set("header",
@@ -431,7 +431,7 @@ std::string TestExtensionBuilder::CreateVerifiedContents() const {
                       .Set("signature", signature_b64)
                       .Build())
           .Build();
-  std::unique_ptr<base::Value> verified_contents =
+  base::Value::List verified_contents =
       ListBuilder()
           .Append(DictionaryBuilder()
                       .Set("description", "treehash per file")
@@ -444,8 +444,9 @@ std::string TestExtensionBuilder::CreateVerifiedContents() const {
           .Build();
 
   std::string json;
-  if (!base::JSONWriter::Write(*verified_contents, &json))
+  if (!base::JSONWriter::Write(verified_contents, &json)) {
     return "";
+  }
 
   return json;
 }
@@ -487,18 +488,22 @@ TestExtensionBuilder::CreateVerifiedContentsPayload() const {
                      .Build());
   }
 
-  return DictionaryBuilder()
-      .Set("item_id", extension_id_)
-      .Set("item_version", "1.0")
-      .Set("content_hashes", ListBuilder()
-                                 .Append(DictionaryBuilder()
-                                             .Set("format", "treehash")
-                                             .Set("block_size", block_size)
-                                             .Set("hash_block_size", block_size)
-                                             .Set("files", files.Build())
-                                             .Build())
-                                 .Build())
-      .Build();
+  base::Value::Dict result =
+      DictionaryBuilder()
+          .Set("item_id", extension_id_)
+          .Set("item_version", "1.0")
+          .Set("content_hashes",
+               ListBuilder()
+                   .Append(DictionaryBuilder()
+                               .Set("format", "treehash")
+                               .Set("block_size", block_size)
+                               .Set("hash_block_size", block_size)
+                               .Set("files", files.Build())
+                               .Build())
+                   .Build())
+          .Build();
+
+  return std::make_unique<base::Value>(std::move(result));
 }
 
 // Other stuff ----------------------------------------------------------------

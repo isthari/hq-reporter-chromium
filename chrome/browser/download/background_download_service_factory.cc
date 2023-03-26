@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/ash/plugin_vm/plugin_vm_image_download_client.h"
 #include "chrome/browser/download/deferred_client_wrapper.h"
 #include "chrome/browser/download/download_manager_utils.h"
 #include "chrome/browser/download/simple_download_manager_coordinator_factory.h"
@@ -52,6 +51,11 @@
 #include "chrome/browser/download/android/service/download_task_scheduler.h"
 #endif
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/bruschetta/bruschetta_download_client.h"
+#include "chrome/browser/ash/plugin_vm/plugin_vm_image_download_client.h"
+#endif
+
 #if BUILDFLAG(ENABLE_OFFLINE_PAGES)
 #include "chrome/browser/offline_pages/prefetch/offline_prefetch_download_client.h"
 #endif
@@ -67,6 +71,11 @@ std::unique_ptr<download::Client> CreateBackgroundFetchDownloadClient(
 std::unique_ptr<download::Client> CreatePluginVmImageDownloadClient(
     Profile* profile) {
   return std::make_unique<plugin_vm::PluginVmImageDownloadClient>(profile);
+}
+
+std::unique_ptr<download::Client> CreateBruschettaDownloadClient(
+    Profile* profile) {
+  return std::make_unique<bruschetta::BruschettaDownloadClient>(profile);
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -160,6 +169,11 @@ BackgroundDownloadServiceFactory::BuildServiceInstanceFor(
         download::DownloadClient::PLUGIN_VM_IMAGE,
         std::make_unique<download::DeferredClientWrapper>(
             base::BindOnce(&CreatePluginVmImageDownloadClient), key)));
+
+    clients->insert(std::make_pair(
+        download::DownloadClient::BRUSCHETTA,
+        std::make_unique<download::DeferredClientWrapper>(
+            base::BindOnce(&CreateBruschettaDownloadClient), key)));
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 

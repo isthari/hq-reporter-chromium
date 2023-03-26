@@ -1,13 +1,13 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/webui/system_extensions_internals_ui/system_extensions_internals_ui.h"
 
-#include "ash/grit/ash_system_extensions_internals_resources.h"
-#include "ash/grit/ash_system_extensions_internals_resources_map.h"
+#include "ash/constants/ash_features.h"
+#include "ash/webui/grit/ash_system_extensions_internals_resources.h"
+#include "ash/webui/grit/ash_system_extensions_internals_resources_map.h"
 #include "ash/webui/system_extensions_internals_ui/url_constants.h"
-#include "base/memory/ptr_util.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
@@ -16,19 +16,23 @@
 
 namespace ash {
 
+bool SystemExtensionsInternalsUIConfig::IsWebUIEnabled(
+    content::BrowserContext* browser_context) {
+  return base::FeatureList::IsEnabled(ash::features::kSystemExtensions);
+}
+
 SystemExtensionsInternalsUI::SystemExtensionsInternalsUI(content::WebUI* web_ui)
     : ui::MojoWebUIController(web_ui) {
-  auto data_source = base::WrapUnique(
-      content::WebUIDataSource::Create(kChromeUISystemExtensionsInternalsHost));
+  content::WebUIDataSource* data_source =
+      content::WebUIDataSource::CreateAndAdd(
+          web_ui->GetWebContents()->GetBrowserContext(),
+          kChromeUISystemExtensionsInternalsHost);
 
   data_source->AddResourcePath("",
                                IDR_ASH_SYSTEM_EXTENSIONS_INTERNALS_INDEX_HTML);
   data_source->AddResourcePaths(
       base::make_span(kAshSystemExtensionsInternalsResources,
                       kAshSystemExtensionsInternalsResourcesSize));
-
-  auto* browser_context = web_ui->GetWebContents()->GetBrowserContext();
-  content::WebUIDataSource::Add(browser_context, data_source.release());
 }
 
 SystemExtensionsInternalsUI::~SystemExtensionsInternalsUI() = default;

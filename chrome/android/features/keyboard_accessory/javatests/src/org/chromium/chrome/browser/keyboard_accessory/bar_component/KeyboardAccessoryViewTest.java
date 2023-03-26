@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,7 @@ import static org.chromium.chrome.browser.keyboard_accessory.AccessoryAction.AUT
 import static org.chromium.chrome.browser.keyboard_accessory.AccessoryAction.GENERATE_PASSWORD_AUTOMATIC;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.BAR_ITEMS;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.DISABLE_ANIMATIONS_FOR_TESTING;
-import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.TAB_LAYOUT_ITEM;
+import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SHEET_OPENER_ITEM;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.VISIBLE;
 import static org.chromium.ui.test.util.ViewUtils.VIEW_GONE;
 import static org.chromium.ui.test.util.ViewUtils.VIEW_INVISIBLE;
@@ -30,11 +30,8 @@ import static org.chromium.ui.test.util.ViewUtils.onViewWaiting;
 import static org.chromium.ui.test.util.ViewUtils.waitForView;
 
 import android.view.View;
-import android.view.ViewStub;
 
 import androidx.test.filters.MediumTest;
-
-import com.google.android.material.tabs.TabLayout;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -46,14 +43,15 @@ import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.keyboard_accessory.R;
 import org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.BarItem;
-import org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.TabLayoutBarItem;
+import org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SheetOpenerBarItem;
 import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData.Action;
 import org.chromium.chrome.browser.keyboard_accessory.tab_layout_component.KeyboardAccessoryTabLayoutCoordinator;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
-import org.chromium.ui.DeferredViewStubInflationProvider;
+import org.chromium.ui.AsyncViewProvider;
+import org.chromium.ui.AsyncViewStub;
 import org.chromium.ui.ViewProvider;
 import org.chromium.ui.modelutil.LazyConstructionPropertyMcp;
 import org.chromium.ui.modelutil.PropertyModel;
@@ -80,26 +78,24 @@ public class KeyboardAccessoryViewTest {
     public void setUp() throws InterruptedException {
         mActivityTestRule.startMainActivityOnBlankPage();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            mModel =
-                    KeyboardAccessoryProperties.defaultModelBuilder()
-                            .with(TAB_LAYOUT_ITEM,
-                                    new TabLayoutBarItem(new KeyboardAccessoryTabLayoutCoordinator
-                                                                 .TabLayoutCallbacks() {
-                                                                     @Override
-                                                                     public void onTabLayoutBound(
-                                                                             TabLayout tabs) {}
-                                                                     @Override
-                                                                     public void onTabLayoutUnbound(
-                                                                             TabLayout tabs) {}
-                                                                 }))
-                            .with(DISABLE_ANIMATIONS_FOR_TESTING, true)
-                            .build();
-            ViewStub viewStub =
+            mModel = KeyboardAccessoryProperties.defaultModelBuilder()
+                             .with(SHEET_OPENER_ITEM,
+                                     new SheetOpenerBarItem(
+                                             new KeyboardAccessoryTabLayoutCoordinator
+                                                     .SheetOpenerCallbacks() {
+                                                         @Override
+                                                         public void onViewBound(View tabs) {}
+                                                         @Override
+                                                         public void onViewUnbound(View tabs) {}
+                                                     }))
+                             .with(DISABLE_ANIMATIONS_FOR_TESTING, true)
+                             .build();
+            AsyncViewStub viewStub =
                     mActivityTestRule.getActivity().findViewById(R.id.keyboard_accessory_stub);
 
             mKeyboardAccessoryView = new ArrayBlockingQueue<>(1);
             ViewProvider<KeyboardAccessoryView> provider =
-                    new DeferredViewStubInflationProvider<>(viewStub);
+                    AsyncViewProvider.of(viewStub, R.id.keyboard_accessory);
             LazyConstructionPropertyMcp.create(
                     mModel, VISIBLE, provider, KeyboardAccessoryViewBinder::bind);
             provider.whenLoaded(mKeyboardAccessoryView::add);

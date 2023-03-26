@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,13 @@
 #include <algorithm>
 #include <string>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/task/sequenced_task_runner.h"
+#include "crypto/secure_hash.h"
+#include "crypto/sha2.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/system/simple_watcher.h"
 #include "net/base/completion_once_callback.h"
 #include "services/network/public/cpp/net_adapters.h"
@@ -168,7 +172,8 @@ ServiceWorkerCacheWriter::ServiceWorkerCacheWriter(
       compare_reader_(std::move(compare_reader)),
       copy_reader_(std::move(copy_reader)),
       writer_(std::move(writer)),
-      writer_resource_id_(writer_resource_id) {
+      writer_resource_id_(writer_resource_id),
+      checksum_(crypto::SecureHash::Create(crypto::SecureHash::SHA256)) {
   if (compare_reader_) {
     compare_reader_.set_disconnect_handler(
         base::BindOnce(&ServiceWorkerCacheWriter::OnRemoteDisconnected,
@@ -450,7 +455,7 @@ int ServiceWorkerCacheWriter::DoReadDataForCompare(int result) {
       return net::ERR_FAILED;
     }
     result = ReadDataHelper(compare_reader_.get(), compare_data_pipe_reader_,
-                            data_to_read_.get(), len_to_read_);
+                            data_to_read_, len_to_read_);
   }
   return result;
 }
@@ -685,8 +690,7 @@ int ServiceWorkerCacheWriter::ReadResponseHead(
   return adapter->result();
 }
 
-class ServiceWorkerCacheWriter::DataPipeReader
-    : public storage::mojom::ServiceWorkerDataPipeStateNotifier {
+class ServiceWorkerCacheWriter::DataPipeReader {
  public:
   DataPipeReader(storage::mojom::ServiceWorkerResourceReader* reader,
                  ServiceWorkerCacheWriter* owner,
@@ -699,20 +703,21 @@ class ServiceWorkerCacheWriter::DataPipeReader
   // Reads the body up to |num_bytes| bytes. |callback| is always called
   // asynchronously.
   using ReadCallback = base::OnceCallback<void(int /* result */)>;
-  void Read(net::IOBuffer* buffer, int num_bytes, ReadCallback callback) {
+  void Read(scoped_refptr<net::IOBuffer> buffer,
+            int num_bytes,
+            ReadCallback callback) {
     DCHECK(buffer);
-    buffer_ = buffer;
+    buffer_ = std::move(buffer);
     num_bytes_to_read_ = num_bytes;
     callback_ = std::move(callback);
 
     if (!data_.is_valid()) {
-      // This is the initial call of Read(). Call ReadData() to get a data pipe
-      // to read the body.
-      DCHECK(!receiver_.is_bound());
-      reader_->ReadData(
-          -1, receiver_.BindNewPipeAndPassRemote(),
-          base::BindOnce(&ServiceWorkerCacheWriter::DataPipeReader::OnReadData,
-                         weak_factory_.GetWeakPtr()));
+      // This is the initial call of Read(). Call PrepareReadData() to get a
+      // data pipe to read the body.
+      reader_->PrepareReadData(
+          -1, base::BindOnce(
+                  &ServiceWorkerCacheWriter::DataPipeReader::OnReadDataPrepared,
+                  weak_factory_.GetWeakPtr()));
       return;
     }
     task_runner_->PostTask(
@@ -738,7 +743,7 @@ class ServiceWorkerCacheWriter::DataPipeReader
     owner_->AsyncDoLoop(num_bytes_to_read_);
   }
 
-  void OnReadData(mojo::ScopedDataPipeConsumerHandle data) {
+  void OnReadDataPrepared(mojo::ScopedDataPipeConsumerHandle data) {
     // An invalid handle can be returned when creating a data pipe fails on the
     // other side of the endpoint.
     if (!data) {
@@ -753,15 +758,14 @@ class ServiceWorkerCacheWriter::DataPipeReader
                        &ServiceWorkerCacheWriter::DataPipeReader::ReadInternal,
                        weak_factory_.GetWeakPtr()));
     ReadInternal(MOJO_RESULT_OK);
-  }
 
-  // storage::mojom::ServiceWorkerDataPipeStateNotifier override:
-  void OnComplete(int32_t status) override {
-    // TODO(https://crbug.com/1055677): notify of errors.
+    // TODO(https://crbug.com/1055677): provide a callback to notify of errors
+    // if any.
+    reader_->ReadData({});
   }
 
   // Parameters set on Read().
-  raw_ptr<net::IOBuffer> buffer_ = nullptr;
+  scoped_refptr<net::IOBuffer> buffer_;
   uint32_t num_bytes_to_read_ = 0;
   ReadCallback callback_;
 
@@ -776,20 +780,17 @@ class ServiceWorkerCacheWriter::DataPipeReader
   mojo::SimpleWatcher watcher_;
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
 
-  mojo::Receiver<storage::mojom::ServiceWorkerDataPipeStateNotifier> receiver_{
-      this};
-
   base::WeakPtrFactory<DataPipeReader> weak_factory_{this};
 };
 
 int ServiceWorkerCacheWriter::ReadDataHelper(
     storage::mojom::ServiceWorkerResourceReader* reader,
     std::unique_ptr<DataPipeReader>& data_pipe_reader,
-    net::IOBuffer* buf,
+    scoped_refptr<net::IOBuffer> buf,
     int buf_len) {
   if (!data_pipe_reader) {
     data_pipe_reader = std::make_unique<DataPipeReader>(
-        reader, this, base::SequencedTaskRunnerHandle::Get());
+        reader, this, base::SequencedTaskRunner::GetCurrentDefault());
   }
   data_pipe_reader->Read(buf, buf_len,
                          base::BindOnce(&ServiceWorkerCacheWriter::AsyncDoLoop,
@@ -844,6 +845,9 @@ int ServiceWorkerCacheWriter::WriteDataToResponseWriter(
       &ServiceWorkerCacheWriter::AsyncDoLoop, weak_factory_.GetWeakPtr());
   scoped_refptr<AsyncOnlyCompletionCallbackAdaptor> adaptor(
       new AsyncOnlyCompletionCallbackAdaptor(std::move(run_callback)));
+
+  checksum_->Update(data->data(), length);
+
   mojo_base::BigBuffer big_buffer(
       base::as_bytes(base::make_span(data->data(), length)));
   writer_->WriteData(
@@ -922,6 +926,15 @@ void ServiceWorkerCacheWriter::AsyncDoLoop(int result) {
     OnWriteCompleteCallback callback = std::move(pending_callback_);
     std::move(callback).Run(net::ERR_IO_PENDING);
   }
+}
+
+std::string ServiceWorkerCacheWriter::GetSha256Checksum() {
+  DCHECK_EQ(STATE_DONE, state_);
+  DCHECK(checksum_);
+  uint8_t result[crypto::kSHA256Length];
+  checksum_->Finish(result, crypto::kSHA256Length);
+  checksum_ = nullptr;
+  return base::HexEncode(result);
 }
 
 }  // namespace content

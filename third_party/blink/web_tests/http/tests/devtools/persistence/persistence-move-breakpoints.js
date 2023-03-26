@@ -1,8 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 (async function() {
+  // This test is testing the old breakpoint sidebar pane. Make sure to
+  // turn off the new breakpoint pane experiment.
+  Root.Runtime.experiments.setEnabled('breakpointView', false);
   TestRunner.addResult(`Verify that breakpoints are moved appropriately\n`);
   await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
   await TestRunner.loadTestModule('bindings_test_runner');
@@ -21,7 +24,7 @@
     async function setBreakpointInFileSystemUISourceCode(next) {
       var uiSourceCode = await TestRunner.waitForUISourceCode('foo.js', Workspace.projectTypes.FileSystem);
       var sourceFrame = await SourcesTestRunner.showUISourceCodePromise(uiSourceCode);
-      await SourcesTestRunner.setBreakpoint(sourceFrame, 0, '', true);
+      await SourcesTestRunner.setBreakpoint(sourceFrame, 2, '', true);
       await SourcesTestRunner.waitBreakpointSidebarPane();
       dumpBreakpointSidebarPane();
       next();

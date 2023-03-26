@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,10 +44,11 @@ scoped_refptr<const extensions::Extension> TestKioskExtensionBuilder::Build()
       .Set("version", version_)
       .Set("manifest_version", 2);
 
-  std::unique_ptr<base::DictionaryValue> background =
+  base::Value background = base::Value(
       DictionaryBuilder()
-          .Set("scripts", ListBuilder().Append("background.js").Build())
-          .Build();
+          .Set("scripts",
+               base::Value(ListBuilder().Append("background.js").Build()))
+          .Build());
 
   switch (type_) {
     case extensions::Manifest::TYPE_PLATFORM_APP:

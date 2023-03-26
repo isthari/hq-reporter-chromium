@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef BASE_ALLOCATOR_PARTITION_ALLOCATOR_YIELD_PROCESSOR_H_
 #define BASE_ALLOCATOR_PARTITION_ALLOCATOR_YIELD_PROCESSOR_H_
 
+#include "base/allocator/partition_allocator/partition_alloc_config.h"
 #include "build/build_config.h"
 
 // The PA_YIELD_PROCESSOR macro wraps an architecture specific-instruction that
@@ -16,6 +17,10 @@
 #if BUILDFLAG(IS_NACL)
 // Inline assembly not allowed.
 #define PA_YIELD_PROCESSOR ((void)0)
+#elif PA_CONFIG(IS_NONCLANG_MSVC)
+// MSVC is in its own assemblyless world (crbug.com/1351310#c6).
+#include <windows.h>
+#define PA_YIELD_PROCESSOR (YieldProcessor())
 #else
 
 #if defined(ARCH_CPU_X86_64) || defined(ARCH_CPU_X86)

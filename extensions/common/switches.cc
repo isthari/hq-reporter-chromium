@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,7 +29,7 @@ const char kDEPRECATED_AllowlistedExtensionID[] = "whitelisted-extension-id";
 // a new tab.
 const char kEmbeddedExtensionOptions[] = "embedded-extension-options";
 
-// Enable BLE Advertisiing in apps.
+// Enable BLE Advertising in apps.
 const char kEnableBLEAdvertising[] = "enable-ble-advertising-in-apps";
 
 // Enables extension APIs that are in development.
@@ -74,6 +74,9 @@ const char kLoadSigninProfileTestExtension[] =
 // must match kGuestModeTestExtensionId.
 const char kLoadGuestModeTestExtension[] = "load-guest-mode-test-extension";
 #endif
+
+// Allows the use of the `testing` reason in offscreen documents.
+const char kOffscreenDocumentTesting[] = "offscreen-document-testing";
 
 // Set the parameters for ExtensionURLLoaderThrottleBrowserTest.
 const char kSetExtensionThrottleTestParams[] =

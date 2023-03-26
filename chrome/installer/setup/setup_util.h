@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -21,7 +21,6 @@
 #include "chrome/installer/util/util_constants.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
-class GURL;
 class WorkItemList;
 
 namespace base {
@@ -29,10 +28,6 @@ class CommandLine;
 class FilePath;
 class Version;
 }  // namespace base
-
-namespace enterprise_connectors {
-class KeyRotationManager;
-}  // namespace enterprise_connectors
 
 namespace installer {
 
@@ -108,9 +103,6 @@ bool ContainsUnsupportedSwitch(const base::CommandLine& cmd_line);
 // Returns true if the processor is supported by chrome.
 bool IsProcessorSupported();
 
-// Returns the "...\\Commands\\|name|" registry key for a product's |reg_data|.
-std::wstring GetCommandKey(const wchar_t* name);
-
 // Deletes all values and subkeys of the key |path| under |root|, preserving
 // the keys named in |keys_to_preserve| (each of which must be an ASCII string).
 // The key itself is deleted if no subkeys are preserved.
@@ -160,19 +152,19 @@ absl::optional<std::string> DecodeNonceSwitchValue(
 // install modes of the browser (i.e., stable and all three side-by-side modes).
 bool StoreDMToken(const std::string& token);
 
-// Rotates the device trust signing key and saves it to a global location on
-// the machine accessible to all install modes of the browser (i.e., stable and
-// all three side-by-side modes).
-bool RotateDeviceTrustKey(
-    std::unique_ptr<enterprise_connectors::KeyRotationManager>
-        key_rotation_manager,
-    const GURL& dm_server_url,
-    const std::string& dm_token,
-    const std::string& nonce);
+// Deletes any existing DMToken from the global location on the machine.
+bool DeleteDMToken();
 
 // Returns the file path to notification_helper.exe (in |version| directory).
 base::FilePath GetNotificationHelperPath(const base::FilePath& target_path,
                                          const base::Version& version);
+
+// Returns the file path to chrome_wer.dll (in `version` directory).
+base::FilePath GetWerHelperPath(const base::FilePath& target_path,
+                                const base::Version& version);
+
+// Returns the WER runtime exception helper module registry path.
+std::wstring GetWerHelperRegistryPath();
 
 // Returns the file path to elevation_service.exe (in |version| directory).
 base::FilePath GetElevationServicePath(const base::FilePath& target_path,

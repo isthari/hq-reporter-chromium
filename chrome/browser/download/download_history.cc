@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,9 +32,10 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/observer_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/download/download_crx_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -48,6 +49,7 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_manager.h"
+#include "content/public/browser/storage_partition_config.h"
 #include "extensions/buildflags/buildflags.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -152,7 +154,7 @@ history::DownloadRow GetDownloadRow(download::DownloadItem* item) {
   download.target_path = item->GetTargetFilePath();
   download.url_chain = item->GetUrlChain();
   download.referrer_url = item->GetReferrerUrl();
-  download.site_url = item->GetSiteUrl();
+  download.embedder_download_data = item->GetSerializedEmbedderDownloadData();
   download.tab_url = item->GetTabUrl();
   download.tab_referrer_url = item->GetTabReferrerUrl();
   download.http_method = std::string();  // HTTP method not available yet.
@@ -178,10 +180,6 @@ history::DownloadRow GetDownloadRow(download::DownloadItem* item) {
   download.by_ext_id = by_ext_id;
   download.by_ext_name = by_ext_name;
   download.download_slice_info = history::GetHistoryDownloadSliceInfos(*item);
-  auto& reroute_info = item->GetRerouteInfo();
-  if (reroute_info.IsInitialized()) {
-    download.reroute_info_serialized = reroute_info.SerializeAsString();
-  }
   TruncatedDataUrlAtTheEndIfNeeded(&download.url_chain);
   return download;
 }
@@ -203,9 +201,9 @@ ShouldUpdateHistoryResult ShouldUpdateHistory(
   // rename it. If Chrome is killed before committing the history here,
   // that temporary file will still get permanently left.
   // See http://crbug.com/664677.
-  if (previous == nullptr || previous->current_path != current.current_path ||
-      previous->reroute_info_serialized != current.reroute_info_serialized)
+  if (previous == nullptr || previous->current_path != current.current_path) {
     return ShouldUpdateHistoryResult::UPDATE_IMMEDIATELY;
+  }
 
   // Ignore url_chain, referrer, site_url, http_method, mime_type,
   // original_mime_type, start_time, id, and guid. These fields don't change.
@@ -384,25 +382,35 @@ void DownloadHistory::LoadHistoryDownloads(
         history::ToContentDownloadInterruptReason(row.interrupt_reason);
     std::vector<GURL> url_chain = row.url_chain;
     TruncatedDataUrlAtTheEndIfNeeded(&url_chain);
-    download::DownloadItemRerouteInfo reroute_info;
-    if (row.reroute_info_serialized.empty() ||
-        !reroute_info.ParseFromString(row.reroute_info_serialized)) {
-      reroute_info.Clear();
+
+    // If the serialized EmbedderDownloadData is not present in DownloadRow,
+    // use the site URL to grab the appropriate StoragePartitionConfig to use
+    // to create the DownloadItem. Since DownloadRow comes from the download
+    // history database, it may contain entries that still use site URL.
+    content::StoragePartitionConfig storage_partition_config;
+    if (row.embedder_download_data.empty()) {
+      storage_partition_config =
+          notifier_.GetManager()->GetStoragePartitionConfigForSiteUrl(
+              row.site_url);
+    } else {
+      storage_partition_config =
+          notifier_.GetManager()
+              ->SerializedEmbedderDownloadDataToStoragePartitionConfig(
+                  row.embedder_download_data);
     }
     download::DownloadItem* item = notifier_.GetManager()->CreateDownloadItem(
         row.guid, loading_id_, row.current_path, row.target_path, url_chain,
-        row.referrer_url, row.site_url, row.tab_url, row.tab_referrer_url,
-        absl::nullopt, row.mime_type, row.original_mime_type, row.start_time,
-        row.end_time, row.etag, row.last_modified, row.received_bytes,
-        row.total_bytes,
+        row.referrer_url, storage_partition_config, row.tab_url,
+        row.tab_referrer_url, absl::nullopt, row.mime_type,
+        row.original_mime_type, row.start_time, row.end_time, row.etag,
+        row.last_modified, row.received_bytes, row.total_bytes,
         std::string(),  // TODO(asanka): Need to persist and restore hash of
                         // partial file for an interrupted download. No need to
                         // store hash for a completed file.
         history_download_state,
         history::ToContentDownloadDangerType(row.danger_type), history_reason,
         row.opened, row.last_access_time, row.transient,
-        history::ToContentReceivedSlices(row.download_slice_info),
-        reroute_info);
+        history::ToContentReceivedSlices(row.download_slice_info));
     // DownloadManager returns a nullptr if it decides to remove the download
     // permanently.
     if (item == nullptr) {

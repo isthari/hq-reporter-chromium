@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
@@ -98,6 +98,15 @@ std::unique_ptr<UiDevToolsServer> UiDevToolsServer::CreateForViews(
                                        server->weak_ptr_factory_.GetWeakPtr(),
                                        std::move(server_socket)));
   return server;
+}
+
+void UiDevToolsServer::SetOnSocketConnectedForTesting(
+    base::OnceClosure on_socket_connected) {
+  if (server_) {
+    std::move(on_socket_connected).Run();
+    return;
+  }
+  on_socket_connected_ = std::move(on_socket_connected);
 }
 
 // static
@@ -192,6 +201,8 @@ void UiDevToolsServer::MakeServer(
       }
     }
   }
+  if (on_socket_connected_)
+    std::move(on_socket_connected_).Run();
 }
 
 // HttpServer::Delegate Implementation
@@ -212,8 +223,9 @@ void UiDevToolsServer::OnWebSocketRequest(
   size_t target_id = 0;
   if (info.path.empty() ||
       !base::StringToSizeT(info.path.substr(1), &target_id) ||
-      target_id > clients_.size())
+      target_id >= clients_.size()) {
     return;
+  }
 
   UiDevToolsClient* client = clients_[target_id].get();
   // Only one user can inspect the client at a time

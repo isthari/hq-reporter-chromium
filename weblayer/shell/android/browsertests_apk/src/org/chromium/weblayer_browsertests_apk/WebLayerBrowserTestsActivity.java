@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -127,6 +127,6 @@ public class WebLayerBrowserTestsActivity extends NativeBrowserTestActivity {
      * causes test failures due to state bleedthrough. See crbug.com/617734 for details.
      */
     protected String getUserDataDirectoryCommandLineSwitch() {
-        return "weblayer-user-data-dir";
+        return "webengine-user-data-dir";
     }
 }

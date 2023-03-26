@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/subresource_filter/content/browser/ads_intervention_manager.h"
 #include "components/subresource_filter/content/browser/content_subresource_filter_throttle_manager.h"
+#include "components/subresource_filter/content/browser/content_subresource_filter_web_contents_helper.h"
 #include "components/subresource_filter/content/browser/subresource_filter_content_settings_manager.h"
 #include "components/subresource_filter/content/browser/subresource_filter_profile_context.h"
 #include "content/public/browser/navigation_controller.h"
@@ -20,9 +21,9 @@
 
 #if BUILDFLAG(IS_ANDROID)
 #include "components/infobars/content/content_infobar_manager.h"  // nogncheck
+#include "components/messages/android/message_dispatcher_bridge.h"
 #include "components/messages/android/messages_feature.h"
 #include "components/subresource_filter/content/browser/ads_blocked_infobar_delegate.h"
-#include "components/subresource_filter/content/browser/ads_blocked_message_delegate.h"
 #endif
 
 namespace subresource_filter {
@@ -100,7 +101,7 @@ mojom::ActivationLevel ProfileInteractionManager::OnPageActivationComputed(
     content::NavigationHandle* navigation_handle,
     mojom::ActivationLevel initial_activation_level,
     ActivationDecision* decision) {
-  DCHECK(navigation_handle->IsInMainFrame());
+  DCHECK(IsInSubresourceFilterRoot(navigation_handle));
 
   mojom::ActivationLevel effective_activation_level = initial_activation_level;
 
@@ -139,12 +140,15 @@ void ProfileInteractionManager::MaybeShowNotification() {
   if (profile_context_->settings_manager()->ShouldShowUIForSite(
           top_level_url)) {
 #if BUILDFLAG(IS_ANDROID)
-    if (messages::IsAdsBlockedMessagesUiEnabled()) {
+    if (messages::IsAdsBlockedMessagesUiEnabled() &&
+        messages::MessageDispatcherBridge::Get()
+            ->IsMessagesEnabledForEmbedder()) {
       subresource_filter::AdsBlockedMessageDelegate::CreateForWebContents(
           GetWebContents());
-      subresource_filter::AdsBlockedMessageDelegate::FromWebContents(
-          GetWebContents())
-          ->ShowMessage();
+      ads_blocked_message_delegate_ =
+          subresource_filter::AdsBlockedMessageDelegate::FromWebContents(
+              GetWebContents());
+      ads_blocked_message_delegate_->ShowMessage();
     } else {
       // NOTE: It is acceptable for the embedder to not have installed an
       // infobar manager.

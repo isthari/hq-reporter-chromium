@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,17 @@ export function assert<T>(value: T, message?: string): asserts value {
   }
 
   throw new Error('Assertion failed' + (message ? `: ${message}` : ''));
+}
+
+export function assertInstanceof<T>(
+    value: unknown, type: {new (...args: any): T},
+    message?: string): asserts value is T {
+  if (value instanceof type) {
+    return;
+  }
+
+  throw new Error(
+      message || `Value ${value} is not of type ${type.name || typeof type}`);
 }
 
 /**

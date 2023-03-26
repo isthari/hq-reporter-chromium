@@ -1,9 +1,3 @@
-<link rel="stylesheet"
-    href="chrome://resources/chromeos/colors/cros_styles.css">
-<link rel="stylesheet" href="chrome://resources/css/text_defaults_md.css">
-<link rel="stylesheet" href="chrome://resources/css/md_colors.css">
-<link rel="stylesheet" href="chrome://resources/cr_elements/md_select_css.html">
-
 <template>
   <style include="cr-shared-style md-select scanning-fonts">
     :host {
@@ -14,6 +8,11 @@
       --scanning-scrollbar-rgb: var(--google-grey-600-rgb);
       --scanning-scrollbar: rgba(var(--scanning-scrollbar-rgb), 0.38);
       --scanning-scrollbar-thumb: rgb(var(--scanning-scrollbar-rgb))
+    }
+
+    paper-progress {
+      --paper-progress-active-color: var(--scanning-progress-bar);
+      --paper-progress-container-color: var(--scanning-progress-bar-track);
     }
 
     select {

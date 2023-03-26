@@ -1,12 +1,13 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/keyboard_brightness/keyboard_backlight_toggle_controller.h"
 
+#include "ash/constants/quick_settings_catalogs.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "ash/style/ash_color_provider.h"
+#include "ash/style/ash_color_id.h"
 #include "ash/system/tray/tray_popup_utils.h"
 #include "ash/system/unified/unified_slider_view.h"
 #include "ash/system/unified/unified_system_tray_model.h"
@@ -33,6 +34,7 @@ class UnifiedKeyboardBacklightToggleView
     model_->AddObserver(this);
 
     toast_label_ = AddChildView(std::make_unique<views::Label>());
+    toast_label_->SetEnabledColorId(kColorAshTextColorPrimary);
     TrayPopupUtils::SetLabelFontList(toast_label_,
                                      TrayPopupUtils::FontStyle::kPodMenuHeader);
     slider()->SetVisible(false);
@@ -45,14 +47,6 @@ class UnifiedKeyboardBacklightToggleView
 
   ~UnifiedKeyboardBacklightToggleView() override {
     model_->RemoveObserver(this);
-  }
-
-  void OnThemeChanged() override {
-    views::View::OnThemeChanged();
-
-    DCHECK(toast_label_);
-    toast_label_->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
-        AshColorProvider::ContentLayerType::kTextColorPrimary));
   }
 
   // UnifiedSystemTrayModel::Observer:
@@ -83,6 +77,10 @@ views::View* KeyboardBacklightToggleController::CreateView() {
   DCHECK(!slider_);
   slider_ = new UnifiedKeyboardBacklightToggleView(this, model_);
   return slider_;
+}
+
+QsSliderCatalogName KeyboardBacklightToggleController::GetCatalogName() {
+  return QsSliderCatalogName::kKeyboardBrightness;
 }
 
 void KeyboardBacklightToggleController::SliderValueChanged(

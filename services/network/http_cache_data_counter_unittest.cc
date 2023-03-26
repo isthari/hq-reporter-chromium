@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,13 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/cache_type.h"
 #include "net/base/net_errors.h"
@@ -133,7 +133,7 @@ class HttpCacheDataCounterTest : public testing::Test {
     return size;
   }
 
-  int SizeAll() { return SizeBetween(0, base::size(kCacheEntries)); }
+  int SizeAll() { return SizeBetween(0, std::size(kCacheEntries)); }
 
   static std::pair<bool, int64_t> CountBetween(NetworkContext* network_context,
                                                base::Time start_time,
@@ -156,9 +156,9 @@ class HttpCacheDataCounterTest : public testing::Test {
 
   void TestCountBetween(int start_index, int end_index) {
     DCHECK_LE(0, start_index);
-    DCHECK_LT(start_index, static_cast<int>(base::size(kCacheEntries)));
+    DCHECK_LT(start_index, static_cast<int>(std::size(kCacheEntries)));
     DCHECK_LE(0, end_index);
-    DCHECK_LT(end_index, static_cast<int>(base::size(kCacheEntries)));
+    DCHECK_LT(end_index, static_cast<int>(std::size(kCacheEntries)));
 
     base::Time start_time;
     ASSERT_TRUE(
@@ -185,7 +185,7 @@ class HttpCacheDataCounterTest : public testing::Test {
   void InitNetworkContext() {
     mojom::NetworkContextParamsPtr context_params = CreateContextParams();
     context_params->http_cache_enabled = true;
-    context_params->http_cache_path = cache_dir_.GetPath();
+    context_params->http_cache_directory = cache_dir_.GetPath();
 
     network_context_ = std::make_unique<NetworkContext>(
         network_service_.get(),
@@ -201,7 +201,9 @@ class HttpCacheDataCounterTest : public testing::Test {
   // Stores the mojo::Remote<mojom::NetworkContext> of the most recently created
   // NetworkContext.
   mojo::Remote<mojom::NetworkContext> network_context_remote_;
-  disk_cache::Backend* backend_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION disk_cache::Backend* backend_ = nullptr;
 };
 
 TEST_F(HttpCacheDataCounterTest, Basic) {

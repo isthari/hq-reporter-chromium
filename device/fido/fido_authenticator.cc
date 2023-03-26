@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/notreached.h"
 #include "device/fido/ctap_make_credential_request.h"
 #include "device/fido/fido_constants.h"
@@ -21,8 +21,9 @@ void FidoAuthenticator::ExcludeAppIdCredentialsBeforeMakeCredential(
   std::move(callback).Run(CtapDeviceResponseCode::kSuccess, absl::nullopt);
 }
 
-void FidoAuthenticator::GetNextAssertion(
-    FidoAuthenticator::GetAssertionCallback callback) {
+void FidoAuthenticator::GetCredentialInformationForRequest(
+    const CtapGetAssertionRequest& request,
+    GetCredentialInformationForRequestCallback callback) {
   NOTREACHED();
 }
 
@@ -166,7 +167,7 @@ void FidoAuthenticator::BioEnrollDelete(const pin::TokenResponse&,
 }
 
 void FidoAuthenticator::WriteLargeBlob(
-    const std::vector<uint8_t>& large_blob,
+    LargeBlob large_blob,
     const LargeBlobKey& large_blob_key,
     const absl::optional<pin::TokenResponse> pin_uv_auth_token,
     base::OnceCallback<void(CtapDeviceResponseCode)> callback) {
@@ -177,6 +178,12 @@ void FidoAuthenticator::ReadLargeBlob(
     const std::vector<LargeBlobKey>& large_blob_keys,
     const absl::optional<pin::TokenResponse> pin_uv_auth_token,
     LargeBlobReadCallback callback) {
+  NOTREACHED();
+}
+
+void FidoAuthenticator::GarbageCollectLargeBlob(
+    const pin::TokenResponse& pin_uv_auth_token,
+    base::OnceCallback<void(CtapDeviceResponseCode)> callback) {
   NOTREACHED();
 }
 
@@ -191,6 +198,10 @@ bool FidoAuthenticator::DiscoverableCredentialStorageFull() const {
 void FidoAuthenticator::Reset(ResetCallback callback) {
   std::move(callback).Run(CtapDeviceResponseCode::kCtap1ErrInvalidCommand,
                           absl::nullopt);
+}
+
+FidoAuthenticator::Type FidoAuthenticator::GetType() const {
+  return Type::kOther;
 }
 
 std::string FidoAuthenticator::GetDisplayName() const {
@@ -214,6 +225,14 @@ bool FidoAuthenticator::SupportsEnterpriseAttestation() const {
 }
 
 bool FidoAuthenticator::SupportsCredBlobOfSize(size_t num_bytes) const {
+  return false;
+}
+
+bool FidoAuthenticator::SupportsDevicePublicKey() const {
+  return false;
+}
+
+bool FidoAuthenticator::SupportsLargeBlobs() const {
   return false;
 }
 

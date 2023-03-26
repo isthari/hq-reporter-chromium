@@ -1,26 +1,26 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 #include <string>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
-#include "chromeos/dbus/shill/shill_device_client.h"
-#include "chromeos/dbus/shill/shill_profile_client.h"
-#include "chromeos/dbus/shill/shill_service_client.h"
-#include "chromeos/login/login_state/login_state.h"
-#include "chromeos/network/managed_network_configuration_handler.h"
-#include "chromeos/network/network_configuration_handler.h"
-#include "chromeos/network/network_handler.h"
-#include "chromeos/network/network_handler_test_helper.h"
-#include "chromeos/network/network_state.h"
-#include "chromeos/network/network_state_handler.h"
+#include "chromeos/ash/components/dbus/shill/shill_device_client.h"
+#include "chromeos/ash/components/dbus/shill/shill_profile_client.h"
+#include "chromeos/ash/components/dbus/shill/shill_service_client.h"
+#include "chromeos/ash/components/login/login_state/login_state.h"
+#include "chromeos/ash/components/network/managed_network_configuration_handler.h"
+#include "chromeos/ash/components/network/network_configuration_handler.h"
+#include "chromeos/ash/components/network/network_handler.h"
+#include "chromeos/ash/components/network/network_handler_test_helper.h"
+#include "chromeos/ash/components/network/network_state.h"
+#include "chromeos/ash/components/network/network_state_handler.h"
 #include "components/onc/onc_constants.h"
 #include "extensions/browser/api/networking_private/networking_private_api.h"
 #include "extensions/browser/api_unittest.h"
@@ -69,10 +69,10 @@ class NetworkingPrivateApiTest : public ApiUnitTest {
   void SetUp() override {
     ApiUnitTest::SetUp();
 
-    chromeos::LoginState::Initialize();
-    chromeos::LoginState::Get()->SetLoggedInStateAndPrimaryUser(
-        chromeos::LoginState::LOGGED_IN_ACTIVE,
-        chromeos::LoginState::LOGGED_IN_USER_KIOSK_APP, kUserHash);
+    ash::LoginState::Initialize();
+    ash::LoginState::Get()->SetLoggedInStateAndPrimaryUser(
+        ash::LoginState::LOGGED_IN_ACTIVE,
+        ash::LoginState::LOGGED_IN_USER_KIOSK, kUserHash);
     base::RunLoop().RunUntilIdle();
 
     device_test()->ClearDevices();
@@ -85,15 +85,15 @@ class NetworkingPrivateApiTest : public ApiUnitTest {
   }
 
   void TearDown() override {
-    chromeos::LoginState::Shutdown();
+    ash::LoginState::Shutdown();
 
     ApiUnitTest::TearDown();
   }
 
   void SetUpNetworks() {
     profile_test()->AddProfile(kUserProfilePath, kUserHash);
-    profile_test()->AddProfile(
-        chromeos::ShillProfileClient::GetSharedProfilePath(), "");
+    profile_test()->AddProfile(ash::ShillProfileClient::GetSharedProfilePath(),
+                               "");
 
     device_test()->AddDevice(kWifiDevicePath, shill::kTypeWifi, "wifi_device1");
 
@@ -105,15 +105,14 @@ class NetworkingPrivateApiTest : public ApiUnitTest {
                                        base::Value(kWifiDevicePath));
     service_test()->SetServiceProperty(kSharedWifiServicePath,
                                        shill::kSecurityClassProperty,
-                                       base::Value("psk"));
+                                       base::Value(shill::kSecurityClassPsk));
     service_test()->SetServiceProperty(
         kSharedWifiServicePath, shill::kPriorityProperty, base::Value(2));
     service_test()->SetServiceProperty(
         kSharedWifiServicePath, shill::kProfileProperty,
-        base::Value(chromeos::ShillProfileClient::GetSharedProfilePath()));
-    profile_test()->AddService(
-        chromeos::ShillProfileClient::GetSharedProfilePath(),
-        kSharedWifiServicePath);
+        base::Value(ash::ShillProfileClient::GetSharedProfilePath()));
+    profile_test()->AddService(ash::ShillProfileClient::GetSharedProfilePath(),
+                               kSharedWifiServicePath);
 
     service_test()->AddService(kPrivateWifiServicePath, kPrivateWifiGuid,
                                kPrivateWifiName, shill::kTypeWifi,
@@ -123,7 +122,7 @@ class NetworkingPrivateApiTest : public ApiUnitTest {
                                        base::Value(kWifiDevicePath));
     service_test()->SetServiceProperty(kPrivateWifiServicePath,
                                        shill::kSecurityClassProperty,
-                                       base::Value("psk"));
+                                       base::Value(shill::kSecurityClassPsk));
     service_test()->SetServiceProperty(
         kPrivateWifiServicePath, shill::kPriorityProperty, base::Value(2));
 
@@ -134,12 +133,11 @@ class NetworkingPrivateApiTest : public ApiUnitTest {
   }
 
   void SetUpNetworkPolicy() {
-    chromeos::ManagedNetworkConfigurationHandler* config_handler =
-        chromeos::NetworkHandler::Get()
-            ->managed_network_configuration_handler();
+    ash::ManagedNetworkConfigurationHandler* config_handler =
+        ash::NetworkHandler::Get()->managed_network_configuration_handler();
 
     const std::string user_policy_ssid = kManagedUserWifiSsid;
-    std::unique_ptr<base::Value> user_policy_onc =
+    base::Value::List user_policy_onc =
         ListBuilder()
             .Append(DictionaryBuilder()
                         .Set("GUID", kManagedUserWifiGuid)
@@ -157,11 +155,11 @@ class NetworkingPrivateApiTest : public ApiUnitTest {
             .Build();
 
     config_handler->SetPolicy(::onc::ONC_SOURCE_USER_POLICY, kUserHash,
-                              *user_policy_onc,
+                              base::Value(std::move(user_policy_onc)),
                               base::Value(base::Value::Type::DICTIONARY));
 
     const std::string device_policy_ssid = kManagedDeviceWifiSsid;
-    std::unique_ptr<base::Value> device_policy_onc =
+    base::Value::List device_policy_onc =
         ListBuilder()
             .Append(DictionaryBuilder()
                         .Set("GUID", kManagedDeviceWifiGuid)
@@ -177,7 +175,7 @@ class NetworkingPrivateApiTest : public ApiUnitTest {
                         .Build())
             .Build();
     config_handler->SetPolicy(::onc::ONC_SOURCE_DEVICE_POLICY, "",
-                              *device_policy_onc,
+                              base::Value(std::move(device_policy_onc)),
                               base::Value(base::Value::Type::DICTIONARY));
   }
 
@@ -217,15 +215,14 @@ class NetworkingPrivateApiTest : public ApiUnitTest {
                       base::Value("test_min"));
     SetDeviceProperty(kCellularDevicePath, shill::kModelIdProperty,
                       base::Value("test_model_id"));
-    std::unique_ptr<base::Value> apn =
-        DictionaryBuilder()
-            .Set(shill::kApnProperty, "test-apn")
-            .Set(shill::kApnUsernameProperty, "test-user")
-            .Set(shill::kApnPasswordProperty, "test-password")
-            .Set(shill::kApnAuthenticationProperty, "chap")
-            .Build();
+    base::Value apn(DictionaryBuilder()
+                        .Set(shill::kApnProperty, "test-apn")
+                        .Set(shill::kApnUsernameProperty, "test-user")
+                        .Set(shill::kApnPasswordProperty, "test-password")
+                        .Set(shill::kApnAuthenticationProperty, "chap")
+                        .Build());
     base::Value apn_list(base::Value::Type::LIST);
-    apn_list.Append(apn->Clone());
+    apn_list.GetList().Append(apn.Clone());
     SetDeviceProperty(kCellularDevicePath, shill::kCellularApnListProperty,
                       apn_list);
 
@@ -248,9 +245,9 @@ class NetworkingPrivateApiTest : public ApiUnitTest {
                                        shill::kRoamingStateProperty,
                                        base::Value(shill::kRoamingStateHome));
     service_test()->SetServiceProperty(kCellularServicePath,
-                                       shill::kCellularApnProperty, *apn);
+                                       shill::kCellularApnProperty, apn);
     service_test()->SetServiceProperty(
-        kCellularServicePath, shill::kCellularLastGoodApnProperty, *apn);
+        kCellularServicePath, shill::kCellularLastGoodApnProperty, apn);
 
     profile_test()->AddService(kUserProfilePath, kCellularServicePath);
 
@@ -265,7 +262,7 @@ class NetworkingPrivateApiTest : public ApiUnitTest {
     base::RunLoop().RunUntilIdle();
   }
 
-  int GetNetworkPriority(const chromeos::NetworkState* network) {
+  int GetNetworkPriority(const ash::NetworkState* network) {
     base::Value properties(base::Value::Type::DICTIONARY);
     network->GetStateProperties(&properties);
     absl::optional<int> priority =
@@ -283,7 +280,7 @@ class NetworkingPrivateApiTest : public ApiUnitTest {
   base::Value GetNetworkProperties(const std::string& service_path) {
     base::RunLoop run_loop;
     absl::optional<base::Value> properties;
-    chromeos::NetworkHandler::Get()
+    ash::NetworkHandler::Get()
         ->network_configuration_handler()
         ->GetShillProperties(
             service_path,
@@ -325,9 +322,9 @@ class NetworkingPrivateApiTest : public ApiUnitTest {
   bool GetUserSettingStringData(const std::string& guid,
                                 const std::string& key,
                                 std::string* value = nullptr) {
-    const chromeos::NetworkState* network = chromeos::NetworkHandler::Get()
-                                                ->network_state_handler()
-                                                ->GetNetworkStateFromGuid(guid);
+    const ash::NetworkState* network = ash::NetworkHandler::Get()
+                                           ->network_state_handler()
+                                           ->GetNetworkStateFromGuid(guid);
 
     base::Value properties = GetNetworkProperties(network->path());
     if (properties.is_none())
@@ -347,18 +344,18 @@ class NetworkingPrivateApiTest : public ApiUnitTest {
     return true;
   }
 
-  chromeos::ShillServiceClient::TestInterface* service_test() {
+  ash::ShillServiceClient::TestInterface* service_test() {
     return network_handler_test_helper_.service_test();
   }
-  chromeos::ShillDeviceClient::TestInterface* device_test() {
+  ash::ShillDeviceClient::TestInterface* device_test() {
     return network_handler_test_helper_.device_test();
   }
-  chromeos::ShillProfileClient::TestInterface* profile_test() {
+  ash::ShillProfileClient::TestInterface* profile_test() {
     return network_handler_test_helper_.profile_test();
   }
 
  private:
-  chromeos::NetworkHandlerTestHelper network_handler_test_helper_;
+  ash::NetworkHandlerTestHelper network_handler_test_helper_;
 };
 
 TEST_F(NetworkingPrivateApiTest, SetSharedNetworkProperties) {
@@ -380,8 +377,8 @@ TEST_F(NetworkingPrivateApiTest, SetPrivateNetworkPropertiesWebUI) {
       base::StringPrintf(R"(["%s", {"Priority": 0}])", kSharedWifiGuid));
   EXPECT_EQ(ExtensionFunction::SUCCEEDED, *set_properties->response_type());
 
-  const chromeos::NetworkState* network =
-      chromeos::NetworkHandler::Get()
+  const ash::NetworkState* network =
+      ash::NetworkHandler::Get()
           ->network_state_handler()
           ->GetNetworkStateFromGuid(kSharedWifiGuid);
   ASSERT_TRUE(network);
@@ -397,8 +394,8 @@ TEST_F(NetworkingPrivateApiTest, SetPrivateNetworkProperties) {
       base::StringPrintf(R"(["%s", {"Priority": 0}])", kPrivateWifiGuid));
   EXPECT_EQ(ExtensionFunction::SUCCEEDED, *set_properties->response_type());
 
-  const chromeos::NetworkState* network =
-      chromeos::NetworkHandler::Get()
+  const ash::NetworkState* network =
+      ash::NetworkHandler::Get()
           ->network_state_handler()
           ->GetNetworkStateFromGuid(kPrivateWifiGuid);
   ASSERT_TRUE(network);
@@ -540,16 +537,16 @@ TEST_F(NetworkingPrivateApiTest, CreateSharedNetworkWebUI) {
              "Security": "None"
            }
          })";
-  std::unique_ptr<base::Value> result = RunFunctionAndReturnValue(
+  absl::optional<base::Value> result = RunFunctionAndReturnValue(
       create_network.get(), base::StringPrintf("[true, %s]", kNetworkConfig));
 
   ASSERT_TRUE(result);
   ASSERT_TRUE(result->is_string());
 
   std::string guid = result->GetString();
-  const chromeos::NetworkState* network = chromeos::NetworkHandler::Get()
-                                              ->network_state_handler()
-                                              ->GetNetworkStateFromGuid(guid);
+  const ash::NetworkState* network = ash::NetworkHandler::Get()
+                                         ->network_state_handler()
+                                         ->GetNetworkStateFromGuid(guid);
   ASSERT_TRUE(network);
   EXPECT_FALSE(network->IsPrivate());
   ASSERT_EQ(1, GetNetworkPriority(network));
@@ -565,7 +562,7 @@ TEST_F(NetworkingPrivateApiTest, CreatePrivateNetwork) {
              "Security": "WPA-PSK"
            }
          })";
-  std::unique_ptr<base::Value> result = RunFunctionAndReturnValue(
+  absl::optional<base::Value> result = RunFunctionAndReturnValue(
       new NetworkingPrivateCreateNetworkFunction(),
       base::StringPrintf("[false, %s]", kNetworkConfig));
 
@@ -574,9 +571,9 @@ TEST_F(NetworkingPrivateApiTest, CreatePrivateNetwork) {
 
   // Test the created config can be changed now.
   std::string guid = result->GetString();
-  const chromeos::NetworkState* network = chromeos::NetworkHandler::Get()
-                                              ->network_state_handler()
-                                              ->GetNetworkStateFromGuid(guid);
+  const ash::NetworkState* network = ash::NetworkHandler::Get()
+                                         ->network_state_handler()
+                                         ->GetNetworkStateFromGuid(guid);
   ASSERT_TRUE(network);
   EXPECT_TRUE(network->IsPrivate());
   EXPECT_EQ(1, GetNetworkPriority(network));
@@ -678,7 +675,7 @@ TEST_F(NetworkingPrivateApiTest, CreateL2TPVpnFromWebUi) {
       new NetworkingPrivateCreateNetworkFunction();
   create_network->set_source_context_type(Feature::WEBUI_CONTEXT);
   create_network->set_source_url(GURL("chrome://os-settings/networkDetail"));
-  std::unique_ptr<base::Value> result = RunFunctionAndReturnValue(
+  absl::optional<base::Value> result = RunFunctionAndReturnValue(
       create_network.get(),
       base::StringPrintf("[false, %s]", kL2tpIpsecConfig));
 
@@ -738,7 +735,7 @@ TEST_F(NetworkingPrivateApiTest, CreateOpenVpnFromWebUiAndSetProperties) {
       new NetworkingPrivateCreateNetworkFunction();
   create_network->set_source_context_type(Feature::WEBUI_CONTEXT);
   create_network->set_source_url(GURL("chrome://os-settings/networkDetail"));
-  std::unique_ptr<base::Value> result = RunFunctionAndReturnValue(
+  absl::optional<base::Value> result = RunFunctionAndReturnValue(
       create_network.get(), base::StringPrintf("[false, %s]", kOpenVpnConfig));
 
   ASSERT_TRUE(result);
@@ -889,15 +886,15 @@ TEST_F(NetworkingPrivateApiTest,
       new NetworkingPrivateCreateNetworkFunction();
   create_network->set_source_context_type(Feature::WEBUI_CONTEXT);
   create_network->set_source_url(GURL("chrome://os-settings/networkDetail"));
-  std::unique_ptr<base::Value> result = RunFunctionAndReturnValue(
+  absl::optional<base::Value> result = RunFunctionAndReturnValue(
       create_network.get(), base::StringPrintf("[false, %s]", kNetworkConfig));
   ASSERT_TRUE(result);
   ASSERT_TRUE(result->is_string());
 
   std::string guid = result->GetString();
-  const chromeos::NetworkState* network = chromeos::NetworkHandler::Get()
-                                              ->network_state_handler()
-                                              ->GetNetworkStateFromGuid(guid);
+  const ash::NetworkState* network = ash::NetworkHandler::Get()
+                                         ->network_state_handler()
+                                         ->GetNetworkStateFromGuid(guid);
 
   base::Value properties = GetNetworkProperties(network->path());
   ASSERT_TRUE(properties.is_dict());
@@ -923,7 +920,7 @@ TEST_F(NetworkingPrivateApiTest, CreatePrivateNetwork_NonMatchingSsids) {
            }
          })";
 
-  std::unique_ptr<base::Value> result = RunFunctionAndReturnValue(
+  absl::optional<base::Value> result = RunFunctionAndReturnValue(
       new NetworkingPrivateCreateNetworkFunction(),
       base::StringPrintf(
           "[false, %s]",
@@ -934,9 +931,9 @@ TEST_F(NetworkingPrivateApiTest, CreatePrivateNetwork_NonMatchingSsids) {
 
   // Test the created config can be changed now.
   const std::string guid = result->GetString();
-  const chromeos::NetworkState* network = chromeos::NetworkHandler::Get()
-                                              ->network_state_handler()
-                                              ->GetNetworkStateFromGuid(guid);
+  const ash::NetworkState* network = ash::NetworkHandler::Get()
+                                         ->network_state_handler()
+                                         ->GetNetworkStateFromGuid(guid);
   ASSERT_TRUE(network);
   EXPECT_TRUE(network->IsPrivate());
   EXPECT_EQ(1, GetNetworkPriority(network));
@@ -1072,13 +1069,13 @@ TEST_F(NetworkingPrivateApiTest,
 TEST_F(NetworkingPrivateApiTest, GetCellularProperties) {
   SetUpCellular();
 
-  std::unique_ptr<base::Value> result =
+  absl::optional<base::Value> result =
       RunFunctionAndReturnValue(new NetworkingPrivateGetPropertiesFunction(),
                                 base::StringPrintf(R"(["%s"])", kCellularGuid));
 
   ASSERT_TRUE(result);
 
-  std::unique_ptr<base::Value> expected_result =
+  base::Value::Dict expected_result =
       DictionaryBuilder()
           .Set("Cellular",
                DictionaryBuilder()
@@ -1105,7 +1102,7 @@ TEST_F(NetworkingPrivateApiTest, GetCellularProperties) {
           .Set("Type", "Cellular")
           .Build();
 
-  EXPECT_EQ(*expected_result, *result);
+  EXPECT_EQ(base::Value(std::move(expected_result)), *result);
 }
 
 TEST_F(NetworkingPrivateApiTest, GetCellularPropertiesFromWebUi) {
@@ -1116,19 +1113,18 @@ TEST_F(NetworkingPrivateApiTest, GetCellularPropertiesFromWebUi) {
   get_properties->set_source_context_type(Feature::WEBUI_CONTEXT);
   get_properties->set_source_url(GURL("chrome://os-settings/networkDetail"));
 
-  std::unique_ptr<base::Value> result = RunFunctionAndReturnValue(
+  absl::optional<base::Value> result = RunFunctionAndReturnValue(
       get_properties.get(), base::StringPrintf(R"(["%s"])", kCellularGuid));
 
   ASSERT_TRUE(result);
 
-  std::unique_ptr<base::Value> expected_apn =
-      DictionaryBuilder()
-          .Set("AccessPointName", "test-apn")
-          .Set("Username", "test-user")
-          .Set("Password", "test-password")
-          .Set("Authentication", "chap")
-          .Build();
-  std::unique_ptr<base::Value> expected_result =
+  base::Value::Dict expected_apn = DictionaryBuilder()
+                                       .Set("AccessPointName", "test-apn")
+                                       .Set("Username", "test-user")
+                                       .Set("Password", "test-password")
+                                       .Set("Authentication", "chap")
+                                       .Build();
+  base::Value::Dict expected_result =
       DictionaryBuilder()
           .Set("Cellular",
                DictionaryBuilder()
@@ -1151,14 +1147,10 @@ TEST_F(NetworkingPrivateApiTest, GetCellularPropertiesFromWebUi) {
                    .Set("NetworkTechnology", "GSM")
                    .Set("RoamingState", "Home")
                    .Set("Scanning", false)
-                   .Set("APNList", ListBuilder()
-                                       .Append(base::Value::ToUniquePtrValue(
-                                           expected_apn->Clone()))
-                                       .Build())
-                   .Set("APN",
-                        base::Value::ToUniquePtrValue(expected_apn->Clone()))
-                   .Set("LastGoodAPN",
-                        base::Value::ToUniquePtrValue(expected_apn->Clone()))
+                   .Set("APNList",
+                        ListBuilder().Append(expected_apn.Clone()).Build())
+                   .Set("APN", expected_apn.Clone())
+                   .Set("LastGoodAPN", expected_apn.Clone())
                    .Build())
           .Set("ConnectionState", "Connected")
           .Set("GUID", "cellular_guid")
@@ -1170,7 +1162,7 @@ TEST_F(NetworkingPrivateApiTest, GetCellularPropertiesFromWebUi) {
           .Set("Type", "Cellular")
           .Build();
 
-  EXPECT_EQ(*expected_result, *result);
+  EXPECT_EQ(base::Value(std::move(expected_result)), *result);
 }
 
 TEST_F(NetworkingPrivateApiTest, ForgetSharedNetwork) {
@@ -1182,7 +1174,7 @@ TEST_F(NetworkingPrivateApiTest, ForgetSharedNetwork) {
   base::RunLoop().RunUntilIdle();
   std::string profile_path;
   EXPECT_TRUE(GetServiceProfile(kSharedWifiServicePath, &profile_path));
-  EXPECT_EQ(chromeos::ShillProfileClient::GetSharedProfilePath(), profile_path);
+  EXPECT_EQ(ash::ShillProfileClient::GetSharedProfilePath(), profile_path);
 }
 
 TEST_F(NetworkingPrivateApiTest, ForgetPrivateNetwork) {
@@ -1211,8 +1203,8 @@ TEST_F(NetworkingPrivateApiTest, ForgetUserPolicyNetwork) {
                 new NetworkingPrivateForgetNetworkFunction(),
                 base::StringPrintf(R"(["%s"])", kManagedUserWifiGuid)));
 
-  const chromeos::NetworkState* network =
-      chromeos::NetworkHandler::Get()
+  const ash::NetworkState* network =
+      ash::NetworkHandler::Get()
           ->network_state_handler()
           ->GetNetworkStateFromGuid(kManagedUserWifiGuid);
 
@@ -1232,8 +1224,8 @@ TEST_F(NetworkingPrivateApiTest, ForgetUserPolicyNetworkWebUI) {
                 forget_network.get(),
                 base::StringPrintf(R"(["%s"])", kManagedUserWifiGuid)));
 
-  const chromeos::NetworkState* network =
-      chromeos::NetworkHandler::Get()
+  const ash::NetworkState* network =
+      ash::NetworkHandler::Get()
           ->network_state_handler()
           ->GetNetworkStateFromGuid(kManagedUserWifiGuid);
 
@@ -1244,8 +1236,8 @@ TEST_F(NetworkingPrivateApiTest, ForgetUserPolicyNetworkWebUI) {
 }
 
 TEST_F(NetworkingPrivateApiTest, ForgetDevicePolicyNetworkWebUI) {
-  const chromeos::NetworkState* network =
-      chromeos::NetworkHandler::Get()
+  const ash::NetworkState* network =
+      ash::NetworkHandler::Get()
           ->network_state_handler()
           ->GetNetworkStateFromGuid(kManagedDeviceWifiGuid);
   ASSERT_TRUE(network);
@@ -1262,7 +1254,7 @@ TEST_F(NetworkingPrivateApiTest, ForgetDevicePolicyNetworkWebUI) {
               base::StringPrintf(R"(["%s"])", kManagedDeviceWifiGuid));
 
   EXPECT_TRUE(GetServiceProfile(network->path(), &profile_path));
-  EXPECT_EQ(chromeos::ShillProfileClient::GetSharedProfilePath(), profile_path);
+  EXPECT_EQ(ash::ShillProfileClient::GetSharedProfilePath(), profile_path);
 }
 
 // Tests that forgetNetwork in case there is a network config in both user and
@@ -1278,7 +1270,7 @@ TEST_F(NetworkingPrivateApiTest, ForgetNetworkInMultipleProfiles) {
               base::StringPrintf(R"(["%s"])", kSharedWifiGuid));
 
   EXPECT_TRUE(GetServiceProfile(kSharedWifiServicePath, &profile_path));
-  EXPECT_EQ(chromeos::ShillProfileClient::GetSharedProfilePath(), profile_path);
+  EXPECT_EQ(ash::ShillProfileClient::GetSharedProfilePath(), profile_path);
 }
 
 TEST_F(NetworkingPrivateApiTest, ForgetNetworkInMultipleProfilesWebUI) {

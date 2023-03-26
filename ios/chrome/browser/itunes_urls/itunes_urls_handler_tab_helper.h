@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 
 #import "ios/web/public/navigation/web_state_policy_decider.h"
 #import "ios/web/public/web_state_user_data.h"
+
+@protocol WebContentCommands;
 
 // Enum for the IOS.StoreKit.ITunesURLsHandlingResult UMA histogram to report
 // the results of the StoreKit handling.
@@ -43,7 +45,7 @@ class ITunesUrlsHandlerTabHelper
   ~ITunesUrlsHandlerTabHelper() override;
   explicit ITunesUrlsHandlerTabHelper(web::WebState* web_state);
 
-  // Returns true, if ITunesUrlsHandlerTabHelper can handle the given |url|.
+  // Returns true, if ITunesUrlsHandlerTabHelper can handle the given `url`.
   static bool CanHandleUrl(const GURL& url);
 
   // web::WebStatePolicyDecider implementation
@@ -52,11 +54,16 @@ class ITunesUrlsHandlerTabHelper
       web::WebStatePolicyDecider::RequestInfo request_info,
       web::WebStatePolicyDecider::PolicyDecisionCallback callback) override;
 
+  // Sets the command handler for opening content-related UI.
+  void SetWebContentsHandler(id<WebContentCommands> handler);
+
  private:
   friend class web::WebStateUserData<ITunesUrlsHandlerTabHelper>;
 
-  // Opens the StoreKit for the given iTunes app |url|.
+  // Opens the StoreKit for the given iTunes app `url`.
   void HandleITunesUrl(const GURL& url);
+
+  __weak id<WebContentCommands> web_content_handler_ = nil;
 
   WEB_STATE_USER_DATA_KEY_DECL();
 };

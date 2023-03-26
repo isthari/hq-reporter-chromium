@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "base/bits.h"
 #include "base/memory/ref_counted_memory.h"
+#include "base/notreached.h"
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/memory_allocator_dump.h"
 #include "base/trace_event/memory_usage_estimator.h"
@@ -112,7 +113,7 @@ void TraceEventMemoryOverhead::AddValue(const Value& value) {
       Add(kBaseValue, sizeof(Value) + value.GetBlob().size());
       break;
 
-    case Value::Type::DICTIONARY:
+    case Value::Type::DICT:
       Add(kBaseValue, sizeof(Value));
       for (const auto pair : value.DictItems()) {
         AddString(pair.first);
@@ -125,9 +126,6 @@ void TraceEventMemoryOverhead::AddValue(const Value& value) {
       for (const auto& v : value.GetList())
         AddValue(v);
       break;
-
-    default:
-      NOTREACHED();
   }
 }
 

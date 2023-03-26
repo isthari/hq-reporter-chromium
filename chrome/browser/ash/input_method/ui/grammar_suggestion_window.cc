@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,21 +43,21 @@ GrammarSuggestionWindow::GrammarSuggestionWindow(gfx::NativeView parent,
   SetCanActivate(false);
   DCHECK(parent);
   set_parent_window(parent);
-  set_margins(gfx::Insets(kGrammarPaddingSize, kGrammarPaddingSize,
-                          kGrammarPaddingSize, kGrammarPaddingSize));
+  set_margins(gfx::Insets::TLBR(kGrammarPaddingSize, kGrammarPaddingSize,
+                                kGrammarPaddingSize, kGrammarPaddingSize));
 
   SetArrow(views::BubbleBorder::Arrow::BOTTOM_LEFT);
   SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kHorizontal));
 
-  suggestion_button_ =
-      AddChildView(std::make_unique<SuggestionView>(base::BindRepeating(
+  suggestion_button_ = AddChildView(
+      std::make_unique<CompletionSuggestionView>(base::BindRepeating(
           &AssistiveDelegate::AssistiveWindowButtonClicked,
           base::Unretained(delegate_),
           AssistiveWindowButton{
               .id = ui::ime::ButtonId::kSuggestion,
               .window_type =
-                  ui::ime::AssistiveWindowType::kGrammarSuggestion})));
+                  ash::ime::AssistiveWindowType::kGrammarSuggestion})));
   suggestion_button_->SetBackground(nullptr);
   suggestion_button_->SetFocusBehavior(views::View::FocusBehavior::NEVER);
   suggestion_button_->SetVisible(true);
@@ -68,7 +68,7 @@ GrammarSuggestionWindow::GrammarSuggestionWindow(gfx::NativeView parent,
           base::Unretained(delegate_),
           AssistiveWindowButton{
               .id = ui::ime::ButtonId::kIgnoreSuggestion,
-              .window_type = ui::ime::AssistiveWindowType::kGrammarSuggestion,
+              .window_type = ash::ime::AssistiveWindowType::kGrammarSuggestion,
           })));
   ignore_button_->SetImageHorizontalAlignment(views::ImageButton::ALIGN_CENTER);
   ignore_button_->SetImageVerticalAlignment(views::ImageButton::ALIGN_MIDDLE);
@@ -164,7 +164,8 @@ void GrammarSuggestionWindow::SetBounds(gfx::Rect bounds) {
   SetAnchorRect(bounds);
 }
 
-SuggestionView* GrammarSuggestionWindow::GetSuggestionButtonForTesting() {
+CompletionSuggestionView*
+GrammarSuggestionWindow::GetSuggestionButtonForTesting() {
   return suggestion_button_;
 }
 

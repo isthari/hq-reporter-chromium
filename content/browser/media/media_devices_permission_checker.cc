@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "build/build_config.h"
 #include "content/browser/permissions/permission_util.h"
 #include "content/browser/renderer_host/render_frame_host_delegate.h"
@@ -21,6 +21,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "third_party/blink/public/common/mediastream/media_devices.h"
+#include "third_party/blink/public/common/permissions/permission_utils.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -167,23 +168,13 @@ bool MediaDevicesPermissionChecker::HasPanTiltZoomPermissionGrantedOnUIThread(
   if (!frame_host)
     return false;
 
-  auto* web_contents = WebContents::FromRenderFrameHost(frame_host);
-  if (!web_contents)
-    return false;
-
   auto* permission_controller =
-      web_contents->GetBrowserContext()->GetPermissionController();
+      frame_host->GetBrowserContext()->GetPermissionController();
   DCHECK(permission_controller);
 
-  // TODO(crbug.com/698985): The semantics of the passed-in origin is incorrect:
-  // It should be the requesting origin, not the embedding origin. With the
-  // current implementation of the //chrome embedder, this parameter will be
-  // ignored, so it has no impact.
-  const GURL& origin =
-      PermissionUtil::GetLastCommittedOriginAsURL(web_contents);
   blink::mojom::PermissionStatus status =
-      permission_controller->GetPermissionStatusForFrame(
-          PermissionType::CAMERA_PAN_TILT_ZOOM, frame_host, origin);
+      permission_controller->GetPermissionStatusForCurrentDocument(
+          blink::PermissionType::CAMERA_PAN_TILT_ZOOM, frame_host);
 
   return status == blink::mojom::PermissionStatus::GRANTED;
 #endif

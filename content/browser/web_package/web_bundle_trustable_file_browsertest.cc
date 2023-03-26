@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -92,14 +92,14 @@ class WebBundleTrustableFileBrowserTest
                                 contents.size()) > 0);
   }
 
-  void WriteCommonWebBundleFile(std::string version_suffix = "_b2") {
+  void WriteCommonWebBundleFile() {
     std::string contents;
     {
       base::ScopedAllowBlockingForTesting allow_blocking;
-      ASSERT_TRUE(base::ReadFileToString(
-          web_bundle_browsertest_utils::GetTestDataPath(
-              "web_bundle_browsertest" + version_suffix + ".wbn"),
-          &contents));
+      ASSERT_TRUE(
+          base::ReadFileToString(web_bundle_browsertest_utils::GetTestDataPath(
+                                     "web_bundle_browsertest_b2.wbn"),
+                                 &contents));
     }
     WriteWebBundleFile(contents);
   }
@@ -144,14 +144,7 @@ class WebBundleTrustableFileBrowserTest
 };
 
 IN_PROC_BROWSER_TEST_P(WebBundleTrustableFileBrowserTest,
-                       TrustableWebBundleFileB1) {
-  WriteCommonWebBundleFile("_b1");
-  NavigateToBundleAndWaitForReady(
-      test_data_url(), GURL(web_bundle_browsertest_utils::kTestPageUrl));
-}
-
-IN_PROC_BROWSER_TEST_P(WebBundleTrustableFileBrowserTest,
-                       TrustableWebBundleFileB2) {
+                       TrustableWebBundleFile) {
   WriteCommonWebBundleFile();
   NavigateToBundleAndWaitForReady(
       test_data_url(), GURL(web_bundle_browsertest_utils::kTestPageUrl));
@@ -164,7 +157,14 @@ IN_PROC_BROWSER_TEST_P(WebBundleTrustableFileBrowserTest, RangeRequest) {
   RunTestScript("test-range-request.js");
 }
 
-IN_PROC_BROWSER_TEST_P(WebBundleTrustableFileBrowserTest, BasicNavigation) {
+// Flaky on Linux bots https://crbug.com/1406600.
+#if BUILDFLAG(IS_LINUX)
+#define MAYBE_BasicNavigation DISABLED_BasicNavigation
+#else
+#define MAYBE_BasicNavigation BasicNavigation
+#endif
+IN_PROC_BROWSER_TEST_P(WebBundleTrustableFileBrowserTest,
+                       MAYBE_BasicNavigation) {
   RunSharedNavigationTest(
       &web_bundle_browsertest_utils::SetUpBasicNavigationTest,
       &web_bundle_browsertest_utils::RunBasicNavigationTest);
@@ -178,16 +178,30 @@ IN_PROC_BROWSER_TEST_P(WebBundleTrustableFileBrowserTest,
                               RunBrowserInitiatedOutOfBundleNavigationTest);
 }
 
+// Flaky on Linux bots https://crbug.com/1406600.
+#if BUILDFLAG(IS_LINUX)
+#define MAYBE_RendererInitiatedOutOfBundleNavigation \
+  DISABLED_RendererInitiatedOutOfBundleNavigation
+#else
+#define MAYBE_RendererInitiatedOutOfBundleNavigation \
+  RendererInitiatedOutOfBundleNavigation
+#endif
 IN_PROC_BROWSER_TEST_P(WebBundleTrustableFileBrowserTest,
-                       RendererInitiatedOutOfBundleNavigation) {
+                       MAYBE_RendererInitiatedOutOfBundleNavigation) {
   RunSharedNavigationTest(&web_bundle_browsertest_utils::
                               SetUpRendererInitiatedOutOfBundleNavigationTest,
                           &web_bundle_browsertest_utils::
                               RunRendererInitiatedOutOfBundleNavigationTest);
 }
 
+// Flaky on Linux bots https://crbug.com/1406600.
+#if BUILDFLAG(IS_LINUX)
+#define MAYBE_SameDocumentNavigation DISABLED_SameDocumentNavigation
+#else
+#define MAYBE_SameDocumentNavigation SameDocumentNavigation
+#endif
 IN_PROC_BROWSER_TEST_P(WebBundleTrustableFileBrowserTest,
-                       SameDocumentNavigation) {
+                       MAYBE_SameDocumentNavigation) {
   RunSharedNavigationTest(
       &web_bundle_browsertest_utils::SetUpSameDocumentNavigationTest,
       &web_bundle_browsertest_utils::RunSameDocumentNavigationTest);
@@ -314,6 +328,56 @@ IN_PROC_BROWSER_TEST_P(WebBundleTrustableFileBrowserTest,
   EXPECT_EQ(web_bundle_utils::kNoPrimaryUrlErrorMessage, console_message);
 }
 
+// TODO(https://crbug.com/1225178): flaky
+#if BUILDFLAG(IS_LINUX)
+#define MAYBE_InvalidExchangeUrl DISABLED_InvalidExchangeUrl
+#else
+#define MAYBE_InvalidExchangeUrl InvalidExchangeUrl
+#endif
+IN_PROC_BROWSER_TEST_P(WebBundleTrustableFileBrowserTest,
+                       MAYBE_InvalidExchangeUrl) {
+  std::string contents;
+  {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    ASSERT_TRUE(
+        base::ReadFileToString(web_bundle_browsertest_utils::GetTestDataPath(
+                                   "foo_base_url_bundle_b2.wbn"),
+                               &contents));
+  }
+  WriteWebBundleFile(contents);
+
+  std::string console_message = web_bundle_browsertest_utils::
+      ExpectNavigationFailureAndReturnConsoleMessage(shell()->web_contents(),
+                                                     test_data_url());
+
+  EXPECT_EQ(web_bundle_utils::kInvalidExchangeUrlErrorMessage, console_message);
+}
+
+// TODO(https://crbug.com/1225178): flaky
+#if BUILDFLAG(IS_LINUX)
+#define MAYBE_InvalidPrimaryUrl DISABLED_InvalidPrimaryUrl
+#else
+#define MAYBE_InvalidPrimaryUrl InvalidPrimaryUrl
+#endif
+IN_PROC_BROWSER_TEST_P(WebBundleTrustableFileBrowserTest,
+                       MAYBE_InvalidPrimaryUrl) {
+  std::string contents;
+  {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    ASSERT_TRUE(
+        base::ReadFileToString(web_bundle_browsertest_utils::GetTestDataPath(
+                                   "foo_primary_url_bundle_b2.wbn"),
+                               &contents));
+  }
+  WriteWebBundleFile(contents);
+
+  std::string console_message = web_bundle_browsertest_utils::
+      ExpectNavigationFailureAndReturnConsoleMessage(shell()->web_contents(),
+                                                     test_data_url());
+
+  EXPECT_EQ(web_bundle_utils::kInvalidPrimaryUrlErrorMessage, console_message);
+}
+
 INSTANTIATE_TEST_SUITE_P(WebBundleTrustableFileBrowserTest,
                          WebBundleTrustableFileBrowserTest,
                          TEST_FILE_PATH_MODE_PARAMS);
@@ -358,7 +422,7 @@ IN_PROC_BROWSER_TEST_F(WebBundleTrustableFileNotFoundBrowserTest,
       ExpectNavigationFailureAndReturnConsoleMessage(shell()->web_contents(),
                                                      test_data_url());
 
-  EXPECT_EQ("Failed to read metadata of Web Bundle file: FILE_ERROR_FAILED",
+  EXPECT_EQ("Failed to read metadata of Web Bundle file: FILE_ERROR_NOT_FOUND",
             console_message);
 }
 }  // namespace content

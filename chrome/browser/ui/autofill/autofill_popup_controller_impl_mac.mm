@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,18 +54,14 @@ AutofillPopupControllerImplMac::~AutofillPopupControllerImplMac() {}
 
 void AutofillPopupControllerImplMac::Show(
     const std::vector<autofill::Suggestion>& suggestions,
-    bool autoselect_first_suggestion,
-    PopupType popup_type) {
+    AutoselectFirstSuggestion autoselect_first_suggestion) {
   if (!suggestions.empty() && is_credit_card_popup_) {
-    if (@available(macOS 10.12.2, *)) {
-      touch_bar_controller_ = [WebTextfieldTouchBarController
-          controllerForWindow:[container_view().GetNativeNSView() window]];
-      [touch_bar_controller_ showCreditCardAutofillWithController:this];
-    }
+    touch_bar_controller_ = [WebTextfieldTouchBarController
+        controllerForWindow:[container_view().GetNativeNSView() window]];
+    [touch_bar_controller_ showCreditCardAutofillWithController:this];
   }
 
-  AutofillPopupControllerImpl::Show(suggestions, autoselect_first_suggestion,
-                                    popup_type);
+  AutofillPopupControllerImpl::Show(suggestions, autoselect_first_suggestion);
   // No code below this line!
   // |Show| may hide the popup and destroy |this|, so |Show| should be the last
   // line.

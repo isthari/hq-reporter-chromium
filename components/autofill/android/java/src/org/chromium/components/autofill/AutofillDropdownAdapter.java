@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,6 @@ import androidx.appcompat.content.res.AppCompatResources;
 import androidx.core.view.MarginLayoutParamsCompat;
 import androidx.core.view.ViewCompat;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.ui.DropdownDividerDrawable;
 import org.chromium.ui.DropdownItem;
 
@@ -86,13 +85,26 @@ public class AutofillDropdownAdapter extends ArrayAdapter<DropdownItem> {
         DropdownItem item = getItem(position);
 
         if (mIsRefresh) {
-            TextView labelView = populateLabelView(item, layout);
-            populateSublabelView(item, layout);
+            TextView labelView = populateLabelView(
+                    layout, R.id.dropdown_label, item.getLabel(), item.isEnabled());
+            populateLabelView(layout, R.id.dropdown_secondary_label, item.getSecondaryLabel(),
+                    item.isEnabled());
+            populateLabelView(layout, R.id.dropdown_sublabel, item.getSublabel(), false);
+            populateLabelView(
+                    layout, R.id.dropdown_secondary_sublabel, item.getSecondarySublabel(), false);
             // For refreshed layout, ignore the return value as we don't need to adjust the height
             // of the view.
-            populateItemTagView(item, layout);
+            populateLabelView(layout, R.id.dropdown_item_tag, item.getItemTag(), false);
+            // Set the visibility of the start/end icons.
+            layout.findViewById(R.id.start_dropdown_icon)
+                    .setVisibility(item.isIconAtStart() ? View.VISIBLE : View.GONE);
+            layout.findViewById(R.id.end_dropdown_icon)
+                    .setVisibility(item.isIconAtStart() ? View.GONE : View.VISIBLE);
             ImageView iconView =
-                    populateIconView((ImageView) layout.findViewById(R.id.end_dropdown_icon), item);
+                    populateIconView((ImageView) (item.isIconAtStart()
+                                                     ? layout.findViewById(R.id.start_dropdown_icon)
+                                                     : layout.findViewById(R.id.end_dropdown_icon)),
+                            item);
             if (iconView != null) {
                 iconView.setLayoutParams(getSizeParamsForIconView(iconView, item));
             }
@@ -129,18 +141,17 @@ public class AutofillDropdownAdapter extends ArrayAdapter<DropdownItem> {
             divider.setHeight(dividerHeight);
             int dividerColor;
             if (mSeparators != null && mSeparators.contains(position)) {
-                dividerColor = ApiCompatibilityUtils.getColor(
-                        mContext.getResources(), R.color.dropdown_dark_divider_color);
+                dividerColor = mContext.getColor(R.color.dropdown_dark_divider_color);
             } else {
-                dividerColor = ApiCompatibilityUtils.getColor(
-                        mContext.getResources(), R.color.dropdown_divider_color);
+                dividerColor = mContext.getColor(R.color.dropdown_divider_color);
             }
             divider.setDividerColor(dividerColor);
         }
 
         // Layout of the item tag view, which has a smaller font and sits below the sub
         // label.
-        TextView itemTagView = populateItemTagView(item, layout);
+        TextView itemTagView =
+                populateLabelView(layout, R.id.dropdown_item_tag, item.getItemTag(), false);
         if (itemTagView != null) {
             itemTagView.setTextSize(TypedValue.COMPLEX_UNIT_PX,
                     mContext.getResources().getDimension(item.getSublabelFontSizeResId()));
@@ -158,7 +169,10 @@ public class AutofillDropdownAdapter extends ArrayAdapter<DropdownItem> {
         wrapper.setLayoutParams(new LinearLayout.LayoutParams(0, height, 1));
 
         // Layout of the main label view.
-        TextView labelView = populateLabelView(item, layout);
+        TextView labelView =
+                populateLabelView(layout, R.id.dropdown_label, item.getLabel(), item.isEnabled());
+        TextView secondaryLabelView = populateLabelView(
+                layout, R.id.dropdown_secondary_label, item.getSecondaryLabel(), item.isEnabled());
         labelView.setSingleLine(!item.isMultilineLabel());
         if (item.isMultilineLabel()) {
             // If there is a multiline label, we add extra padding at the top and bottom because
@@ -171,20 +185,39 @@ public class AutofillDropdownAdapter extends ArrayAdapter<DropdownItem> {
 
         if (item.isGroupHeader() || item.isBoldLabel()) {
             labelView.setTypeface(null, Typeface.BOLD);
+            if (secondaryLabelView != null) {
+                secondaryLabelView.setTypeface(null, Typeface.BOLD);
+            }
         } else {
             labelView.setTypeface(null, Typeface.NORMAL);
+            if (secondaryLabelView != null) {
+                secondaryLabelView.setTypeface(null, Typeface.NORMAL);
+            }
         }
 
-        labelView.setTextColor(ApiCompatibilityUtils.getColor(
-                mContext.getResources(), item.getLabelFontColorResId()));
+        labelView.setTextColor(mContext.getColor(item.getLabelFontColorResId()));
         labelView.setTextSize(TypedValue.COMPLEX_UNIT_PX,
                 mContext.getResources().getDimension(R.dimen.text_size_large));
 
+        if (secondaryLabelView != null) {
+            secondaryLabelView.setTextColor(mContext.getColor(item.getLabelFontColorResId()));
+            secondaryLabelView.setTextSize(TypedValue.COMPLEX_UNIT_PX,
+                    mContext.getResources().getDimension(R.dimen.text_size_large));
+        }
+
         // Layout of the sublabel view, which has a smaller font and usually sits below the main
         // label.
-        TextView sublabelView = populateSublabelView(item, layout);
+        TextView sublabelView =
+                populateLabelView(layout, R.id.dropdown_sublabel, item.getSublabel(), false);
         if (sublabelView != null) {
             sublabelView.setTextSize(TypedValue.COMPLEX_UNIT_PX,
+                    mContext.getResources().getDimension(item.getSublabelFontSizeResId()));
+        }
+
+        TextView secondarySublabelView = populateLabelView(
+                layout, R.id.dropdown_secondary_sublabel, item.getSecondarySublabel(), false);
+        if (secondarySublabelView != null) {
+            secondarySublabelView.setTextSize(TypedValue.COMPLEX_UNIT_PX,
                     mContext.getResources().getDimension(item.getSublabelFontSizeResId()));
         }
 
@@ -192,8 +225,10 @@ public class AutofillDropdownAdapter extends ArrayAdapter<DropdownItem> {
         ImageView iconViewEnd = (ImageView) layout.findViewById(R.id.end_dropdown_icon);
         if (item.isIconAtStart()) {
             iconViewEnd.setVisibility(View.GONE);
+            iconViewStart.setVisibility(View.VISIBLE);
         } else {
             iconViewStart.setVisibility(View.GONE);
+            iconViewEnd.setVisibility(View.VISIBLE);
         }
 
         ImageView iconView =
@@ -218,55 +253,25 @@ public class AutofillDropdownAdapter extends ArrayAdapter<DropdownItem> {
     }
 
     /**
-     * Sets the text and enabled state of the primary label's View.
+     * Sets the text and the enabled state for the dropdown labels.
      * @param item the DropdownItem for this row.
      * @param layout the View in which the label can be found.
+     * @param viewId the ID for the label's view.
+     * @param label the text to be displayed as the label.
+     * @param isEnabled the android:enabled state of the label.
      * @return the View.
      */
-    private TextView populateLabelView(DropdownItem item, View layout) {
-        TextView labelView = (TextView) layout.findViewById(R.id.dropdown_label);
-        labelView.setEnabled(item.isEnabled());
-        labelView.setText(item.getLabel());
+    private TextView populateLabelView(
+            View layout, int viewId, CharSequence label, boolean isEnabled) {
+        TextView labelView = layout.findViewById(viewId);
+        if (TextUtils.isEmpty(label)) {
+            labelView.setVisibility(View.GONE);
+            return null;
+        }
+        labelView.setText(label);
+        labelView.setEnabled(isEnabled);
+        labelView.setVisibility(View.VISIBLE);
         return labelView;
-    }
-
-    /**
-     * Sets the text of the sublabel's View if such text exists; otherwise, sets the View's
-     * visibility to GONE.
-     * @param item the DropdownItem for this row.
-     * @param layout the View in which the label can be found.
-     * @return the View if it has been set to be visible; null otherwise.
-     */
-    private TextView populateSublabelView(DropdownItem item, View layout) {
-        TextView sublabelView = (TextView) layout.findViewById(R.id.dropdown_sublabel);
-        CharSequence sublabel = item.getSublabel();
-        if (TextUtils.isEmpty(sublabel)) {
-            sublabelView.setVisibility(View.GONE);
-            return null;
-        }
-        sublabelView.setText(sublabel);
-        sublabelView.setVisibility(View.VISIBLE);
-        return sublabelView;
-    }
-
-    /**
-     * Sets the text of the itemTag's View if such text exists; otherwise, sets the View's
-     * visibility to GONE.
-     * @param item the DropdownItem for this row.
-     * @param layout the View in which the label can be found.
-     * @return the View if it has been set to be visible; null otherwise. This view is already part
-     *         of the view hierarchy, thus no need to explicitly add it.
-     */
-    private TextView populateItemTagView(DropdownItem item, View layout) {
-        TextView itemTagView = (TextView) layout.findViewById(R.id.dropdown_item_tag);
-        CharSequence itemTag = item.getItemTag();
-        if (TextUtils.isEmpty(itemTag)) {
-            itemTagView.setVisibility(View.GONE);
-            return null;
-        }
-        itemTagView.setText(itemTag);
-        itemTagView.setVisibility(View.VISIBLE);
-        return itemTagView;
     }
 
     /**
@@ -286,6 +291,10 @@ public class AutofillDropdownAdapter extends ArrayAdapter<DropdownItem> {
         }
         // If a customIcon is provided we prefer to use it over the iconId of the item.
         if (item.getCustomIcon() != null) {
+            // TODO(crbug.com/1381189): We need to scale the bitmap because we show custom icons to
+            // highlight certain credit card features (like virtual cards), which are available in a
+            // fixed size. In future, if we show only the card art for all cards, there is no need
+            // to scale the bitmap as we can directly fetch the icon in the required size.
             // Scale the bitmap to match the dimensions of the default resources used for other
             // items.
             Bitmap scaledBitmap = Bitmap.createScaledBitmap(item.getCustomIcon(),

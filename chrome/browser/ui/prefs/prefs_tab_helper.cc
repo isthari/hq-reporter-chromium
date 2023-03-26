@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,12 @@
 #include <set>
 #include <string>
 
-#include "base/bind.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
@@ -48,6 +47,7 @@
 
 #if BUILDFLAG(IS_ANDROID)
 #include "chrome/browser/flags/android/chrome_feature_list.h"
+#include "components/browser_ui/accessibility/android/font_size_prefs_android.h"
 #else  // !BUILDFLAG(IS_ANDROID)
 #include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
 #endif
@@ -80,6 +80,7 @@ void RegisterFontFamilyPrefs(user_prefs::PrefRegistrySyncable* registry,
                              const std::set<std::string>& fonts_with_defaults) {
   // Expand the font concatenated with script name so this stays at RO memory
   // rather than allocated in heap.
+  // clang-format off
   static const char* const kFontFamilyMap[] = {
 #define EXPAND_SCRIPT_FONT(map_name, script_name) map_name "." script_name,
 
@@ -87,14 +88,16 @@ void RegisterFontFamilyPrefs(user_prefs::PrefRegistrySyncable* registry,
 ALL_FONT_SCRIPTS(WEBKIT_WEBPREFS_FONTS_CURSIVE)
 ALL_FONT_SCRIPTS(WEBKIT_WEBPREFS_FONTS_FANTASY)
 ALL_FONT_SCRIPTS(WEBKIT_WEBPREFS_FONTS_FIXED)
+ALL_FONT_SCRIPTS(WEBKIT_WEBPREFS_FONTS_MATH)
 ALL_FONT_SCRIPTS(WEBKIT_WEBPREFS_FONTS_SANSERIF)
 ALL_FONT_SCRIPTS(WEBKIT_WEBPREFS_FONTS_SERIF)
 ALL_FONT_SCRIPTS(WEBKIT_WEBPREFS_FONTS_STANDARD)
 
 #undef EXPAND_SCRIPT_FONT
   };
+  // clang-format on
 
-  for (size_t i = 0; i < base::size(kFontFamilyMap); ++i) {
+  for (size_t i = 0; i < std::size(kFontFamilyMap); ++i) {
     const char* pref_name = kFontFamilyMap[i];
     if (fonts_with_defaults.find(pref_name) == fonts_with_defaults.end()) {
       // We haven't already set a default value for this font preference, so set
@@ -134,6 +137,7 @@ const FontDefault kFontDefaults[] = {
     {prefs::kWebKitSansSerifFontFamily, IDS_SANS_SERIF_FONT_FAMILY},
     {prefs::kWebKitCursiveFontFamily, IDS_CURSIVE_FONT_FAMILY},
     {prefs::kWebKitFantasyFontFamily, IDS_FANTASY_FONT_FAMILY},
+    {prefs::kWebKitMathFontFamily, IDS_MATH_FONT_FAMILY},
 #if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
     {prefs::kWebKitStandardFontFamilyJapanese,
      IDS_STANDARD_FONT_FAMILY_JAPANESE},
@@ -197,7 +201,7 @@ const FontDefault kFontDefaults[] = {
 #endif
 };
 
-const size_t kFontDefaultsLength = base::size(kFontDefaults);
+const size_t kFontDefaultsLength = std::size(kFontDefaults);
 
 // Returns the script of the font pref |pref_name|.  For example, suppose
 // |pref_name| is "webkit.webprefs.fonts.serif.Hant".  Since the script code for
@@ -262,6 +266,8 @@ void OverrideFontFamily(blink::web_pref::WebPreferences* prefs,
     map = &prefs->cursive_font_family_map;
   else if (generic_family == "fantasy")
     map = &prefs->fantasy_font_family_map;
+  else if (generic_family == "math")
+    map = &prefs->math_font_family_map;
   else
     NOTREACHED() << "Unknown generic font family: " << generic_family;
   (*map)[script] = base::UTF8ToUTF16(pref_value);
@@ -357,8 +363,8 @@ void PrefsTabHelper::RegisterProfilePrefs(
   registry->RegisterBooleanPref(prefs::kEnableEncryptedMedia, true);
   registry->RegisterBooleanPref(prefs::kScrollToTextFragmentEnabled, true);
 #if BUILDFLAG(IS_ANDROID)
-  registry->RegisterDoublePref(prefs::kWebKitFontScaleFactor, 1.0);
-  registry->RegisterBooleanPref(prefs::kWebKitForceEnableZoom,
+  registry->RegisterDoublePref(browser_ui::prefs::kWebKitFontScaleFactor, 1.0);
+  registry->RegisterBooleanPref(browser_ui::prefs::kWebKitForceEnableZoom,
                                 pref_defaults.force_enable_zoom);
   registry->RegisterBooleanPref(prefs::kWebKitPasswordEchoEnabled,
                                 pref_defaults.password_echo_enabled);
@@ -477,7 +483,7 @@ void PrefsTabHelper::OnWebPrefChanged(const std::string& pref_name) {
   // Use PostTask to dispatch the OnWebkitPreferencesChanged notification to
   // give other observers (particularly the FontFamilyCache) a chance to react
   // to the pref change.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&PrefsTabHelper::NotifyWebkitPreferencesChanged,
                                 weak_ptr_factory_.GetWeakPtr(), pref_name));
 }

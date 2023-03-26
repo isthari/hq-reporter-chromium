@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,7 +28,7 @@ std::string GetAdjustedBounds(const gfx::Rect& visible,
 
 class FakeWindowState : public WindowState::State {
  public:
-  explicit FakeWindowState() = default;
+  FakeWindowState() = default;
 
   FakeWindowState(const FakeWindowState&) = delete;
   FakeWindowState& operator=(const FakeWindowState&) = delete;

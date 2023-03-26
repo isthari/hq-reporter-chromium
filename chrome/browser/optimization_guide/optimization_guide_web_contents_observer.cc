@@ -1,13 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/optimization_guide/optimization_guide_web_contents_observer.h"
 
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/optimization_guide/chrome_hints_manager.h"
 #include "chrome/browser/optimization_guide/optimization_guide_keyed_service.h"
 #include "chrome/browser/optimization_guide/optimization_guide_keyed_service_factory.h"
-#include "chrome/browser/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
+#include "chrome/browser/preloading/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/no_state_prefetch/browser/no_state_prefetch_manager.h"
 #include "components/optimization_guide/core/hints_fetcher.h"
@@ -130,7 +131,7 @@ void OptimizationGuideWebContentsObserver::DidFinishNavigation(
       NavigationHandleData::GetForNavigationHandle(*navigation_handle);
   if (!navigation_handle_data)
     return;
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(
           &OptimizationGuideWebContentsObserver::NotifyNavigationFinish,
@@ -142,7 +143,7 @@ void OptimizationGuideWebContentsObserver::DidFinishNavigation(
 void OptimizationGuideWebContentsObserver::PostFetchHintsUsingManager() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (!web_contents()
-           ->GetMainFrame()
+           ->GetPrimaryMainFrame()
            ->GetLastCommittedURL()
            .SchemeIsHTTPOrHTTPS())
     return;
@@ -150,7 +151,7 @@ void OptimizationGuideWebContentsObserver::PostFetchHintsUsingManager() {
   if (!optimization_guide_keyed_service_)
     return;
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(
           &OptimizationGuideWebContentsObserver::FetchHintsUsingManager,

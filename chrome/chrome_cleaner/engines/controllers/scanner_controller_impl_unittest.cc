@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,12 @@
 #include <utility>
 
 #include "base/check_op.h"
+#include "base/containers/contains.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/test/task_environment.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "chrome/chrome_cleaner/engines/broker/engine_client_mock.h"
 #include "chrome/chrome_cleaner/logging/logging_service_api.h"
 #include "chrome/chrome_cleaner/logging/mock_logging_service.h"
@@ -75,8 +75,7 @@ class CapturingScannerControllerImpl : public ScannerControllerImpl {
   void TestFoundUwSIds(const std::vector<UwSId>& expected_pup_ids) const {
     EXPECT_EQ(pup_ids_.size(), expected_pup_ids.size());
     for (auto id : expected_pup_ids) {
-      EXPECT_NE(std::find(pup_ids_.begin(), pup_ids_.end(), id),
-                pup_ids_.end());
+      EXPECT_TRUE(base::Contains(pup_ids_, id));
     }
   }
 
@@ -163,7 +162,7 @@ class ScannerControllerImplTest : public ::testing::Test {
 
  protected:
   ScannerControllerImplTest()
-      : task_runner_(base::SequencedTaskRunnerHandle::Get()),
+      : task_runner_(base::SequencedTaskRunner::GetCurrentDefault()),
         test_registry_logger_(RegistryLogger::Mode::NOOP_FOR_TESTING),
         scanner_controller_(mock_engine_client_.get(),
                             &test_registry_logger_,

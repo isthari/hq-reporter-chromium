@@ -1,5 +1,5 @@
-#!/usr/bin/env python
-# Copyright 2014 The Chromium Authors. All rights reserved.
+#!/usr/bin/env python3
+# Copyright 2014 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -89,7 +89,9 @@ def stack(out_dir):
 
 
 def use_goma():
-  goma_dir = subprocess.check_output(['goma_ctl', 'goma_dir']).strip()
+  goma_dir = (subprocess.check_output(['goma_ctl', 'goma_dir'])
+                        .decode('utf-8')
+                        .strip())
   result = run(['goma_ctl', 'ensure_start'])
   if not result:
     return 'use_goma=true goma_dir="' + goma_dir + '" '
@@ -135,9 +137,8 @@ def get_ios_gn_args(is_release, bundle_id_prefix, target_cpu):
 def get_android_gn_args(is_release):
   return (get_mobile_gn_args('android', is_release) +
           # Keep in sync with //tools/mb/mb_config.pyl cronet_android config.
-          'default_min_sdk_version = 19 ' +
-          'use_errorprone_java_compiler=true ' +
-          'enable_reporting=true ' +
+          'is_cronet_build=true ' + 'default_min_sdk_version = 19 ' +
+          'use_errorprone_java_compiler=true ' + 'enable_reporting=true ' +
           'use_hashed_jni_names=true ')
 
 
@@ -200,7 +201,8 @@ def main():
   else:
     test_target = 'cronet_test_instrumentation_apk'
     unit_target = 'cronet_unittests_android'
-    gn_args = get_android_gn_args(options.release)
+    gn_args = get_android_gn_args(
+        options.release) + " treat_warnings_as_errors=false "
     gn_extra = []
     out_dir_suffix = ''
     if options.x86:

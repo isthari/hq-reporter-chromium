@@ -1,17 +1,17 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/test/test_browser_dialog.h"
 
-#include "base/bind.h"
 #include "base/containers/cxx20_erase.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -25,7 +25,7 @@
 #endif
 
 #if defined(TOOLKIT_VIEWS)
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/strcat.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -39,7 +39,7 @@ namespace {
 class WidgetCloser {
  public:
   WidgetCloser(views::Widget* widget, bool async) : widget_(widget) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&WidgetCloser::CloseWidget,
                                   weak_ptr_factory_.GetWeakPtr(), async));
   }
@@ -55,7 +55,7 @@ class WidgetCloser {
       widget_->CloseNow();
   }
 
-  raw_ptr<views::Widget> widget_;
+  raw_ptr<views::Widget, DanglingUntriaged> widget_;
 
   base::WeakPtrFactory<WidgetCloser> weak_ptr_factory_{this};
 };

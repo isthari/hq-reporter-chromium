@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,15 +29,6 @@ class FakeDeviceCloudPolicyManager : public DeviceCloudPolicyManagerAsh {
       delete;
 
   ~FakeDeviceCloudPolicyManager() override;
-
-  void set_unregister_result(bool value) { unregister_result_ = value; }
-
-  // DeviceCloudPolicyManagerAsh:
-  void Unregister(UnregisterCallback callback) override;
-  void Disconnect() override;
-
- private:
-  bool unregister_result_;
 };
 
 }  // namespace policy

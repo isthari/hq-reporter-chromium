@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,10 @@
 // Please run the closure compiler before committing changes.
 // See https://chromium.googlesource.com/chromium/src/+/main/docs/closure_compilation.md
 
-/** @fileoverview Externs generated from namespace: terminalPrivate */
+/**
+ * @fileoverview Externs generated from namespace: terminalPrivate
+ * @externs
+ */
 
 /** @const */
 chrome.terminalPrivate = {};
@@ -83,7 +86,7 @@ chrome.terminalPrivate.onTerminalResize = function(id, width, height, callback) 
 chrome.terminalPrivate.ackOutput = function(id) {};
 
 /**
- * Open the Terminal tabbed window.
+ * Open a Terminal app window/tab
  * @param {{
  *   url: (string|undefined),
  *   asTab: (boolean|undefined)
@@ -99,38 +102,42 @@ chrome.terminalPrivate.openWindow = function(data) {};
 chrome.terminalPrivate.openOptionsPage = function(callback) {};
 
 /**
+ * Open the System Settings at the specified subpage.
+ * @param {string} subpage Name of subpage to open.  Currently only 'crostini'
+ *     supported.
+ * @param {function(): void} callback Callback that will be called when
+ *     complete.
+ */
+chrome.terminalPrivate.openSettingsSubpage = function(subpage, callback) {};
+
+/**
  * Returns an object containing info about ChromeOS settings that affect the
  * Terminal, e.g. which feature flags are enabled.
  * @param {function({
+ *   alternative_emulator: boolean,
+ *   multi_profile: boolean,
+ *   sftp: boolean,
+ *   tast: boolean,
  *   tmux_integration: boolean
  * }): void} callback Callback that will be called with the info object.
  */
 chrome.terminalPrivate.getOSInfo = function(callback) {};
 
 /**
- * Returns an object (DictionaryValue) containing UI settings such as font style
- * and colors used by terminal and stored as a syncable pref.  The UI currently
- * has ~70 properties and we wish to allow flexibility for these to change in
- * the UI without updating this API, so we allow any properties.
+ * Returns specified pref values, ignoring any not in allowlist.
+ * @param {!Array<string>} paths Paths of prefs to fetch.
  * @param {function(Object): void} callback Callback that will be called with
- *     settings.
+ *     prefs.
  */
-chrome.terminalPrivate.getSettings = function(callback) {};
+chrome.terminalPrivate.getPrefs = function(paths, callback) {};
 
 /**
- * Sets terminal UI settings which are stored as a syncable pref.
- * @param {Object} settings Settings to update into prefs.
+ * Sets specified prefs, ignoring any not in allowlist.
+ * @param {Object} prefs Prefs to update keyed by paths.
  * @param {function(): void} callback Callback that will be called when
  *     complete.
  */
-chrome.terminalPrivate.setSettings = function(settings, callback) {};
-
-/**
- * Returns a boolean indicating whether the accessibility spoken feedback is on.
- * @param {function(boolean): void} callback Callback that will be called with
- *     the a11y status.
- */
-chrome.terminalPrivate.getA11yStatus = function(callback) {};
+chrome.terminalPrivate.setPrefs = function(prefs, callback) {};
 
 /**
  * Fired when an opened process writes something to its output. Observing
@@ -143,13 +150,7 @@ chrome.terminalPrivate.getA11yStatus = function(callback) {};
 chrome.terminalPrivate.onProcessOutput;
 
 /**
- * Fired when terminal UI settings change.
+ * Fired when pref changes.
  * @type {!ChromeEvent}
  */
-chrome.terminalPrivate.onSettingsChanged;
-
-/**
- * Fired when a11y spoken feedback is enabled/disabled.
- * @type {!ChromeEvent}
- */
-chrome.terminalPrivate.onA11yStatusChanged;
+chrome.terminalPrivate.onPrefChanged;

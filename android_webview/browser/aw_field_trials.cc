@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include "base/path_service.h"
 #include "components/metrics/persistent_histograms.h"
 
-void AwFieldTrials::SetUpFieldTrials() {
-  // Persistent histograms must be enabled as soon as possible.
+void AwFieldTrials::OnVariationsSetupComplete() {
+  // Persistent histograms must be enabled ASAP, but depends on Features.
   base::FilePath metrics_dir;
   if (base::PathService::Get(base::DIR_ANDROID_APP_DATA, &metrics_dir)) {
     InstantiatePersistentHistograms(metrics_dir);

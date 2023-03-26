@@ -1,4 +1,4 @@
-// Copyright 2020 The Crashpad Authors. All rights reserved.
+// Copyright 2020 The Crashpad Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -66,6 +66,13 @@ using Key = IntermediateDumpKey;
 
 ExceptionSnapshotIOSIntermediateDump::ExceptionSnapshotIOSIntermediateDump()
     : ExceptionSnapshot(),
+#if defined(ARCH_CPU_X86_64)
+      context_x86_64_(),
+#elif defined(ARCH_CPU_ARM64)
+      context_arm64_(),
+#else
+#error Port to your CPU architecture
+#endif
       context_(),
       codes_(),
       thread_id_(0),
@@ -168,18 +175,21 @@ bool ExceptionSnapshotIOSIntermediateDump::InitializeFromMachException(
     const std::vector<uint8_t>& bytes = code_dump->bytes();
     const mach_exception_data_type_t* code =
         reinterpret_cast<const mach_exception_data_type_t*>(bytes.data());
-    if (bytes.size() == 0 || !code) {
+    if (bytes.size() == 0 ||
+        bytes.size() % sizeof(mach_exception_data_type_t) != 0 || !code) {
       LOG(ERROR) << "Invalid mach exception code.";
     } else {
-      // TODO: rationalize with the macOS implementation.
       mach_msg_type_number_t code_count =
           bytes.size() / sizeof(mach_exception_data_type_t);
       for (mach_msg_type_number_t code_index = 0; code_index < code_count;
            ++code_index) {
         codes_.push_back(code[code_index]);
       }
+      DCHECK_GE(code_count, 1u);
       exception_info_ = code[0];
-      exception_address_ = code[1];
+      if (code_count >= 2) {
+        exception_address_ = code[1];
+      }
     }
   }
 
@@ -379,11 +389,9 @@ void ExceptionSnapshotIOSIntermediateDump::
   }
 
 #if defined(ARCH_CPU_X86_64)
-  context_x86_64_ = {};
   context_x86_64_.rip = frames[0];  // instruction pointer
   context_x86_64_.rsp = frames[1];
 #elif defined(ARCH_CPU_ARM64)
-  context_arm64_ = {};
   context_arm64_.sp = 0;
   context_arm64_.pc = frames[0];
   context_arm64_.regs[30] = frames[1];  // link register

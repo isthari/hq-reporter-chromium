@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,8 +32,9 @@ ServiceWorkerRegistrationWaiter::~ServiceWorkerRegistrationWaiter() {
     service_worker_context_->RemoveObserver(this);
 }
 
-void ServiceWorkerRegistrationWaiter::AwaitRegistration() {
-  run_loop_.Run();
+void ServiceWorkerRegistrationWaiter::AwaitRegistration(
+    const base::Location& location) {
+  run_loop_.Run(location);
 }
 
 void ServiceWorkerRegistrationWaiter::OnRegistrationCompleted(

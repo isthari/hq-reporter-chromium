@@ -1,10 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/accessibility/ax_action_handler_registry.h"
 
 #include "base/no_destructor.h"
+#include "base/observer_list.h"
 #include "base/strings/string_number_conversions.h"
 #include "ui/accessibility/ax_action_handler_base.h"
 
@@ -98,6 +99,9 @@ void AXActionHandlerRegistry::RemoveAXTreeID(AXTreeID ax_tree_id) {
   auto action_it = id_to_action_handler_.find(ax_tree_id);
   if (action_it != id_to_action_handler_.end())
     id_to_action_handler_.erase(action_it);
+
+  for (AXActionHandlerObserver& observer : observers_)
+    observer.TreeRemoved(ax_tree_id);
 }
 
 AXActionHandlerRegistry::AXActionHandlerRegistry() {}

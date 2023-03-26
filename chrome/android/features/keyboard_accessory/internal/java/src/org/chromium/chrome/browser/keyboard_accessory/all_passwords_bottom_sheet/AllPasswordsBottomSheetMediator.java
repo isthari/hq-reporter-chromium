@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -92,9 +92,9 @@ class AllPasswordsBottomSheetMediator {
                             .contains(searchQuery.toLowerCase(Locale.getDefault()));
     }
 
-    void onCredentialSelected(Credential credential) {
+    void onCredentialSelected(CredentialFillRequest credentialFillRequest) {
         mModel.set(VISIBLE, false);
-        mDelegate.onCredentialSelected(credential);
+        mDelegate.onCredentialSelected(credentialFillRequest);
     }
 
     void onDismissed(@StateChangeReason Integer reason) {

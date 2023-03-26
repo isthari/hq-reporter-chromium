@@ -1,25 +1,25 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/sync/ios_chrome_synced_tab_delegate.h"
+#import "ios/chrome/browser/sync/ios_chrome_synced_tab_delegate.h"
 
-#include "base/memory/ref_counted.h"
-#include "components/sessions/ios/ios_serialized_navigation_builder.h"
-#include "components/sync_sessions/sync_sessions_client.h"
-#include "components/sync_sessions/synced_window_delegate.h"
-#include "components/sync_sessions/synced_window_delegates_getter.h"
-#include "components/sync_sessions/tab_node_pool.h"
+#import "base/memory/ref_counted.h"
+#import "components/sessions/ios/ios_serialized_navigation_builder.h"
+#import "components/sync_sessions/sync_sessions_client.h"
+#import "components/sync_sessions/synced_window_delegate.h"
+#import "components/sync_sessions/synced_window_delegates_getter.h"
+#import "components/sync_sessions/tab_node_pool.h"
 #import "ios/chrome/browser/complex_tasks/ios_task_tab_helper.h"
-#include "ios/chrome/browser/sessions/ios_chrome_session_tab_helper.h"
-#include "ios/web/public/favicon/favicon_status.h"
-#include "ios/web/public/navigation/navigation_item.h"
+#import "ios/chrome/browser/sessions/ios_chrome_session_tab_helper.h"
+#import "ios/web/public/favicon/favicon_status.h"
+#import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
-#include "ios/web/public/session/crw_navigation_item_storage.h"
+#import "ios/web/public/session/crw_navigation_item_storage.h"
 #import "ios/web/public/session/crw_session_storage.h"
 #import "ios/web/public/web_client.h"
 #import "ios/web/public/web_state.h"
-#include "ui/base/page_transition_types.h"
+#import "ui/base/page_transition_types.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -68,7 +68,7 @@ bool IOSChromeSyncedTabDelegate::IsInitialBlankNavigation() const {
   if (GetSessionStorageIfNeeded()) {
     return session_storage_.itemStorages.count == 0;
   }
-  return web_state_->GetNavigationManager()->GetItemCount() == 0;
+  return web_state_->GetNavigationItemCount() == 0;
 }
 
 int IOSChromeSyncedTabDelegate::GetCurrentEntryIndex() const {
@@ -95,7 +95,7 @@ int IOSChromeSyncedTabDelegate::GetEntryCount() const {
   if (GetSessionStorageIfNeeded()) {
     return static_cast<int>(session_storage_.itemStorages.count);
   }
-  return web_state_->GetNavigationManager()->GetItemCount();
+  return web_state_->GetNavigationItemCount();
 }
 
 GURL IOSChromeSyncedTabDelegate::GetVirtualURLAtIndex(int i) const {
@@ -109,33 +109,6 @@ GURL IOSChromeSyncedTabDelegate::GetVirtualURLAtIndex(int i) const {
   }
   NavigationItem* item = GetPossiblyPendingItemAtIndex(web_state_, i);
   return item ? item->GetVirtualURL() : GURL();
-}
-
-GURL IOSChromeSyncedTabDelegate::GetFaviconURLAtIndex(int i) const {
-  if (GetSessionStorageIfNeeded()) {
-    DCHECK_GE(i, 0);
-    return GURL();
-  }
-  NavigationItem* item = GetPossiblyPendingItemAtIndex(web_state_, i);
-  if (!item) {
-    return GURL();
-  }
-
-  const web::FaviconStatus& favicon_status = item->GetFaviconStatus();
-  return favicon_status.valid ? favicon_status.url : GURL();
-}
-
-ui::PageTransition IOSChromeSyncedTabDelegate::GetTransitionAtIndex(
-    int i) const {
-  if (GetSessionStorageIfNeeded()) {
-    DCHECK_GE(i, 0);
-    return ui::PAGE_TRANSITION_LINK;
-  }
-  NavigationItem* item = GetPossiblyPendingItemAtIndex(web_state_, i);
-  // If no item exists, there's no coherent PageTransition to be supplied.
-  // There's also no ui::PAGE_TRANSITION_UNKNOWN, so let's use the default,
-  // which is PAGE_TRANSITION_LINK.
-  return item ? item->GetTransitionType() : ui::PAGE_TRANSITION_LINK;
 }
 
 std::string IOSChromeSyncedTabDelegate::GetPageLanguageAtIndex(int i) const {
@@ -239,10 +212,18 @@ const IOSTaskTabHelper* IOSChromeSyncedTabDelegate::ios_task_tab_helper()
 }
 
 bool IOSChromeSyncedTabDelegate::GetSessionStorageIfNeeded() const {
+  // Unrealized web states should always use session storage, regardless of
+  // navigation items.
+  if (!web_state_->IsRealized()) {
+    if (!session_storage_) {
+      session_storage_ = web_state_->BuildSessionStorage();
+    }
+    return true;
+  }
+
   // With slim navigation, the navigation manager is only restored when the tab
   // is displayed. Before restoration, the session storage must be used.
   bool should_use_storage =
-      !web_state_->IsRealized() ||
       web_state_->GetNavigationManager()->IsRestoreSessionInProgress();
   bool storage_has_navigation_items = false;
   if (should_use_storage) {

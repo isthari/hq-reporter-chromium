@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,9 +16,9 @@
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/wallpaper/wallpaper_controller_impl.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/time/time.h"
-#include "chromeos/system/devicemode.h"
+#include "chromeos/ash/components/system/devicemode.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/display/display_layout.h"
 #include "ui/display/manager/display_manager.h"

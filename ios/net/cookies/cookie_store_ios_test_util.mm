@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,12 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
+#import "base/task/sequenced_task_runner.h"
+#import "base/task/single_thread_task_runner.h"
 #include "base/test/test_simple_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #import "ios/net/cookies/cookie_store_ios.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/cookies/cookie_options.h"
@@ -49,6 +50,7 @@ void TestPersistentCookieStore::RunLoadedCallback() {
           base::Time(),  // creation
           base::Time(),  // expires
           base::Time(),  // last accessed
+          base::Time(),  // last updated
           false,         // secure
           false,         // httponly
           net::CookieSameSite::NO_RESTRICTION, net::COOKIE_PRIORITY_DEFAULT,
@@ -101,7 +103,7 @@ TestCookieStoreIOSClient::TestCookieStoreIOSClient() {}
 
 scoped_refptr<base::SequencedTaskRunner>
 TestCookieStoreIOSClient::GetTaskRunner() const {
-  return base::ThreadTaskRunnerHandle::Get();
+  return base::SingleThreadTaskRunner::GetCurrentDefault();
 }
 
 #pragma mark -

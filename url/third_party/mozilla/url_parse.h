@@ -1,9 +1,11 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef URL_THIRD_PARTY_MOZILLA_URL_PARSE_H_
 #define URL_THIRD_PARTY_MOZILLA_URL_PARSE_H_
+
+#include <iosfwd>
 
 #include "base/component_export.h"
 
@@ -22,17 +24,14 @@ struct Component {
     return begin + len;
   }
 
-  // Returns true if this component is valid, meaning the length is given. Even
-  // valid components may be empty to record the fact that they exist.
-  bool is_valid() const {
-    return (len != -1);
-  }
+  // Returns true if this component is valid, meaning the length is given.
+  // Valid components may be empty to record the fact that they exist.
+  bool is_valid() const { return len >= 0; }
 
-  // Returns true if the given component is specified on false, the component
-  // is either empty or invalid.
-  bool is_nonempty() const {
-    return (len > 0);
-  }
+  // Determine if the component is empty or not. Empty means the length is
+  // zero or the component is invalid.
+  bool is_empty() const { return len <= 0; }
+  bool is_nonempty() const { return len > 0; }
 
   void reset() {
     begin = 0;
@@ -46,6 +45,10 @@ struct Component {
   int begin;  // Byte offset in the string of this component.
   int len;    // Will be -1 if the component is unspecified.
 };
+
+// Permit printing Components by CHECK macros.
+COMPONENT_EXPORT(URL)
+std::ostream& operator<<(std::ostream& os, const Component& component);
 
 // Helper that returns a component created with the given begin and ending
 // points. The ending point is non-inclusive.

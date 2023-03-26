@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,7 @@ import androidx.annotation.MainThread;
 
 /**
  * A BackgroundTaskScheduler is used to schedule jobs that run in the background.
- * It is backed by system APIs ({@link android.app.job.JobScheduler}) on newer platforms
- * and by GCM ({@link com.google.android.gms.gcm.GcmNetworkManager}) on older platforms.
+ * It is backed by the system API ({@link android.app.job.JobScheduler}).
  *
  * To get an instance of this class, use {@link BackgroundTaskSchedulerFactory#getScheduler()}.
  */
@@ -47,14 +46,11 @@ public interface BackgroundTaskScheduler {
     boolean isScheduled(Context context, int taskId);
 
     /**
-     * Checks whether OS was upgraded and triggers rescheduling if it is necessary.
-     * Rescheduling is necessary if type of background task scheduler delegate is different for a
-     * new version of the OS.
-     *
-     * @param context the current context.
+     * Performs data migrations and flushes cached UMA data. Must not be invoked until native has
+     * been loaded.
      */
     @MainThread
-    void checkForOSUpgrade(Context context);
+    void doMaintenance();
 
     /**
      * Reschedules all the tasks currently scheduler through BackgroundTaskSheduler.

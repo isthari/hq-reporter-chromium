@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/password_manager/core/browser/password_session_durations_metrics_recorder.h"
 
 #include "base/metrics/histogram_functions.h"
+#include "base/time/time.h"
 #include "components/password_manager/core/browser/password_manager_features_util.h"
 
 namespace password_manager {

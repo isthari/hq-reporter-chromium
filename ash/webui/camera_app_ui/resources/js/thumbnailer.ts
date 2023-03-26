@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@ import {WaitableEvent} from './waitable_event.js';
 
 /**
  * Converts the element to a jpeg blob by drawing it on a canvas.
+ *
  * @param element Source element.
  * @param width Canvas width.
  * @param height Canvas height.
@@ -27,7 +28,7 @@ async function elementToJpegBlob(
   const {canvas, ctx} = newDrawingCanvas({width, height});
   ctx.drawImage(element, 0, 0, width, height);
 
-  /** A one-dimensional pixels array in RGBA order. */
+  /* A one-dimensional pixels array in RGBA order. */
   const data = ctx.getImageData(0, 0, width, height).data;
   if (data.every((byte) => byte === 0)) {
     throw new EmptyThumbnailError();
@@ -38,6 +39,7 @@ async function elementToJpegBlob(
 
 /**
  * Loads the blob into a <video> element.
+ *
  * @throws Thrown when it fails to load video.
  */
 async function loadVideoBlob(blob: Blob): Promise<HTMLVideoElement> {
@@ -51,8 +53,19 @@ async function loadVideoBlob(blob: Blob): Promise<HTMLVideoElement> {
       hasLoaded.signal(true);
     });
     const gotFrame = new WaitableEvent();
-    el.requestVideoFrameCallback(() => gotFrame.signal());
+    el.requestVideoFrameCallback(() => {
+      gotFrame.signal();
+    });
+    // Since callbacks registered in `requestVideoFrameCallback` doesn't fire
+    // when the page is in the background, use `timeupdate` event to indicate
+    // that the video has been played successfully. Note that waiting until
+    // `canplay` is not enough (see b/172214187).
+    el.addEventListener('timeupdate', () => {
+      gotFrame.signal();
+    }, {once: true});
+
     el.preload = 'auto';
+    el.muted = true;
     el.src = URL.createObjectURL(blob);
     if (!(await hasLoaded.wait())) {
       throw new LoadError(el.error?.message);
@@ -65,9 +78,8 @@ async function loadVideoBlob(blob: Blob): Promise<HTMLVideoElement> {
     }
 
     try {
-      // The |requestVideoFrameCallback| may not be triggered when playing
-      // malformed video. Set 1 second timeout here to prevent UI be blocked
-      // forever.
+      // `gotFrame` may not resolve when playing malformed video. Set 1 second
+      // timeout here to prevent UI from being blocked forever.
       await gotFrame.timedWait(1000);
     } catch (e) {
       throw new PlayMalformedError(assertInstanceof(e, Error).message);
@@ -103,6 +115,7 @@ async function loadImageBlob(blob: Blob): Promise<HTMLImageElement> {
 
 /**
  * Creates a thumbnail of video by scaling the first frame to the target size.
+ *
  * @param blob Blob of video to be scaled.
  * @param width Target width.
  * @param height Target height. Preserve the aspect ratio if not set.
@@ -119,6 +132,7 @@ async function scaleVideo(
 
 /**
  * Creates a thumbnail of image by scaling it to the target size.
+ *
  * @param blob Blob of image to be scaled.
  * @param width Target width.
  * @param height Target height. Preserve the aspect ratio if not set.
@@ -145,6 +159,7 @@ class NoImageInPdfError extends Error {
 
 /**
  * Gets image embedded in a PDF.
+ *
  * @param blob Blob of PDF.
  * @return Promise resolved to image blob inside PDF.
  */
@@ -155,10 +170,11 @@ async function getImageFromPdf(blob: Blob): Promise<Blob> {
   /**
    * Finds |patterns| in view starting from |i| and moves |i| to end of found
    * pattern index.
+   *
    * @return Returns begin of found pattern index or -1 for no further pattern
    *     is found.
    */
-  const findPattern = (...patterns: number[]): number => {
+  function findPattern(...patterns: number[]): number {
     for (; i + patterns.length < view.length; i++) {
       if (patterns.every((b, index) => b === view[i + index])) {
         const ret = i;
@@ -167,7 +183,7 @@ async function getImageFromPdf(blob: Blob): Promise<Blob> {
       }
     }
     return -1;
-  };
+  }
   // Parse object contains /Subtype /Image name and field from pdf format:
   // <</Name1 /Field1... \n/Name2... >>...<<...>>
   // The jpeg stream will follow the target object with length in field of
@@ -194,11 +210,13 @@ async function getImageFromPdf(blob: Blob): Promise<Blob> {
         case '/Length':
           length = Number(field);
           break;
+        default:
+          // nothing to do.
       }
     }
     if (isImage) {
       i += ' stream\n'.length;
-      return new Blob([buf.slice(i, i + length)]);
+      return new Blob([buf.slice(i, i + length)], {type: 'image/jpeg'});
     }
   }
   throw new NoImageInPdfError();
@@ -222,6 +240,7 @@ const VIDEO_COVER_WIDTH = 240;
 
 /**
  * Extracts image blob from an arbitrary type of blob.
+ *
  * @return Resolved to the image blob.
  */
 export async function extractImageFromBlob(blob: Blob): Promise<Blob> {

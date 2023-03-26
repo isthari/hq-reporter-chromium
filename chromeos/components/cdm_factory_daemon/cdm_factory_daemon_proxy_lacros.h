@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 
 #include "chromeos/components/cdm_factory_daemon/cdm_factory_daemon_proxy.h"
 
-#include "base/callback_forward.h"
 #include "base/component_export.h"
+#include "base/functional/callback_forward.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 
 namespace chromeos {
@@ -39,6 +39,9 @@ class COMPONENT_EXPORT(CDM_FACTORY_DAEMON) CdmFactoryDaemonProxyLacros
   void GetOutputProtection(mojo::PendingReceiver<cdm::mojom::OutputProtection>
                                output_protection) override;
   void GetScreenResolutions(GetScreenResolutionsCallback callback) override;
+  void GetAndroidHwKeyData(const std::vector<uint8_t>& key_id,
+                           const std::vector<uint8_t>& hw_identifier,
+                           GetAndroidHwKeyDataCallback callback) override;
 
  private:
   void EstablishAshConnection(base::OnceClosure callback);

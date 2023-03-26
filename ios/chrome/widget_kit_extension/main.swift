@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,10 +36,21 @@ struct SimpleEntry: TimelineEntry {
 
 @main
 struct ChromeWidgets: WidgetBundle {
+  init() {
+    CrashHelper.configure()
+  }
   @WidgetBundleBuilder
   var body: some Widget {
     QuickActionsWidget()
     SearchWidget()
     DinoGameWidget()
+    #if IOS_ENABLE_LOCKSCREEN_EXTENSION
+      #if IOS_AVAILABLE_LOCKSCREEN_EXTENSION
+        LockscreenLauncherSearchWidget()
+        LockscreenLauncherIncognitoWidget()
+        LockscreenLauncherVoiceSearchWidget()
+        LockscreenLauncherGameWidget()
+      #endif
+    #endif
   }
 }

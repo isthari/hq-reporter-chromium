@@ -1,13 +1,15 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "components/omnibox/browser/omnibox_view.h"
+
 #include <stddef.h>
+
 #include <string>
 #include <utility>
 
-#include "base/callback_helpers.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
@@ -16,10 +18,9 @@
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/test/test_bookmark_client.h"
 #include "components/omnibox/browser/autocomplete_match.h"
-#include "components/omnibox/browser/omnibox_view.h"
 #include "components/omnibox/browser/test_omnibox_client.h"
-#include "components/omnibox/browser/test_omnibox_edit_controller.h"
 #include "components/omnibox/browser/test_omnibox_edit_model.h"
+#include "components/omnibox/browser/test_omnibox_edit_model_delegate.h"
 #include "components/omnibox/browser/test_omnibox_view.h"
 #include "components/omnibox/common/omnibox_features.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -38,10 +39,10 @@ namespace {
 class OmniboxViewTest : public testing::Test {
  public:
   OmniboxViewTest() {
-    controller_ = std::make_unique<TestOmniboxEditController>();
-    view_ = std::make_unique<TestOmniboxView>(controller_.get());
+    edit_model_delegate_ = std::make_unique<TestOmniboxEditModelDelegate>();
+    view_ = std::make_unique<TestOmniboxView>(edit_model_delegate_.get());
     view_->SetModel(std::make_unique<TestOmniboxEditModel>(
-        view_.get(), controller_.get(), nullptr));
+        view_.get(), edit_model_delegate_.get(), nullptr));
 
     bookmark_model_ = bookmarks::TestBookmarkClient::CreateModel();
     client()->SetBookmarkModel(bookmark_model_.get());
@@ -61,7 +62,7 @@ class OmniboxViewTest : public testing::Test {
 
  private:
   base::test::TaskEnvironment task_environment_;
-  std::unique_ptr<TestOmniboxEditController> controller_;
+  std::unique_ptr<TestOmniboxEditModelDelegate> edit_model_delegate_;
   std::unique_ptr<TestOmniboxView> view_;
   std::unique_ptr<bookmarks::BookmarkModel> bookmark_model_;
 };
@@ -97,7 +98,7 @@ TEST_F(OmniboxViewTest, TestStripSchemasUnsafeForPaste) {
       "alert(5)"   // Embedded control characters unsafe.
   };
 
-  for (size_t i = 0; i < base::size(urls); i++) {
+  for (size_t i = 0; i < std::size(urls); i++) {
     EXPECT_EQ(ASCIIToUTF16(expecteds[i]),
               OmniboxView::StripJavascriptSchemas(base::UTF8ToUTF16(urls[i])));
   }
@@ -170,7 +171,8 @@ TEST_F(OmniboxViewTest, GetIcon_Default) {
       vector_icons::kSearchIcon, gfx::kPlaceholderColor, gfx::kFaviconSize);
 
   ui::ImageModel icon = view()->GetIcon(
-      gfx::kFaviconSize, gfx::kPlaceholderColor, base::DoNothing());
+      gfx::kFaviconSize, gfx::kPlaceholderColor, gfx::kPlaceholderColor,
+      gfx::kPlaceholderColor, base::DoNothing());
 
   EXPECT_EQ(expected_icon, icon);
 }
@@ -190,7 +192,8 @@ TEST_F(OmniboxViewTest, GetIcon_BookmarkIcon) {
       omnibox::kBookmarkIcon, gfx::kPlaceholderColor, gfx::kFaviconSize);
 
   ui::ImageModel icon = view()->GetIcon(
-      gfx::kFaviconSize, gfx::kPlaceholderColor, base::DoNothing());
+      gfx::kFaviconSize, gfx::kPlaceholderColor, gfx::kPlaceholderColor,
+      gfx::kPlaceholderColor, base::DoNothing());
 
   EXPECT_EQ(expected_icon, icon);
 }
@@ -204,7 +207,9 @@ TEST_F(OmniboxViewTest, GetIcon_Favicon) {
   match.destination_url = kUrl;
   model()->SetCurrentMatchForTest(match);
 
-  view()->GetIcon(gfx::kFaviconSize, gfx::kPlaceholderColor, base::DoNothing());
+  view()->GetIcon(gfx::kFaviconSize, gfx::kPlaceholderColor,
+                  gfx::kPlaceholderColor, gfx::kPlaceholderColor,
+                  base::DoNothing());
 
   EXPECT_EQ(client()->GetPageUrlForLastFaviconRequest(), kUrl);
 }

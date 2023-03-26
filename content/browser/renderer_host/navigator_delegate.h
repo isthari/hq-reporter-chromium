@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "content/common/navigation_client.mojom.h"
 #include "content/public/browser/allow_service_worker_result.h"
+#include "content/public/browser/commit_deferring_condition.h"
 #include "content/public/browser/cookie_access_details.h"
 #include "content/public/browser/invalidate_type.h"
 #include "content/public/browser/navigation_controller.h"
@@ -51,11 +52,6 @@ class NavigatorDelegate {
   // TODO(clamy): all methods below that are related to navigation
   // events should go away in favor of the ones above.
 
-  // Document load in |render_frame_host| failed.
-  virtual void DidFailLoadWithError(RenderFrameHostImpl* render_frame_host,
-                                    const GURL& url,
-                                    int error_code) = 0;
-
   // Handles post-navigation tasks in navigation BEFORE the entry has been
   // committed to the NavigationController.
   virtual void DidNavigateMainFramePreCommit(
@@ -85,7 +81,7 @@ class NavigatorDelegate {
   // Returns whether to continue a navigation that needs to transfer to a
   // different process between the load start and commit.
   virtual bool ShouldAllowRendererInitiatedCrossProcessNavigation(
-      bool is_main_frame_navigation) = 0;
+      bool is_outermost_main_frame_navigation) = 0;
 
   // Returns the overridden user agent string if it's set.
   virtual const blink::UserAgentOverride& GetUserAgentOverride() = 0;
@@ -103,7 +99,8 @@ class NavigatorDelegate {
   // Returns commit deferring conditions to add to this navigation.
   virtual std::vector<std::unique_ptr<CommitDeferringCondition>>
   CreateDeferringConditionsForNavigationCommit(
-      NavigationHandle& navigation_handle) = 0;
+      NavigationHandle& navigation_handle,
+      CommitDeferringCondition::NavigationType type) = 0;
 
   // Called at the start of the navigation to get opaque data the embedder
   // wants to see passed to the corresponding URLRequest on the IO thread.
@@ -128,16 +125,9 @@ class NavigatorDelegate {
   // BrowsingInstances. |navigation_request_to_exclude| allows the
   // NavigationRequest that initiates this process to avoid marking itself as
   // non-opted-in before it gets the chance to opt-in.
-  virtual void RegisterExistingOriginToPreventOptInIsolation(
+  virtual void RegisterExistingOriginAsHavingDefaultIsolation(
       const url::Origin& origin,
       NavigationRequest* navigation_request_to_exclude) = 0;
-
-  // Returns true if activation navigations are disallowed in the
-  // Navigator.
-  // TODO(https://crbug.com/1234857): Remove this. This is a temporary
-  // workaround to avoid breaking features that must be taught to deal with
-  // activation navigations.
-  virtual bool IsActivationNavigationDisallowedForBug1234857() = 0;
 };
 
 }  // namespace content

@@ -1,13 +1,15 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_tile_view.h"
 
+#import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_tile_layout_util.h"
+#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_feature.h"
 #import "ios/chrome/browser/ui/util/dynamic_type_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
-#include "ios/chrome/common/ui/util/dynamic_type_util.h"
+#import "ios/chrome/common/ui/util/dynamic_type_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -18,7 +20,12 @@ namespace {
 const NSInteger kLabelNumLines = 2;
 const CGFloat kSpaceIconTitle = 10;
 const CGFloat kIconSize = 56;
-const CGFloat kPreferredMaxWidth = 73;
+// Standard width of tiles.
+const CGFloat kPreferredMaxWidth = 74;
+// Non-standard width of tiles. (Used only when the Content Suggestions UI
+// Module Refresh feature is enabled.)
+const CGFloat kModulePreferredMaxWidth = 74;
+const CGFloat kModulePreferredMaxWidthWide = 83;
 
 }  // namespace
 
@@ -31,16 +38,28 @@ const CGFloat kPreferredMaxWidth = 73;
 
 @implementation ContentSuggestionsTileView
 
-- (instancetype)initWithFrame:(CGRect)frame {
+- (instancetype)initWithFrame:(CGRect)frame placeholder:(BOOL)isPlaceholder {
   self = [super initWithFrame:frame];
   if (self) {
     _titleLabel = [[UILabel alloc] init];
     _titleLabel.textColor = [UIColor colorNamed:kTextSecondaryColor];
     _titleLabel.font = [self titleLabelFont];
     _titleLabel.textAlignment = NSTextAlignmentCenter;
-    _titleLabel.preferredMaxLayoutWidth = kPreferredMaxWidth;
-    _titleLabel.numberOfLines = kLabelNumLines;
 
+    if (IsContentSuggestionsUIModuleRefreshEnabled()) {
+      // Since modules are given more horizontal space on iPad, allow for more
+      // estimated width for the label to calculate content size.
+      CGFloat modulePreferredWidth = self.traitCollection.horizontalSizeClass ==
+                                             UIUserInterfaceSizeClassRegular
+                                         ? kModulePreferredMaxWidthWide
+                                         : kModulePreferredMaxWidth;
+
+      _titleLabel.preferredMaxLayoutWidth = modulePreferredWidth;
+    } else {
+      _titleLabel.preferredMaxLayoutWidth = kPreferredMaxWidth;
+    }
+
+    _titleLabel.numberOfLines = kLabelNumLines;
     _imageContainerView = [[UIView alloc] init];
     _titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
     _imageContainerView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -68,10 +87,21 @@ const CGFloat kPreferredMaxWidth = 73;
     AddSameCenterConstraints(_imageContainerView, backgroundView);
     UIView* containerView = backgroundView;
 
-    ApplyVisualConstraintsWithMetrics(
-        @[ @"V:|[container]-(space)-[title]|", @"H:|[title]|" ],
-        @{@"container" : containerView, @"title" : _titleLabel},
-        @{@"space" : @(kSpaceIconTitle)});
+    if (IsContentSuggestionsUIModuleRefreshEnabled() && isPlaceholder) {
+      ApplyVisualConstraintsWithMetrics(
+          @[ @"V:|[container]-(space)-[title]-(>=0)-|" ],
+          @{@"container" : containerView, @"title" : _titleLabel},
+          @{@"space" : @(kSpaceIconTitle)});
+      [NSLayoutConstraint activateConstraints:@[
+        [_titleLabel.widthAnchor constraintEqualToConstant:kIconSize],
+        [_titleLabel.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
+      ]];
+    } else {
+      ApplyVisualConstraintsWithMetrics(
+          @[ @"V:|[container]-(space)-[title]|", @"H:|[title]|" ],
+          @{@"container" : containerView, @"title" : _titleLabel},
+          @{@"space" : @(kSpaceIconTitle)});
+    }
 
     _imageBackgroundView = backgroundView;
 
@@ -88,10 +118,14 @@ const CGFloat kPreferredMaxWidth = 73;
 
 // Returns the font size for the location label.
 - (UIFont*)titleLabelFont {
-  return PreferredFontForTextStyleWithMaxCategory(
-      UIFontTextStyleCaption1,
-      self.traitCollection.preferredContentSizeCategory,
-      UIContentSizeCategoryAccessibilityLarge);
+  if (IsContentSuggestionsUIModuleRefreshEnabled()) {
+    return [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
+  } else {
+    return PreferredFontForTextStyleWithMaxCategory(
+        UIFontTextStyleCaption1,
+        self.traitCollection.preferredContentSizeCategory,
+        UIContentSizeCategoryAccessibilityLarge);
+  }
 }
 
 #pragma mark - UIView

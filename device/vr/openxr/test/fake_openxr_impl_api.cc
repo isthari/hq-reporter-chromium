@@ -1,11 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <wrl.h>
 
 #include "base/containers/contains.h"
-#include "base/cxx17_backports.h"
 #include "device/vr/openxr/openxr_util.h"
 #include "device/vr/openxr/test/openxr_negotiate.h"
 #include "device/vr/openxr/test/openxr_test_helper.h"
@@ -478,7 +477,7 @@ XrResult xrEnumerateInstanceExtensionProperties(
   for (uint32_t i = 0; i < OpenXrTestHelper::kNumExtensionsSupported; i++) {
     properties[i].type = XR_TYPE_EXTENSION_PROPERTIES;
     errno_t error = strcpy_s(properties[i].extensionName,
-                             base::size(properties[i].extensionName),
+                             std::size(properties[i].extensionName),
                              OpenXrTestHelper::kExtensions[i]);
     DCHECK(error == 0);
     properties[i].extensionVersion = 1;

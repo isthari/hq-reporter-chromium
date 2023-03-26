@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,10 +19,6 @@ namespace base {
 class FilePath;
 }  // namespace base
 
-namespace extensions {
-class EventRouter;
-}  // namespace extensions
-
 namespace ash {
 namespace file_system_provider {
 namespace operations {
@@ -41,7 +37,7 @@ bool ValidateName(const std::string& name, bool root_entry);
 // metadata request. Created per request.
 class GetMetadata : public Operation {
  public:
-  GetMetadata(extensions::EventRouter* event_router,
+  GetMetadata(RequestDispatcher* dispatcher,
               const ProvidedFileSystemInfo& file_system_info,
               const base::FilePath& entry_path,
               ProvidedFileSystemInterface::MetadataFieldMask fields,

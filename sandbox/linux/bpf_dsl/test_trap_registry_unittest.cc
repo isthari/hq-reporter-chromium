@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <stddef.h>
 
-#include "base/cxx17_backports.h"
 #include "base/memory/raw_ptr.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -38,9 +37,9 @@ TEST(TestTrapRegistry, TrapIDs) {
 
   // Add traps twice to test that IDs are reused correctly.
   for (int i = 0; i < 2; ++i) {
-    for (size_t j = 0; j < base::size(funcs); ++j) {
+    for (size_t j = 0; j < std::size(funcs); ++j) {
       // Trap IDs start at 1.
-      EXPECT_EQ(j + 1, traps.Add(funcs[j].fnc, funcs[j].aux, true));
+      EXPECT_EQ(j + 1, traps.Add({funcs[j].fnc, funcs[j].aux, true}));
     }
   }
 }

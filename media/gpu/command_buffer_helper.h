@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef MEDIA_GPU_COMMAND_BUFFER_HELPER_H_
 #define MEDIA_GPU_COMMAND_BUFFER_HELPER_H_
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/ref_counted_delete_on_sequence.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/task/sequenced_task_runner.h"
@@ -32,6 +32,8 @@ class GLImage;
 
 namespace media {
 
+class PictureBufferManagerImpl;
+
 // TODO(sandersd): CommandBufferHelper does not inherently need to be ref
 // counted, but some clients want that (VdaVideoDecoder and PictureBufferManager
 // both hold a ref to the same CommandBufferHelper). Consider making an owned
@@ -51,6 +53,20 @@ class MEDIA_GPU_EXPORT CommandBufferHelper
   CommandBufferHelper(const CommandBufferHelper&) = delete;
   CommandBufferHelper& operator=(const CommandBufferHelper&) = delete;
 
+  // Waits for a SyncToken, then runs |done_cb|.
+  //
+  // |done_cb| may be destructed without running if the stub is destroyed.
+  //
+  // TODO(sandersd): Currently it is possible to lose the stub while
+  // PictureBufferManager is waiting for all picture buffers, which results in a
+  // decoding softlock. Notification of wait failure (or just context/stub lost)
+  // is probably necessary.
+  // TODO(blundell): Consider inlining this method in the one Android caller and
+  // eliminating this class being built on Android altogether.
+  virtual void WaitForSyncToken(gpu::SyncToken sync_token,
+                                base::OnceClosure done_cb) = 0;
+
+#if !BUILDFLAG(IS_ANDROID)
   // Gets the associated GLContext.
   //
   // Used by DXVAVDA to test for D3D11 support, and by V4L2VDA to create
@@ -106,47 +122,31 @@ class MEDIA_GPU_EXPORT CommandBufferHelper
   // Sets the cleared flag on level 0 of the texture.
   virtual void SetCleared(GLuint service_id) = 0;
 
-  // Binds level 0 of the texture to an image.
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+  // Binds level 0 of the texture to an unbound image.
   //
-  // If the sampler binding already exists, set |client_managed| to true.
-  // Otherwise set it to false, and BindTexImage()/CopyTexImage() will be called
-  // when the texture is used.
-  virtual bool BindImage(GLuint service_id,
-                         gl::GLImage* image,
-                         bool client_managed) = 0;
-
-  // Creates a mailbox for a texture.
+  // BindTexImage() will be called when the texture is used.
+  virtual bool BindDecoderManagedImage(GLuint service_id,
+                                       gl::GLImage* image) = 0;
+#else
+  // Binds level 0 of the texture to an image for which the sampler binding
+  // already exists.
   //
-  // TODO(sandersd): Specify the behavior when the stub has been destroyed. The
-  // current implementation returns an empty (zero) mailbox. One solution would
-  // be to add a HasStub() method, and not define behavior when it is false.
-  virtual gpu::Mailbox CreateMailbox(GLuint service_id) = 0;
+  // BindTexImage() will *not* be called when the texture is used.
+  virtual bool BindClientManagedImage(GLuint service_id,
+                                      gl::GLImage* image) = 0;
+#endif
 
-  // Produce a texture into a mailbox.  The context does not have to be current.
-  // However, this will fail if the stub has been destroyed.
-  virtual void ProduceTexture(const gpu::Mailbox& mailbox,
-                              GLuint service_id) = 0;
-
-  // Waits for a SyncToken, then runs |done_cb|.
-  //
-  // |done_cb| may be destructed without running if the stub is destroyed.
-  //
-  // TODO(sandersd): Currently it is possible to lose the stub while
-  // PictureBufferManager is waiting for all picture buffers, which results in a
-  // decoding softlock. Notification of wait failure (or just context/stub lost)
-  // is probably necessary.
-  virtual void WaitForSyncToken(gpu::SyncToken sync_token,
-                                base::OnceClosure done_cb) = 0;
-
-  // Set the callback to be called when our stub is destroyed. This callback
+  // Add a callback to be called when our stub is destroyed. This callback
   // may not change the current context.
-  virtual void SetWillDestroyStubCB(WillDestroyStubCB will_destroy_stub_cb) = 0;
+  virtual void AddWillDestroyStubCB(WillDestroyStubCB callback) = 0;
 
   // Is the backing command buffer passthrough (versus validating).
   virtual bool IsPassthrough() const = 0;
 
   // Does this command buffer support ARB_texture_rectangle.
   virtual bool SupportsTextureRectangle() const = 0;
+#endif
 
  protected:
   explicit CommandBufferHelper(
@@ -158,6 +158,20 @@ class MEDIA_GPU_EXPORT CommandBufferHelper
   virtual ~CommandBufferHelper() = default;
 
  private:
+#if !BUILDFLAG(IS_ANDROID)
+  // Creates a legacy mailbox for a texture.
+  // NOTE: We are in the process of eliminating this method. DO NOT ADD ANY NEW
+  // USAGES - instead, reach out to shared-image-team@ with your use case. See
+  // crbug.com/1273084.
+  //
+  // TODO(sandersd): Specify the behavior when the stub has been destroyed. The
+  // current implementation returns an empty (zero) mailbox. One solution would
+  // be to add a HasStub() method, and not define behavior when it is false.
+  virtual gpu::Mailbox CreateLegacyMailbox(GLuint service_id) = 0;
+
+  friend class PictureBufferManagerImpl;
+#endif
+
   friend class base::DeleteHelper<CommandBufferHelper>;
   friend class base::RefCountedDeleteOnSequence<CommandBufferHelper>;
 };

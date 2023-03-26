@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,6 @@ GEN_INCLUDE(['//chrome/test/data/webui/polymer_interactive_ui_test.js']);
 GEN('#include "chrome/browser/ui/webui/extensions/' +
     'extension_settings_browsertest.h"');
 GEN('#include "content/public/test/browser_test.h"');
-
-/* eslint-disable no-var */
 
 /**
  * Test fixture for interactive Polymer Extensions elements.
@@ -40,7 +38,7 @@ const CrExtensionsInteractiveUITest = class extends PolymerInteractiveUITest {
 var CrExtensionsOptionsPageTest = class extends CrExtensionsInteractiveUITest {
   /** @override */
   get browsePreload() {
-    return 'chrome://extensions/test_loader.html?module=extensions/extension_options_dialog_test.js&host=webui-test';
+    return 'chrome://extensions/test_loader.html?module=extensions/extension_options_dialog_test.js';
   }
 
   /** @override */
@@ -63,7 +61,7 @@ var CrExtensionsShortcutInputTest =
     class extends CrExtensionsInteractiveUITest {
   /** @override */
   get browsePreload() {
-    return 'chrome://extensions/test_loader.html?module=extensions/shortcut_input_test.js&host=webui-test';
+    return 'chrome://extensions/test_loader.html?module=extensions/shortcut_input_test.js';
   }
 
   /** @override */

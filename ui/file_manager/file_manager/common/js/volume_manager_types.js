@@ -1,8 +1,8 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assertNotReached} from 'chrome://resources/js/assert.m.js';
+import {assertNotReached} from 'chrome://resources/ash/common/assert.js';
 
 /**
  * Namespace for common types.
@@ -50,7 +50,14 @@ VolumeManagerCommon.FileSystemTypeVolumeNameLengthLimit = {
 };
 
 /**
- * Type of a root directory.
+ * Type of a navigation root.
+ *
+ * Navigation root are the top-level entries in the navigation tree, in the left
+ * hand side.
+ *
+ * This must be kept synchronised with the VolumeManagerRootType variant in
+ * tools/metrics/histograms/metadata/file/histograms.xml.
+ *
  * @enum {string}
  * @const
  */
@@ -79,10 +86,6 @@ VolumeManagerCommon.RootType = {
   // Root for a provided volume.
   PROVIDED: 'provided',
 
-  // Root for entries that is not located under RootType.DRIVE. e.g. shared
-  // files. Deprecated, applied to pre-drivefs.
-  DEPRECATED_DRIVE_OTHER: 'drive_other',
-
   // Fake root for offline available files on the drive.
   DRIVE_OFFLINE: 'drive_offline',
 
@@ -105,11 +108,11 @@ VolumeManagerCommon.RootType = {
   // 'Offline'.
   DRIVE_FAKE_ROOT: 'drive_fake_root',
 
-  // 'Add new services' menu item.
-  DEPRECATED_ADD_NEW_SERVICES_MENU: 'deprecated_add_new_services_menu',
-
   // Root for crostini 'Linux files'.
   CROSTINI: 'crostini',
+
+  // Root for mountable Guest OSs.
+  GUEST_OS: 'guest_os',
 
   // Root for android files.
   ANDROID_FILES: 'android_files',
@@ -129,15 +132,6 @@ VolumeManagerCommon.RootType = {
   // Root directory of an SMB file share.
   SMB: 'smb',
 
-  // Root directory of recently-modified audio files.
-  RECENT_AUDIO: 'recent_audio',
-
-  // Root directory of recently-modified image files.
-  RECENT_IMAGES: 'recent_images',
-
-  // Root directory of recently-modified video files.
-  RECENT_VIDEOS: 'recent_videos',
-
   // Trash.
   TRASH: 'trash',
 };
@@ -153,39 +147,36 @@ Object.freeze(VolumeManagerCommon.RootType);
  * @const
  */
 VolumeManagerCommon.RootTypesForUMA = [
-  VolumeManagerCommon.RootType.DOWNLOADS,                         // 0
-  VolumeManagerCommon.RootType.ARCHIVE,                           // 1
-  VolumeManagerCommon.RootType.REMOVABLE,                         // 2
-  VolumeManagerCommon.RootType.DRIVE,                             // 3
-  VolumeManagerCommon.RootType.SHARED_DRIVES_GRAND_ROOT,          // 4
-  VolumeManagerCommon.RootType.SHARED_DRIVE,                      // 5
-  VolumeManagerCommon.RootType.MTP,                               // 6
-  VolumeManagerCommon.RootType.PROVIDED,                          // 7
-  VolumeManagerCommon.RootType.DEPRECATED_DRIVE_OTHER,            // 8
-  VolumeManagerCommon.RootType.DRIVE_OFFLINE,                     // 9
-  VolumeManagerCommon.RootType.DRIVE_SHARED_WITH_ME,              // 10
-  VolumeManagerCommon.RootType.DRIVE_RECENT,                      // 11
-  VolumeManagerCommon.RootType.MEDIA_VIEW,                        // 12
-  VolumeManagerCommon.RootType.RECENT,                            // 13
-  VolumeManagerCommon.RootType.DRIVE_FAKE_ROOT,                   // 14
-  VolumeManagerCommon.RootType.DEPRECATED_ADD_NEW_SERVICES_MENU,  // 15
-  VolumeManagerCommon.RootType.CROSTINI,                          // 16
-  VolumeManagerCommon.RootType.ANDROID_FILES,                     // 17
-  VolumeManagerCommon.RootType.MY_FILES,                          // 18
-  VolumeManagerCommon.RootType.COMPUTERS_GRAND_ROOT,              // 19
-  VolumeManagerCommon.RootType.COMPUTER,                          // 20
-  VolumeManagerCommon.RootType.EXTERNAL_MEDIA,                    // 21
-  VolumeManagerCommon.RootType.DOCUMENTS_PROVIDER,                // 22
-  VolumeManagerCommon.RootType.SMB,                               // 23
-  VolumeManagerCommon.RootType.RECENT_AUDIO,                      // 24
-  VolumeManagerCommon.RootType.RECENT_IMAGES,                     // 25
-  VolumeManagerCommon.RootType.RECENT_VIDEOS,                     // 26
-  VolumeManagerCommon.RootType.TRASH,                             // 27
+  VolumeManagerCommon.RootType.DOWNLOADS,                 // 0
+  VolumeManagerCommon.RootType.ARCHIVE,                   // 1
+  VolumeManagerCommon.RootType.REMOVABLE,                 // 2
+  VolumeManagerCommon.RootType.DRIVE,                     // 3
+  VolumeManagerCommon.RootType.SHARED_DRIVES_GRAND_ROOT,  // 4
+  VolumeManagerCommon.RootType.SHARED_DRIVE,              // 5
+  VolumeManagerCommon.RootType.MTP,                       // 6
+  VolumeManagerCommon.RootType.PROVIDED,                  // 7
+  'DEPRECATED_DRIVE_OTHER',                               // 8
+  VolumeManagerCommon.RootType.DRIVE_OFFLINE,             // 9
+  VolumeManagerCommon.RootType.DRIVE_SHARED_WITH_ME,      // 10
+  VolumeManagerCommon.RootType.DRIVE_RECENT,              // 11
+  VolumeManagerCommon.RootType.MEDIA_VIEW,                // 12
+  VolumeManagerCommon.RootType.RECENT,                    // 13
+  VolumeManagerCommon.RootType.DRIVE_FAKE_ROOT,           // 14
+  'DEPRECATED_ADD_NEW_SERVICES_MENU',                     // 15
+  VolumeManagerCommon.RootType.CROSTINI,                  // 16
+  VolumeManagerCommon.RootType.ANDROID_FILES,             // 17
+  VolumeManagerCommon.RootType.MY_FILES,                  // 18
+  VolumeManagerCommon.RootType.COMPUTERS_GRAND_ROOT,      // 19
+  VolumeManagerCommon.RootType.COMPUTER,                  // 20
+  VolumeManagerCommon.RootType.EXTERNAL_MEDIA,            // 21
+  VolumeManagerCommon.RootType.DOCUMENTS_PROVIDER,        // 22
+  VolumeManagerCommon.RootType.SMB,                       // 23
+  'DEPRECATED_RECENT_AUDIO',                              // 24
+  'DEPRECATED_RECENT_IMAGES',                             // 25
+  'DEPRECATED_RECENT_VIDEOS',                             // 26
+  VolumeManagerCommon.RootType.TRASH,                     // 27
+  VolumeManagerCommon.RootType.GUEST_OS,                  // 28
 ];
-console.assert(
-    Object.keys(VolumeManagerCommon.RootType).length ===
-        VolumeManagerCommon.RootTypesForUMA.length,
-    'Members in RootTypesForUMA do not match them in RootTypes.');
 
 /**
  * Error type of VolumeManager.
@@ -197,23 +188,30 @@ VolumeManagerCommon.VolumeError = {
   TIMEOUT: 'timeout',
 
   /* System events */
-  UNKNOWN: 'error_unknown',
-  INTERNAL: 'error_internal',
-  INVALID_ARGUMENT: 'error_invalid_argument',
-  INVALID_PATH: 'error_invalid_path',
-  ALREADY_MOUNTED: 'error_path_already_mounted',
-  PATH_NOT_MOUNTED: 'error_path_not_mounted',
-  DIRECTORY_CREATION_FAILED: 'error_directory_creation_failed',
-  INVALID_MOUNT_OPTIONS: 'error_invalid_mount_options',
-  INVALID_UNMOUNT_OPTIONS: 'error_invalid_unmount_options',
-  INSUFFICIENT_PERMISSIONS: 'error_insufficient_permissions',
-  MOUNT_PROGRAM_NOT_FOUND: 'error_mount_program_not_found',
-  MOUNT_PROGRAM_FAILED: 'error_mount_program_failed',
-  INVALID_DEVICE_PATH: 'error_invalid_device_path',
-  UNKNOWN_FILESYSTEM: 'error_unknown_filesystem',
-  UNSUPPORTED_FILESYSTEM: 'error_unsupported_filesystem',
-  INVALID_ARCHIVE: 'error_invalid_archive',
-  NEED_PASSWORD: 'error_need_password',
+  UNKNOWN_ERROR: chrome.fileManagerPrivate.MountError.UNKNOWN_ERROR,
+  INTERNAL_ERROR: chrome.fileManagerPrivate.MountError.INTERNAL_ERROR,
+  INVALID_ARGUMENT: chrome.fileManagerPrivate.MountError.INVALID_ARGUMENT,
+  INVALID_PATH: chrome.fileManagerPrivate.MountError.INVALID_PATH,
+  PATH_ALREADY_MOUNTED:
+      chrome.fileManagerPrivate.MountError.PATH_ALREADY_MOUNTED,
+  PATH_NOT_MOUNTED: chrome.fileManagerPrivate.MountError.PATH_NOT_MOUNTED,
+  DIRECTORY_CREATION_FAILED:
+      chrome.fileManagerPrivate.MountError.DIRECTORY_CREATION_FAILED,
+  INVALID_MOUNT_OPTIONS:
+      chrome.fileManagerPrivate.MountError.INVALID_MOUNT_OPTIONS,
+  INSUFFICIENT_PERMISSIONS:
+      chrome.fileManagerPrivate.MountError.INSUFFICIENT_PERMISSIONS,
+  MOUNT_PROGRAM_NOT_FOUND:
+      chrome.fileManagerPrivate.MountError.MOUNT_PROGRAM_NOT_FOUND,
+  MOUNT_PROGRAM_FAILED:
+      chrome.fileManagerPrivate.MountError.MOUNT_PROGRAM_FAILED,
+  INVALID_DEVICE_PATH: chrome.fileManagerPrivate.MountError.INVALID_DEVICE_PATH,
+  UNKNOWN_FILESYSTEM: chrome.fileManagerPrivate.MountError.UNKNOWN_FILESYSTEM,
+  UNSUPPORTED_FILESYSTEM:
+      chrome.fileManagerPrivate.MountError.UNSUPPORTED_FILESYSTEM,
+  NEED_PASSWORD: chrome.fileManagerPrivate.MountError.NEED_PASSWORD,
+  CANCELLED: chrome.fileManagerPrivate.MountError.CANCELLED,
+  BUSY: chrome.fileManagerPrivate.MountError.BUSY,
 };
 Object.freeze(VolumeManagerCommon.VolumeError);
 
@@ -232,6 +230,7 @@ VolumeManagerCommon.VolumeType = {
   MEDIA_VIEW: 'media_view',
   DOCUMENTS_PROVIDER: 'documents_provider',
   CROSTINI: 'crostini',
+  GUEST_OS: 'guest_os',
   ANDROID_FILES: 'android_files',
   MY_FILES: 'my_files',
   SMB: 'smb',
@@ -248,7 +247,7 @@ VolumeManagerCommon.Source = {
   FILE: 'file',
   DEVICE: 'device',
   NETWORK: 'network',
-  SYSTEM: 'system'
+  SYSTEM: 'system',
 };
 
 /**
@@ -257,15 +256,16 @@ VolumeManagerCommon.Source = {
  * @param {VolumeManagerCommon.VolumeType} type
  * @return {boolean}
  */
-VolumeManagerCommon.VolumeType.isNative = type => {
+export function isNative(type) {
   return type === VolumeManagerCommon.VolumeType.DOWNLOADS ||
       type === VolumeManagerCommon.VolumeType.DRIVE ||
       type === VolumeManagerCommon.VolumeType.ANDROID_FILES ||
       type === VolumeManagerCommon.VolumeType.CROSTINI ||
+      type === VolumeManagerCommon.VolumeType.GUEST_OS ||
       type === VolumeManagerCommon.VolumeType.REMOVABLE ||
       type === VolumeManagerCommon.VolumeType.ARCHIVE ||
       type === VolumeManagerCommon.VolumeType.SMB;
-};
+}
 
 Object.freeze(VolumeManagerCommon.VolumeType);
 
@@ -285,7 +285,6 @@ VolumeManagerCommon.getVolumeTypeFromRootType = rootType => {
     case VolumeManagerCommon.RootType.DRIVE:
     case VolumeManagerCommon.RootType.SHARED_DRIVES_GRAND_ROOT:
     case VolumeManagerCommon.RootType.SHARED_DRIVE:
-    case VolumeManagerCommon.RootType.DEPRECATED_DRIVE_OTHER:
     case VolumeManagerCommon.RootType.DRIVE_OFFLINE:
     case VolumeManagerCommon.RootType.DRIVE_SHARED_WITH_ME:
     case VolumeManagerCommon.RootType.DRIVE_RECENT:
@@ -304,6 +303,8 @@ VolumeManagerCommon.getVolumeTypeFromRootType = rootType => {
       return VolumeManagerCommon.VolumeType.DOCUMENTS_PROVIDER;
     case VolumeManagerCommon.RootType.CROSTINI:
       return VolumeManagerCommon.VolumeType.CROSTINI;
+    case VolumeManagerCommon.RootType.GUEST_OS:
+      return VolumeManagerCommon.VolumeType.GUEST_OS;
     case VolumeManagerCommon.RootType.ANDROID_FILES:
       return VolumeManagerCommon.VolumeType.ANDROID_FILES;
     case VolumeManagerCommon.RootType.MY_FILES:
@@ -330,6 +331,8 @@ VolumeManagerCommon.getRootTypeFromVolumeType = volumeType => {
       return VolumeManagerCommon.RootType.ARCHIVE;
     case VolumeManagerCommon.VolumeType.CROSTINI:
       return VolumeManagerCommon.RootType.CROSTINI;
+    case VolumeManagerCommon.VolumeType.GUEST_OS:
+      return VolumeManagerCommon.RootType.GUEST_OS;
     case VolumeManagerCommon.VolumeType.DOWNLOADS:
       return VolumeManagerCommon.RootType.DOWNLOADS;
     case VolumeManagerCommon.VolumeType.DRIVE:
@@ -390,6 +393,7 @@ VolumeManagerCommon.MediaViewRootType = {
   IMAGES: 'images_root',
   VIDEOS: 'videos_root',
   AUDIO: 'audio_root',
+  DOCUMENTS: 'documents_root',
 };
 Object.freeze(VolumeManagerCommon.MediaViewRootType);
 
@@ -435,6 +439,14 @@ VolumeManagerCommon.ARCHIVE_OPENED_EVENT_TYPE = 'archive_opened';
 VolumeManagerCommon.PHOTOS_DOCUMENTS_PROVIDER_VOLUME_ID =
     'documents_provider:com.google.android.apps.photos.photoprovider/com.google.android.apps.photos';
 
+/**
+ * ID of the MediaDocumentsProvider. All the files returned by ARC source in
+ * Recents have this ID prefix in their filesystem.
+ * @const {string}
+ */
+VolumeManagerCommon.MEDIA_DOCUMENTS_PROVIDER_ID =
+    'com.android.providers.media.documents';
+
 
 /**
  * Creates an CustomEvent object for changing current directory when an archive
@@ -447,6 +459,19 @@ VolumeManagerCommon.createArchiveOpenedEvent = mountPoint => {
   return new CustomEvent(
       VolumeManagerCommon.ARCHIVE_OPENED_EVENT_TYPE,
       {detail: {mountPoint: mountPoint}});
+};
+
+/**
+ * Checks if a file entry is a Recent entry coming from ARC source.
+ * @param {?Entry} entry
+ * @return {boolean}
+ */
+VolumeManagerCommon.isRecentArcEntry = entry => {
+  if (!entry) {
+    return false;
+  }
+  return entry.filesystem.name.startsWith(
+      VolumeManagerCommon.MEDIA_DOCUMENTS_PROVIDER_ID);
 };
 
 export {VolumeManagerCommon};

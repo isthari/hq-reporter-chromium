@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,11 @@
 #include <map>
 #include <set>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/memory/memory_pressure_listener.h"
-#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner.h"
@@ -56,12 +56,16 @@ class ThumbnailCache : ThumbnailDelegate {
 
   ~ThumbnailCache() override;
 
-  void SetUIResourceProvider(ui::UIResourceProvider* ui_resource_provider);
+  void SetUIResourceProvider(
+      base::WeakPtr<ui::UIResourceProvider> ui_resource_provider);
 
   void AddThumbnailCacheObserver(ThumbnailCacheObserver* observer);
   void RemoveThumbnailCacheObserver(ThumbnailCacheObserver* observer);
 
-  void Put(TabId tab_id, const SkBitmap& bitmap, float thumbnail_scale);
+  void Put(TabId tab_id,
+           const SkBitmap& bitmap,
+           float thumbnail_scale,
+           double jpeg_aspect_ratio);
   void Remove(TabId tab_id);
   Thumbnail* Get(TabId tab_id, bool force_disk_read, bool allow_approximation);
 
@@ -70,6 +74,7 @@ class ThumbnailCache : ThumbnailDelegate {
   void UpdateVisibleIds(const TabIdList& priority, TabId primary_tab_id);
   void DecompressThumbnailFromFile(
       TabId tab_id,
+      double jpeg_aspect_ratio,
       base::OnceCallback<void(bool, const SkBitmap&)> post_decompress_callback);
 
   // Called when resident textures were evicted, which requires paging
@@ -107,17 +112,21 @@ class ThumbnailCache : ThumbnailDelegate {
                                  const gfx::Size& content_size);
   void WriteJpegThumbnailIfNecessary(TabId tab_id,
                                      std::vector<uint8_t> compressed_data);
-  void SaveAsJpeg(TabId tab_id, const SkBitmap& bitmap);
+  void SaveAsJpeg(TabId tab_id,
+                  const SkBitmap& bitmap,
+                  double jpeg_aspect_ratio);
   void ForkToSaveAsJpeg(
       base::OnceCallback<void(bool, const SkBitmap&)> callback,
       int tab_id,
+      double jpeg_aspect_ratio,
       bool result,
       const SkBitmap& bitmap);
 
   void CompressThumbnailIfNecessary(TabId tab_id,
                                     const base::Time& time_stamp,
                                     const SkBitmap& bitmap,
-                                    float scale);
+                                    float scale,
+                                    double jpeg_aspect_ratio);
   void ReadNextThumbnail();
   void MakeSpaceForNewItemIfNecessary(TabId tab_id);
   void RemoveFromReadQueue(TabId tab_id);
@@ -168,8 +177,6 @@ class ThumbnailCache : ThumbnailDelegate {
 
   const scoped_refptr<base::SequencedTaskRunner> file_sequenced_task_runner_;
 
-  const double jpeg_aspect_ratio_;
-
   const size_t compression_queue_max_size_;
   const size_t write_queue_max_size_;
   const bool use_approximation_thumbnail_;
@@ -188,7 +195,7 @@ class ThumbnailCache : ThumbnailDelegate {
   TabIdList visible_ids_;
   TabId primary_tab_id_ = -1;
 
-  raw_ptr<ui::UIResourceProvider> ui_resource_provider_;
+  base::WeakPtr<ui::UIResourceProvider> ui_resource_provider_;
   SEQUENCE_CHECKER(sequence_checker_);
 
   std::unique_ptr<base::MemoryPressureListener> memory_pressure_;

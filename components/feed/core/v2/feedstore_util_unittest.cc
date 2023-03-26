@@ -1,14 +1,17 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/feed/core/v2/feedstore_util.h"
 
 #include <string>
+#include "base/test/gtest_util.h"
 #include "base/test/task_environment.h"
 #include "components/feed/core/v2/config.h"
 #include "components/feed/core/v2/test/test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+using testing::ElementsAreArray;
 
 namespace feedstore {
 namespace {
@@ -65,6 +68,29 @@ TEST(feedstore_util_test, GetNextActionId) {
 
   EXPECT_EQ(feed::LocalActionId(1), GetNextActionId(metadata));
   EXPECT_EQ(feed::LocalActionId(2), GetNextActionId(metadata));
+}
+
+using feed::StreamKind;
+using feed::StreamType;
+TEST(feedstore_util_test, StreamTypeFromId) {
+  StreamType for_you = StreamType(StreamKind::kForYou);
+  StreamType following = StreamType(StreamKind::kFollowing);
+  StreamType single_web_feed = StreamType(StreamKind::kSingleWebFeed);
+  StreamType single_web_feed_a = StreamType(StreamKind::kSingleWebFeed, "A");
+  StreamType unknown = StreamType();
+
+  EXPECT_EQ(StreamKey(for_you), kForYouStreamKey);
+  EXPECT_EQ(StreamKey(following), kFollowStreamKey);
+  EXPECT_DCHECK_DEATH(StreamKey(unknown));
+
+  EXPECT_TRUE(StreamTypeFromId(StreamKey(single_web_feed)).IsSingleWebFeed());
+  EXPECT_TRUE(StreamTypeFromId(StreamKey(single_web_feed_a)).IsSingleWebFeed());
+
+  EXPECT_EQ(StreamTypeFromId(StreamKey(single_web_feed_a)).GetWebFeedId(), "A");
+
+  EXPECT_TRUE(StreamTypeFromId(StreamKey(following)).IsWebFeed());
+  EXPECT_TRUE(StreamTypeFromId(StreamKey(for_you)).IsForYou());
+  EXPECT_EQ(StreamTypeFromId("z"), StreamType());
 }
 
 }  // namespace

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@ import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_as
 import {eventToPromise} from 'chrome://webui-test/test_util.js';
 
 import {TestSiteSettingsPrefsBrowserProxy} from './test_site_settings_prefs_browser_proxy.js';
+import {assertTooltipIsHidden} from './test_util.js';
 // clang-format on
 
 /**
@@ -32,7 +33,7 @@ suite('ChooserExceptionListEntry', function() {
   setup(function() {
     browserProxy = new TestSiteSettingsPrefsBrowserProxy();
     SiteSettingsPrefsBrowserProxyImpl.setInstance(browserProxy);
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     testElement = document.createElement('chooser-exception-list-entry');
     document.body.appendChild(testElement);
   });
@@ -210,10 +211,7 @@ suite('ChooserExceptionListEntry', function() {
 
         // This tooltip is never shown since a common tooltip will be used.
         assertTrue(!!paperTooltip);
-        assertEquals(
-            'none',
-            (paperTooltip!.computedStyleMap().get('display') as
-             {value: string})!.value);
+        assertTooltipIsHidden(paperTooltip);
         assertFalse(paperTooltip!._showing);
 
         const wait = eventToPromise('show-tooltip', document);
@@ -221,16 +219,13 @@ suite('ChooserExceptionListEntry', function() {
             new MouseEvent('mouseenter', {bubbles: true, composed: true}));
         return wait.then(() => {
           assertTrue(paperTooltip!._showing);
-          assertEquals(
-              'none',
-              (paperTooltip!.computedStyleMap().get('display') as
-               {value: string})!.value);
+          assertTooltipIsHidden(paperTooltip);
         });
       });
 
   test(
       'The reset button calls the resetChooserExceptionForSite method',
-      function() {
+      async function() {
         testElement.exception =
             createChooserException(ChooserType.USB_DEVICES, [
               createSiteException('https://foo.com'),
@@ -252,14 +247,12 @@ suite('ChooserExceptionListEntry', function() {
         assertFalse(resetButton.hidden);
 
         resetButton!.click();
-        return browserProxy.whenCalled('resetChooserExceptionForSite')
-            .then(function(args) {
-              // The args should be the chooserType, origin, embeddingOrigin,
-              // and object.
-              assertEquals(ChooserType.USB_DEVICES, args[0]);
-              assertEquals('https://foo.com', args[1]);
-              assertEquals('https://foo.com', args[2]);
-              assertEquals('object', typeof args[3]);
-            });
+        const args =
+            await browserProxy.whenCalled('resetChooserExceptionForSite');
+
+        // The args should be the chooserType, origin, and object.
+        assertEquals(ChooserType.USB_DEVICES, args[0]);
+        assertEquals('https://foo.com', args[1]);
+        assertEquals('object', typeof args[2]);
       });
 });

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,7 @@ namespace signin {
 JniIdentityMutator::JniIdentityMutator(IdentityMutator* identity_mutator)
     : identity_mutator_(identity_mutator) {}
 
-bool JniIdentityMutator::SetPrimaryAccount(
+jint JniIdentityMutator::SetPrimaryAccount(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& primary_account_id,
     jint j_consent_level) {
@@ -35,7 +35,7 @@ bool JniIdentityMutator::SetPrimaryAccount(
       primary_account_mutator->SetPrimaryAccount(
           ConvertFromJavaCoreAccountId(env, primary_account_id),
           static_cast<ConsentLevel>(j_consent_level));
-  return error == PrimaryAccountMutator::PrimaryAccountError::kNoError;
+  return static_cast<jint>(error);
 }
 
 bool JniIdentityMutator::ClearPrimaryAccount(JNIEnv* env,
@@ -45,6 +45,17 @@ bool JniIdentityMutator::ClearPrimaryAccount(JNIEnv* env,
       identity_mutator_->GetPrimaryAccountMutator();
   DCHECK(primary_account_mutator);
   return primary_account_mutator->ClearPrimaryAccount(
+      static_cast<signin_metrics::ProfileSignout>(source_metric),
+      static_cast<signin_metrics::SignoutDelete>(delete_metric));
+}
+
+void JniIdentityMutator::RevokeSyncConsent(JNIEnv* env,
+                                           jint source_metric,
+                                           jint delete_metric) {
+  PrimaryAccountMutator* primary_account_mutator =
+      identity_mutator_->GetPrimaryAccountMutator();
+  DCHECK(primary_account_mutator);
+  return primary_account_mutator->RevokeSyncConsent(
       static_cast<signin_metrics::ProfileSignout>(source_metric),
       static_cast<signin_metrics::SignoutDelete>(delete_metric));
 }

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,9 +20,11 @@ void NativeProfilingHandler::Wire(UberDispatcher* dispatcher) {
   NativeProfiling::Dispatcher::wire(dispatcher, this);
 }
 
-DispatchResponse NativeProfilingHandler::DumpProfilingDataOfAllProcesses() {
-  content::WaitForAllChildrenToDumpProfilingData();
-  return Response::Success();
+void NativeProfilingHandler::DumpProfilingDataOfAllProcesses(
+    std::unique_ptr<DumpProfilingDataOfAllProcessesCallback> callback) {
+  content::AskAllChildrenToDumpProfilingData(
+      base::BindOnce(&DumpProfilingDataOfAllProcessesCallback::sendSuccess,
+                     std::move(callback)));
 }
 
 }  // namespace protocol

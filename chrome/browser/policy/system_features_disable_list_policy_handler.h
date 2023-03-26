@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,7 @@ namespace policy {
 // A system feature that can be disabled by SystemFeaturesDisableList policy.
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused.
-enum SystemFeature : int {
+enum class SystemFeature : int {
   kUnknownSystemFeature = 0,
   kCamera = 1,                // The camera chrome app on Chrome OS.
   kBrowserSettings = 2,       // Browser settings.

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,13 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/multipart_data_pipe_getter.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/cpp/resource_request.h"
@@ -54,6 +55,7 @@ class MultipartUploadRequest {
       const GURL& base_url,
       const std::string& metadata,
       const base::FilePath& path,
+      uint64_t file_size,
       const net::NetworkTrafficAnnotationTag& traffic_annotation,
       Callback callback);
 
@@ -97,6 +99,7 @@ class MultipartUploadRequest {
       const GURL& base_url,
       const std::string& metadata,
       const base::FilePath& file,
+      uint64_t file_size,
       const net::NetworkTrafficAnnotationTag& traffic_annotation,
       MultipartUploadRequest::Callback callback);
 
@@ -111,6 +114,10 @@ class MultipartUploadRequest {
   MultipartDataPipeGetter* data_pipe_getter_for_testing() {
     return data_pipe_getter_.get();
   }
+
+  void set_access_token(const std::string& access_token);
+
+  void SetRequestHeaders(network::ResourceRequest* request);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(MultipartUploadRequestTest, GeneratesCorrectBody);
@@ -173,6 +180,9 @@ class MultipartUploadRequest {
   // Memory to upload. Only populated for PAGE requests.
   base::ReadOnlySharedMemoryRegion page_region_;
 
+  // Size of the file or page region.
+  uint64_t data_size_ = 0;
+
   // Data pipe getter used to stream a file or a page. Only populated for the
   // corresponding requests.
   std::unique_ptr<MultipartDataPipeGetter> data_pipe_getter_;
@@ -188,6 +198,8 @@ class MultipartUploadRequest {
   net::NetworkTrafficAnnotationTag traffic_annotation_;
 
   base::Time start_time_;
+
+  std::string access_token_;
 
   base::WeakPtrFactory<MultipartUploadRequest> weak_factory_{this};
 };
@@ -207,6 +219,7 @@ class MultipartUploadRequestFactory {
       const GURL& base_url,
       const std::string& metadata,
       const base::FilePath& path,
+      uint64_t file_size,
       const net::NetworkTrafficAnnotationTag& traffic_annotation,
       MultipartUploadRequest::Callback callback) = 0;
   virtual std::unique_ptr<MultipartUploadRequest> CreatePageRequest(

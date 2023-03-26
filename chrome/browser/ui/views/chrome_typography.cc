@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -106,7 +106,7 @@ void ApplyCommonFontStyles(int context,
     case CONTEXT_IPH_BUBBLE_BODY:
       details.size_delta = GetFontSizeDeltaIgnoringUserOrLocaleSettings(14);
       break;
-    case CONTEXT_IPH_BUBBLE_BUTTON:
+    case CONTEXT_SIDE_PANEL_TITLE:
       details.size_delta = GetFontSizeDeltaIgnoringUserOrLocaleSettings(13);
       break;
   }

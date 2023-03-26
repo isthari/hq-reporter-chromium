@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 #
@@ -67,10 +67,17 @@ then
   exit 1
 fi
 
+function create_package() {
+  arch="$1"
+  executable="$2"
+  src_dir=$src/chromedriver_$arch
+  zip -j $tgt/chromedriver_$arch.zip $src_dir/$executable $src_dir/LICENSE.chromedriver
+}
 
-zip -j $tgt/chromedriver_linux64.zip $src/chromedriver_linux64/chromedriver
-zip -j $tgt/chromedriver_mac64.zip $src/chromedriver_mac64/chromedriver
-zip -j $tgt/chromedriver_mac64_m1.zip $src/chromedriver_mac64_m1/chromedriver_mac64/chromedriver
-zip -j $tgt/chromedriver_win32.zip $src/chromedriver_win32/chromedriver.exe
+create_package linux64 chromedriver
+create_package mac64 chromedriver
+create_package mac_arm64 chromedriver
+create_package win32 chromedriver.exe
+
 echo -n "$version" > $tgt/latest
 cp "$path_to_notes" "$tgt/notes.txt"

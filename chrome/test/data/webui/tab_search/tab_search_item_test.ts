@@ -1,13 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'chrome://webui-test/mojo_webui_test_support.js';
 
 import {RecentlyClosedTab, Tab, TabAlertState, TabData, TabGroup, TabGroupColor, TabItemType, TabSearchItem} from 'chrome://tab-search.top-chrome/tab_search.js';
-
 import {assertDeepEquals, assertEquals, assertNotEquals} from 'chrome://webui-test/chai_assert.js';
-import {flushTasks} from 'chrome://webui-test/test_util.js';
+import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
 
 import {createTab, sampleToken} from './tab_search_test_data.js';
 
@@ -17,7 +16,7 @@ suite('TabSearchItemTest', () => {
   async function setupTest(data: TabData) {
     tabSearchItem = document.createElement('tab-search-item');
     tabSearchItem.data = data;
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     document.body.appendChild(tabSearchItem);
     await flushTasks();
   }
@@ -85,7 +84,6 @@ suite('TabSearchItemTest', () => {
           tabId: 0,
           title: 'Example.com site',
           url: {url: 'https://example.com'},
-          groupId: undefined,
           lastActiveTime: {internalValue: BigInt(0)},
           lastActiveElapsedText: '',
         } as RecentlyClosedTab,
@@ -145,24 +143,4 @@ suite('TabSearchItemTest', () => {
     assertEquals('media-recording', recordingMediaAlert!.getAttribute('class'));
   });
 
-  test('MediaAlertIndicatorPresenceWithUnsupportedAlert', async () => {
-    /* Since we currently don't consider DesktopCapturing, the AudioPlaying
-     * should be displayed */
-    const token = sampleToken(1n, 1n);
-    const tab: Tab = createTab({
-      active: true,
-      alertStates:
-          [TabAlertState.kDesktopCapturing, TabAlertState.kAudioPlaying],
-      isDefaultFavicon: true,
-      showIcon: true,
-      groupId: token,
-    });
-
-    await setupTest(new TabData(tab, TabItemType.OPEN_TAB, 'example'));
-
-    const audioMediaAlert =
-        tabSearchItem.shadowRoot!.querySelector<HTMLElement>('#mediaAlert');
-    assertNotEquals(null, audioMediaAlert);
-    assertEquals('audio-playing', audioMediaAlert!.getAttribute('class'));
-  });
 });

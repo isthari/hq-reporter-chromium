@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -123,11 +123,10 @@ public class ChromeStrictMode {
             // Introduced in Q.
             vmPolicy.detectCredentialProtectedWhileLocked().detectImplicitDirectBoot();
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            // File URI leak detection, has false positives when file URI intents are passed between
-            // Chrome activities in separate processes. See http://crbug.com/508282#c11.
-            vmPolicy.detectFileUriExposure();
-        }
+
+        // File URI leak detection, has false positives when file URI intents are passed between
+        // Chrome activities in separate processes. See http://crbug.com/508282#c11.
+        vmPolicy.detectFileUriExposure();
     }
 
     private static void addDefaultThreadPenalties(StrictMode.ThreadPolicy.Builder threadPolicy) {

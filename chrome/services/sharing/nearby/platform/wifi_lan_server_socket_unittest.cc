@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,15 @@
 
 #include <memory>
 
-#include "ash/services/nearby/public/cpp/fake_firewall_hole.h"
-#include "ash/services/nearby/public/cpp/fake_tcp_connected_socket.h"
-#include "ash/services/nearby/public/cpp/fake_tcp_server_socket.h"
-#include "ash/services/nearby/public/mojom/firewall_hole.mojom.h"
 #include "base/run_loop.h"
 #include "base/task/thread_pool.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_restrictions.h"
+#include "chromeos/ash/services/nearby/public/cpp/fake_firewall_hole.h"
+#include "chromeos/ash/services/nearby/public/cpp/fake_tcp_connected_socket.h"
+#include "chromeos/ash/services/nearby/public/cpp/fake_tcp_server_socket.h"
+#include "chromeos/ash/services/nearby/public/mojom/firewall_hole.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "mojo/public/cpp/system/data_pipe.h"
@@ -23,7 +23,6 @@
 #include "services/network/public/mojom/tcp_socket.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace location {
 namespace nearby {
 namespace chrome {
 
@@ -279,4 +278,3 @@ TEST_F(WifiLanServerSocketTest, Disconnect_WhileWaitingForAccept_FirewallHole) {
 
 }  // namespace chrome
 }  // namespace nearby
-}  // namespace location

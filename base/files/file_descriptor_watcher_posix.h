@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,9 @@
 #include <memory>
 
 #include "base/base_export.h"
-#include "base/callback.h"
-#include "base/check_op.h"
+#include "base/dcheck_is_on.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_pump_for_io.h"
 #include "base/sequence_checker.h"
@@ -76,7 +75,9 @@ class BASE_EXPORT FileDescriptorWatcher {
     // Controller is deleted, ownership of |watcher_| is transfered to a delete
     // task posted to the MessageLoopForIO. This ensures that |watcher_| isn't
     // deleted while it is being used by the MessageLoopForIO.
-    raw_ptr<Watcher> watcher_;
+    //
+    // TODO(crbug.com/1298696): Breaks base_unittests.
+    raw_ptr<Watcher, DanglingUntriagedDegradeToNoOpWhenMTE> watcher_;
 
     // An event for the watcher to notify controller that it's destroyed.
     // As the |watcher_| is owned by Controller, always outlives the Watcher.
@@ -84,7 +85,7 @@ class BASE_EXPORT FileDescriptorWatcher {
 
     // Validates that the Controller is used on the sequence on which it was
     // instantiated.
-    SequenceChecker sequence_checker_;
+    SEQUENCE_CHECKER(sequence_checker_);
 
     WeakPtrFactory<Controller> weak_factory_{this};
   };
@@ -106,11 +107,11 @@ class BASE_EXPORT FileDescriptorWatcher {
   // returned Controller is deleted (deletion must happen on the current
   // sequence).
   // Usage note: To call these methods, a FileDescriptorWatcher must have been
-  // instantiated on the current thread and SequencedTaskRunnerHandle::IsSet()
-  // must return true (these conditions are met at least on all ThreadPool
-  // threads as well as on threads backed by a MessageLoopForIO). |fd| must
-  // outlive the returned Controller.
-  // Shutdown note: notifications aren't guaranteed to be emitted once the bound
+  // instantiated on the current thread and
+  // SequencedTaskRunner::HasCurrentDefault() must return true (these conditions
+  // are met at least on all ThreadPool threads as well as on threads backed by
+  // a MessageLoopForIO). |fd| must outlive the returned Controller. Shutdown
+  // note: notifications aren't guaranteed to be emitted once the bound
   // (current) SequencedTaskRunner enters its shutdown phase (i.e.
   // ThreadPool::Shutdown() or Thread::Stop()) regardless of the
   // SequencedTaskRunner's TaskShutdownBehavior.

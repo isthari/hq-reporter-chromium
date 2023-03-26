@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@
 
 #import <Foundation/Foundation.h>
 
-#include "base/check.h"
-#include "base/command_line.h"
-#include "ios/chrome/common/app_group/app_group_constants.h"
-#include "ios/chrome/common/app_group/app_group_metrics.h"
+#import "base/check.h"
+#import "base/command_line.h"
+#import "ios/chrome/common/app_group/app_group_constants.h"
+#import "ios/chrome/common/app_group/app_group_metrics.h"
 #import "ios/chrome/common/crash_report/crash_helper.h"
 #import "ios/chrome/common/credential_provider/archivable_credential_store.h"
 #import "ios/chrome/common/credential_provider/constants.h"
@@ -24,7 +24,6 @@
 #import "ios/chrome/credential_provider_extension/password_util.h"
 #import "ios/chrome/credential_provider_extension/reauthentication_handler.h"
 #import "ios/chrome/credential_provider_extension/ui/consent_coordinator.h"
-#import "ios/chrome/credential_provider_extension/ui/consent_legacy_coordinator.h"
 #import "ios/chrome/credential_provider_extension/ui/credential_list_coordinator.h"
 #import "ios/chrome/credential_provider_extension/ui/feature_flags.h"
 #import "ios/chrome/credential_provider_extension/ui/stale_credentials_view_controller.h"
@@ -48,14 +47,8 @@ UIColor* BackgroundColor() {
 // List coordinator that shows the list of passwords when started.
 @property(nonatomic, strong) CredentialListCoordinator* listCoordinator;
 
-// Legacy consent coordinator that shows a view requesting device auth in order
-// to enable the extension. Will be used when
-// IsCredentialProviderExtensionPromoEnabled() == NO.
-@property(nonatomic, strong) ConsentLegacyCoordinator* consentLegacyCoordinator;
-
 // Consent coordinator that shows a view requesting device auth in order to
-// enable the extension. Will be used when
-// IsCredentialProviderExtensionPromoEnabled() == YES.
+// enable the extension.
 @property(nonatomic, strong) ConsentCoordinator* consentCoordinator;
 
 // Date kept for ReauthenticationModule.
@@ -64,7 +57,7 @@ UIColor* BackgroundColor() {
 // Reauthentication Module used for reauthentication.
 @property(nonatomic, strong) ReauthenticationModule* reauthenticationModule;
 
-// Interface for |reauthenticationModule|, handling mostly the case when no
+// Interface for `reauthenticationModule`, handling mostly the case when no
 // hardware for authentication is available.
 @property(nonatomic, strong) ReauthenticationHandler* reauthenticationHandler;
 
@@ -74,7 +67,7 @@ UIColor* BackgroundColor() {
 // Loading indicator used for user validation, which APIs can take a long time.
 @property(nonatomic, strong) UIActivityIndicatorView* activityIndicatorView;
 
-// Identfiers cached in |-prepareCredentialListForServiceIdentifiers:| to show
+// Identfiers cached in `-prepareCredentialListForServiceIdentifiers:` to show
 // the next time this view appears.
 @property(nonatomic, strong)
     NSArray<ASCredentialServiceIdentifier*>* serviceIdentifiers;
@@ -99,7 +92,7 @@ UIColor* BackgroundColor() {
 - (void)viewWillAppear:(BOOL)animated {
   [super viewWillAppear:animated];
   // If identifiers were stored in
-  // |-prepareCredentialListForServiceIdentifiers:|, handle that now.
+  // `-prepareCredentialListForServiceIdentifiers:`, handle that now.
   if (self.serviceIdentifiers) {
     NSArray<ASCredentialServiceIdentifier*>* serviceIdentifiers =
         self.serviceIdentifiers;
@@ -170,23 +163,10 @@ UIColor* BackgroundColor() {
 }
 
 - (void)prepareInterfaceForExtensionConfiguration {
-  // Reset the consent if the extension was disabled and reenabled.
-  NSUserDefaults* user_defaults = [NSUserDefaults standardUserDefaults];
-  [user_defaults
-      removeObjectForKey:kUserDefaultsCredentialProviderConsentVerified];
-  if (IsCredentialProviderExtensionPromoEnabled()) {
-    self.consentCoordinator = [[ConsentCoordinator alloc]
-        initWithBaseViewController:self
-                           context:self.extensionContext];
-    [self.consentCoordinator start];
-  } else {
-    self.consentLegacyCoordinator = [[ConsentLegacyCoordinator alloc]
-           initWithBaseViewController:self
-                              context:self.extensionContext
-              reauthenticationHandler:self.reauthenticationHandler
-        isInitialConfigurationRequest:YES];
-    [self.consentLegacyCoordinator start];
-  }
+  self.consentCoordinator = [[ConsentCoordinator alloc]
+      initWithBaseViewController:self
+                         context:self.extensionContext];
+  [self.consentCoordinator start];
 }
 
 #pragma mark - Properties
@@ -240,8 +220,8 @@ UIColor* BackgroundColor() {
       presentReminderOnViewController:self];
 }
 
-// Completes the extension request providing |ASPasswordCredential| that matches
-// the |credentialIdentity| or an error if not found.
+// Completes the extension request providing `ASPasswordCredential` that matches
+// the `credentialIdentity` or an error if not found.
 - (void)provideCredentialForIdentity:
     (ASPasswordCredentialIdentity*)credentialIdentity {
   NSString* identifier = credentialIdentity.recordIdentifier;

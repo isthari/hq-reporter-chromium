@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,9 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 
 #if BUILDFLAG(IS_POSIX)
@@ -25,9 +27,8 @@
 #include "base/message_loop/message_pump_type.h"
 #include "base/rand_util.h"
 #include "base/run_loop.h"
+#include "base/synchronization/waitable_event.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
-#include "build/build_config.h"
 #include "components/nacl/common/nacl.mojom.h"
 #include "components/nacl/common/nacl_messages.h"
 #include "components/nacl/common/nacl_service.h"
@@ -149,7 +150,7 @@ class BrowserValidationDBProxy : public NaClValidationDB {
 
  private:
   // The listener never dies, otherwise this might be a dangling reference.
-  NaClListener* listener_;
+  raw_ptr<NaClListener> listener_;
 };
 
 NaClListener::NaClListener()
@@ -215,14 +216,14 @@ class FileTokenMessageFilter : public IPC::MessageFilter {
 
 void NaClListener::Listen() {
   NaClService service(io_thread_.task_runner());
-  channel_ = IPC::SyncChannel::Create(this, io_thread_.task_runner().get(),
-                                      base::ThreadTaskRunnerHandle::Get(),
-                                      &shutdown_event_);
+  channel_ = IPC::SyncChannel::Create(
+      this, io_thread_.task_runner().get(),
+      base::SingleThreadTaskRunner::GetCurrentDefault(), &shutdown_event_);
   filter_ = channel_->CreateSyncMessageFilter();
   channel_->AddFilter(new FileTokenMessageFilter());
   channel_->Init(service.TakeChannelPipe().release(), IPC::Channel::MODE_CLIENT,
                  true);
-  main_task_runner_ = base::ThreadTaskRunnerHandle::Get();
+  main_task_runner_ = base::SingleThreadTaskRunner::GetCurrentDefault();
   base::RunLoop().Run();
 }
 

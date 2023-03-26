@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,15 +12,18 @@
 // most visited tiles and shortcut tiles on NTP and other places.
 @interface ContentSuggestionsTileView : UIView <UIPointerInteractionDelegate>
 
+// Initializer that will lay itself out as placeholder tile with no text or
+// favicon if `isPlaceholder` is YES.
+- (instancetype)initWithFrame:(CGRect)frame placeholder:(BOOL)isPlaceholder;
+
 // Container for the image view. Used in subclasses.
-@property(nonatomic, strong, readonly, nonnull) UIView* imageContainerView;
+@property(nonatomic, strong, readonly) UIView* imageContainerView;
 
 // Title of the Most Visited.
-@property(nonatomic, strong, readonly, nonnull) UILabel* titleLabel;
+@property(nonatomic, strong, readonly) UILabel* titleLabel;
 
 // The view displaying the background image (squircle) for the tile image.
-@property(nonatomic, strong, readonly, nonnull)
-    UIImageView* imageBackgroundView;
+@property(nonatomic, strong, readonly) UIImageView* imageBackgroundView;
 
 @end
 

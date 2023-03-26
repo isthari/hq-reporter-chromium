@@ -59,7 +59,7 @@ class SVGStyleElement final : public SVGElement, public StyleElement {
   void ChildrenChanged(const ChildrenChange&) override;
 
   void FinishParsingChildren() override;
-  bool LayoutObjectIsNeeded(const ComputedStyle&) const override {
+  bool LayoutObjectIsNeeded(const DisplayStyle&) const override {
     return false;
   }
 
@@ -68,9 +68,11 @@ class SVGStyleElement final : public SVGElement, public StyleElement {
   }
   void NotifyLoadedSheetAndAllCriticalSubresources(
       LoadedSheetErrorStatus) override;
-  void StartLoadingDynamicSheet() override {
-    StyleElement::StartLoadingDynamicSheet(GetDocument());
+  void SetToPendingState() override {
+    StyleElement::SetToPendingState(GetDocument(), *this);
   }
+
+  bool IsSameObject(const Node& node) const override { return this == &node; }
 };
 
 }  // namespace blink

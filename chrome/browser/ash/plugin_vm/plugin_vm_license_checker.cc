@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,11 @@
 
 #include <cstddef>
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/strcat.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
@@ -65,8 +64,11 @@ const net::NetworkTrafficAnnotationTag GetTrafficAnnotation() {
         setting:
           "There is no setting"
         cookies_allowed: NO
-        policy_exception_justification:
-          "Managed users are not presented with the option to opt-in"
+        chrome_policy {
+            UserPluginVmAllowed {
+                UserPluginVmAllowed: false
+            }
+          }
       }
   )");
 }

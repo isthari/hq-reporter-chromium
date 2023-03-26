@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,7 +59,7 @@ class AppInfoPanel : public views::View {
       std::unique_ptr<views::View> key,
       std::unique_ptr<views::View> value) const;
 
-  const raw_ptr<Profile> profile_;
+  const raw_ptr<Profile, DanglingUntriaged> profile_;
   const raw_ptr<const extensions::Extension> app_;
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,7 @@
 
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/win/win_util.h"
-#include "base/win/windows_version.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/base/win/window_event_target.h"
 #include "ui/compositor/compositor.h"
@@ -29,10 +27,6 @@ DirectManipulationHelper::CreateInstance(HWND window,
   if (!::IsWindow(window) || !compositor || !event_target)
     return nullptr;
 
-  // DM_POINTERHITTEST supported since Win10.
-  if (base::win::GetVersion() < base::win::Version::WIN10)
-    return nullptr;
-
   std::unique_ptr<DirectManipulationHelper> instance =
       base::WrapUnique(new DirectManipulationHelper(window, compositor));
 
@@ -47,10 +41,6 @@ std::unique_ptr<DirectManipulationHelper>
 DirectManipulationHelper::CreateInstanceForTesting(
     ui::WindowEventTarget* event_target,
     Microsoft::WRL::ComPtr<IDirectManipulationViewport> viewport) {
-  // DM_POINTERHITTEST supported since Win10.
-  if (base::win::GetVersion() < base::win::Version::WIN10)
-    return nullptr;
-
   std::unique_ptr<DirectManipulationHelper> instance =
       base::WrapUnique(new DirectManipulationHelper(0, nullptr));
 

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,9 @@
 #include <algorithm>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_destroyer.h"
 #include "components/media_router/browser/presentation/presentation_navigation_policy.h"
@@ -18,10 +19,9 @@
 #include "content/public/browser/presentation_receiver_flags.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
-#include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
+#include "third_party/blink/public/mojom/mediastream/media_stream.mojom.h"
 
 #if defined(USE_AURA)
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -74,7 +74,7 @@ class OffscreenTab::WindowAdoptionAgent final : protected aura::WindowObserver {
     // Post a task to return to the event loop before finding a new parent, to
     // avoid clashing with the currently-in-progress window tree hierarchy
     // changes.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&WindowAdoptionAgent::FindNewParent,
                                   weak_ptr_factory_.GetWeakPtr()));
   }
@@ -139,7 +139,7 @@ OffscreenTab::~OffscreenTab() {
   DVLOG(1) << "Destroying OffscreenTab for start_url=" << start_url_.spec();
   if (otr_profile_) {
     otr_profile_->RemoveObserver(this);
-    ProfileDestroyer::DestroyProfileWhenAppropriate(otr_profile_);
+    ProfileDestroyer::DestroyOTRProfileWhenAppropriate(otr_profile_);
   }
 }
 
@@ -334,7 +334,7 @@ void OffscreenTab::RequestMediaAccessPermission(
     WebContents* contents,
     const content::MediaStreamRequest& request,
     content::MediaResponseCallback callback) {
-  std::move(callback).Run(blink::MediaStreamDevices(),
+  std::move(callback).Run(blink::mojom::StreamDevicesSet(),
                           blink::mojom::MediaStreamRequestResult::NOT_SUPPORTED,
                           nullptr);
 }

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,20 +6,19 @@
 
 #include <utility>
 
-#include "ash/components/policy/weekly_time/weekly_time.h"
-#include "ash/components/policy/weekly_time/weekly_time_interval.h"
 #include "base/test/simple_test_clock.h"
 #include "base/values.h"
+#include "chromeos/ash/components/policy/weekly_time/weekly_time.h"
+#include "chromeos/ash/components/policy/weekly_time/weekly_time_interval.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
-namespace em = enterprise_management;
-
-namespace policy {
-namespace off_hours {
+namespace policy::off_hours {
 
 namespace {
+
+namespace em = ::enterprise_management;
 
 constexpr em::WeeklyTimeProto_DayOfWeek kWeekdays[] = {
     em::WeeklyTimeProto::DAY_OF_WEEK_UNSPECIFIED,
@@ -125,20 +124,20 @@ TEST_F(OffHoursParserTest, ConvertOffHoursProtoToValue) {
   SetOffHoursPolicyToProto(
       &proto, OffHoursPolicy(kGmtTimezone, intervals, kDefaultIgnoredPolicies));
 
-  std::unique_ptr<base::DictionaryValue> off_hours_value =
-      policy::off_hours::ConvertOffHoursProtoToValue(proto.device_off_hours());
+  absl::optional<base::Value::Dict> off_hours_value =
+      ConvertOffHoursProtoToValue(proto.device_off_hours());
 
-  base::DictionaryValue off_hours_expected;
-  off_hours_expected.SetStringKey("timezone", kGmtTimezone);
-  base::Value* intervals_value = off_hours_expected.SetKey(
-      "intervals", base::Value(base::Value::Type::LIST));
+  base::Value::Dict off_hours_expected;
+  off_hours_expected.Set("timezone", kGmtTimezone);
+  base::Value::List intervals_value;
   for (const auto& interval : intervals)
-    intervals_value->Append(interval.ToValue());
-  auto ignored_policies_value = std::make_unique<base::ListValue>();
+    intervals_value.Append(interval.ToValue());
+  off_hours_expected.Set("intervals", std::move(intervals_value));
+  base::Value::List ignored_policies_value;
   for (const auto& policy : kDefaultIgnoredPolicies)
-    ignored_policies_value->Append(policy);
-  off_hours_expected.SetList("ignored_policy_proto_tags",
-                             std::move(ignored_policies_value));
+    ignored_policies_value.Append(policy);
+  off_hours_expected.Set("ignored_policy_proto_tags",
+                         std::move(ignored_policies_value));
 
   EXPECT_EQ(*off_hours_value, off_hours_expected);
 }
@@ -199,5 +198,4 @@ INSTANTIATE_TEST_SUITE_P(
                            kLosAngelesTimezone)  // expected timezone
                        ));
 
-}  // namespace off_hours
-}  // namespace policy
+}  // namespace policy::off_hours

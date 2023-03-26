@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 
-<!-- Copyright 2019 The Chromium Authors. All rights reserved.
-
+<!-- Copyright 2019 The Chromium Authors
      Use of this source code is governed by a BSD-style license that can be
      found in the LICENSE file.
  -->
@@ -82,23 +81,6 @@
           <intent-filter>
             <action android:name="org.chromium.chrome.browser.incognito.OPEN_PRIVATE_TAB" />
             <category android:name="android.intent.category.DEFAULT" />
-          </intent-filter>
-        </activity>
-
-        <activity
-          android:name="org.chromium.chrome.browser.sharing.shared_clipboard.SharedClipboardShareActivity"
-          android:icon="@drawable/ic_devices_48dp"
-          android:label="@string/shared_clipboard_share_activity_title"
-          android:enabled="false"
-          android:excludeFromRecents="true"
-          android:exported="true"
-          android:noHistory="true"
-          android:theme="@style/Theme.Chromium.Activity.TranslucentNoAnimations"
-          android:configChanges="orientation|keyboardHidden|keyboard|screenSize|mcc|mnc|screenLayout|smallestScreenSize" >
-          <intent-filter>
-              <action android:name="android.intent.action.SEND" />
-              <category android:name="android.intent.category.DEFAULT" />
-              <data android:mimeType="text/plain" />
           </intent-filter>
         </activity>
 

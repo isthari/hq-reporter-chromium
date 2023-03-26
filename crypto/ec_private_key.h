@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,7 +33,6 @@ class CRYPTO_EXPORT ECPrivateKey {
 
   // Creates a new random instance. Can return nullptr if initialization fails.
   // The created key will use the NIST P-256 curve.
-  // TODO(mattm): Add a curve parameter.
   static std::unique_ptr<ECPrivateKey> Create();
 
   // Create a new instance by importing an existing private key. The format is

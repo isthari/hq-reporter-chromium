@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,21 +19,21 @@
 #include "ash/shelf/shelf_view_test_api.h"
 #include "ash/shell.h"
 #include "ash/system/status_area_widget_test_helper.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
+#include "chrome/browser/ash/app_list/app_list_client_impl.h"
+#include "chrome/browser/ash/app_list/app_list_controller_delegate.h"
+#include "chrome/browser/ash/app_list/app_list_syncable_service.h"
+#include "chrome/browser/ash/app_list/app_list_syncable_service_factory.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/arc/session/arc_service_launcher.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
-#include "chrome/browser/ui/app_list/app_list_client_impl.h"
-#include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
-#include "chrome/browser/ui/app_list/app_list_syncable_service.h"
-#include "chrome/browser/ui/app_list/app_list_syncable_service_factory.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/ash/shelf/arc_app_shelf_id.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller_test_util.h"
@@ -43,7 +43,6 @@
 #include "components/exo/shell_surface_util.h"
 #include "components/exo/test/shell_surface_builder.h"
 #include "components/exo/wm_helper.h"
-#include "components/exo/wm_helper_chromeos.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "ui/display/types/display_constants.h"
@@ -222,7 +221,7 @@ class ArcAppShelfBrowserTest : public extensions::ExtensionBrowserTest {
     run_loop.Run();
 
     // Allows creation of windows.
-    wm_helper_ = std::make_unique<exo::WMHelperChromeOS>();
+    wm_helper_ = std::make_unique<exo::WMHelper>();
   }
 
   void TearDownOnMainThread() override { wm_helper_.reset(); }
@@ -248,7 +247,7 @@ class ArcAppShelfBrowserTest : public extensions::ExtensionBrowserTest {
     shortcut.name = name;
     shortcut.package_name = kTestAppPackage;
     shortcut.intent_uri = CreateIntentUriWithShelfGroup(shelf_group);
-    const std::string shortcut_id =
+    std::string shortcut_id =
         ArcAppListPrefs::GetAppId(shortcut.package_name, shortcut.intent_uri);
     app_host()->OnInstallShortcut(arc::mojom::ShortcutInfo::From(shortcut));
     base::RunLoop().RunUntilIdle();
@@ -270,7 +269,6 @@ class ArcAppShelfBrowserTest : public extensions::ExtensionBrowserTest {
     package_info.last_backup_android_id = 1;
     package_info.last_backup_time = 1;
     package_info.sync = package_synced;
-    package_info.system = false;
     app_host()->OnPackageAdded(arc::mojom::ArcPackageInfo::From(package_info));
 
     base::RunLoop().RunUntilIdle();
@@ -656,6 +654,11 @@ IN_PROC_BROWSER_TEST_F(ArcAppShelfBrowserTest, ShelfGroup) {
 
   // Disable ARC, this removes app and as result kills shelf group 3.
   arc::SetArcPlayStoreEnabledForProfile(profile(), false);
+  // Wait for the asynchronous ArcAppListPrefs::RemoveAllAppsAndPackages to be
+  // called.
+  base::RunLoop run_loop;
+  app_prefs()->SetRemoveAllCallbackForTesting(run_loop.QuitClosure());
+  run_loop.Run();
   EXPECT_FALSE(GetShelfItemDelegate(shelf_id3));
 }
 
@@ -705,12 +708,12 @@ IN_PROC_BROWSER_TEST_F(ArcAppShelfBrowserTest, LogicalWindow) {
                                         kTestLogicalWindow};
   // Create windows that will be associated with the tasks. Without this,
   // GetAppMenuItems() will only return an empty list.
-  std::vector<std::unique_ptr<exo::ShellSurface>> test_windows;
+  std::vector<std::unique_ptr<exo::ClientControlledShellSurface>> test_windows;
 
   for (int task_id = 1; task_id <= 7; task_id++) {
     test_windows.push_back(exo::test::ShellSurfaceBuilder({640, 480})
                                .SetCentered()
-                               .BuildShellSurface());
+                               .BuildClientControlledShellSurface());
 
     aura::Window* aura_window =
         test_windows[task_id - 1]->GetWidget()->GetNativeWindow();

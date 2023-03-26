@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
@@ -21,10 +20,12 @@
 #include "base/containers/flat_map.h"
 #include "base/files/file_util.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/display/types/display_mode.h"
 #include "ui/display/util/display_util.h"
 #include "ui/display/util/edid_parser.h"
@@ -80,8 +81,8 @@ std::pair<uint32_t /* best_crtc */, uint32_t /* connected_crtc */> GetCrtcs(
           IsCrtcInUse(resources->crtcs[j], displays))
         continue;
 
-      int supported_planes = std::count_if(
-          planes.begin(), planes.end(), [crtc_bit](const ScopedDrmPlanePtr& p) {
+      int supported_planes = base::ranges::count_if(
+          planes, [crtc_bit](const ScopedDrmPlanePtr& p) {
             return p->possible_crtcs & crtc_bit;
           });
       if (supported_planes > most_crtc_planes ||
@@ -136,12 +137,13 @@ display::DisplayConnectionType GetDisplayType(drmModeConnector* connector) {
   }
 }
 
+template <typename T>
 int GetDrmProperty(int fd,
-                   drmModeConnector* connector,
+                   T* object,
                    const std::string& name,
                    ScopedDrmPropertyPtr* property) {
-  for (int i = 0; i < connector->count_props; ++i) {
-    ScopedDrmPropertyPtr tmp(drmModeGetProperty(fd, connector->props[i]));
+  for (uint32_t i = 0; i < static_cast<uint32_t>(object->count_props); ++i) {
+    ScopedDrmPropertyPtr tmp(drmModeGetProperty(fd, object->props[i]));
     if (!tmp)
       continue;
 
@@ -245,23 +247,16 @@ display::PanelOrientation GetPanelOrientation(int fd,
   int index = GetDrmProperty(fd, connector, "panel orientation", &property);
   if (index < 0)
     return display::PanelOrientation::kNormal;
+
+  // If the DRM driver doesn't provide panel orientation then this property
+  // will be DRM_MODE_PANEL_ORIENTATION_UNKNOWN (which is -1, except
+  // `prop_values` is unsigned, so compare against max uint64_t). Assume that
+  // panels with unknown orientation have normal orientation.
+  if (connector->prop_values[index] == std::numeric_limits<uint64_t>::max())
+    return display::PanelOrientation::kNormal;
+
   DCHECK_LE(connector->prop_values[index], display::PanelOrientation::kLast);
   return static_cast<display::PanelOrientation>(connector->prop_values[index]);
-}
-
-int ConnectorIndex8(int device_index, int display_index) {
-  DCHECK_LT(device_index, 16);
-  DCHECK_LT(display_index, 16);
-  return ((device_index << 4) + display_index) & 0xFF;
-}
-
-// A connector's index is a combination of:
-// 1) |display_index| the display's index in DRM       bits 0-7
-// 2) |device_index| the display's DRM's index         bits 8-15
-// e.g. - A 3rd display in a 2nd DRM would produce a connector index == 0x0102
-//        (since display index == 2 and DRM index == 1)
-uint16_t ConnectorIndex16(uint8_t device_index, uint8_t display_index) {
-  return ((device_index << 8) + display_index) & 0xFFFF;
 }
 
 bool HasPerPlaneColorCorrectionMatrix(const int fd, drmModeCrtc* crtc) {
@@ -331,6 +326,34 @@ gfx::Size GetMaximumCursorSize(int fd) {
     return gfx::Size(kDefaultCursorWidth, kDefaultCursorHeight);
   }
   return gfx::Size(width, height);
+}
+
+bool IsVrrCapable(int fd, drmModeConnector* connector) {
+  ScopedDrmPropertyPtr vrr_capable_property;
+  const int vrr_capable_index = GetDrmProperty(
+      fd, connector, kVrrCapablePropertyName, &vrr_capable_property);
+  return vrr_capable_index >= 0 && connector->prop_values[vrr_capable_index];
+}
+
+bool IsVrrEnabled(int fd, drmModeCrtc* crtc) {
+  ScopedDrmObjectPropertyPtr crtc_props(
+      drmModeObjectGetProperties(fd, crtc->crtc_id, DRM_MODE_OBJECT_CRTC));
+  ScopedDrmPropertyPtr vrr_enabled_property;
+  const int vrr_enabled_index = GetDrmProperty(
+      fd, crtc_props.get(), kVrrEnabledPropertyName, &vrr_enabled_property);
+  return vrr_enabled_index >= 0 && crtc_props->prop_values[vrr_enabled_index];
+}
+
+display::VariableRefreshRateState GetVariableRefreshRateState(
+    int fd,
+    HardwareDisplayControllerInfo* info) {
+  if (!IsVrrCapable(fd, info->connector()))
+    return display::kVrrNotCapable;
+
+  if (IsVrrEnabled(fd, info->crtc()))
+    return display::kVrrEnabled;
+
+  return display::kVrrDisabled;
 }
 
 HardwareDisplayControllerInfo::HardwareDisplayControllerInfo(
@@ -414,10 +437,7 @@ GetDisplayInfosAndInvalidCrtcs(int fd) {
       invalid_crtcs.push_back((connected_crtc));
 
     ScopedDrmCrtcPtr crtc(drmModeGetCrtc(fd, best_crtc));
-    auto iter = std::find_if(connectors.begin(), connectors.end(),
-                             [c](const ScopedDrmConnectorPtr& connector) {
-                               return connector.get() == c;
-                             });
+    auto iter = base::ranges::find(connectors, c, &ScopedDrmConnectorPtr::get);
     DCHECK(iter != connectors.end());
     // |connectors.size()| <= 256, so |index| should be between 0-255.
     const uint8_t index = iter - connectors.begin();
@@ -503,10 +523,12 @@ std::unique_ptr<display::DisplaySnapshot> CreateDisplaySnapshot(
     int fd,
     const base::FilePath& sys_path,
     uint8_t device_index,
-    const gfx::Point& origin) {
-  const uint8_t display_index = ConnectorIndex8(device_index, info->index());
+    const gfx::Point& origin,
+    const display::DrmFormatsAndModifiers& drm_formats_and_modifiers) {
+  const uint8_t display_index =
+      display::ConnectorIndex8(device_index, info->index());
   const uint16_t connector_index =
-      ConnectorIndex16(device_index, info->index());
+      display::ConnectorIndex16(device_index, info->index());
   const gfx::Size physical_size =
       gfx::Size(info->connector()->mmWidth, info->connector()->mmHeight);
   const display::DisplayConnectionType type = GetDisplayType(info->connector());
@@ -531,6 +553,8 @@ std::unique_ptr<display::DisplaySnapshot> CreateDisplaySnapshot(
   const bool color_correction_in_linear_space =
       has_color_correction_matrix && GetDrmDriverNameFromFd(fd) == "rockchip";
   const gfx::Size maximum_cursor_size = GetMaximumCursorSize(fd);
+  const display::VariableRefreshRateState variable_refresh_rate_state =
+      GetVariableRefreshRateState(fd, info);
 
   std::string display_name;
   // Make sure the ID contains non index part.
@@ -544,6 +568,7 @@ std::unique_ptr<display::DisplaySnapshot> CreateDisplaySnapshot(
   absl::optional<gfx::HDRStaticMetadata> hdr_static_metadata{};
   // Active pixels size from the first detailed timing descriptor in the EDID.
   gfx::Size active_pixel_size;
+  absl::optional<gfx::Range> vertical_display_range_limits;
 
   ScopedDrmPropertyBlobPtr edid_blob(
       GetDrmPropertyBlob(fd, info->connector(), "EDID"));
@@ -571,6 +596,10 @@ std::unique_ptr<display::DisplaySnapshot> CreateDisplaySnapshot(
     base::UmaHistogramCounts100("DrmUtil.CreateDisplaySnapshot.BitsPerChannel",
                                 bits_per_channel);
     hdr_static_metadata = edid_parser.hdr_static_metadata();
+    vertical_display_range_limits =
+        variable_refresh_rate_state == display::kVrrNotCapable
+            ? absl::nullopt
+            : edid_parser.vertical_display_range_limits();
   } else {
     VLOG(1) << "Failed to get EDID blob for connector "
             << info->connector()->connector_id;
@@ -588,7 +617,9 @@ std::unique_ptr<display::DisplaySnapshot> CreateDisplaySnapshot(
       has_color_correction_matrix, color_correction_in_linear_space,
       display_color_space, bits_per_channel, hdr_static_metadata, display_name,
       sys_path, std::move(modes), panel_orientation, edid, current_mode,
-      native_mode, product_code, year_of_manufacture, maximum_cursor_size);
+      native_mode, product_code, year_of_manufacture, maximum_cursor_size,
+      variable_refresh_rate_state, vertical_display_range_limits,
+      drm_formats_and_modifiers);
 }
 
 int GetFourCCFormatForOpaqueFramebuffer(gfx::BufferFormat format) {
@@ -737,9 +768,10 @@ std::vector<const char*> GetPreferredDrmDrivers() {
   const auto sys_vendor = ReadFileAndTrim(dmi_dir.Append("sys_vendor"));
   const auto product_name = ReadFileAndTrim(dmi_dir.Append("product_name"));
 
-  // The iMac 12,1 has an integrated Intel GPU that isn't connected to
-  // any real outputs. Prefer the Radeon card instead.
-  if (sys_vendor == "Apple Inc." && product_name == "iMac12,1")
+  // The iMac 12.1 and 12.2 have an integrated Intel GPU that isn't connected
+  // to any real outputs. Prefer the Radeon card instead.
+  if (sys_vendor == "Apple Inc." &&
+      (product_name == "iMac12,1" || product_name == "iMac12,2"))
     return {"radeon"};
 
   // Default order.

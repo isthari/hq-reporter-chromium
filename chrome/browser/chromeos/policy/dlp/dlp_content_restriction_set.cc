@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,7 +28,7 @@ DlpContentRestrictionSet::DlpContentRestrictionSet(
     DlpContentRestriction restriction,
     DlpRulesManager::Level level) {
   restrictions_.fill(RestrictionLevelAndUrl());
-  restrictions_[restriction].level = level;
+  restrictions_[static_cast<int>(restriction)].level = level;
 }
 
 DlpContentRestrictionSet::DlpContentRestrictionSet(
@@ -52,24 +52,25 @@ bool DlpContentRestrictionSet::operator!=(
 void DlpContentRestrictionSet::SetRestriction(DlpContentRestriction restriction,
                                               DlpRulesManager::Level level,
                                               const GURL& url) {
-  if (level > restrictions_[restriction].level) {
-    restrictions_[restriction] = RestrictionLevelAndUrl(level, url);
+  if (level > restrictions_[static_cast<int>(restriction)].level) {
+    restrictions_[static_cast<int>(restriction)] =
+        RestrictionLevelAndUrl(level, url);
   }
 }
 
 DlpRulesManager::Level DlpContentRestrictionSet::GetRestrictionLevel(
     DlpContentRestriction restriction) const {
-  return restrictions_[restriction].level;
+  return restrictions_[static_cast<int>(restriction)].level;
 }
 
 const GURL& DlpContentRestrictionSet::GetRestrictionUrl(
     DlpContentRestriction restriction) const {
-  return restrictions_[restriction].url;
+  return restrictions_[static_cast<int>(restriction)].url;
 }
 
 RestrictionLevelAndUrl DlpContentRestrictionSet::GetRestrictionLevelAndUrl(
     DlpContentRestriction restriction) const {
-  return restrictions_[restriction];
+  return restrictions_[static_cast<int>(restriction)];
 }
 
 bool DlpContentRestrictionSet::IsEmpty() const {

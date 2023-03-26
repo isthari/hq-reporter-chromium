@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,7 @@ import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
 import org.chromium.chrome.test.util.browser.signin.AccountManagerTestRule;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
-import org.chromium.ui.test.util.DummyUiActivityTestCase;
+import org.chromium.ui.test.util.BlankUiTestActivityTestCase;
 import org.chromium.ui.widget.ChromeImageView;
 
 import java.io.IOException;
@@ -37,12 +37,14 @@ import java.io.IOException;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @Batch(ProfileDataCacheRenderTest.PROFILE_DATA_BATCH_NAME)
-public class ProfileDataCacheWithBadgeRenderTest extends DummyUiActivityTestCase {
+public class ProfileDataCacheWithBadgeRenderTest extends BlankUiTestActivityTestCase {
     private static final String TEST_ACCOUNT_NAME = "test@example.com";
 
     @Rule
     public final ChromeRenderTestRule mRenderTestRule =
-            ChromeRenderTestRule.Builder.withPublicCorpus().build();
+            ChromeRenderTestRule.Builder.withPublicCorpus()
+                    .setBugComponent(ChromeRenderTestRule.Component.SERVICES_SIGN_IN)
+                    .build();
 
     @Rule
     public final AccountManagerTestRule mAccountManagerTestRule = new AccountManagerTestRule();
@@ -95,7 +97,7 @@ public class ProfileDataCacheWithBadgeRenderTest extends DummyUiActivityTestCase
     public void testProfileDataWithSettingBadgeDynamically() throws IOException {
         setUpProfileDataCache(0);
         mRenderTestRule.render(mImageView, "profile_data_cache_without_badge");
-        setBadgeConfig(R.drawable.ic_sync_badge_error_20dp);
+        setBadgeConfig(R.drawable.ic_account_child_20dp);
         mRenderTestRule.render(mImageView, "profile_data_cache_with_child_badge");
     }
 

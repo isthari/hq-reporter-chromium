@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/test/task_environment.h"
@@ -178,7 +179,8 @@ TEST_F(SystemLogSourceDataCollectorAdaptorTest, CollectAndExportData) {
 
   std::map<base::FilePath, std::string> expected_contents;
   for (const auto& data : kTestData) {
-    expected_contents[output_dir.AppendASCII(data.data_source_name)] =
+    expected_contents[output_dir.AppendASCII(data.data_source_name)
+                          .AddExtension(FILE_PATH_LITERAL(".log"))] =
         data.test_logs_pii_redacted;
   }
   EXPECT_THAT(result_contents, ContainerEq(expected_contents));

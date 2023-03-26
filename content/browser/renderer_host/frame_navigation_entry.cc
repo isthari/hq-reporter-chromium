@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,13 +20,14 @@ FrameNavigationEntry::FrameNavigationEntry(
     const std::string& frame_unique_name,
     int64_t item_sequence_number,
     int64_t document_sequence_number,
-    const std::string& app_history_key,
+    const std::string& navigation_api_key,
     scoped_refptr<SiteInstanceImpl> site_instance,
     scoped_refptr<SiteInstanceImpl> source_site_instance,
     const GURL& url,
     const absl::optional<url::Origin>& origin,
     const Referrer& referrer,
     const absl::optional<url::Origin>& initiator_origin,
+    const absl::optional<GURL>& initiator_base_url,
     const std::vector<GURL>& redirect_chain,
     const blink::PageState& page_state,
     const std::string& method,
@@ -36,17 +37,18 @@ FrameNavigationEntry::FrameNavigationEntry(
     std::unique_ptr<SubresourceWebBundleNavigationInfo>
         subresource_web_bundle_navigation_info,
     std::unique_ptr<PolicyContainerPolicies> policy_container_policies,
-    bool protect_url_in_app_history)
+    bool protect_url_in_navigation_api)
     : frame_unique_name_(frame_unique_name),
       item_sequence_number_(item_sequence_number),
       document_sequence_number_(document_sequence_number),
-      app_history_key_(app_history_key),
+      navigation_api_key_(navigation_api_key),
       site_instance_(std::move(site_instance)),
       source_site_instance_(std::move(source_site_instance)),
       url_(url),
       committed_origin_(origin),
       referrer_(referrer),
       initiator_origin_(initiator_origin),
+      initiator_base_url_(initiator_base_url),
       redirect_chain_(redirect_chain),
       page_state_(page_state),
       bindings_(kInvalidBindings),
@@ -57,7 +59,7 @@ FrameNavigationEntry::FrameNavigationEntry(
       subresource_web_bundle_navigation_info_(
           std::move(subresource_web_bundle_navigation_info)),
       policy_container_policies_(std::move(policy_container_policies)),
-      protect_url_in_app_history_(protect_url_in_app_history) {}
+      protect_url_in_navigation_api_(protect_url_in_navigation_api) {}
 
 FrameNavigationEntry::~FrameNavigationEntry() {}
 
@@ -67,14 +69,15 @@ scoped_refptr<FrameNavigationEntry> FrameNavigationEntry::Clone() const {
   // Omit any fields cleared at commit time.
   copy->UpdateEntry(
       frame_unique_name_, item_sequence_number_, document_sequence_number_,
-      app_history_key_, site_instance_.get(), nullptr, url_, committed_origin_,
-      referrer_, initiator_origin_, redirect_chain_, page_state_, method_,
-      post_id_, nullptr /* blob_url_loader_factory */,
+      navigation_api_key_, site_instance_.get(), nullptr, url_,
+      committed_origin_, referrer_, initiator_origin_, initiator_base_url_,
+      redirect_chain_, page_state_, method_, post_id_,
+      nullptr /* blob_url_loader_factory */,
       nullptr /* web_bundle_navigation_info */,
       nullptr /* subresource_web_bundle_navigation_info */,
-      policy_container_policies_ ? policy_container_policies_->Clone()
+      policy_container_policies_ ? policy_container_policies_->ClonePtr()
                                  : nullptr,
-      protect_url_in_app_history_);
+      protect_url_in_navigation_api_);
   // |bindings_| gets only updated through the SetBindings API, not through
   // UpdateEntry, so make a copy of it explicitly here as part of cloning.
   copy->bindings_ = bindings_;
@@ -85,13 +88,14 @@ void FrameNavigationEntry::UpdateEntry(
     const std::string& frame_unique_name,
     int64_t item_sequence_number,
     int64_t document_sequence_number,
-    const std::string& app_history_key,
+    const std::string& navigation_api_key,
     SiteInstanceImpl* site_instance,
     scoped_refptr<SiteInstanceImpl> source_site_instance,
     const GURL& url,
     const absl::optional<url::Origin>& origin,
     const Referrer& referrer,
     const absl::optional<url::Origin>& initiator_origin,
+    const absl::optional<GURL>& initiator_base_url,
     const std::vector<GURL>& redirect_chain,
     const blink::PageState& page_state,
     const std::string& method,
@@ -101,11 +105,11 @@ void FrameNavigationEntry::UpdateEntry(
     std::unique_ptr<SubresourceWebBundleNavigationInfo>
         subresource_web_bundle_navigation_info,
     std::unique_ptr<PolicyContainerPolicies> policy_container_policies,
-    bool protect_url_in_app_history) {
+    bool protect_url_in_navigation_api) {
   frame_unique_name_ = frame_unique_name;
   item_sequence_number_ = item_sequence_number;
   document_sequence_number_ = document_sequence_number;
-  app_history_key_ = app_history_key;
+  navigation_api_key_ = navigation_api_key;
   site_instance_ = site_instance;
   source_site_instance_ = std::move(source_site_instance);
   redirect_chain_ = redirect_chain;
@@ -113,6 +117,7 @@ void FrameNavigationEntry::UpdateEntry(
   committed_origin_ = origin;
   referrer_ = referrer;
   initiator_origin_ = initiator_origin;
+  initiator_base_url_ = initiator_base_url;
   page_state_ = page_state;
   method_ = method;
   post_id_ = post_id;
@@ -121,7 +126,7 @@ void FrameNavigationEntry::UpdateEntry(
   subresource_web_bundle_navigation_info_ =
       std::move(subresource_web_bundle_navigation_info);
   policy_container_policies_ = std::move(policy_container_policies);
-  protect_url_in_app_history_ = protect_url_in_app_history;
+  protect_url_in_navigation_api_ = protect_url_in_navigation_api;
 }
 
 void FrameNavigationEntry::set_item_sequence_number(
@@ -140,11 +145,12 @@ void FrameNavigationEntry::set_document_sequence_number(
   document_sequence_number_ = document_sequence_number;
 }
 
-void FrameNavigationEntry::set_app_history_key(
-    const std::string& app_history_key) {
-  // Once assigned, the app history key shouldn't change.
-  DCHECK(app_history_key_.empty() || app_history_key_ == app_history_key);
-  app_history_key_ = app_history_key;
+void FrameNavigationEntry::set_navigation_api_key(
+    const std::string& navigation_api_key) {
+  // Once assigned, the navigation API key shouldn't change.
+  DCHECK(navigation_api_key_.empty() ||
+         navigation_api_key_ == navigation_api_key);
+  navigation_api_key_ = navigation_api_key;
 }
 
 void FrameNavigationEntry::SetPageState(const blink::PageState& page_state) {
@@ -156,8 +162,8 @@ void FrameNavigationEntry::SetPageState(const blink::PageState& page_state) {
 
   item_sequence_number_ = exploded_state.top.item_sequence_number;
   document_sequence_number_ = exploded_state.top.document_sequence_number;
-  app_history_key_ = base::UTF16ToUTF8(
-      exploded_state.top.app_history_key.value_or(std::u16string()));
+  navigation_api_key_ = base::UTF16ToUTF8(
+      exploded_state.top.navigation_api_key.value_or(std::u16string()));
 }
 
 void FrameNavigationEntry::SetBindings(int bindings) {

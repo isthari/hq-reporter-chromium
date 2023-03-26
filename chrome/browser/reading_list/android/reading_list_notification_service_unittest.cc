@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,8 +16,10 @@
 #include "base/time/time.h"
 #include "chrome/browser/notifications/scheduler/test/mock_notification_schedule_service.h"
 #include "chrome/browser/reading_list/android/reading_list_notification_delegate.h"
+#include "components/reading_list/core/fake_reading_list_model_storage.h"
 #include "components/reading_list/core/reading_list_model_impl.h"
 #include "components/reading_list/features/reading_list_switches.h"
+#include "components/sync/base/storage_type.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -57,8 +59,14 @@ class ReadingListNotificationServiceTest : public testing::Test {
 
   void SetUp() override {
     clock_.SetNow(MakeLocalTime(kNow));
+    auto storage = std::make_unique<FakeReadingListModelStorage>();
+    base::WeakPtr<FakeReadingListModelStorage> storage_ptr =
+        storage->AsWeakPtr();
     reading_list_model_ = std::make_unique<ReadingListModelImpl>(
-        /*storage_layer=*/nullptr, /*pref_service=*/nullptr, &clock_);
+        std::move(storage), syncer::StorageType::kUnspecified, &clock_);
+    // Complete the initial model load from storage.
+    storage_ptr->TriggerLoadCompletion();
+
     auto delegate = std::make_unique<MockDelegate>();
     delegate_ = delegate.get();
     auto config = std::make_unique<ReadingListNotificationService::Config>();
@@ -100,8 +108,10 @@ class ReadingListNotificationServiceTest : public testing::Test {
   }
 
   void AddReadingList() {
-    reading_list_model()->AddEntry(GURL("https://a.example.com"), "title",
-                                   reading_list::ADDED_VIA_CURRENT_APP);
+    reading_list_model()->AddOrReplaceEntry(
+        GURL("https://a.example.com"), "title",
+        reading_list::ADDED_VIA_CURRENT_APP,
+        /*estimated_read_time=*/base::TimeDelta());
   }
 
  private:

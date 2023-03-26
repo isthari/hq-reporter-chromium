@@ -1,15 +1,15 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "remoting/test/it2me_cli_host.h"
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/run_loop.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "net/base/network_change_notifier.h"
 #include "remoting/base/auto_thread_task_runner.h"
@@ -79,7 +79,7 @@ void It2MeCliHost::Start() {
 
   base::RunLoop ui_loop;
   ui_task_runner_ = new AutoThreadTaskRunner(
-      base::ThreadTaskRunnerHandle::Get(), ui_loop.QuitClosure());
+      base::SingleThreadTaskRunner::GetCurrentDefault(), ui_loop.QuitClosure());
 
   token_getter_->CallWithToken(base::BindOnce(
       &It2MeCliHost::StartCRDHostAndGetCode, base::Unretained(this)));
@@ -153,14 +153,15 @@ void It2MeCliHost::SendMessageToHost(const std::string& type,
   std::string message_json;
   params.SetKey(kMessageType, base::Value(type));
   base::JSONWriter::Write(params, &message_json);
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&It2MeCliHost::DoSendMessage,
                                 weak_factory_.GetWeakPtr(), message_json));
 }
 
 void It2MeCliHost::DoSendMessage(const std::string& json) {
-  if (!host_)
+  if (!host_) {
     return;
+  }
   host_->OnMessage(json);
 }
 
@@ -197,9 +198,10 @@ void It2MeCliHost::StartCRDHostAndGetCode(OAuthTokenGetter::Status status,
 }
 
 void It2MeCliHost::ShutdownHost() {
-  if (!host_)
+  if (!host_) {
     return;
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  }
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&It2MeCliHost::DoShutdownHost,
                                 weak_factory_.GetWeakPtr()));
 }
@@ -231,10 +233,11 @@ void It2MeCliHost::OnStateError(const std::string& error_state,
   } else {
     auto* error_code_value =
         message.FindKeyOfType(kErrorMessageCode, base::Value::Type::STRING);
-    if (error_code_value)
+    if (error_code_value) {
       error_message = error_code_value->GetString();
-    else
+    } else {
       error_message = "Unknown CRD Error";
+    }
   }
   // Notify callback if command is still running.
   if (command_awaiting_crd_access_code_) {
@@ -257,8 +260,9 @@ void It2MeCliHost::OnStateRemoteConnected(const base::Value& message) {
 void It2MeCliHost::OnStateRemoteDisconnected() {
   // There could be a connection attempt that was not successful, we will
   // receive "disconnected" message without actually receiving "connected".
-  if (!remote_connected_)
+  if (!remote_connected_) {
     return;
+  }
   remote_connected_ = false;
   // Remote has disconnected, time to send "disconnect" that would result
   // in shutting down the host.

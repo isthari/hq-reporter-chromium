@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,12 @@
 #include <memory>
 
 #include "base/memory/ptr_util.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "cc/paint/paint_flags.h"
+#include "cc/paint/paint_op.h"
+#include "cc/paint/paint_op_buffer_iterator.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/scheme_registry.h"
 #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/visual_viewport.h"
@@ -247,7 +251,8 @@ TEST_F(SVGImageTest, PaintFrameForCurrentFrameWithMQAndZoom) {
        kShouldPause);
 
   scoped_refptr<SVGImageForContainer> container = SVGImageForContainer::Create(
-      &GetImage(), gfx::SizeF(100, 100), 2, NullURL());
+      &GetImage(), gfx::SizeF(100, 100), 2, NullURL(),
+      mojom::blink::PreferredColorScheme::kLight);
   SkBitmap bitmap =
       container->AsSkBitmapForCurrentFrame(kDoNotRespectImageOrientation);
   ASSERT_EQ(bitmap.width(), 100);
@@ -256,6 +261,36 @@ TEST_F(SVGImageTest, PaintFrameForCurrentFrameWithMQAndZoom) {
   EXPECT_EQ(bitmap.getColor(90, 10), SK_ColorBLUE);
   EXPECT_EQ(bitmap.getColor(10, 90), SK_ColorBLUE);
   EXPECT_EQ(bitmap.getColor(90, 90), SK_ColorBLUE);
+}
+
+TEST_F(SVGImageTest, SVGWithSmilAnimationIsAnimated) {
+  const bool kShouldPause = true;
+  Load(R"SVG(
+         <svg xmlns="http://www.w3.org/2000/svg">
+           <rect width="10" height="10"/>
+           <animateTransform attributeName="transform" type="rotate"
+                             from="0 5 5" to="360 5 5" dur="1s"
+                             repeatCount="indefinite"/>
+         </svg>)SVG",
+       kShouldPause);
+
+  EXPECT_TRUE(GetImage().MaybeAnimated());
+}
+
+TEST_F(SVGImageTest, NestedSVGWithSmilAnimationIsAnimated) {
+  const bool kShouldPause = true;
+  Load(R"SVG(
+         <svg xmlns="http://www.w3.org/2000/svg">
+           <svg>
+             <rect width="10" height="10"/>
+             <animateTransform attributeName="transform" type="rotate"
+                               from="0 5 5" to="360 5 5" dur="1s"
+                               repeatCount="indefinite"/>
+           </svg>
+         </svg>)SVG",
+       kShouldPause);
+
+  EXPECT_TRUE(GetImage().MaybeAnimated());
 }
 
 class SVGImageSimTest : public SimTest, private ScopedMockOverlayScrollbars {};
@@ -331,6 +366,285 @@ TEST_F(SVGImageSimTest, TwoImagesSameSVGImageDifferentSize) {
   // The previous frame should result in a stable state and should not schedule
   // new visual updates.
   EXPECT_FALSE(Compositor().NeedsBeginFrame());
+}
+
+TEST_F(SVGImageSimTest, SVGWithXSLT) {
+  // To make "https" scheme counted as "Blink.UseCounter.Extensions.Features",
+  // we should make it recognized as an extension.
+  CommonSchemeRegistry::RegisterURLSchemeAsExtension("https");
+
+  SimRequest main_resource("https://example.com/", "text/html");
+  SimSubresourceRequest image_resource("https://example.com/image.svg",
+                                       "image/svg+xml");
+
+  base::HistogramTester histograms;
+  LoadURL("https://example.com/");
+  main_resource.Complete(R"HTML(
+    <img src="image.svg">
+  )HTML");
+  image_resource.Complete(R"SVG(<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="#stylesheet"?>
+<!DOCTYPE svg [
+<!ATTLIST xsl:stylesheet
+id ID #REQUIRED>
+]>
+<svg>
+    <xsl:stylesheet id="stylesheet" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:svg="http://www.w3.org/2000/svg"></xsl:stylesheet>
+</svg>)SVG");
+
+  Compositor().BeginFrame();
+  test::RunPendingTasks();
+  // The previous frame should result in a stable state and should not schedule
+  // new visual updates.
+  EXPECT_FALSE(Compositor().NeedsBeginFrame());
+
+  // Ensure |UseCounter.DidCommitLoad| is called once.
+  // Since we cannot use |UseCounter.IsCounted(WebFeature::kPageVisits)|, we
+  // check the histogram updated in |DidCommitLoad|.
+  histograms.ExpectBucketCount("Blink.UseCounter.Extensions.Features",
+                               WebFeature::kPageVisits, 1);
+}
+
+namespace {
+
+size_t CountDrawOval(const cc::PaintRecord& record) {
+  size_t count = 0;
+  for (const cc::PaintOp& op : record) {
+    if (op.GetType() == cc::PaintOpType::DrawOval) {
+      ++count;
+    } else if (op.GetType() == cc::PaintOpType::DrawRecord) {
+      const auto& record_op = static_cast<const cc::DrawRecordOp&>(op);
+      count += CountDrawOval(record_op.record);
+    }
+  }
+  return count;
+}
+
+}  // namespace
+
+// Tests the culling of invisible sprites from a larger sprite sheet.
+TEST_F(SVGImageSimTest, SpriteSheetCulling) {
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
+  SimRequest main_resource("https://example.com/", "text/html");
+  LoadURL("https://example.com/");
+  main_resource.Complete(
+      "<style>"
+      "  body { zoom: 2.5; }"
+      "  #div {"
+      "    width: 100px;"
+      "    height: 100px;"
+      "    background-image: url(\"data:image/svg+xml,"
+      "      <svg xmlns='http://www.w3.org/2000/svg' width='100' height='300'>"
+      "        <circle cx='50' cy='50' r='10' fill='red'/>"
+      "        <circle cx='50' cy='150' r='10' fill='green'/>"
+      "        <circle cx='25' cy='250' r='10' fill='blue'/>"
+      "        <circle cx='50' cy='250' r='10' fill='blue'/>"
+      "        <circle cx='75' cy='250' r='10' fill='blue'/>"
+      "      </svg>\");"
+      "    background-position-y: -100px;"
+      "    background-repeat: no-repeat;"
+      "  }"
+      "</style>"
+      "<div id='div'></div>");
+
+  Compositor().BeginFrame();
+
+  // Initially, only the green circle should be recorded.
+  PaintRecord record = GetDocument().View()->GetPaintRecord();
+  EXPECT_EQ(1U, CountDrawOval(record));
+
+  // Adjust the height so one green circle and three blue circles are visible,
+  // and ensure four circles are recorded.
+  Element* div = GetDocument().getElementById("div");
+  div->setAttribute(html_names::kStyleAttr, "height: 200px;");
+  Compositor().BeginFrame();
+  record = GetDocument().View()->GetPaintRecord();
+  EXPECT_EQ(4U, CountDrawOval(record));
+
+  // Adjust the background position so only the three blue circles are visible,
+  // and ensure three circles are recorded.
+  div->setAttribute(html_names::kStyleAttr,
+                    "height: 200px; background-position-y: -200px;");
+  Compositor().BeginFrame();
+  record = GetDocument().View()->GetPaintRecord();
+  EXPECT_EQ(3U, CountDrawOval(record));
+}
+
+// Similar to `SpriteSheetCulling` but using a full-sized sprite sheet <img>
+// element with absolute positioning under overflow: hidden. This pattern is
+// used by Google Docs.
+TEST_F(SVGImageSimTest, ClippedAbsoluteImageSpriteSheetCulling) {
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
+  SimRequest main_resource("https://example.com/", "text/html");
+  LoadURL("https://example.com/");
+  main_resource.Complete(R"HTML(
+    <!doctype html>
+    <style>
+        body { zoom: 2.5; }
+        #div {
+          width: 100px;
+          height: 100px;
+          overflow: hidden;
+          position: relative;
+        }
+        #image {
+          position: absolute;
+          left: 0;
+          top: -100px;
+        }
+      </style>
+      <div id="div">
+        <img id="image" src="data:image/svg+xml,
+            <svg xmlns='http://www.w3.org/2000/svg' width='100' height='400'>
+              <circle cx='50' cy='50' r='10' fill='red'/>
+              <circle cx='50' cy='150' r='10' fill='green'/>
+              <circle cx='25' cy='250' r='10' fill='blue'/>
+              <circle cx='50' cy='250' r='10' fill='blue'/>
+              <circle cx='75' cy='250' r='10' fill='blue'/>
+            </svg>">
+      </div>
+  )HTML");
+
+  Compositor().BeginFrame();
+
+  // Initially, only the green circle should be recorded.
+  PaintRecord record = GetDocument().View()->GetPaintRecord();
+  EXPECT_EQ(1U, CountDrawOval(record));
+
+  // Adjust the div's height so one green circle and three blue circles are
+  // visible, and ensure four circles are recorded.
+  Element* div_element = GetDocument().getElementById("div");
+  div_element->setAttribute(html_names::kStyleAttr, "height: 200px;");
+  Compositor().BeginFrame();
+  record = GetDocument().View()->GetPaintRecord();
+  EXPECT_EQ(4U, CountDrawOval(record));
+
+  // Adjust the image's position so only the three blue circles are visible,
+  // and ensure three circles are recorded.
+  Element* image_element = GetDocument().getElementById("image");
+  image_element->setAttribute(html_names::kStyleAttr, "top: -200px;");
+  Compositor().BeginFrame();
+  record = GetDocument().View()->GetPaintRecord();
+  EXPECT_EQ(3U, CountDrawOval(record));
+}
+
+// Similar to `SpriteSheetCulling` but using a full-sized sprite sheet <img>
+// element under overflow: hidden. This differs from
+// `ClippedAbsoluteImageSpriteSheetCulling` because static positioning and
+// margin are used to position the image, rather than absolute positioning.
+TEST_F(SVGImageSimTest, ClippedStaticImageSpriteSheetCulling) {
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
+  SimRequest main_resource("https://example.com/", "text/html");
+  LoadURL("https://example.com/");
+  main_resource.Complete(R"HTML(
+    <!doctype html>
+    <style>
+        body { zoom: 2.5; }
+        #div {
+          width: 100px;
+          height: 100px;
+          overflow: hidden;
+          position: relative;
+        }
+        #image {
+          margin-top: -100px;
+        }
+      </style>
+      <div id="div">
+        <img id="image" src="data:image/svg+xml,
+            <svg xmlns='http://www.w3.org/2000/svg' width='100' height='400'>
+              <circle cx='50' cy='50' r='10' fill='red'/>
+              <circle cx='50' cy='150' r='10' fill='green'/>
+              <circle cx='25' cy='250' r='10' fill='blue'/>
+              <circle cx='50' cy='250' r='10' fill='blue'/>
+              <circle cx='75' cy='250' r='10' fill='blue'/>
+            </svg>">
+      </div>
+  )HTML");
+
+  Compositor().BeginFrame();
+
+  // Initially, only the green circle should be recorded.
+  PaintRecord record = GetDocument().View()->GetPaintRecord();
+  EXPECT_EQ(1U, CountDrawOval(record));
+
+  // Adjust the div's height so one green circle and three blue circles are
+  // visible, and ensure four circles are recorded.
+  Element* div_element = GetDocument().getElementById("div");
+  div_element->setAttribute(html_names::kStyleAttr, "height: 200px;");
+  Compositor().BeginFrame();
+  record = GetDocument().View()->GetPaintRecord();
+  EXPECT_EQ(4U, CountDrawOval(record));
+
+  // Adjust the image's position so only the three blue circles are visible,
+  // and ensure three circles are recorded.
+  Element* image_element = GetDocument().getElementById("image");
+  image_element->setAttribute(html_names::kStyleAttr, "margin-top: -200px;");
+  Compositor().BeginFrame();
+  record = GetDocument().View()->GetPaintRecord();
+  EXPECT_EQ(3U, CountDrawOval(record));
+}
+
+// Similar to `SpriteSheetCulling` but using a regular scrolling interest rect
+// that isn't clipping to a specific sprite within the image. To avoid
+// regressing non-sprite-sheet paint performance with additional invalidatoins,
+// we want to avoid special culling in these cases.
+TEST_F(SVGImageSimTest, InterestRectDoesNotCullImageSpriteSheet) {
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
+  SimRequest main_resource("https://example.com/", "text/html");
+  LoadURL("https://example.com/");
+  main_resource.Complete(R"HTML(
+    <!doctype html>
+    <style>
+        body { zoom: 2.5; }
+        #div {
+          width: 200px;
+          height: 10000px;
+          overflow: hidden;
+          position: relative;
+        }
+        #image {
+          position: absolute;
+          left: 0;
+          top: 0;
+        }
+      </style>
+      <div id="div">
+        <img id="image" src="data:image/svg+xml,
+            <svg xmlns='http://www.w3.org/2000/svg' width='100' height='6000'>
+              <circle cx='50' cy='50' r='10' fill='green'/>
+              <circle cx='25' cy='5950' r='10' fill='blue'/>
+              <circle cx='50' cy='5950' r='10' fill='blue'/>
+              <circle cx='75' cy='5950' r='10' fill='blue'/>
+            </svg>">
+      </div>
+  )HTML");
+
+  Compositor().BeginFrame();
+
+  // The sprite sheet optimization in `ImagePainter::PaintReplaced` should not
+  // apply because the scrolling interest rect is not for a specific sprite
+  // within the image, and all circles should be recorded.
+  PaintRecord record = GetDocument().View()->GetPaintRecord();
+  EXPECT_EQ(4U, CountDrawOval(record));
+
+  // Adjust the div's width and height so that it creates a cull rect that clips
+  // to just a single circle, and ensure just one circle is recorded.
+  Element* div_element = GetDocument().getElementById("div");
+  div_element->setAttribute(html_names::kStyleAttr,
+                            "width: 100px; height: 200px;");
+  Compositor().BeginFrame();
+  record = GetDocument().View()->GetPaintRecord();
+  EXPECT_EQ(1U, CountDrawOval(record));
+
+  // Adjust the div's width and height so that it no longer creates a cull rect
+  // that clips to a sprite within the image, so the optimization in
+  // `ImagePainter::PaintReplaced` does not kick in, and all circles are
+  // recorded.
+  div_element->removeAttribute(html_names::kStyleAttr);
+  Compositor().BeginFrame();
+  record = GetDocument().View()->GetPaintRecord();
+  EXPECT_EQ(4U, CountDrawOval(record));
 }
 
 }  // namespace blink

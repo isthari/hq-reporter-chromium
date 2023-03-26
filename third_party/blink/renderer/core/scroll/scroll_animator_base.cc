@@ -30,7 +30,7 @@
 
 #include "third_party/blink/renderer/core/scroll/scroll_animator_base.h"
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "third_party/blink/renderer/core/scroll/scrollable_area.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 
@@ -49,7 +49,7 @@ ScrollOffset ScrollAnimatorBase::ComputeDeltaToConsume(
 }
 
 ScrollResult ScrollAnimatorBase::UserScroll(
-    ScrollGranularity,
+    ui::ScrollGranularity,
     const ScrollOffset& delta,
     ScrollableArea::ScrollCallback on_finish) {
   // Run the callback for non-animation user scroll.

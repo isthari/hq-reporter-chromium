@@ -1,15 +1,15 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/table_view/cells/table_view_switch_cell.h"
 
-#include "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
+#import "ios/chrome/common/ui/table_view/table_view_cells_constants.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/l10n/l10n_util_mac.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -17,7 +17,7 @@
 
 namespace {
 
-// Padding used between the |switchView| and the end of the |contentView|.
+// Padding used between the `switchView` and the end of the `contentView`.
 const CGFloat kSwitchTrailingPadding = 22;
 
 }  // namespace
@@ -40,7 +40,9 @@ const CGFloat kSwitchTrailingPadding = 22;
 
 @end
 
-@implementation TableViewSwitchCell
+@implementation TableViewSwitchCell {
+  UIView* _iconBackground;
+}
 
 @synthesize textLabel = _textLabel;
 @synthesize detailTextLabel = _detailTextLabel;
@@ -51,10 +53,17 @@ const CGFloat kSwitchTrailingPadding = 22;
   if (self) {
     self.isAccessibilityElement = YES;
 
+    _iconBackground = [[UIView alloc] init];
+    _iconBackground.translatesAutoresizingMaskIntoConstraints = NO;
+    _iconBackground.hidden = YES;
+    [self.contentView addSubview:_iconBackground];
+
     _iconImageView = [[UIImageView alloc] init];
     _iconImageView.translatesAutoresizingMaskIntoConstraints = NO;
-    _iconImageView.hidden = YES;
-    [self.contentView addSubview:_iconImageView];
+    _iconImageView.contentMode = UIViewContentModeCenter;
+    [_iconBackground addSubview:_iconImageView];
+
+    AddSameCenterConstraints(_iconBackground, _iconImageView);
 
     UILayoutGuide* textLayoutGuide = [[UILayoutGuide alloc] init];
     [self.contentView addLayoutGuide:textLayoutGuide];
@@ -82,13 +91,14 @@ const CGFloat kSwitchTrailingPadding = 22;
         setContentCompressionResistancePriority:UILayoutPriorityDefaultHigh + 1
                                         forAxis:
                                             UILayoutConstraintAxisHorizontal];
+    _switchView.isAccessibilityElement = YES;
     _switchView.accessibilityHint =
         l10n_util::GetNSString(IDS_IOS_TOGGLE_SWITCH_ACCESSIBILITY_HINT);
     [self.contentView addSubview:_switchView];
 
     // Set up the constraints assuming that the icon image is hidden.
     _iconVisibleConstraint = [textLayoutGuide.leadingAnchor
-        constraintEqualToAnchor:_iconImageView.trailingAnchor
+        constraintEqualToAnchor:_iconBackground.trailingAnchor
                        constant:kTableViewImagePadding];
     _iconHiddenConstraint = [textLayoutGuide.leadingAnchor
         constraintEqualToAnchor:self.contentView.leadingAnchor
@@ -123,15 +133,15 @@ const CGFloat kSwitchTrailingPadding = 22;
     ];
 
     [NSLayoutConstraint activateConstraints:@[
-      [_iconImageView.leadingAnchor
+      [_iconBackground.leadingAnchor
           constraintEqualToAnchor:self.contentView.leadingAnchor
                          constant:kTableViewHorizontalSpacing],
-      [_iconImageView.widthAnchor
+      [_iconBackground.widthAnchor
           constraintEqualToConstant:kTableViewIconImageSize],
-      [_iconImageView.heightAnchor
-          constraintEqualToAnchor:_iconImageView.widthAnchor],
+      [_iconBackground.heightAnchor
+          constraintEqualToAnchor:_iconBackground.widthAnchor],
 
-      [_iconImageView.centerYAnchor
+      [_iconBackground.centerYAnchor
           constraintEqualToAnchor:textLayoutGuide.centerYAnchor],
 
       _iconHiddenConstraint,
@@ -150,7 +160,7 @@ const CGFloat kSwitchTrailingPadding = 22;
       [_textLabel.bottomAnchor
           constraintEqualToAnchor:_detailTextLabel.topAnchor],
 
-      // Leading constraint for |customSepartor|.
+      // Leading constraint for `customSepartor`.
       [self.customSeparator.leadingAnchor
           constraintEqualToAnchor:_textLabel.leadingAnchor],
     ]];
@@ -174,14 +184,19 @@ const CGFloat kSwitchTrailingPadding = 22;
              : [UIColor colorNamed:kTextPrimaryColor];
 }
 
-- (void)setIconImage:(UIImage*)image {
+- (void)setIconImage:(UIImage*)image
+           tintColor:(UIColor*)tintColor
+     backgroundColor:(UIColor*)backgroundColor
+        cornerRadius:(CGFloat)cornerRadius {
   BOOL hidden = (image == nil);
-  if (hidden == self.iconImageView.hidden) {
-    return;
-  }
 
   self.iconImageView.image = image;
-  self.iconImageView.hidden = hidden;
+  self.iconImageView.tintColor = tintColor;
+
+  _iconBackground.backgroundColor = backgroundColor;
+  _iconBackground.layer.cornerRadius = cornerRadius;
+
+  _iconBackground.hidden = hidden;
   if (hidden) {
     self.iconVisibleConstraint.active = NO;
     self.iconHiddenConstraint.active = YES;
@@ -218,7 +233,7 @@ const CGFloat kSwitchTrailingPadding = 22;
 
   self.textLabel.text = nil;
   self.detailTextLabel.text = nil;
-  [self setIconImage:nil];
+  [self setIconImage:nil tintColor:nil backgroundColor:nil cornerRadius:0];
   [_switchView removeTarget:nil
                      action:nil
            forControlEvents:[_switchView allControlEvents]];

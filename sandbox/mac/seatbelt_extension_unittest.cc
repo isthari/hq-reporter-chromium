@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <unistd.h>
 
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
@@ -32,7 +31,7 @@ const char kSandboxProfile[] = R"(
 )";
 
 const char kTestData[] = "hello world";
-constexpr int kTestDataLen = base::size(kTestData);
+constexpr int kTestDataLen = std::size(kTestData);
 
 const char kSwitchFile[] = "test-file";
 const char kSwitchExtension[] = "test-extension";
@@ -79,9 +78,10 @@ TEST_F(SeatbeltExtensionTest, FileReadAccess) {
 }
 
 MULTIPROCESS_TEST_MAIN(FileReadAccess) {
-  sandbox::SandboxCompiler compiler(kSandboxProfile);
+  sandbox::SandboxCompiler compiler;
+  compiler.SetProfile(kSandboxProfile);
   std::string error;
-  CHECK(compiler.CompileAndApplyProfile(&error)) << error;
+  CHECK(compiler.CompileAndApplyProfile(error)) << error;
 
   auto* command_line = base::CommandLine::ForCurrentProcess();
 
@@ -167,9 +167,10 @@ TEST_F(SeatbeltExtensionTest, DirReadWriteAccess) {
 }
 
 MULTIPROCESS_TEST_MAIN(DirReadWriteAccess) {
-  sandbox::SandboxCompiler compiler(kSandboxProfile);
+  sandbox::SandboxCompiler compiler;
+  compiler.SetProfile(kSandboxProfile);
   std::string error;
-  CHECK(compiler.CompileAndApplyProfile(&error)) << error;
+  CHECK(compiler.CompileAndApplyProfile(error)) << error;
 
   auto* command_line = base::CommandLine::ForCurrentProcess();
 

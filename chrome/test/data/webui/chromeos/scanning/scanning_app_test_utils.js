@@ -1,9 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+import './scanning_mojom_imports.js';
+
 import {alphabeticalCompare} from 'chrome://scanning/scanning_app_util.js';
-import {assertTrue} from '../../chai_assert.js';
-import {flushTasks} from '../../test_util.js';
+import {assertEquals, assertTrue} from 'chrome://webui-test/chromeos/chai_assert.js';
+import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
 
 /**
  * @param {!Array} arr
@@ -50,8 +52,8 @@ export function createScannerSource(
  * @return {!mojoBase.mojom.String16}
  */
 function strToMojoString16(str) {
-  let arr = [];
-  for (var i = 0; i < str.length; i++) {
+  const arr = [];
+  for (let i = 0; i < str.length; i++) {
     arr[i] = str.charCodeAt(i);
   }
 
@@ -75,4 +77,65 @@ export function changeSelect(select, value, selectedIndex) {
 
   select.dispatchEvent(new CustomEvent('change'));
   return flushTasks();
+}
+
+/** @typedef {function(string, {media: string, matches: boolean})} */
+let MediaQueryListEventListener;
+
+/**
+ * Fake MediaQueryList for mocking behavior of |window.matchMedia|.
+ * @extends {EventTarget}
+ * @implements {MediaQueryList}
+ * @suppress {checkTypes} Type checker incorrectly states class cannot be
+ * extended.
+ */
+export class FakeMediaQueryList extends EventTarget {
+  constructor(media) {
+    super();
+    /** @type {string} */
+    this.media_ = media;
+    /** @type {boolean} */
+    this.matches_ = false;
+    /** @type {?MediaQueryListEventListener} */
+    this.listener_ = null;
+  }
+
+  /** @param {!Function} listener */
+  addListener(listener) {
+    this.listener_ = listener;
+  }
+
+  /** @param {!Function} listener */
+  removeListener(listener) {
+    this.listener_ = null;
+  }
+
+  onchange() {
+    if (!this.listener_) {
+      return;
+    }
+
+    this.listener_(new window.MediaQueryListEvent(
+        'change', {media: this.media_, matches: this.matches_}));
+  }
+
+  /** @return {string} */
+  get media() {
+    return this.media_;
+  }
+
+  /** @return {boolean} */
+  get matches() {
+    return this.matches_;
+  }
+
+  /** @param {boolean} matches */
+  set matches(matches) {
+    if (this.matches_ === matches) {
+      return;
+    }
+
+    this.matches_ = matches;
+    this.onchange();
+  }
 }

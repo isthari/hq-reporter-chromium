@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,7 +34,7 @@ final class AccountRestrictionPatternReceiver {
                 getRestrictionPatternsAsync().then(onPatternsUpdated);
             }
         };
-        ContextUtils.getApplicationContext().registerReceiver(
+        ContextUtils.registerProtectedBroadcastReceiver(ContextUtils.getApplicationContext(),
                 receiver, new IntentFilter(Intent.ACTION_APPLICATION_RESTRICTIONS_CHANGED));
         getRestrictionPatternsAsync().then(onPatternsUpdated);
     }

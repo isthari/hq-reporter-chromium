@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,9 @@ namespace bookmarks {
 class BookmarkNode;
 }
 
-// BookmarkHomeNodeItem provides data for a table view row that displays a
+// BookmarksHomeNodeItem provides data for a table view row that displays a
 // single bookmark.
-@interface BookmarkHomeNodeItem : TableViewItem
+@interface BookmarksHomeNodeItem : TableViewItem
 
 // The BookmarkNode that backs this item.
 @property(nonatomic, readwrite, assign)

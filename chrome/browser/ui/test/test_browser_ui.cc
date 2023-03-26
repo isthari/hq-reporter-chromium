@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,9 +17,10 @@
 // of lacros-chrome is complete.
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || \
     (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
-#include "chrome/test/pixel/browser_skia_gold_pixel_diff.h"
 #include "ui/base/test/skia_gold_matching_algorithm.h"
+#include "ui/compositor/compositor.h"
 #include "ui/compositor/test/draw_waiter_for_test.h"
+#include "ui/views/test/view_skia_gold_pixel_diff.h"
 #include "ui/views/widget/widget.h"
 #endif
 
@@ -41,7 +42,7 @@ std::string NameFromTestCase() {
 void InstallUIControlsAura() {
 #if BUILDFLAG(IS_WIN)
   ui_controls::InstallUIControlsAura(aura::test::CreateUIControlsAura(nullptr));
-#elif defined(USE_OZONE)
+#elif BUILDFLAG(IS_OZONE)
   ui_controls::InstallUIControlsAura(
       views::test::CreateUIControlsDesktopAuraOzone());
 #else
@@ -86,7 +87,7 @@ bool TestBrowserUi::VerifyPixelUi(views::View* view,
   // Move the mouse away from the dialog to prvent any interference with the
   // screenshots.
   InstallUIControlsAura();
-  base::RunLoop run_loop;
+  base::RunLoop run_loop(base::RunLoop::Type::kNestableTasksAllowed);
   EXPECT_TRUE(
       ui_controls::SendMouseMoveNotifyWhenDone(0, 0, run_loop.QuitClosure()));
   run_loop.Run();
@@ -95,14 +96,17 @@ bool TestBrowserUi::VerifyPixelUi(views::View* view,
   // and some not due to tests being run in parallel.
   view->GetWidget()->GetFocusManager()->ClearFocus();
 
-  // Wait for painting complete.
-  auto* compositor = view->GetWidget()->GetCompositor();
+  // Request that the compositor perform a frame and then wait for it to
+  // complete. Because there might not be anything left to draw after waiting
+  // for the mouse move above, request compositing so we don't wait forever.
+  ui::Compositor* const compositor = view->GetWidget()->GetCompositor();
+  compositor->ScheduleFullRedraw();
   ui::DrawWaiterForTest::WaitForCompositingEnded(compositor);
 
-  BrowserSkiaGoldPixelDiff pixel_diff;
-  pixel_diff.Init(view->GetWidget(), screenshot_prefix);
-  return pixel_diff.CompareScreenshot(screenshot_name, view,
-                                      GetPixelMatchAlgorithm());
+  views::ViewSkiaGoldPixelDiff pixel_diff;
+  pixel_diff.Init(screenshot_prefix);
+  return pixel_diff.CompareViewScreenshot(screenshot_name, view,
+                                          GetPixelMatchAlgorithm());
 }
 
 void TestBrowserUi::SetPixelMatchAlgorithm(
@@ -115,9 +119,13 @@ void TestBrowserUi::ShowAndVerifyUi() {
   PreShow();
   ShowUi(NameFromTestCase());
   ASSERT_TRUE(VerifyUi());
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kTestLauncherInteractive))
+  if (IsInteractiveUi())
     WaitForUserDismissal();
   else
     DismissUi();
+}
+
+bool TestBrowserUi::IsInteractiveUi() const {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kTestLauncherInteractive);
 }

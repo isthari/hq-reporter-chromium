@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,19 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "ash/public/cpp/ash_public_export.h"
+#include "ash/public/cpp/holding_space/holding_space_constants.h"
 #include "ash/public/cpp/holding_space/holding_space_progress.h"
-#include "base/callback_forward.h"
 #include "base/callback_list.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback_forward.h"
+#include "base/values.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/color/color_id.h"
+#include "ui/gfx/vector_icon_types.h"
 #include "url/gurl.h"
-
-namespace base {
-class DictionaryValue;
-}  // namespace base
 
 namespace cros_styles {
 enum class ColorName;
@@ -31,6 +32,41 @@ class HoldingSpaceImage;
 // Contains data needed to display a single item in the holding space UI.
 class ASH_PUBLIC_EXPORT HoldingSpaceItem {
  public:
+  // Models a command for an in-progress item which is shown in the item's
+  // context menu and possibly, in the case of cancel/pause/resume, as primary/
+  // secondary actions on the item's view itself.
+  struct InProgressCommand {
+   public:
+    using Handler =
+        base::RepeatingCallback<void(const HoldingSpaceItem* item,
+                                     HoldingSpaceCommandId command_id)>;
+
+    InProgressCommand(HoldingSpaceCommandId command_id,
+                      int label_id,
+                      const gfx::VectorIcon* icon,
+                      Handler handler);
+
+    InProgressCommand(const InProgressCommand& other);
+
+    InProgressCommand& operator=(const InProgressCommand& other);
+
+    ~InProgressCommand();
+
+    bool operator==(const InProgressCommand& other) const;
+
+    // The identifier for the command.
+    HoldingSpaceCommandId command_id;
+
+    // The identifier for the label to be displayed for the command.
+    int label_id;
+
+    // The icon to be displayed for the command.
+    const gfx::VectorIcon* icon;
+
+    // The handler to be invoked to perform command execution.
+    Handler handler;
+  };
+
   // Items types supported by the holding space.
   // NOTE: These values are recorded in histograms and persisted in preferences
   // so append new values to the end and do not change the meaning of existing
@@ -47,7 +83,9 @@ class ASH_PUBLIC_EXPORT HoldingSpaceItem {
     kLacrosDownload = 8,
     kScan = 9,
     kPhoneHubCameraRoll = 10,
-    kMaxValue = kPhoneHubCameraRoll,
+    kDriveSuggestion = 11,
+    kLocalSuggestion = 12,
+    kMaxValue = kLocalSuggestion,
   };
 
   HoldingSpaceItem(const HoldingSpaceItem&) = delete;
@@ -80,21 +118,27 @@ class ASH_PUBLIC_EXPORT HoldingSpaceItem {
   // Returns `true` if `type` is a download type, `false` otherwise.
   static bool IsDownload(HoldingSpaceItem::Type type);
 
-  // Deserializes from `base::DictionaryValue` to `HoldingSpaceItem`.
+  // Returns `true` if `type` is a suggestion type, `false` otherwise.
+  static bool IsSuggestion(HoldingSpaceItem::Type type);
+
+  // Deserializes from `base::Value::Dict` to `HoldingSpaceItem`.
   // This creates a partially initialized item with an empty file system URL.
   // The item should be fully initialized using `Initialize()`.
   static std::unique_ptr<HoldingSpaceItem> Deserialize(
-      const base::DictionaryValue& dict,
+      const base::Value::Dict& dict,
       ImageResolver image_resolver);
 
   // Deserializes `id_` from a serialized `HoldingSpaceItem`.
-  static const std::string& DeserializeId(const base::DictionaryValue& dict);
+  static const std::string& DeserializeId(const base::Value::Dict& dict);
 
   // Deserializes `file_path_` from a serialized `HoldingSpaceItem`.
-  static base::FilePath DeserializeFilePath(const base::DictionaryValue& dict);
+  static base::FilePath DeserializeFilePath(const base::Value::Dict& dict);
 
-  // Serializes from `HoldingSpaceItem` to `base::DictionaryValue`.
-  base::DictionaryValue Serialize() const;
+  // Deserializes `type_` from a serialized `HoldingSpaceItem`.
+  static Type DeserializeType(const base::Value::Dict& dict);
+
+  // Serializes from `HoldingSpaceItem` to `base::Value::Dict`.
+  base::Value::Dict Serialize() const;
 
   // Adds `callback` to be notified when `this` gets deleted.
   base::CallbackListSubscription AddDeletionCallback(
@@ -127,11 +171,11 @@ class ASH_PUBLIC_EXPORT HoldingSpaceItem {
   // if a change occurred or `false` to indicate no-op.
   bool SetSecondaryText(const absl::optional<std::u16string>& secondary_text);
 
-  // Sets the color for the secondary text that should be shown for the item,
+  // Sets the color id for the secondary text that should be shown for the item,
   // returning `true` if a change occurred or `false` to indicate no-op. If
   // `absl::nullopt` is provided, secondary text color will fallback to default.
-  bool SetSecondaryTextColor(
-      const absl::optional<cros_styles::ColorName>& secondary_text_color);
+  bool SetSecondaryTextColorId(
+      const absl::optional<ui::ColorId>& secondary_text_color_id);
 
   // Returns `accessible_name_`, falling back to a concatenation of primary
   // and secondary text if absent.
@@ -142,6 +186,12 @@ class ASH_PUBLIC_EXPORT HoldingSpaceItem {
   // accessible name is absent, `GetAccessibleName()` will fallback to a
   // concatenation of primary and secondary text.
   bool SetAccessibleName(const absl::optional<std::u16string>& accessible_name);
+
+  // Sets the commands for an in-progress item which are shown in the item's
+  // context menu and possibly, in the case of cancel/pause/resume, as primary/
+  // secondary actions on the item view itself.
+  bool SetInProgressCommands(
+      std::vector<InProgressCommand> in_progress_commands);
 
   // Sets the `progress_` of the item, returning `true` if a change occurred or
   // `false` to indicate no-op.
@@ -155,15 +205,6 @@ class ASH_PUBLIC_EXPORT HoldingSpaceItem {
   // Returns true if this item is a screen capture.
   bool IsScreenCapture() const;
 
-  // Returns true if progress of this item is paused.
-  // NOTE: Only in-progress items can be paused.
-  bool IsPaused() const;
-
-  // Sets whether progress of this item is `paused_`, returning `true` if a
-  // change occurred or `false` to indicate no-op.
-  // NOTE: Only in-progress items can be paused.
-  bool SetPaused(bool paused);
-
   const std::string& id() const { return id_; }
 
   Type type() const { return type_; }
@@ -172,8 +213,8 @@ class ASH_PUBLIC_EXPORT HoldingSpaceItem {
     return secondary_text_;
   }
 
-  const absl::optional<cros_styles::ColorName>& secondary_text_color() const {
-    return secondary_text_color_;
+  const absl::optional<ui::ColorId>& secondary_text_color_id() const {
+    return secondary_text_color_id_;
   }
 
   const HoldingSpaceImage& image() const { return *image_; }
@@ -183,6 +224,10 @@ class ASH_PUBLIC_EXPORT HoldingSpaceItem {
   const GURL& file_system_url() const { return file_system_url_; }
 
   const HoldingSpaceProgress& progress() const { return progress_; }
+
+  const std::vector<InProgressCommand>& in_progress_commands() const {
+    return in_progress_commands_;
+  }
 
   HoldingSpaceImage& image_for_testing() { return *image_; }
 
@@ -212,8 +257,9 @@ class ASH_PUBLIC_EXPORT HoldingSpaceItem {
   // If set, the secondary text that should be shown for the item.
   absl::optional<std::u16string> secondary_text_;
 
-  // If set, the color for the secondary text that should be shown for the item.
-  absl::optional<cros_styles::ColorName> secondary_text_color_;
+  // If set, the color resolved from the color id for the secondary text that
+  // should be shown for the item.
+  absl::optional<ui::ColorId> secondary_text_color_id_;
 
   // If set, the accessible name that should be used for the item.
   absl::optional<std::u16string> accessible_name_;
@@ -224,9 +270,10 @@ class ASH_PUBLIC_EXPORT HoldingSpaceItem {
   // The progress of the item.
   HoldingSpaceProgress progress_;
 
-  // Whether or not progress of this item is paused.
-  // NOTE: Only in-progress items can be paused.
-  bool paused_ = false;
+  // The commands for an in-progress item which are shown in the item's context
+  // menu and possibly, in the case of cancel/pause/resume, as primary/secondary
+  // actions on the item's view itself.
+  std::vector<InProgressCommand> in_progress_commands_;
 
   // Mutable to allow const access from `AddDeletionCallback()`.
   mutable base::RepeatingClosureList deletion_callback_list_;

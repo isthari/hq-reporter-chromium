@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,9 @@
 #include <grpcpp/generic/async_generic_service.h>
 #include <grpcpp/grpcpp.h>
 
+#include "base/check_op.h"
 #include "base/logging.h"
-#include "base/strings/string_piece.h"
 #include "chromecast/cast_core/grpc/grpc_status_or.h"
-#include "chromecast/cast_core/grpc/server_reactor_tracker.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace cast {
@@ -21,7 +20,7 @@ namespace utils {
 template <typename TRequest, typename TResponse>
 class GrpcServerReactor : public grpc::ServerGenericBidiReactor {
  public:
-  GrpcServerReactor(base::StringPiece name,
+  GrpcServerReactor(const std::string& name,
                     grpc::CallbackServerContext* context)
       : name_(name), context_(context) {}
   ~GrpcServerReactor() override = default;
@@ -48,7 +47,7 @@ class GrpcServerReactor : public grpc::ServerGenericBidiReactor {
   }
 
   // Returns reactor RPC name.
-  base::StringPiece name() const { return name_; }
+  const std::string& name() const { return name_; }
 
  protected:
   // Starts reading a request.

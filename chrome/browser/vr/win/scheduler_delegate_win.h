@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,15 +26,12 @@ class SchedulerDelegateWin : public SchedulerDelegate {
   void OnResume() override;
 
   void OnExitPresent() override;
-  void SetWebXrMode(bool enabled) override;
-  void SetShowingVrDialog(bool showing) override;
   void SetBrowserRenderer(
       SchedulerBrowserRendererInterface* browser_renderer) override;
   void SubmitDrawnFrame(FrameType frame_type,
                         const gfx::Transform& head_pose) override;
   void AddInputSourceState(device::mojom::XRInputSourceStatePtr state) override;
   void ConnectPresentingService(
-      device::mojom::VRDisplayInfoPtr display_info,
       device::mojom::XRRuntimeSessionOptionsPtr options) override;
 
  private:

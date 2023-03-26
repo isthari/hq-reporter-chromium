@@ -1,7 +1,8 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/ui/ash/chrome_new_window_client.h"
 
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
@@ -9,6 +10,7 @@
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile_test_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -18,6 +20,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/account_id/account_id.h"
 #include "components/session_manager/core/session_manager.h"
+#include "components/user_manager/fake_user_manager.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/test/browser_test.h"
@@ -35,12 +38,15 @@ void CreateAndStartUserSession(const AccountId& account_id) {
   using ::ash::ProfileHelper;
   using session_manager::SessionManager;
 
-  user_manager::known_user::SetProfileRequiresPolicy(
+  user_manager::KnownUser known_user(g_browser_process->local_state());
+  known_user.SetProfileRequiresPolicy(
       account_id, user_manager::ProfileRequiresPolicy::kNoPolicyRequired);
   const std::string user_id_hash =
-      ProfileHelper::GetUserIdHashByUserIdForTesting(account_id.GetUserEmail());
+      user_manager::FakeUserManager::GetFakeUsernameHash(account_id);
   SessionManager::Get()->CreateSession(account_id, user_id_hash, false);
-  ProfileHelper::GetProfileByUserIdHashForTest(user_id_hash);
+  profiles::testing::CreateProfileSync(
+      g_browser_process->profile_manager(),
+      ProfileHelper::GetProfilePathByUserIdHash(user_id_hash));
   SessionManager::Get()->SessionStarted();
 }
 

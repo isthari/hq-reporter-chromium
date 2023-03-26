@@ -1,20 +1,64 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "media/audio/cras/cras_input.h"
 
 #include <math.h>
+
 #include <algorithm>
 
-#include "base/cxx17_backports.h"
+#include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "media/audio/audio_device_description.h"
 #include "media/audio/cras/audio_manager_cras_base.h"
 
 namespace media {
+
+namespace {
+
+// Used to log errors in `CrasInputStream::Open`.
+enum class StreamOpenResult {
+  kCallbackOpenSuccess = 0,
+  kCallbackOpenClientAlreadyOpen = 1,
+  kCallbackOpenUnsupportedAudioFrequency = 2,
+  kCallbackOpenUnsupportedAudioFormat = 3,
+  kCallbackOpenCrasClientCreationFailed = 4,
+  kCallbackOpenCannotConnectToCrasClient = 5,
+  kCallbackOpenCannotRunCrasClient = 6,
+  kCallbackOpenCannotSynchronizeData = 7,
+  kCallbackOpenCannotFindLoopbackDevice = 8,
+  kMaxValue = kCallbackOpenCannotFindLoopbackDevice
+};
+
+// Used to log errors in `CrasInputStream::Start`.
+enum class StreamStartResult {
+  kCallbackStartSuccess = 0,
+  kCallbackStartErrorCreatingStreamParameters = 1,
+  kCallbackStartErrorSettingUpStreamParameters = 2,
+  kCallbackStartErrorSettingUpChannelLayout = 3,
+  kCallbackStartFailedAddingStream = 4,
+  kMaxValue = kCallbackStartFailedAddingStream
+};
+
+void ReportStreamOpenResult(StreamOpenResult result) {
+  base::UmaHistogramEnumeration("Media.Audio.CrasInputStreamOpenSuccess",
+                                result);
+}
+
+void ReportStreamStartResult(StreamStartResult result) {
+  base::UmaHistogramEnumeration("Media.Audio.CrasInputStreamStartSuccess",
+                                result);
+}
+
+void ReportNotifyStreamErrors(int err) {
+  base::UmaHistogramSparse("Media.Audio.CrasInputStreamNotifyStreamError", err);
+}
+
+}  // namespace
 
 CrasInputStream::CrasInputStream(const AudioParameters& params,
                                  AudioManagerCrasBase* manager,
@@ -28,9 +72,14 @@ CrasInputStream::CrasInputStream(const AudioParameters& params,
       stream_direction_(CRAS_STREAM_INPUT),
       pin_device_(NO_DEVICE),
       is_loopback_(AudioDeviceDescription::IsLoopbackDevice(device_id)),
+      is_loopback_without_chrome_(
+          device_id == AudioDeviceDescription::kLoopbackWithoutChromeId),
       mute_system_audio_(device_id ==
                          AudioDeviceDescription::kLoopbackWithMuteDeviceId),
       mute_done_(false),
+#if DCHECK_IS_ON()
+      recording_enabled_(false),
+#endif
       input_volume_(1.0f) {
   DCHECK(audio_manager_);
   audio_bus_ = AudioBus::Create(params_);
@@ -48,18 +97,23 @@ CrasInputStream::~CrasInputStream() {
 AudioInputStream::OpenOutcome CrasInputStream::Open() {
   if (client_) {
     NOTREACHED() << "CrasInputStream already open";
+    ReportStreamOpenResult(StreamOpenResult::kCallbackOpenClientAlreadyOpen);
     return OpenOutcome::kAlreadyOpen;
   }
 
   // Sanity check input values.
   if (params_.sample_rate() <= 0) {
     DLOG(WARNING) << "Unsupported audio frequency.";
+    ReportStreamOpenResult(
+        StreamOpenResult::kCallbackOpenUnsupportedAudioFrequency);
     return OpenOutcome::kFailed;
   }
 
   if (AudioParameters::AUDIO_PCM_LINEAR != params_.format() &&
       AudioParameters::AUDIO_PCM_LOW_LATENCY != params_.format()) {
     DLOG(WARNING) << "Unsupported audio format.";
+    ReportStreamOpenResult(
+        StreamOpenResult::kCallbackOpenUnsupportedAudioFormat);
     return OpenOutcome::kFailed;
   }
 
@@ -67,12 +121,16 @@ AudioInputStream::OpenOutcome CrasInputStream::Open() {
   client_ = libcras_client_create();
   if (!client_) {
     DLOG(WARNING) << "Couldn't create CRAS client.\n";
+    ReportStreamOpenResult(
+        StreamOpenResult::kCallbackOpenCrasClientCreationFailed);
     client_ = NULL;
     return OpenOutcome::kFailed;
   }
 
   if (libcras_client_connect(client_)) {
     DLOG(WARNING) << "Couldn't connect CRAS client.\n";
+    ReportStreamOpenResult(
+        StreamOpenResult::kCallbackOpenCannotConnectToCrasClient);
     libcras_client_destroy(client_);
     client_ = NULL;
     return OpenOutcome::kFailed;
@@ -81,6 +139,7 @@ AudioInputStream::OpenOutcome CrasInputStream::Open() {
   // Then start running the client.
   if (libcras_client_run_thread(client_)) {
     DLOG(WARNING) << "Couldn't run CRAS client.\n";
+    ReportStreamOpenResult(StreamOpenResult::kCallbackOpenCannotRunCrasClient);
     libcras_client_destroy(client_);
     client_ = NULL;
     return OpenOutcome::kFailed;
@@ -91,20 +150,35 @@ AudioInputStream::OpenOutcome CrasInputStream::Open() {
       DLOG(WARNING) << "Couldn't synchronize data.";
       // TODO(chinyue): Add a DestroyClientOnError method to de-duplicate the
       // cleanup code.
+      ReportStreamOpenResult(
+          StreamOpenResult::kCallbackOpenCannotSynchronizeData);
       libcras_client_destroy(client_);
       client_ = NULL;
       return OpenOutcome::kFailed;
     }
 
-    int rc = libcras_client_get_loopback_dev_idx(client_, &pin_device_);
+    int rc;
+    if (is_loopback_without_chrome_) {
+      uint32_t client_types = 0;
+      client_types |= 1 << CRAS_CLIENT_TYPE_CHROME;
+      client_types |= 1 << CRAS_CLIENT_TYPE_LACROS;
+      client_types = ~client_types;
+      rc = pin_device_ = libcras_client_get_floop_dev_idx_by_client_types(
+          client_, client_types);
+    } else {
+      rc = libcras_client_get_loopback_dev_idx(client_, &pin_device_);
+    }
     if (rc < 0) {
       DLOG(WARNING) << "Couldn't find CRAS loopback device.";
+      ReportStreamOpenResult(
+          StreamOpenResult::kCallbackOpenCannotFindLoopbackDevice);
       libcras_client_destroy(client_);
       client_ = NULL;
       return OpenOutcome::kFailed;
     }
   }
 
+  ReportStreamOpenResult(StreamOpenResult::kCallbackOpenSuccess);
   return OpenOutcome::kSuccess;
 }
 
@@ -134,6 +208,18 @@ inline bool CrasInputStream::UseCrasAgc() const {
   return params_.effects() & AudioParameters::AUTOMATIC_GAIN_CONTROL;
 }
 
+inline bool CrasInputStream::DspBasedAecIsAllowed() const {
+  return params_.effects() & AudioParameters::ALLOW_DSP_ECHO_CANCELLER;
+}
+
+inline bool CrasInputStream::DspBasedNsIsAllowed() const {
+  return params_.effects() & AudioParameters::ALLOW_DSP_NOISE_SUPPRESSION;
+}
+
+inline bool CrasInputStream::DspBasedAgcIsAllowed() const {
+  return params_.effects() & AudioParameters::ALLOW_DSP_AUTOMATIC_GAIN_CONTROL;
+}
+
 void CrasInputStream::Start(AudioInputCallback* callback) {
   DCHECK(client_);
   DCHECK(callback);
@@ -141,24 +227,15 @@ void CrasInputStream::Start(AudioInputCallback* callback) {
   // Channel map to CRAS_CHANNEL, values in the same order of
   // corresponding source in Chromium defined Channels.
   static const int kChannelMap[] = {
-    CRAS_CH_FL,
-    CRAS_CH_FR,
-    CRAS_CH_FC,
-    CRAS_CH_LFE,
-    CRAS_CH_RL,
-    CRAS_CH_RR,
-    CRAS_CH_FLC,
-    CRAS_CH_FRC,
-    CRAS_CH_RC,
-    CRAS_CH_SL,
-    CRAS_CH_SR
-  };
-  static_assert(base::size(kChannelMap) == CHANNELS_MAX + 1,
+      CRAS_CH_FL,  CRAS_CH_FR,  CRAS_CH_FC, CRAS_CH_LFE, CRAS_CH_RL, CRAS_CH_RR,
+      CRAS_CH_FLC, CRAS_CH_FRC, CRAS_CH_RC, CRAS_CH_SL,  CRAS_CH_SR};
+  static_assert(std::size(kChannelMap) == CHANNELS_MAX + 1,
                 "kChannelMap array size should match");
 
   // If already playing, stop before re-starting.
-  if (started_)
+  if (started_) {
     return;
+  }
 
   StartAgc();
 
@@ -175,6 +252,8 @@ void CrasInputStream::Start(AudioInputCallback* callback) {
   struct libcras_stream_params* stream_params = libcras_stream_params_create();
   if (!stream_params) {
     DLOG(ERROR) << "Error creating stream params";
+    ReportStreamStartResult(
+        StreamStartResult::kCallbackStartErrorCreatingStreamParameters);
     callback_->OnError();
     callback_ = NULL;
     return;
@@ -188,6 +267,8 @@ void CrasInputStream::Start(AudioInputCallback* callback) {
 
   if (rc) {
     DLOG(WARNING) << "Error setting up stream parameters.";
+    ReportStreamStartResult(
+        StreamStartResult::kCallbackStartErrorSettingUpStreamParameters);
     callback_->OnError();
     callback_ = NULL;
     libcras_stream_params_destroy(stream_params);
@@ -197,39 +278,59 @@ void CrasInputStream::Start(AudioInputCallback* callback) {
   // Initialize channel layout to all -1 to indicate that none of
   // the channels is set in the layout.
   int8_t layout[CRAS_CH_MAX];
-  for (size_t i = 0; i < base::size(layout); ++i)
+  for (size_t i = 0; i < std::size(layout); ++i) {
     layout[i] = -1;
+  }
 
   // Converts to CRAS defined channels. ChannelOrder will return -1
   // for channels that are not present in params_.channel_layout().
-  for (size_t i = 0; i < base::size(kChannelMap); ++i) {
-    layout[kChannelMap[i]] = ChannelOrder(params_.channel_layout(),
-                                          static_cast<Channels>(i));
+  for (size_t i = 0; i < std::size(kChannelMap); ++i) {
+    layout[kChannelMap[i]] =
+        ChannelOrder(params_.channel_layout(), static_cast<Channels>(i));
   }
 
   rc = libcras_stream_params_set_channel_layout(stream_params, CRAS_CH_MAX,
                                                 layout);
   if (rc) {
     DLOG(WARNING) << "Error setting up the channel layout.";
+    ReportStreamStartResult(
+        StreamStartResult::kCallbackStartErrorSettingUpChannelLayout);
     callback_->OnError();
     callback_ = NULL;
     libcras_stream_params_destroy(stream_params);
     return;
   }
 
-  if (UseCrasAec())
+  if (UseCrasAec()) {
     libcras_stream_params_enable_aec(stream_params);
+  }
 
-  if (UseCrasNs())
+  if (UseCrasNs()) {
     libcras_stream_params_enable_ns(stream_params);
+  }
 
-  if (UseCrasAgc())
+  if (UseCrasAgc()) {
     libcras_stream_params_enable_agc(stream_params);
+  }
+
+  if (DspBasedAecIsAllowed()) {
+    libcras_stream_params_allow_aec_on_dsp(stream_params);
+  }
+
+  if (DspBasedNsIsAllowed()) {
+    libcras_stream_params_allow_ns_on_dsp(stream_params);
+  }
+
+  if (DspBasedAgcIsAllowed()) {
+    libcras_stream_params_allow_agc_on_dsp(stream_params);
+  }
 
   // Adding the stream will start the audio callbacks.
   if (libcras_client_add_pinned_stream(client_, pin_device_, &stream_id_,
                                        stream_params)) {
     DLOG(WARNING) << "Failed to add the stream.";
+    ReportStreamStartResult(
+        StreamStartResult::kCallbackStartFailedAddingStream);
     callback_->OnError();
     callback_ = NULL;
   }
@@ -238,8 +339,9 @@ void CrasInputStream::Start(AudioInputCallback* callback) {
   if (mute_system_audio_) {
     int muted;
     libcras_client_get_system_muted(client_, &muted);
-    if (!muted)
+    if (!muted) {
       libcras_client_set_system_mute(client_, 1);
+    }
     mute_done_ = true;
   }
 
@@ -247,14 +349,22 @@ void CrasInputStream::Start(AudioInputCallback* callback) {
   libcras_stream_params_destroy(stream_params);
 
   started_ = true;
+
+  audio_manager_->RegisterSystemAecDumpSource(this);
+
+  ReportStreamStartResult(StreamStartResult::kCallbackStartSuccess);
 }
 
 void CrasInputStream::Stop() {
-  if (!client_)
+  if (!client_) {
     return;
+  }
 
-  if (!callback_ || !started_)
+  if (!callback_ || !started_) {
     return;
+  }
+
+  audio_manager_->DeregisterSystemAecDumpSource(this);
 
   if (mute_system_audio_ && mute_done_) {
     libcras_client_set_system_mute(client_, 0);
@@ -319,8 +429,10 @@ void CrasInputStream::ReadAudio(size_t frames,
 }
 
 void CrasInputStream::NotifyStreamError(int err) {
-  if (callback_)
+  ReportNotifyStreamErrors(err);
+  if (callback_) {
     callback_->OnError();
+  }
 }
 
 double CrasInputStream::GetMaxVolume() {
@@ -343,14 +455,17 @@ void CrasInputStream::SetVolume(double volume) {
 }
 
 double CrasInputStream::GetVolume() {
-  if (!client_)
+  if (!client_) {
     return 0.0;
+  }
 
   return input_volume_;
 }
 
 bool CrasInputStream::IsMuted() {
-  return false;
+  int muted = 0;
+  libcras_client_get_system_capture_muted(client_, &muted);
+  return static_cast<bool>(muted);
 }
 
 void CrasInputStream::SetOutputDeviceForAec(
@@ -369,6 +484,30 @@ void CrasInputStream::SetOutputDeviceForAec(
     echo_ref_id = dev_index_of(cras_node_id);
   }
   libcras_client_set_aec_ref(client_, stream_id_, echo_ref_id);
+}
+
+void CrasInputStream::StartAecdump(base::File file) {
+  FILE* stream = base::FileToFILE(std::move(file), "w");
+  if (!client_) {
+    return;
+  }
+#if DCHECK_IS_ON()
+  DCHECK(!recording_enabled_);
+  recording_enabled_ = true;
+#endif
+
+  libcras_client_set_aec_dump(client_, stream_id_, /*start=*/1, fileno(stream));
+}
+
+void CrasInputStream::StopAecdump() {
+  if (!client_) {
+    return;
+  }
+#if DCHECK_IS_ON()
+  DCHECK(recording_enabled_);
+  recording_enabled_ = false;
+#endif
+  libcras_client_set_aec_dump(client_, stream_id_, /*start=*/0, /*fd=*/-1);
 }
 
 }  // namespace media

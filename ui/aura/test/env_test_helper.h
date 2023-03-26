@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,10 +37,6 @@ class EnvTestHelper {
     env_->last_mouse_location_ = gfx::Point();
     env_->env_controller_->touch_ids_down_ = 0;
   }
-
-  // Reset aura::Env to eliminate potential test dependency.
-  // (https://crbug.com/586514)
-  void ResetEnvForTesting() { env_->is_touch_down_ = false; }
 
   void SetGestureRecognizer(
       std::unique_ptr<ui::GestureRecognizer> gesture_recognizer) {

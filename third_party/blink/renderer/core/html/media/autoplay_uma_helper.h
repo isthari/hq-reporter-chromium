@@ -1,10 +1,11 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_MEDIA_AUTOPLAY_UMA_HELPER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_MEDIA_AUTOPLAY_UMA_HELPER_H_
 
+#include "base/time/time.h"
 #include "third_party/blink/public/platform/web_media_player_client.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/native_event_listener.h"
@@ -55,7 +56,7 @@ class CORE_EXPORT AutoplayUmaHelper : public NativeEventListener,
 
   bool IsVisible() const { return is_visible_; }
 
-  bool HasSource() const { return !sources_.IsEmpty(); }
+  bool HasSource() const { return !sources_.empty(); }
 
   void Invoke(ExecutionContext*, Event*) override;
 

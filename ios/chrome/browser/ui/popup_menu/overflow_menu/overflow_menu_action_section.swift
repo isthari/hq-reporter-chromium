@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,11 +16,13 @@ struct OverflowMenuActionSection: View {
 
   @ObservedObject var actionGroup: OverflowMenuActionGroup
 
+  weak var metricsHandler: PopupMenuMetricsHandler?
+
   var body: some View {
     Section(
       content: {
         ForEach(actionGroup.actions) { action in
-          OverflowMenuActionRow(action: action)
+          OverflowMenuActionRow(action: action, metricsHandler: metricsHandler)
         }
       },
       header: {

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,10 +14,10 @@ bool ArcValueEvent::operator==(const ArcValueEvent& other) const {
          value == other.value;
 }
 
-base::ListValue SerializeValueEvents(const ValueEvents& value_events) {
-  base::ListValue list;
+base::Value::List SerializeValueEvents(const ValueEvents& value_events) {
+  base::Value::List list;
   for (const auto& event : value_events) {
-    base::ListValue event_value;
+    base::Value::List event_value;
     event_value.Append(base::Value(static_cast<int>(event.type)));
     event_value.Append(base::Value(static_cast<double>(event.timestamp)));
     event_value.Append(base::Value(event.value));
@@ -64,8 +64,7 @@ bool LoadValueEvents(const base::Value* value, ValueEvents* value_events) {
       return false;
     if (!entry.GetList()[2].is_int())
       return false;
-    const int value = entry.GetList()[2].GetInt();
-    value_events->emplace_back(timestamp, type, value);
+    value_events->emplace_back(timestamp, type, entry.GetList()[2].GetInt());
     previous_timestamp = timestamp;
   }
 

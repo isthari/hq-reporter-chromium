@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,9 @@
 
 #include <string>
 
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/callback_helpers.h"
+#include "base/task/single_thread_task_runner.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/media_switches.h"
 #include "media/capture/video/chromeos/public/cros_features.h"
@@ -193,10 +194,10 @@ void CameraAppDeviceBridgeImpl::IsSupported(IsSupportedCallback callback) {
   std::move(callback).Run(is_supported_);
 }
 
-void CameraAppDeviceBridgeImpl::SetMultipleStreamsEnabled(
+void CameraAppDeviceBridgeImpl::SetVirtualDeviceEnabled(
     const std::string& device_id,
     bool enabled,
-    SetMultipleStreamsEnabledCallback callback) {
+    SetVirtualDeviceEnabledCallback callback) {
   base::AutoLock lock(virtual_device_controller_lock_);
   if (!virtual_device_controller_) {
     std::move(callback).Run(false);

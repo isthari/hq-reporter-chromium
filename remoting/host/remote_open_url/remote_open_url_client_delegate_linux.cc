@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -119,6 +119,8 @@ void RemoteOpenUrlClientDelegateLinux::OpenUrlOnFallbackBrowser(
     host_setting_key = kLinuxPreviousDefaultWebBrowserCinnamon;
   } else if (current_desktop.find("XFCE") != std::string::npos) {
     host_setting_key = kLinuxPreviousDefaultWebBrowserXfce;
+  } else if (current_desktop.find("GNOME") != std::string::npos) {
+    host_setting_key = kLinuxPreviousDefaultWebBrowserGnome;
   } else {
     LOG(WARNING) << "Unknown desktop environment: " << current_desktop
                  << ", X-Generic will be used.";

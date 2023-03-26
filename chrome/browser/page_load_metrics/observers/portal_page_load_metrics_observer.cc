@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,6 +59,27 @@ PortalPageLoadMetricsObserver::OnStart(
   navigation_start_ = navigation_handle->NavigationStart();
 
   return CONTINUE_OBSERVING;
+}
+
+page_load_metrics::PageLoadMetricsObserver::ObservePolicy
+PortalPageLoadMetricsObserver::OnPrerenderStart(
+    content::NavigationHandle* navigation_handle,
+    const GURL& currently_committed_url) {
+  // TODO(https://crbug.com/1271055): Prerender doesn't support combined use
+  // with Portals. So, there is no case to start with prerendering to monitor
+  // Portals related metrics.
+  DCHECK(!navigation_handle->GetWebContents()->IsPortal());
+  return STOP_OBSERVING;
+}
+
+page_load_metrics::PageLoadMetricsObserver::ObservePolicy
+PortalPageLoadMetricsObserver::OnFencedFramesStart(
+    content::NavigationHandle* navigation_handle,
+    const GURL& currently_committed_url) {
+  // FencedFrames can be created inside a Portal, but as this class is
+  // interested only in Portal pages, stop observing for such FencedFrame inner
+  // pages.
+  return STOP_OBSERVING;
 }
 
 PortalPageLoadMetricsObserver::ObservePolicy

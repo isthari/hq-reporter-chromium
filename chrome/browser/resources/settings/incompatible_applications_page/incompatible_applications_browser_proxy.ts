@@ -1,9 +1,9 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import {sendWithPromise} from 'chrome://resources/js/cr.m.js';
+import {sendWithPromise} from 'chrome://resources/js/cr.js';
 // clang-format on
 
 /**
@@ -18,18 +18,17 @@ export enum ActionTypes {
   UPGRADE = 2,
 }
 
-export type IncompatibleApplication = {
-  name: string,
-  type: ActionTypes,
-  url: string,
-};
+export interface IncompatibleApplication {
+  name: string;
+  type: ActionTypes;
+  url: string;
+}
 
 export interface IncompatibleApplicationsBrowserProxy {
   /**
    * Get the list of incompatible applications.
    */
-  requestIncompatibleApplicationsList():
-      Promise<Array<IncompatibleApplication>>;
+  requestIncompatibleApplicationsList(): Promise<IncompatibleApplication[]>;
 
   /**
    * Launches the Apps & Features page that allows uninstalling
@@ -40,7 +39,7 @@ export interface IncompatibleApplicationsBrowserProxy {
   /**
    * Opens the specified URL in a new tab.
    */
-  openURL(url: string): void;
+  openUrl(url: string): void;
 
   /**
    * Requests the plural string for the subtitle of the Incompatible
@@ -72,7 +71,7 @@ export class IncompatibleApplicationsBrowserProxyImpl implements
     chrome.send('startApplicationUninstallation', [applicationName]);
   }
 
-  openURL(url: string) {
+  openUrl(url: string) {
     window.open(url);
   }
 

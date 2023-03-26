@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ui/tabs/tab_utils.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/metadata/metadata_header_macros.h"
@@ -89,7 +90,7 @@ class AlertIndicatorButton : public views::ImageButton,
   // parent tab's button color.  Should be called when either of these changes.
   void ResetImages(TabAlertState state);
 
-  Tab* const parent_tab_;
+  const raw_ptr<Tab> parent_tab_;
 
   absl::optional<TabAlertState> alert_state_;
 

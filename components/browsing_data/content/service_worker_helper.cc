@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "components/browsing_data/content/browsing_data_helper.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -27,15 +27,15 @@ namespace {
 
 void GetAllOriginsInfoForServiceWorkerCallback(
     ServiceWorkerHelper::FetchCallback callback,
-    const std::vector<StorageUsageInfo>& origins) {
+    const std::vector<StorageUsageInfo>& infos) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!callback.is_null());
 
   std::list<StorageUsageInfo> result;
-  for (const StorageUsageInfo& origin : origins) {
-    if (!HasWebScheme(origin.origin.GetURL()))
+  for (const StorageUsageInfo& info : infos) {
+    if (!HasWebScheme(info.storage_key.origin().GetURL()))
       continue;  // Non-websafe state is not considered browsing data.
-    result.push_back(origin);
+    result.push_back(info);
   }
 
   std::move(callback).Run(result);
@@ -101,10 +101,9 @@ void CannedServiceWorkerHelper::StartFetching(FetchCallback callback) {
 
   std::list<StorageUsageInfo> result;
   for (const auto& origin : pending_origins_)
-    result.emplace_back(origin, 0, base::Time());
+    result.emplace_back(blink::StorageKey(origin), 0, base::Time());
 
-  content::GetUIThreadTaskRunner({})->PostTask(
-      FROM_HERE, base::BindOnce(std::move(callback), result));
+  std::move(callback).Run(result);
 }
 
 void CannedServiceWorkerHelper::DeleteServiceWorkers(

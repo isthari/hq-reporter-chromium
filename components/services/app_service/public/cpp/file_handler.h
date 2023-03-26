@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,6 +58,14 @@ struct FileHandler {
   // association icons in OS surfaces. The sizes in `downloaded_icons`, when
   // present, represent the actual size of a bitmap that was downloaded.
   std::vector<IconInfo> downloaded_icons;
+
+  // How the app should be launched in the case where there are multiple files
+  // being opened.
+  enum class LaunchType {
+    kSingleClient,
+    kMultipleClients,
+  };
+  LaunchType launch_type = LaunchType::kSingleClient;
 };
 using FileHandlers = std::vector<FileHandler>;
 
@@ -70,10 +78,12 @@ std::set<std::string> GetMimeTypesFromFileHandler(
     const FileHandler& file_handler);
 
 // Get a set of all file extensions supported by any of |file_handlers|.
+// Note: These are always transformed to lower-case.
 std::set<std::string> GetFileExtensionsFromFileHandlers(
     const FileHandlers& file_handlers);
 
 // Get a set of all file extensions supported by |file_handler|.
+// Note: These are always transformed to lower-case.
 std::set<std::string> GetFileExtensionsFromFileHandler(
     const FileHandler& file_handler);
 

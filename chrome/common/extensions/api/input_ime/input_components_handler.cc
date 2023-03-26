@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,7 +80,8 @@ bool InputComponentsHandler::Parse(Extension* extension,
     // Both string and list of string are allowed to be compatibile with old
     // input_ime manifest specification.
     std::set<std::string> languages;
-    const base::Value* language_value = module_value.FindKey(keys::kLanguage);
+    const base::Value* language_value =
+        module_value.GetDict().Find(keys::kLanguage);
     if (language_value) {
       if (language_value->is_string()) {
         languages.insert(language_value->GetString());

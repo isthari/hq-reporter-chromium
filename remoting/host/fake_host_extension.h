@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,8 +22,7 @@ class ClientStub;
 // reports messages matching a specified type as having been handled.
 class FakeExtension : public HostExtension {
  public:
-  FakeExtension(const std::string& message_type,
-                const std::string& capability);
+  FakeExtension(const std::string& message_type, const std::string& capability);
 
   FakeExtension(const FakeExtension&) = delete;
   FakeExtension& operator=(const FakeExtension&) = delete;
@@ -57,6 +56,6 @@ class FakeExtension : public HostExtension {
   bool was_instantiated_ = false;
 };
 
-} // namespace remoting
+}  // namespace remoting
 
 #endif  // REMOTING_HOST_FAKE_HOST_EXTENSION_H_

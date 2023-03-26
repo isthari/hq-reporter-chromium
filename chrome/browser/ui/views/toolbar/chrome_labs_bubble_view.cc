@@ -1,12 +1,13 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/toolbar/chrome_labs_bubble_view.h"
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/callback_list.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
 #include "chrome/browser/about_flags.h"
@@ -55,11 +56,11 @@ class ChromeLabsFooter : public views::View {
                          views::FlexSpecification(
                              views::MinimumFlexSizeRule::kPreferred,
                              views::MaximumFlexSizeRule::kPreferred, true))
-            .SetBorder(views::CreateEmptyBorder(
-                gfx::Insets(0, 0,
-                            views::LayoutProvider::Get()->GetDistanceMetric(
-                                views::DISTANCE_RELATED_CONTROL_VERTICAL),
-                            0)))
+            .SetBorder(views::CreateEmptyBorder(gfx::Insets::TLBR(
+                0, 0,
+                views::LayoutProvider::Get()->GetDistanceMetric(
+                    views::DISTANCE_RELATED_CONTROL_VERTICAL),
+                0)))
             .Build());
     AddChildView(views::Builder<views::MdTextButton>()
                      .CopyAddressTo(&restart_button_)
@@ -68,8 +69,8 @@ class ChromeLabsFooter : public views::View {
                          IDS_CHROMELABS_RELAUNCH_BUTTON_LABEL))
                      .SetProminent(true)
                      .Build());
-    SetBackground(views::CreateThemedSolidBackground(
-        this, ui::kColorBubbleFooterBackground));
+    SetBackground(
+        views::CreateThemedSolidBackground(ui::kColorBubbleFooterBackground));
     SetBorder(views::CreateEmptyBorder(
         views::LayoutProvider::Get()->GetInsetsMetric(views::INSETS_DIALOG)));
     SetProperty(
@@ -79,8 +80,12 @@ class ChromeLabsFooter : public views::View {
   }
 
  private:
-  views::MdTextButton* restart_button_;
-  views::Label* restart_label_;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION views::MdTextButton* restart_button_;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION views::Label* restart_label_;
 };
 
 BEGIN_METADATA(ChromeLabsFooter, views::View)
@@ -88,8 +93,7 @@ END_METADATA
 
 }  // namespace
 
-ChromeLabsBubbleView::ChromeLabsBubbleView(ChromeLabsButton* anchor_view,
-                                           Browser* browser)
+ChromeLabsBubbleView::ChromeLabsBubbleView(ChromeLabsButton* anchor_view)
     : BubbleDialogDelegateView(anchor_view,
                                views::BubbleBorder::Arrow::TOP_RIGHT) {
   SetButtons(ui::DIALOG_BUTTON_NONE);
@@ -105,7 +109,7 @@ ChromeLabsBubbleView::ChromeLabsBubbleView(ChromeLabsButton* anchor_view,
   // `kAlertDialog` which would tell screen readers to announce all contents of
   // the bubble when it opens and previous accessibility feedback said that
   // behavior was confusing.
-  SetAccessibleRole(ax::mojom::Role::kDialog);
+  SetAccessibleWindowRole(ax::mojom::Role::kDialog);
 
   // TODO(crbug.com/1259763): Currently basing this off what extension menu uses
   // for sizing as suggested as an initial fix by UI. Discuss a more formal

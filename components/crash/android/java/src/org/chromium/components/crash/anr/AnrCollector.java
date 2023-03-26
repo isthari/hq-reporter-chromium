@@ -1,10 +1,9 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.crash.anr;
 
-import android.annotation.TargetApi;
 import android.app.ActivityManager;
 import android.app.ApplicationExitInfo;
 import android.content.Context;
@@ -12,10 +11,12 @@ import android.content.SharedPreferences;
 import android.os.Build;
 import android.util.Pair;
 
+import androidx.annotation.RequiresApi;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
+import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.components.crash.anr.AnrDataOuterClass.AnrData;
 
@@ -23,7 +24,9 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -36,7 +39,7 @@ import java.util.regex.Pattern;
  * We also grab the version number associated with the ANR and pair that with the ANR so we have
  * confidence knowing which version of Chrome actually caused this ANR.
  */
-@TargetApi(Build.VERSION_CODES.R)
+@RequiresApi(Build.VERSION_CODES.R)
 public class AnrCollector {
     private static final String TAG = "AnrCollector";
 
@@ -46,14 +49,18 @@ public class AnrCollector {
     private static final String ANR_UPLOAD_UMA = "Crashpad.AnrUpload.Skipped";
 
     /**
-     * Grabs ANR reports from Android and writes them as serialized protos.
+     * Grabs ANR reports from Android and writes them as 3-tuples as 3 entries in a string list.
      * This writes to disk synchronously, so should be called on a background thread.
      */
-    public static List<Pair<File, String>> collectAndWriteAnrs(File outDir) {
+    public static List<String> collectAndWriteAnrs(File outDir) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             return Collections.emptyList();
         }
         return writeAnrs(collectAnrs(), outDir);
+    }
+
+    public static String getSharedLibraryBuildId() {
+        return AnrCollectorJni.get().getSharedLibraryBuildId();
     }
 
     @VisibleForTesting
@@ -96,9 +103,15 @@ public class AnrCollector {
 
     private static Pair<AnrData, String> getAnrPair(ApplicationExitInfo reason) {
         AnrData anr = null;
-        try (BufferedReader in =
-                        new BufferedReader(new InputStreamReader(reason.getTraceInputStream()))) {
-            anr = parseAnrFromReport(in);
+        try (InputStream is = reason.getTraceInputStream()) {
+            // This can be null - this was causing crashes in crbug.com/1298852.
+            if (is == null) {
+                return null;
+            }
+
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(is))) {
+                anr = parseAnrFromReport(in);
+            }
         } catch (IOException e) {
             Log.e(TAG, "Couldn't read ANR from system", e);
             RecordHistogram.recordEnumeratedHistogram(ANR_UPLOAD_UMA,
@@ -106,8 +119,8 @@ public class AnrCollector {
             return null;
         }
 
-        byte[] versionBytes = reason.getProcessStateSummary();
-        if (versionBytes.length == 0) {
+        byte[] processStateSummaryBytes = reason.getProcessStateSummary();
+        if (processStateSummaryBytes == null || processStateSummaryBytes.length == 0) {
             // We have gotten an ANR without an attached process state summary and thus
             // can't be be confident which version this ANR happened on. This would
             // happen if we ANRed before Chrome had set the process state summary.
@@ -115,8 +128,8 @@ public class AnrCollector {
                     ANR_UPLOAD_UMA, AnrSkippedReason.MISSING_VERSION, AnrSkippedReason.MAX_VALUE);
             return null;
         }
-        String version = new String(versionBytes);
-        return new Pair<>(anr, version);
+        String processStateSummary = new String(processStateSummaryBytes, StandardCharsets.UTF_8);
+        return new Pair<>(anr, processStateSummary);
     }
 
     private static List<Pair<AnrData, String>> collectAnrs() {
@@ -150,29 +163,50 @@ public class AnrCollector {
         return anrs;
     }
 
-    private static List<Pair<File, String>> writeAnrs(
-            List<Pair<AnrData, String>> anrs, File outDir) {
-        List<Pair<File, String>> anrFiles = new ArrayList<>();
+    private static List<String> writeAnrs(List<Pair<AnrData, String>> anrs, File outDir) {
+        List<String> anrFiles = new ArrayList<>();
         for (Pair<AnrData, String> pair : anrs) {
             AnrData anr = pair.first;
-            String version = pair.second;
-            try {
-                // Writing with .tmp suffix to enable cleanup later - CrashFileManager looks for
-                // files with a .tmp suffix and deletes them as soon as it no longer needs them.
-                File anrFile = File.createTempFile("anr_data_proto", ".tmp", outDir);
-                try (FileOutputStream out = new FileOutputStream(anrFile)) {
-                    anr.writeTo(out);
-                }
-                anrFiles.add(new Pair<>(anrFile, version));
-            } catch (IOException e) {
-                Log.e(TAG, "Couldn't write ANR proto", e);
-                RecordHistogram.recordEnumeratedHistogram(ANR_UPLOAD_UMA,
-                        AnrSkippedReason.FILESYSTEM_WRITE_FAILURE, AnrSkippedReason.MAX_VALUE);
+            String[] splitStateSummary = pair.second.split(",");
+            String version = splitStateSummary[0];
+            // There will always be a version number, but there's a chance that there won't be a
+            // buildId.
+            String buildId = "";
+            if (splitStateSummary.length > 1) {
+                buildId = splitStateSummary[1];
+            }
+            String anrFileName = writeAnr(anr, outDir);
+            if (anrFileName != null) {
+                anrFiles.add(anrFileName);
+                anrFiles.add(version);
+                anrFiles.add(buildId);
             }
         }
         return anrFiles;
     }
 
+    private static String writeAnr(AnrData data, File outDir) {
+        try {
+            // Writing with .tmp suffix to enable cleanup later - CrashFileManager looks for
+            // files with a .tmp suffix and deletes them as soon as it no longer needs them.
+            File anrFile = File.createTempFile("anr_data_proto", ".tmp", outDir);
+            try (FileOutputStream out = new FileOutputStream(anrFile)) {
+                data.writeTo(out);
+            }
+            return anrFile.getAbsolutePath();
+        } catch (IOException e) {
+            Log.e(TAG, "Couldn't write ANR proto", e);
+            RecordHistogram.recordEnumeratedHistogram(ANR_UPLOAD_UMA,
+                    AnrSkippedReason.FILESYSTEM_WRITE_FAILURE, AnrSkippedReason.MAX_VALUE);
+            return null;
+        }
+    }
+
     // Pure static class.
     private AnrCollector() {}
+
+    @NativeMethods
+    interface Natives {
+        String getSharedLibraryBuildId();
+    }
 }

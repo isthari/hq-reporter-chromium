@@ -1,18 +1,20 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/extensions/extensions_toolbar_container.h"
 
 #include "base/json/json_reader.h"
+#include "base/ranges/algorithm.h"
 #include "chrome/browser/ui/toolbar/toolbar_action_view_controller.h"
-#include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/extensions/extensions_toolbar_unittest.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "extensions/browser/pref_names.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/extension_id.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
 
 class ExtensionsToolbarContainerUnitTest : public ExtensionsToolbarUnitTest {
  public:
@@ -34,17 +36,16 @@ class ExtensionsToolbarContainerUnitTest : public ExtensionsToolbarUnitTest {
 
 ExtensionsToolbarContainerUnitTest::ExtensionsToolbarContainerUnitTest() {
   scoped_feature_list_.InitAndEnableFeature(
-      features::kExtensionsMenuAccessControl);
+      extensions_features::kExtensionsMenuAccessControl);
 }
 
 ToolbarActionView* ExtensionsToolbarContainerUnitTest::GetPinnedExtensionView(
     const extensions::ExtensionId& extension_id) {
   std::vector<ToolbarActionView*> actions = GetPinnedExtensionViews();
   auto it =
-      std::find_if(actions.begin(), actions.end(),
-                   [extension_id](ToolbarActionView* action) {
-                     return action->view_controller()->GetId() == extension_id;
-                   });
+      base::ranges::find(actions, extension_id, [](ToolbarActionView* action) {
+        return action->view_controller()->GetId();
+      });
   if (it == actions.end())
     return nullptr;
   return *it;
@@ -82,7 +83,9 @@ TEST_F(ExtensionsToolbarContainerUnitTest, ReorderPinnedExtensions) {
   ui::DropTargetEvent drop_event(drag_data, drop_point, drop_point,
                                  ui::DragDropTypes::DRAG_MOVE);
   extensions_container()->OnDragUpdated(drop_event);
-  extensions_container()->OnPerformDrop(drop_event);
+  auto drop_cb = extensions_container()->GetDropCallback(drop_event);
+  ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
+  std::move(drop_cb).Run(drop_event, output_drag_op);
   WaitForAnimation();
 
   // Verify the new order is C, A, B.

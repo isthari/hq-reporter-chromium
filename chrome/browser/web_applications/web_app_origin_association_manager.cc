@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "chrome/browser/web_applications/web_app_origin_association_task.h"
 #include "components/webapps/services/web_app_origin_association/web_app_origin_association_fetcher.h"
 #include "components/webapps/services/web_app_origin_association/web_app_origin_association_parser_service.h"
@@ -66,7 +66,7 @@ WebAppOriginAssociationManager::GetParser() {
 
 webapps::WebAppOriginAssociationFetcher&
 WebAppOriginAssociationManager::GetFetcher() {
-  return *(fetcher_.get());
+  return *fetcher_;
 }
 
 }  // namespace web_app

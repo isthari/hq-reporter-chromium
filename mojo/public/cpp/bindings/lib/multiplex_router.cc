@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 
 #include <utility>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
 #include "base/containers/flat_set.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
@@ -22,8 +22,6 @@
 #include "mojo/public/cpp/bindings/interface_endpoint_client.h"
 #include "mojo/public/cpp/bindings/interface_endpoint_controller.h"
 #include "mojo/public/cpp/bindings/lib/may_auto_lock.h"
-#include "mojo/public/cpp/bindings/lib/message_quota_checker.h"
-#include "mojo/public/cpp/bindings/message_header_validator.h"
 #include "mojo/public/cpp/bindings/sequence_local_sync_event_watcher.h"
 
 namespace mojo {
@@ -304,7 +302,7 @@ class MultiplexRouter::MessageWrapper {
  private:
   // `router_` is not a raw_ptr<...> for performance reasons (based on analysis
   // of sampling profiler data and tab_search:top100:2020).
-  MultiplexRouter* router_ = nullptr;
+  RAW_PTR_EXCLUSION MultiplexRouter* router_ = nullptr;
 
   Message value_;
 };
@@ -389,19 +387,7 @@ MultiplexRouter::MultiplexRouter(
 
   connector_.set_incoming_receiver(&dispatcher_);
 
-  scoped_refptr<internal::MessageQuotaChecker> quota_checker =
-      internal::MessageQuotaChecker::MaybeCreate();
-  if (quota_checker)
-    connector_.SetMessageQuotaChecker(std::move(quota_checker));
-
-  std::unique_ptr<MessageHeaderValidator> header_validator =
-      std::make_unique<MessageHeaderValidator>();
-  header_validator_ = header_validator.get();
-  dispatcher_.SetValidator(std::move(header_validator));
-
   if (primary_interface_name) {
-    header_validator_->SetDescription(base::JoinString(
-        {primary_interface_name, "[primary] MessageHeaderValidator"}, " "));
     control_message_handler_.SetDescription(base::JoinString(
         {primary_interface_name, "[primary] PipeControlMessageHandler"}, " "));
   }
@@ -1075,6 +1061,12 @@ bool MultiplexRouter::ProcessIncomingMessage(
 
   bool can_direct_call;
   if (message->has_flag(Message::kFlagIsSync)) {
+    if (!message->has_flag(Message::kFlagIsResponse) &&
+        !base::Contains(endpoint->client()->sync_method_ordinals(),
+                        message->name())) {
+      RaiseErrorInNonTestingMode();
+      return true;
+    }
     can_direct_call = client_call_behavior != NO_DIRECT_CLIENT_CALLS &&
                       endpoint->task_runner()->RunsTasksInCurrentSequence();
   } else {

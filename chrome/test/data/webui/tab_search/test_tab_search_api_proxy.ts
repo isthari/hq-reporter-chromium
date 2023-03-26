@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,7 @@ export class TestTabSearchApiProxy extends TestBrowserProxy implements
       'openRecentlyClosedEntry',
       'switchToTab',
       'saveRecentlyClosedExpandedPref',
-      'showUI',
+      'showUi',
     ]);
 
     this.callbackRouter = new PageCallbackRouter();
@@ -27,11 +27,8 @@ export class TestTabSearchApiProxy extends TestBrowserProxy implements
         this.callbackRouter.$.bindNewPipeAndPassRemote();
   }
 
-  closeTab(
-      tabId: number, withSearch: boolean, isMediaTab: boolean,
-      closedTabIndex: number) {
-    this.methodCalled(
-        'closeTab', [tabId, withSearch, isMediaTab, closedTabIndex]);
+  closeTab(tabId: number) {
+    this.methodCalled('closeTab', [tabId]);
   }
 
   getProfileData() {
@@ -45,19 +42,16 @@ export class TestTabSearchApiProxy extends TestBrowserProxy implements
         'openRecentlyClosedEntry', [id, withSearch, isTab, index]);
   }
 
-  switchToTab(
-      info: SwitchToTabInfo, withSearch: boolean, isMediaTab: boolean,
-      switchedTabIndex: number) {
-    this.methodCalled(
-        'switchToTab', [info, withSearch, isMediaTab, switchedTabIndex]);
+  switchToTab(info: SwitchToTabInfo) {
+    this.methodCalled('switchToTab', [info]);
   }
 
   saveRecentlyClosedExpandedPref(expanded: boolean) {
     this.methodCalled('saveRecentlyClosedExpandedPref', [expanded]);
   }
 
-  showUI() {
-    this.methodCalled('showUI');
+  showUi() {
+    this.methodCalled('showUi');
   }
 
   getCallbackRouter() {

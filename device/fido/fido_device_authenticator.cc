@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,23 +8,24 @@
 #include <numeric>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
-#include "base/feature_list.h"
+#include "base/containers/cxx20_erase_vector.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/ranges/algorithm.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "components/cbor/values.h"
 #include "device/fido/appid_exclude_probe_task.h"
+#include "device/fido/authenticator_get_assertion_response.h"
 #include "device/fido/authenticator_supported_options.h"
 #include "device/fido/credential_management.h"
 #include "device/fido/ctap_authenticator_selection_request.h"
 #include "device/fido/ctap_get_assertion_request.h"
 #include "device/fido/ctap_make_credential_request.h"
-#include "device/fido/features.h"
 #include "device/fido/fido_constants.h"
 #include "device/fido/fido_device.h"
-#include "device/fido/fido_parsing_utils.h"
 #include "device/fido/fido_types.h"
 #include "device/fido/get_assertion_task.h"
 #include "device/fido/large_blob.h"
@@ -75,7 +76,7 @@ FidoDeviceAuthenticator::~FidoDeviceAuthenticator() = default;
 
 void FidoDeviceAuthenticator::InitializeAuthenticator(
     base::OnceClosure callback) {
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(
           &FidoDevice::DiscoverSupportedProtocolAndDeviceInfo,
@@ -141,14 +142,11 @@ void FidoDeviceAuthenticator::MakeCredential(
     MakeCredentialCallback callback) {
   // If the authenticator has UV configured then UV will be required in
   // order to create a credential (as specified by CTAP 2.0), even if
-  // user-verification is "discouraged". However, if the request is U2F-only
-  // then that doesn't apply and UV must be set to discouraged so that the
-  // request can be translated to U2F.
+  // user-verification is "discouraged".
   if (!request.pin_auth &&
       options_->user_verification_availability ==
           UserVerificationAvailability::kSupportedAndConfigured &&
-      !options_->make_cred_uv_not_required &&
-      !request_options.make_u2f_api_credential) {
+      !options_->make_cred_uv_not_required) {
     request.user_verification = UserVerificationRequirement::kRequired;
   } else {
     request.user_verification = UserVerificationRequirement::kDiscouraged;
@@ -180,7 +178,7 @@ void FidoDeviceAuthenticator::OnHaveEphemeralKeyForGetAssertion(
     CtapDeviceResponseCode status,
     absl::optional<pin::KeyAgreementResponse> key) {
   if (status != CtapDeviceResponseCode::kSuccess) {
-    std::move(callback).Run(status, absl::nullopt);
+    std::move(callback).Run(status, {});
     return;
   }
   options.pin_key_agreement = std::move(*key);
@@ -199,14 +197,43 @@ void FidoDeviceAuthenticator::DoGetAssertion(CtapGetAssertionRequest request,
     request.user_verification = UserVerificationRequirement::kDiscouraged;
   }
 
+  CtapGetAssertionRequest request_copy(request);
   RunTask<GetAssertionTask, AuthenticatorGetAssertionResponse,
           CtapGetAssertionRequest, CtapGetAssertionOptions>(
-      std::move(request), std::move(options), std::move(callback));
+      std::move(request), std::move(options),
+      base::BindOnce(&FidoDeviceAuthenticator::OnHaveNextAssertion,
+                     weak_factory_.GetWeakPtr(), std::move(request_copy),
+                     std::vector<AuthenticatorGetAssertionResponse>{},
+                     std::move(callback)));
 }
 
-void FidoDeviceAuthenticator::GetNextAssertion(GetAssertionCallback callback) {
+void FidoDeviceAuthenticator::OnHaveNextAssertion(
+    CtapGetAssertionRequest request,
+    std::vector<AuthenticatorGetAssertionResponse> responses,
+    GetAssertionCallback callback,
+    CtapDeviceResponseCode status,
+    absl::optional<AuthenticatorGetAssertionResponse> response) {
+  if (status != CtapDeviceResponseCode::kSuccess) {
+    std::move(callback).Run(status, {});
+    return;
+  }
+  responses.emplace_back(std::move(*response));
+  uint8_t num_responses = responses.at(0).num_credentials.value_or(1u);
+  if (num_responses == 0 ||
+      (num_responses > 1 && !request.allow_list.empty())) {
+    std::move(callback).Run(CtapDeviceResponseCode::kCtap2ErrInvalidCBOR, {});
+    return;
+  }
+  if (responses.size() >= num_responses) {
+    std::move(callback).Run(status, std::move(responses));
+    return;
+  }
+  // Read the next response.
   RunOperation<CtapGetNextAssertionRequest, AuthenticatorGetAssertionResponse>(
-      CtapGetNextAssertionRequest(), std::move(callback),
+      CtapGetNextAssertionRequest(),
+      base::BindOnce(&FidoDeviceAuthenticator::OnHaveNextAssertion,
+                     weak_factory_.GetWeakPtr(), std::move(request),
+                     std::move(responses), std::move(callback)),
       base::BindOnce(&ReadCTAPGetAssertionResponse, device_->DeviceTransport()),
       GetAssertionTask::StringFixupPredicate);
 }
@@ -422,7 +449,12 @@ FidoDeviceAuthenticator::PINUVDispositionForMakeCredential(
 
   if (uv_requirement == UserVerificationRequirement::kDiscouraged ||
       (uv_requirement == UserVerificationRequirement::kPreferred &&
-       ((!pin_configured || !can_collect_pin) && !uv_configured))) {
+       ((!pin_configured || !can_collect_pin) && !uv_configured &&
+        // The hmac-secret extension makes uv=preferred "more" preferred so that
+        // the HMAC output is stable. Otherwise later configuring UV on the
+        // authenticator could cause the hmac-secret outputs to change as a
+        // different seed is used for UV and non-UV assertions.
+        (!request.hmac_secret || !SupportsHMACSecretExtension())))) {
     return PINUVDisposition::kNoUV;
   }
 
@@ -439,6 +471,10 @@ FidoDeviceAuthenticator::PINUVDispositionForMakeCredential(
 
   if (can_get_token) {
     return PINUVDisposition::kGetToken;
+  }
+
+  if (uv_requirement == UserVerificationRequirement::kPreferred) {
+    return PINUVDisposition::kNoUV;
   }
 
   return PINUVDisposition::kUnsatisfiable;
@@ -621,8 +657,7 @@ void FidoDeviceAuthenticator::OnEnumerateRPsDone(
   DCHECK(response->rp_id_hash);
 
   state.rp_id_hashes.push_back(*response->rp_id_hash);
-  state.responses.push_back(
-      AggregatedEnumerateCredentialsResponse(*response->rp));
+  state.responses.emplace_back(*response->rp);
 
   if (state.rp_id_hashes.size() < state.rp_count) {
     // Get the next RP.
@@ -820,7 +855,7 @@ void FidoDeviceAuthenticator::BioEnrollEnumerate(
 }
 
 void FidoDeviceAuthenticator::WriteLargeBlob(
-    const std::vector<uint8_t>& large_blob,
+    LargeBlob large_blob,
     const LargeBlobKey& large_blob_key,
     const absl::optional<pin::TokenResponse> pin_uv_auth_token,
     base::OnceCallback<void(CtapDeviceResponseCode)> callback) {
@@ -842,6 +877,16 @@ void FidoDeviceAuthenticator::ReadLargeBlob(
       base::BindOnce(&FidoDeviceAuthenticator::OnHaveLargeBlobArrayForRead,
                      weak_factory_.GetWeakPtr(), large_blob_keys,
                      std::move(callback)));
+}
+
+void FidoDeviceAuthenticator::GarbageCollectLargeBlob(
+    const pin::TokenResponse& pin_uv_auth_token,
+    base::OnceCallback<void(CtapDeviceResponseCode)> callback) {
+  EnumerateCredentials(
+      pin_uv_auth_token,
+      base::BindOnce(
+          &FidoDeviceAuthenticator::OnCredentialsEnumeratedForGarbageCollect,
+          weak_factory_.GetWeakPtr(), pin_uv_auth_token, std::move(callback)));
 }
 
 void FidoDeviceAuthenticator::FetchLargeBlobArray(
@@ -890,7 +935,7 @@ void FidoDeviceAuthenticator::OnReadLargeBlobFragment(
 }
 
 void FidoDeviceAuthenticator::OnHaveLargeBlobArrayForWrite(
-    const std::vector<uint8_t>& large_blob,
+    LargeBlob large_blob,
     const LargeBlobKey& large_blob_key,
     const absl::optional<pin::TokenResponse> pin_uv_auth_token,
     base::OnceCallback<void(CtapDeviceResponseCode)> callback,
@@ -901,33 +946,32 @@ void FidoDeviceAuthenticator::OnHaveLargeBlobArrayForWrite(
     return;
   }
 
-  absl::optional<std::vector<LargeBlobData>> large_blob_array =
+  absl::optional<cbor::Value::ArrayValue> large_blob_array =
       large_blob_array_reader->Materialize();
   if (!large_blob_array) {
-    // The large blob array is corrupted. Replace it completely with a new one.
-    // TODO(nsatragno): but maybe we want to do something else like trying
-    // again? It might have been corrupted while transported. Decide when we
-    // have hardware to test.
+    FIDO_LOG(ERROR) << "Large blob array corrupted. Replacing with a new one";
     large_blob_array.emplace();
-    return;
   }
 
-  auto existing_large_blob =
-      std::find_if(large_blob_array->begin(), large_blob_array->end(),
-                   [&large_blob_key](const LargeBlobData& blob) {
-                     return blob.Decrypt(large_blob_key);
-                   });
+  auto existing_large_blob = base::ranges::find_if(
+      *large_blob_array, [&large_blob_key](const cbor::Value& blob_cbor) {
+        absl::optional<LargeBlobData> blob = LargeBlobData::Parse(blob_cbor);
+        return blob && blob->Decrypt(large_blob_key).has_value();
+      });
 
-  LargeBlobData new_large_blob_data(large_blob_key, large_blob);
+  cbor::Value new_blob =
+      LargeBlobData(large_blob_key, std::move(large_blob)).AsCBOR();
+
   if (existing_large_blob != large_blob_array->end()) {
-    *existing_large_blob = std::move(new_large_blob_data);
+    *existing_large_blob = std::move(new_blob);
   } else {
-    large_blob_array->emplace_back(std::move(new_large_blob_data));
+    large_blob_array->emplace_back(std::move(new_blob));
   }
 
-  LargeBlobArrayWriter writer(*large_blob_array);
+  LargeBlobArrayWriter writer(std::move(*large_blob_array));
   if (writer.size() >
-      *device_->device_info()->max_serialized_large_blob_array) {
+      device_->device_info()->max_serialized_large_blob_array.value_or(
+          kMinLargeBlobSize)) {
     std::move(callback).Run(CtapDeviceResponseCode::kCtap2ErrRequestTooLarge);
     return;
   }
@@ -989,7 +1033,7 @@ void FidoDeviceAuthenticator::OnHaveLargeBlobArrayForRead(
     return;
   }
 
-  absl::optional<std::vector<LargeBlobData>> large_blob_array =
+  absl::optional<cbor::Value::ArrayValue> large_blob_array =
       large_blob_array_reader->Materialize();
   if (!large_blob_array) {
     std::move(callback).Run(CtapDeviceResponseCode::kCtap2ErrIntegrityFailure,
@@ -997,18 +1041,97 @@ void FidoDeviceAuthenticator::OnHaveLargeBlobArrayForRead(
     return;
   }
 
-  std::vector<std::pair<LargeBlobKey, std::vector<uint8_t>>> result;
-  for (const LargeBlobData& blob : *large_blob_array) {
+  std::vector<std::pair<LargeBlobKey, LargeBlob>> result;
+  for (const cbor::Value& blob_cbor : *large_blob_array) {
+    absl::optional<LargeBlobData> blob = LargeBlobData::Parse(blob_cbor);
+    if (!blob.has_value()) {
+      continue;
+    }
     for (const LargeBlobKey& key : large_blob_keys) {
-      absl::optional<std::vector<uint8_t>> plaintext = blob.Decrypt(key);
+      absl::optional<LargeBlob> plaintext = blob->Decrypt(key);
       if (plaintext) {
-        result.emplace_back(std::make_pair(key, std::move(*plaintext)));
+        result.emplace_back(key, std::move(*plaintext));
         break;
       }
     }
   }
 
   std::move(callback).Run(CtapDeviceResponseCode::kSuccess, std::move(result));
+}
+
+void FidoDeviceAuthenticator::OnCredentialsEnumeratedForGarbageCollect(
+    const pin::TokenResponse& pin_uv_auth_token,
+    base::OnceCallback<void(CtapDeviceResponseCode)> callback,
+    CtapDeviceResponseCode status,
+    absl::optional<std::vector<AggregatedEnumerateCredentialsResponse>>
+        credentials) {
+  if (status == CtapDeviceResponseCode::kCtap2ErrNoCredentials) {
+    credentials.emplace();
+  } else if (status != CtapDeviceResponseCode::kSuccess) {
+    std::move(callback).Run(status);
+    return;
+  }
+
+  FetchLargeBlobArray(
+      pin_uv_auth_token, LargeBlobArrayReader(),
+      base::BindOnce(
+          &FidoDeviceAuthenticator::OnHaveLargeBlobArrayForGarbageCollect,
+          weak_factory_.GetWeakPtr(), std::move(*credentials),
+          pin_uv_auth_token, std::move(callback)));
+}
+
+void FidoDeviceAuthenticator::OnHaveLargeBlobArrayForGarbageCollect(
+    std::vector<AggregatedEnumerateCredentialsResponse> credentials,
+    const pin::TokenResponse& pin_uv_auth_token,
+    base::OnceCallback<void(CtapDeviceResponseCode)> callback,
+    CtapDeviceResponseCode status,
+    absl::optional<LargeBlobArrayReader> large_blob_array_reader) {
+  if (status != CtapDeviceResponseCode::kSuccess) {
+    std::move(callback).Run(status);
+    return;
+  }
+
+  absl::optional<cbor::Value::ArrayValue> large_blob_array =
+      large_blob_array_reader->Materialize();
+  if (!large_blob_array) {
+    FIDO_LOG(ERROR) << "Large blob array corrupted. Replacing with a new one";
+    WriteLargeBlobArray(std::move(pin_uv_auth_token), LargeBlobArrayWriter({}),
+                        std::move(callback));
+    return;
+  }
+
+  std::vector<std::array<uint8_t, kLargeBlobKeyLength>> large_blob_keys;
+  for (const auto& cred_by_rp : credentials) {
+    for (const auto& credential : cred_by_rp.credentials) {
+      if (credential.large_blob_key) {
+        large_blob_keys.push_back(*credential.large_blob_key);
+      }
+    }
+  }
+  bool did_erase = base::EraseIf(
+      *large_blob_array, [&large_blob_keys](const cbor::Value& blob_cbor) {
+        absl::optional<LargeBlobData> blob = LargeBlobData::Parse(blob_cbor);
+        return blob &&
+               base::ranges::none_of(
+                   large_blob_keys,
+                   [&blob](
+                       const std::array<uint8_t, kLargeBlobKeyLength>& key) {
+                     return blob->Decrypt(key);
+                   });
+      });
+
+  if (!did_erase) {
+    // No need to update the blob.
+    std::move(callback).Run(CtapDeviceResponseCode::kSuccess);
+    return;
+  }
+
+  LargeBlobArrayWriter writer(std::move(*large_blob_array));
+  DCHECK_LE(writer.size(),
+            device_->device_info()->max_serialized_large_blob_array.value_or(
+                kMinLargeBlobSize));
+  WriteLargeBlobArray(std::move(pin_uv_auth_token), std::move(writer),
+                      std::move(callback));
 }
 
 absl::optional<base::span<const int32_t>>
@@ -1066,7 +1189,10 @@ bool FidoDeviceAuthenticator::SupportsHMACSecretExtension() const {
   const absl::optional<AuthenticatorGetInfoResponse>& get_info_response =
       device_->device_info();
   return get_info_response && get_info_response->extensions &&
-         base::Contains(*get_info_response->extensions, kExtensionHmacSecret);
+         base::Contains(*get_info_response->extensions, kExtensionHmacSecret) &&
+         // The hmac-secret extension involves encrypting the values passed
+         // back and forth, thus there must be a valid PIN protocol.
+         chosen_pin_uv_auth_protocol_.has_value();
 }
 
 bool FidoDeviceAuthenticator::SupportsEnterpriseAttestation() const {
@@ -1086,6 +1212,18 @@ bool FidoDeviceAuthenticator::SupportsCredBlobOfSize(size_t num_bytes) const {
          num_bytes <= get_info_response->max_cred_blob_length.value();
 }
 
+bool FidoDeviceAuthenticator::SupportsDevicePublicKey() const {
+  const absl::optional<AuthenticatorGetInfoResponse>& get_info_response =
+      device_->device_info();
+  return get_info_response && get_info_response->extensions &&
+         base::Contains(*get_info_response->extensions,
+                        kExtensionDevicePublicKey);
+}
+
+bool FidoDeviceAuthenticator::SupportsLargeBlobs() const {
+  return options_ && options_->supports_large_blobs;
+}
+
 const absl::optional<AuthenticatorSupportedOptions>&
 FidoDeviceAuthenticator::Options() const {
   return options_;
@@ -1095,36 +1233,6 @@ absl::optional<FidoTransportProtocol>
 FidoDeviceAuthenticator::AuthenticatorTransport() const {
   return device_->DeviceTransport();
 }
-
-bool FidoDeviceAuthenticator::IsInPairingMode() const {
-  return device_->IsInPairingMode();
-}
-
-bool FidoDeviceAuthenticator::IsPaired() const {
-  return device_->IsPaired();
-}
-
-bool FidoDeviceAuthenticator::RequiresBlePairingPin() const {
-  return device_->RequiresBlePairingPin();
-}
-
-#if BUILDFLAG(IS_WIN)
-bool FidoDeviceAuthenticator::IsWinNativeApiAuthenticator() const {
-  return false;
-}
-#endif  // BUILDFLAG(IS_WIN)
-
-#if BUILDFLAG(IS_MAC)
-bool FidoDeviceAuthenticator::IsTouchIdAuthenticator() const {
-  return false;
-}
-#endif  // BUILDFLAG(IS_MAC)
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-bool FidoDeviceAuthenticator::IsChromeOSAuthenticator() const {
-  return false;
-}
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 void FidoDeviceAuthenticator::SetTaskForTesting(
     std::unique_ptr<FidoTask> task) {

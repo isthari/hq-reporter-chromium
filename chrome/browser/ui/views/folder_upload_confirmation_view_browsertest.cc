@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/folder_upload_confirmation_view.h"
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/browser.h"
@@ -53,7 +53,7 @@ class FolderUploadConfirmationViewTest : public DialogBrowserTest {
  protected:
   std::vector<ui::SelectedFileInfo> test_files_;
 
-  raw_ptr<views::Widget> widget_ = nullptr;
+  raw_ptr<views::Widget, DanglingUntriaged> widget_ = nullptr;
 
   bool callback_called_ = false;
   std::vector<ui::SelectedFileInfo> callback_files_;

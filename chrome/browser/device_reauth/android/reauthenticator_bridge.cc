@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <jni.h>
 #include "base/android/jni_android.h"
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "chrome/browser/device_reauth/android/jni_headers/ReauthenticatorBridge_jni.h"
 #include "chrome/browser/device_reauth/chrome_biometric_authenticator_factory.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
@@ -37,12 +37,11 @@ ReauthenticatorBridge::~ReauthenticatorBridge() {
 }
 
 bool ReauthenticatorBridge::CanUseAuthentication(JNIEnv* env) {
-  return authenticator_ &&
-         authenticator_->CanAuthenticate(requester_) ==
-             device_reauth::BiometricsAvailability::kAvailable;
+  return authenticator_ && authenticator_->CanAuthenticate(requester_);
 }
 
-void ReauthenticatorBridge::Reauthenticate(JNIEnv* env) {
+void ReauthenticatorBridge::Reauthenticate(JNIEnv* env,
+                                           bool use_last_valid_auth) {
   if (!authenticator_) {
     return;
   }
@@ -53,7 +52,8 @@ void ReauthenticatorBridge::Reauthenticate(JNIEnv* env) {
   authenticator_->Authenticate(
       requester_,
       base::BindOnce(&ReauthenticatorBridge::OnReauthenticationCompleted,
-                     base::Unretained(this)));
+                     base::Unretained(this)),
+      use_last_valid_auth);
 }
 
 void ReauthenticatorBridge::OnReauthenticationCompleted(bool auth_succeeded) {

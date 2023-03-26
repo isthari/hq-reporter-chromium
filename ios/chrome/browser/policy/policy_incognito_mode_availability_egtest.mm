@@ -1,22 +1,21 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/testing/earl_grey/earl_grey_test.h"
+#import "ios/testing/earl_grey/earl_grey_test.h"
 
-#include "base/json/json_string_value_serializer.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/policy/policy_constants.h"
-#include "ios/chrome/browser/chrome_switches.h"
+#import "base/json/json_string_value_serializer.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/policy/policy_constants.h"
 #import "ios/chrome/browser/policy/policy_app_interface.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_constants.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ios/chrome/test/earl_grey/chrome_earl_grey.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
-#include "ios/chrome/test/earl_grey/chrome_test_case.h"
-#include "ios/testing/earl_grey/app_launch_configuration.h"
+#import "ios/chrome/test/earl_grey/chrome_test_case.h"
+#import "ios/testing/earl_grey/app_launch_configuration.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -51,8 +50,25 @@ id<GREYMatcher> TabGridButton() {
 }
 
 // Tests the enabled state of an item.
-// |parentMatcher| is the container matcher of the |item|.
-// |availability| is the expected availability.
+// `string_id` is the ID of the string associated with the item.
+// `enabled` is the expected availability.
+void AssertItemEnabled(int string_id, bool enabled) {
+  id<GREYMatcher> assertion_matcher =
+      enabled
+          ? grey_not(grey_accessibilityTrait(UIAccessibilityTraitNotEnabled))
+          : grey_accessibilityTrait(UIAccessibilityTraitNotEnabled);
+  [[EarlGrey
+      selectElementWithMatcher:
+          grey_allOf(
+              chrome_test_util::ButtonWithAccessibilityLabelId(string_id),
+              grey_ancestor(grey_kindOfClassName(@"UICollectionView")),
+              grey_sufficientlyVisible(), nil)]
+      assertWithMatcher:assertion_matcher];
+}
+
+// Tests the enabled state of an item.
+// `parentMatcher` is the container matcher of the `item`.
+// `availability` is the expected availability.
 void AssertItemEnabledState(id<GREYMatcher> item,
                             id<GREYMatcher> parentMatcher,
                             bool enabled) {
@@ -85,8 +101,6 @@ void AssertItemEnabledState(id<GREYMatcher> item,
   // app, this policy data will appear under the
   // "com.apple.configuration.managed" key.
   AppLaunchConfiguration config;
-  config.additional_args.push_back(std::string("--") +
-                                   switches::kEnableEnterprisePolicy);
   config.relaunch_policy = NoForceRelaunchAndResetState;
   return config;
 }
@@ -142,12 +156,19 @@ void AssertItemEnabledState(id<GREYMatcher> item,
   [[EarlGrey selectElementWithMatcher:TabGridButton()]
       performAction:grey_longPress()];
 
-  AssertItemEnabledState(grey_accessibilityID(kToolsMenuNewTabId),
-                         grey_accessibilityID(kPopupMenuTabGridMenuTableViewId),
-                         /*enabled=*/YES);
-  AssertItemEnabledState(grey_accessibilityID(kToolsMenuNewIncognitoTabId),
-                         grey_accessibilityID(kPopupMenuTabGridMenuTableViewId),
-                         /*enabled=*/YES);
+  if ([ChromeEarlGrey isSFSymbolEnabled]) {
+    AssertItemEnabled(IDS_IOS_TOOLS_MENU_NEW_TAB, /*enabled=*/true);
+    AssertItemEnabled(IDS_IOS_TOOLS_MENU_NEW_INCOGNITO_TAB, /*enabled=*/true);
+  } else {
+    AssertItemEnabledState(
+        grey_accessibilityID(kToolsMenuNewTabId),
+        grey_accessibilityID(kPopupMenuTabGridMenuTableViewId),
+        /*enabled=*/YES);
+    AssertItemEnabledState(
+        grey_accessibilityID(kToolsMenuNewIncognitoTabId),
+        grey_accessibilityID(kPopupMenuTabGridMenuTableViewId),
+        /*enabled=*/YES);
+  }
 }
 
 // When the IncognitoModeAvailability policy is set to disabled, the "New
@@ -159,12 +180,19 @@ void AssertItemEnabledState(id<GREYMatcher> item,
   [[EarlGrey selectElementWithMatcher:TabGridButton()]
       performAction:grey_longPress()];
 
-  AssertItemEnabledState(grey_accessibilityID(kToolsMenuNewTabId),
-                         grey_accessibilityID(kPopupMenuTabGridMenuTableViewId),
-                         /*enabled=*/YES);
-  AssertItemEnabledState(grey_accessibilityID(kToolsMenuNewIncognitoTabId),
-                         grey_accessibilityID(kPopupMenuTabGridMenuTableViewId),
-                         /*enabled=*/NO);
+  if ([ChromeEarlGrey isSFSymbolEnabled]) {
+    AssertItemEnabled(IDS_IOS_TOOLS_MENU_NEW_TAB, /*enabled=*/true);
+    AssertItemEnabled(IDS_IOS_TOOLS_MENU_NEW_INCOGNITO_TAB, /*enabled=*/false);
+  } else {
+    AssertItemEnabledState(
+        grey_accessibilityID(kToolsMenuNewTabId),
+        grey_accessibilityID(kPopupMenuTabGridMenuTableViewId),
+        /*enabled=*/YES);
+    AssertItemEnabledState(
+        grey_accessibilityID(kToolsMenuNewIncognitoTabId),
+        grey_accessibilityID(kPopupMenuTabGridMenuTableViewId),
+        /*enabled=*/NO);
+  }
 }
 
 // When the IncognitoModeAvailability policy is set to forced, the "New Tab"
@@ -176,12 +204,17 @@ void AssertItemEnabledState(id<GREYMatcher> item,
   [[EarlGrey selectElementWithMatcher:TabGridButton()]
       performAction:grey_longPress()];
 
-  AssertItemEnabledState(grey_accessibilityID(kToolsMenuNewTabId),
-                         grey_accessibilityID(kPopupMenuTabGridMenuTableViewId),
-                         NO);
-  AssertItemEnabledState(grey_accessibilityID(kToolsMenuNewIncognitoTabId),
-                         grey_accessibilityID(kPopupMenuTabGridMenuTableViewId),
-                         YES);
+  if ([ChromeEarlGrey isSFSymbolEnabled]) {
+    AssertItemEnabled(IDS_IOS_TOOLS_MENU_NEW_TAB, /*enabled=*/false);
+    AssertItemEnabled(IDS_IOS_TOOLS_MENU_NEW_INCOGNITO_TAB, /*enabled=*/true);
+  } else {
+    AssertItemEnabledState(
+        grey_accessibilityID(kToolsMenuNewTabId),
+        grey_accessibilityID(kPopupMenuTabGridMenuTableViewId), NO);
+    AssertItemEnabledState(
+        grey_accessibilityID(kToolsMenuNewIncognitoTabId),
+        grey_accessibilityID(kPopupMenuTabGridMenuTableViewId), YES);
+  }
 }
 
 // TODO(crbug.com/1165655): Add test to new tab long-press menu.

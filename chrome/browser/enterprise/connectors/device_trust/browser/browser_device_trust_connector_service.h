@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,12 +29,16 @@ class BrowserDeviceTrustConnectorService : public DeviceTrustConnectorService {
 
   ~BrowserDeviceTrustConnectorService() override;
 
+  // DeviceTrustConnectorService:
+  bool IsConnectorEnabled() const override;
+
  protected:
-  // Hook that can is called to notify that the policy changed and the connector
+  // Hook that is called to notify that the policy changed and the connector
   // became, or is still, enabled.
   void OnConnectorEnabled() override;
 
  private:
+  // Browser-process-level object that will outlive the current instance.
   raw_ptr<DeviceTrustKeyManager> key_manager_;
 };
 

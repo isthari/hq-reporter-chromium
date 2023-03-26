@@ -1,15 +1,17 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/badges/badge_view_controller.h"
 
-#include "base/check.h"
+#import "base/check.h"
+#import "ios/chrome/browser/infobars/badge_state.h"
 #import "ios/chrome/browser/ui/badges/badge_button.h"
 #import "ios/chrome/browser/ui/badges/badge_button_factory.h"
 #import "ios/chrome/browser/ui/badges/badge_constants.h"
 #import "ios/chrome/browser/ui/badges/badge_item.h"
-#import "ios/chrome/browser/ui/util/named_guide.h"
+#import "ios/chrome/browser/ui/util/layout_guide_names.h"
+#import "ios/chrome/browser/ui/util/util_swift.h"
 #import "ios/chrome/common/material_timing.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
@@ -24,11 +26,11 @@ namespace {
 // off mode for the badge view.
 const CGFloat kFullScreenProgressThreshold = 0.85;
 
-// Spacing between the top and trailing anchors of |unreadIndicatorView| and
-// |displayedBadge|.
+// Spacing between the top and trailing anchors of `unreadIndicatorView` and
+// `displayedBadge`.
 const CGFloat kUnreadIndicatorViewSpacing = 10.0;
 
-// Height of |unreadIndicatorView|.
+// Height of `unreadIndicatorView`.
 const CGFloat kUnreadIndicatorViewHeight = 6.0;
 
 // Damping ratio of animating a change to the displayed badge.
@@ -48,9 +50,6 @@ const CGFloat kUpdateDisplayedBadgeAnimationDamping = 0.85;
 
 // BadgeButton to show in both FullScreen and non FullScreen.
 @property(nonatomic, strong) BadgeButton* fullScreenBadge;
-
-// Array of all available badges.
-@property(nonatomic, strong) NSMutableArray<BadgeButton*>* badges;
 
 // StackView holding the displayedBadge and fullScreenBadge.
 @property(nonatomic, strong) UIStackView* stackView;
@@ -213,7 +212,7 @@ const CGFloat kUpdateDisplayedBadgeAnimationDamping = 0.85;
   self.view.alpha = 0;
   self.view.transform = CGAffineTransformMakeScale(0.1, 0.1);
   [self.stackView addArrangedSubview:_displayedBadge];
-  [UIView animateWithDuration:ios::material::kDuration2
+  [UIView animateWithDuration:kMaterialDuration2
                         delay:0
        usingSpringWithDamping:kUpdateDisplayedBadgeAnimationDamping
         initialSpringVelocity:0
@@ -223,9 +222,10 @@ const CGFloat kUpdateDisplayedBadgeAnimationDamping = 0.85;
                      self.view.transform = CGAffineTransformIdentity;
                    }
                    completion:nil];
-  NamedGuide* guide = [NamedGuide guideWithName:kBadgeOverflowMenuGuide
-                                           view:_displayedBadge];
-  guide.constrainedView = _displayedBadge;
+
+  // Register the badge with the layout guide center.
+  [self.layoutGuideCenter referenceView:_displayedBadge
+                              underName:kBadgeOverflowMenuGuide];
 }
 
 - (void)setFullScreenBadge:(BadgeButton*)fullScreenBadge {

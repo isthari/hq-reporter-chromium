@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,6 +42,7 @@ GestureConfiguration::GestureConfiguration()
       max_swipe_deviation_angle_(20),
       max_time_between_double_click_in_ms_(700),
       max_touch_down_duration_for_click_in_ms_(800),
+      max_stylus_move_in_pixels_for_click_(20),
       max_touch_move_in_pixels_for_click_(15),
       min_distance_for_pinch_scroll_in_pixels_(20),
       min_fling_velocity_(30.0f),
@@ -58,7 +59,6 @@ GestureConfiguration::GestureConfiguration()
 #else
       scroll_debounce_interval_in_ms_(0),
 #endif
-      semi_long_press_time_in_ms_(400),
       show_press_delay_in_ms_(150),
 #if BUILDFLAG(IS_CHROMEOS_ASH)
       single_pointer_cancel_enabled_(true),

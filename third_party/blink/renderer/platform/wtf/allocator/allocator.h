@@ -1,32 +1,14 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_ALLOCATOR_ALLOCATOR_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_ALLOCATOR_ALLOCATOR_H_
 
-#include <atomic>
-
-#include "base/allocator/buildflags.h"
-#include "base/check_op.h"
+#include "base/check.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/partitions.h"
 #include "third_party/blink/renderer/platform/wtf/type_traits.h"
-
-#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
-#if !BUILDFLAG(IS_APPLE)
-// FastMalloc() defers to malloc() in this case, and including its header
-// ensures that the compiler knows that malloc() is "special", e.g. that it
-// returns properly-aligned, distinct memory locations.
-#include <malloc.h>
-#elif BUILDFLAG(IS_APPLE)
-// malloc.h doesn't exist on Apple OSes (it's in malloc/malloc.h), but the
-// definitions we want are actually in stdlib.h.
-#include <stdlib.h>
-#endif  // BUILDFLAG(IS_APPLE)
-#else
-#include "base/allocator/partition_allocator/partition_alloc.h"
-#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
 
 namespace WTF {
 
@@ -51,7 +33,7 @@ class __thisIsHereToForceASemicolonAfterThisMacro;
 //
 #define DISALLOW_NEW()                                                        \
  public:                                                                      \
-  using IsDisallowNewMarker = int;                                            \
+  using IsDisallowNewMarker [[maybe_unused]] = int;                           \
   void* operator new(size_t, NotNullTag, void* location) { return location; } \
   void* operator new(size_t, void* location) { return location; }             \
                                                                               \
@@ -69,20 +51,13 @@ class __thisIsHereToForceASemicolonAfterThisMacro;
   void* operator new(size_t, NotNullTag, void*) = delete; \
   void* operator new(size_t, void*) = delete
 
-#if defined(__clang__)
-#define ANNOTATE_STACK_ALLOCATED \
-  __attribute__((annotate("blink_stack_allocated")))
-#else
-#define ANNOTATE_STACK_ALLOCATED
-#endif
-
-#define STACK_ALLOCATED()                                       \
- public:                                                        \
-  using IsStackAllocatedTypeMarker [[maybe_unused]] = int;      \
-                                                                \
- private:                                                       \
-  ANNOTATE_STACK_ALLOCATED void* operator new(size_t) = delete; \
-  void* operator new(size_t, NotNullTag, void*) = delete;       \
+#define STACK_ALLOCATED()                                  \
+ public:                                                   \
+  using IsStackAllocatedTypeMarker [[maybe_unused]] = int; \
+                                                           \
+ private:                                                  \
+  void* operator new(size_t) = delete;                     \
+  void* operator new(size_t, NotNullTag, void*) = delete;  \
   void* operator new(size_t, void*) = delete
 
 // Provides customizable overrides of fastMalloc/fastFree and operator

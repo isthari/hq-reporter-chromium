@@ -1,5 +1,5 @@
 #!/usr/bin/env vpython3
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -13,10 +13,10 @@ from unexpected_passes_common import data_types
 
 
 class BuilderRunsTestOfInterestUnittest(unittest.TestCase):
-  def setUp(self):
-    self.instance = gpu_builders.GpuBuilders(False)
+  def setUp(self) -> None:
+    self.instance = gpu_builders.GpuBuilders('webgl_conformance', False)
 
-  def testMatch(self):
+  def testMatch(self) -> None:
     """Tests that a match can be successfully found."""
     test_map = {
         'isolated_scripts': [
@@ -28,10 +28,9 @@ class BuilderRunsTestOfInterestUnittest(unittest.TestCase):
             },
         ],
     }
-    self.assertTrue(
-        self.instance._BuilderRunsTestOfInterest(test_map, 'webgl_conformance'))
+    self.assertTrue(self.instance._BuilderRunsTestOfInterest(test_map))
 
-  def testNoMatchIsolate(self):
+  def testNoMatchIsolate(self) -> None:
     """Tests that a match is not found if the isolate name is not valid."""
     test_map = {
         'isolated_scripts': [
@@ -43,10 +42,9 @@ class BuilderRunsTestOfInterestUnittest(unittest.TestCase):
             },
         ],
     }
-    self.assertFalse(
-        self.instance._BuilderRunsTestOfInterest(test_map, 'webgl_conformance'))
+    self.assertFalse(self.instance._BuilderRunsTestOfInterest(test_map))
 
-  def testNoMatchSuite(self):
+  def testNoMatchSuite(self) -> None:
     """Tests that a match is not found if the suite name is not valid."""
     test_map = {
         'isolated_scripts': [
@@ -58,10 +56,9 @@ class BuilderRunsTestOfInterestUnittest(unittest.TestCase):
             },
         ],
     }
-    self.assertFalse(
-        self.instance._BuilderRunsTestOfInterest(test_map, 'webgl_conformance'))
+    self.assertFalse(self.instance._BuilderRunsTestOfInterest(test_map))
 
-  def testAndroidSuffixes(self):
+  def testAndroidSuffixes(self) -> None:
     """Tests that Android-specific isolates are added."""
     isolate_names = self.instance.GetIsolateNames()
     for isolate in isolate_names:
@@ -70,28 +67,10 @@ class BuilderRunsTestOfInterestUnittest(unittest.TestCase):
     self.fail('Did not find any Android-specific isolate names')
 
 
-class GetFakeCiBuildersUnittest(unittest.TestCase):
-  def testStringsConvertedToBuilderEntries(self):
-    """Tests that the easier-to-read strings get converted to BuilderEntry."""
-    instance = gpu_builders.GpuBuilders(False)
-    fake_builders = instance.GetFakeCiBuilders()
-    ci_builder = data_types.BuilderEntry(
-        'Optional Linux Release (Intel HD 630)', constants.BuilderTypes.CI,
-        False)
-    expected_try = set([
-        data_types.BuilderEntry('linux_optional_gpu_tests_rel',
-                                constants.BuilderTypes.TRY, False)
-    ])
-    self.assertEqual(fake_builders[ci_builder], expected_try)
-    ci_builder = data_types.BuilderEntry('Optional Linux Release (NVIDIA)',
-                                         constants.BuilderTypes.CI, False)
-    self.assertEqual(fake_builders[ci_builder], expected_try)
-
-
 class GetNonChromiumBuildersUnittest(unittest.TestCase):
-  def testStringsConvertedToBuilderEntries(self):
+  def testStringsConvertedToBuilderEntries(self) -> None:
     """Tests that the easier-to-read strings get converted to BuilderEntry."""
-    instance = gpu_builders.GpuBuilders(False)
+    instance = gpu_builders.GpuBuilders('webgl_conformance', False)
     builder = data_types.BuilderEntry('Win V8 FYI Release (NVIDIA)',
                                       constants.BuilderTypes.CI, False)
     self.assertIn(builder, instance.GetNonChromiumBuilders())

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,10 +18,6 @@ namespace base {
 class FilePath;
 }  // namespace base
 
-namespace extensions {
-class EventRouter;
-}  // namespace extensions
-
 namespace ash {
 namespace file_system_provider {
 namespace operations {
@@ -29,7 +25,7 @@ namespace operations {
 // Copies an entry (recursively if a directory). Created per request.
 class CopyEntry : public Operation {
  public:
-  CopyEntry(extensions::EventRouter* event_router,
+  CopyEntry(RequestDispatcher* dispatcher,
             const ProvidedFileSystemInfo& file_system_info,
             const base::FilePath& source_path,
             const base::FilePath& target_path,

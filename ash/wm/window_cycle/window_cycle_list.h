@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,10 +37,16 @@ class ASH_EXPORT WindowCycleList : public aura::WindowObserver,
  public:
   using WindowList = std::vector<aura::Window*>;
 
-  explicit WindowCycleList(const WindowList& windows);
+  WindowCycleList(const WindowList& windows, bool same_app_only);
   WindowCycleList(const WindowCycleList&) = delete;
   WindowCycleList& operator=(const WindowCycleList&) = delete;
   ~WindowCycleList() override;
+
+  void set_user_did_accept(bool user_did_accept) {
+    user_did_accept_ = user_did_accept;
+  }
+
+  bool same_app_only() const { return same_app_only_; }
 
   const WindowCycleView* cycle_view() const { return cycle_view_; }
 
@@ -96,10 +102,6 @@ class ASH_EXPORT WindowCycleList : public aura::WindowObserver,
   // Updates the tab slider mode UI when alt-tab mode in user prefs changes.
   void OnModePrefsChanged();
 
-  void set_user_did_accept(bool user_did_accept) {
-    user_did_accept_ = user_did_accept;
-  }
-
   static void SetDisableInitialDelayForTesting(bool disabled);
 
  private:
@@ -134,6 +136,10 @@ class ASH_EXPORT WindowCycleList : public aura::WindowObserver,
   // SetFocusedWindow() before this.
   void Scroll(int offset);
 
+  // Removes windows from `windows_` if they don't have the same app id as the
+  // MRU window.
+  void MakeSameAppOnly();
+
   // Returns the index for the window |offset| away from |current_index_|. Can
   // only be called if |windows_| is not empty. Also checks that the window for
   // the returned index exists.
@@ -162,6 +168,9 @@ class ASH_EXPORT WindowCycleList : public aura::WindowObserver,
 
   // True if one of the windows in the list has already been selected.
   bool window_selected_ = false;
+
+  // True if we are only cycling through windows of the same app.
+  const bool same_app_only_;
 
   // The top level View for the window cycle UI. May be null if the UI is not
   // showing.

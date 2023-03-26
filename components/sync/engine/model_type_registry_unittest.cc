@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,16 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/task/deferred_sequenced_task_runner.h"
 #include "base/test/gtest_util.h"
 #include "base/test/task_environment.h"
 #include "components/sync/engine/cancelation_signal.h"
 #include "components/sync/engine/data_type_activation_response.h"
 #include "components/sync/protocol/model_type_state.pb.h"
-#include "components/sync/test/engine/fake_model_type_processor.h"
-#include "components/sync/test/engine/mock_nudge_handler.h"
+#include "components/sync/test/fake_model_type_processor.h"
 #include "components/sync/test/fake_sync_encryption_handler.h"
+#include "components/sync/test/mock_nudge_handler.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace syncer {

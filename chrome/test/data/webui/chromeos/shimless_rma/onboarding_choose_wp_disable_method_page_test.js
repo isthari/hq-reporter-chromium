@@ -1,29 +1,26 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {PromiseResolver} from 'chrome://resources/js/promise_resolver.m.js';
+import {PromiseResolver} from 'chrome://resources/ash/common/promise_resolver.js';
 import {FakeShimlessRmaService} from 'chrome://shimless-rma/fake_shimless_rma_service.js';
 import {setShimlessRmaServiceForTesting} from 'chrome://shimless-rma/mojo_interface_provider.js';
 import {OnboardingChooseWpDisableMethodPage} from 'chrome://shimless-rma/onboarding_choose_wp_disable_method_page.js';
+import {ShimlessRma} from 'chrome://shimless-rma/shimless_rma.js';
+import {assertDeepEquals, assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chromeos/chai_assert.js';
+import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
 
-import {assertDeepEquals, assertEquals, assertFalse, assertTrue} from '../../chai_assert.js';
-import {flushTasks} from '../../test_util.js';
-
-export function onboardingChooseWpDisableMethodPageTest() {
+suite('onboardingChooseWpDisableMethodPageTest', function() {
   /** @type {?OnboardingChooseWpDisableMethodPage} */
   let component = null;
 
   /** @type {?FakeShimlessRmaService} */
   let service = null;
 
-  suiteSetup(() => {
-    service = new FakeShimlessRmaService();
-    setShimlessRmaServiceForTesting(service);
-  });
-
   setup(() => {
     document.body.innerHTML = '';
+    service = new FakeShimlessRmaService();
+    setShimlessRmaServiceForTesting(service);
   });
 
   teardown(() => {
@@ -93,7 +90,7 @@ export function onboardingChooseWpDisableMethodPageTest() {
 
     assertTrue(manualDisableComponent.checked);
 
-    let expectedResult = {foo: 'bar'};
+    const expectedResult = {foo: 'bar'};
     let savedResult;
     component.onNextButtonClick().then((result) => savedResult = result);
     // Resolve to a distinct result to confirm it was not modified.
@@ -119,7 +116,7 @@ export function onboardingChooseWpDisableMethodPageTest() {
     await flushTasks;
     assertTrue(rsuDisableComponent.checked);
 
-    let expectedResult = {foo: 'bar'};
+    const expectedResult = {foo: 'bar'};
     let savedResult;
     component.onNextButtonClick().then((result) => savedResult = result);
     // Resolve to a distinct result to confirm it was not modified.
@@ -139,4 +136,4 @@ export function onboardingChooseWpDisableMethodPageTest() {
     component.allButtonsDisabled = true;
     assertTrue(hwwpDisableMethodGroup.disabled);
   });
-}
+});

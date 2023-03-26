@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,19 +14,23 @@ namespace apps {
 
 class PlayExtras : public SourceExtras {
  public:
-  explicit PlayExtras(const std::string& package_name,
-                      const GURL& icon_url,
-                      const std::u16string& category,
-                      const std::u16string& description,
-                      const std::u16string& content_rating,
-                      const GURL& content_rating_icon_url,
-                      const bool in_app_purchases,
-                      const bool previously_installed,
-                      const bool contains_ads,
-                      const bool optimized_for_chrome);
-  PlayExtras(const PlayExtras&) = delete;
+  PlayExtras(const std::string& package_name,
+             const GURL& icon_url,
+             const std::u16string& category,
+             const std::u16string& description,
+             const std::u16string& content_rating,
+             const GURL& content_rating_icon_url,
+             const bool in_app_purchases,
+             const bool previously_installed,
+             const bool contains_ads,
+             const bool optimized_for_chrome);
+  PlayExtras(const PlayExtras&);
   PlayExtras& operator=(const PlayExtras&) = delete;
   ~PlayExtras() override;
+
+  // Result::SourceExtras:
+  std::unique_ptr<SourceExtras> Clone() override;
+  PlayExtras* AsPlayExtras() override;
 
   const std::string& GetPackageName() const;
   const GURL& GetIconUrl() const;
@@ -40,9 +44,6 @@ class PlayExtras : public SourceExtras {
   bool GetWasPreviouslyInstalled() const;
   bool GetContainsAds() const;
   bool GetOptimizedForChrome() const;
-
-  // Result::SourceExtras:
-  PlayExtras* AsPlayExtras() override;
 
  private:
   std::string package_name_;

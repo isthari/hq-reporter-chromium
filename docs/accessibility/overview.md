@@ -212,7 +212,7 @@ then click again to refresh that tree.
 https://developer.chrome.com/extensions/automation).
 * Installing the [Automation Inspector Chrome extension](
 https://github.com/google/automation-inspector).
-* Building and using [ax_dump_tree or ax_dump_events](tools/accessibility/inspect/README.md).
+* Building and using [ax_dump_tree or ax_dump_events](../../tools/accessibility/inspect/README.md).
 These can be used to view accessibility trees and events from any application on
 Windows, Mac or Linux.
 * Or by using native tools:
@@ -489,8 +489,8 @@ usually forwarded to [BrowserAccessibilityManager] which is responsible for:
    APIs. This is done in the platform-specific subclasses of
    BrowserAccessibilityManager, in a method named `NotifyAccessibilityEvent`.
 3. Dispatching incoming accessibility actions to the appropriate recipient, via
-   [BrowserAccessibilityDelegate]. For messages destined for a renderer,
-   [RenderFrameHostImpl], which is a BrowserAccessibilityDelegate, is
+   [AXPlatformTreeManagerDelegate]. For messages destined for a renderer,
+   [RenderFrameHostImpl], which is a WebAXPlatformTreeManagerDelegate, is
    responsible for calling the remote method
    [ax.mojom.RenderAccessibility.PerformAction()], implemented by the renderer,
    with the appropriate payload (of type [ax.mojom.AXActionData]). This IPC call
@@ -528,7 +528,7 @@ is defined by [automation.idl], which must be kept synchronized with
 
 For more detail on Chrome web contents and platform accessibility, read [How Chrome Accessibility Works](browser/how_a11y_works.md).
 
-# TODO(accessibility): write os equiavlent how does Chrome os a11y work.
+For more detail on Chrome OS accessibility, read [How Chrome OS Accessibility Works](os/how_a11y_works.md).
 
 [ax.mojom.AXActionData]: https://source.chromium.org/chromium/chromium/src/+/main:ui/accessibility/mojom/ax_action_data.mojom;l=13
 [ax.mojom.RenderAccessibilityHost::HandleAXEvents()]: https://source.chromium.org/chromium/chromium/src/+/main:content/common/render_accessibility.mojom;l=47
@@ -543,9 +543,10 @@ For more detail on Chrome web contents and platform accessibility, read [How Chr
 [AXTreeSerializer]: https://cs.chromium.org/chromium/src/ui/accessibility/ax_tree_serializer.h
 [BlinkAXTreeSource]: https://cs.chromium.org/chromium/src/content/renderer/accessibility/blink_ax_tree_source.h
 [BrowserAccessibility]: https://cs.chromium.org/chromium/src/content/browser/accessibility/browser_accessibility.h
-[BrowserAccessibilityDelegate]: https://cs.chromium.org/chromium/src/content/browser/accessibility/browser_accessibility_manager.h?sq=package:chromium&l=64
 [BrowserAccessibilityManager]: https://cs.chromium.org/chromium/src/content/browser/accessibility/browser_accessibility_manager.h
+[WebAXPlatformTreeManagerDelegate]: https://cs.chromium.org/chromium/src/content/browser/accessibility/web_ax_platform_tree_manager_delegate.h
 [LayoutObject]: https://cs.chromium.org/chromium/src/third_party/blink/renderer/core/layout/layout_object.h
+[AXPlatformTreeManagerDelegate]: https://cs.chromium.org/chromium/src/ui/accessibility/platform/ax_platform_tree_manager_delegate.h
 [ViewAccessibility]: https://cs.chromium.org/chromium/src/ui/views/accessibility/view_accessibility.h
 [Node]: https://cs.chromium.org/chromium/src/third_party/blink/renderer/core/dom/node.h
 [RenderAccessibilityImpl]: https://cs.chromium.org/chromium/src/content/renderer/accessibility/render_accessibility_impl.h

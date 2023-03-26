@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 #include <vector>
 
 #include "base/base_switches.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/process/launch.h"
 #include "base/rand_util.h"
@@ -70,14 +70,13 @@ ParentProcess::~ParentProcess() {}
 void ParentProcess::CreateImplOnIPCThread(
     mojo::ScopedMessagePipeHandle mojo_pipe) {
   mojo_task_runner_->PostTask(
-      FROM_HERE, base::BindOnce(&ParentProcess::CreateImpl,
-                                base::RetainedRef(this), std::move(mojo_pipe)));
+      FROM_HERE,
+      base::BindOnce(&ParentProcess::CreateImpl, this, std::move(mojo_pipe)));
 }
 
 void ParentProcess::DestroyImplOnIPCThread() {
   mojo_task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(&ParentProcess::DestroyImpl, base::RetainedRef(this)));
+      FROM_HERE, base::BindOnce(&ParentProcess::DestroyImpl, this));
 }
 
 void ParentProcess::AppendSwitch(const std::string& switch_string) {

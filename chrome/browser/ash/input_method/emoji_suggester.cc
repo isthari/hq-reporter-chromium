@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,6 @@
 
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
-#include "ash/services/ime/constants.h"
-#include "ash/services/ime/public/cpp/suggestions.h"
 #include "base/files/file_util.h"
 #include "base/i18n/number_formatting.h"
 #include "base/metrics/field_trial_params.h"
@@ -16,15 +14,17 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/keyboard/chrome_keyboard_controller_client.h"
 #include "chrome/grit/generated_resources.h"
+#include "chromeos/ash/services/ime/constants.h"
+#include "chromeos/ash/services/ime/public/cpp/assistive_suggestions.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/strings/grit/components_strings.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/events/keycodes/dom/dom_code.h"
 
@@ -33,9 +33,9 @@ namespace input_method {
 
 namespace {
 
-using TextSuggestion = ::chromeos::ime::TextSuggestion;
-using TextSuggestionMode = ::chromeos::ime::TextSuggestionMode;
-using TextSuggestionType = ::chromeos::ime::TextSuggestionType;
+using AssistiveSuggestion = ime::AssistiveSuggestion;
+using AssistiveSuggestionMode = ime::AssistiveSuggestionMode;
+using AssistiveSuggestionType = ime::AssistiveSuggestionType;
 
 constexpr char kEmojiSuggesterShowSettingCount[] =
     "emoji_suggester.show_setting_count";
@@ -71,7 +71,7 @@ std::string GetLastWord(const std::string& str) {
   DCHECK_EQ(kSpaceChar, str.back());
   size_t last_pos_to_search = str.length() - 2;
 
-  const auto space_before_last_word = str.find_last_of(" ", last_pos_to_search);
+  auto space_before_last_word = str.find_last_of(" \n", last_pos_to_search);
 
   // If not found, return the entire string up to the last position to search
   // else return the last word.
@@ -86,18 +86,9 @@ std::string GetLastWord(const std::string& str) {
       base::TrimString(last_word, kTrimLeadingChars, base::TRIM_LEADING));
 }
 
-void RecordTimeToAccept(base::TimeDelta delta) {
-  UMA_HISTOGRAM_MEDIUM_TIMES("InputMethod.Assistive.TimeToAccept.Emoji", delta);
-}
-
-void RecordTimeToDismiss(base::TimeDelta delta) {
-  UMA_HISTOGRAM_MEDIUM_TIMES("InputMethod.Assistive.TimeToDismiss.Emoji",
-                             delta);
-}
-
-TextSuggestion MapToTextSuggestion(std::u16string candidate_string) {
-  return {.mode = TextSuggestionMode::kPrediction,
-          .type = TextSuggestionType::kAssistiveEmoji,
+AssistiveSuggestion MapToAssistiveSuggestion(std::u16string candidate_string) {
+  return {.mode = AssistiveSuggestionMode::kPrediction,
+          .type = AssistiveSuggestionType::kAssistiveEmoji,
           .text = base::UTF16ToUTF8(candidate_string)};
 }
 
@@ -110,15 +101,15 @@ EmojiSuggester::EmojiSuggester(SuggestionHandlerInterface* suggestion_handler,
       highlighted_index_(kNoneHighlighted) {
   LoadEmojiMap();
 
-  properties_.type = ui::ime::AssistiveWindowType::kEmojiSuggestion;
+  properties_.type = ash::ime::AssistiveWindowType::kEmojiSuggestion;
   suggestion_button_.id = ui::ime::ButtonId::kSuggestion;
   suggestion_button_.window_type =
-      ui::ime::AssistiveWindowType::kEmojiSuggestion;
+      ash::ime::AssistiveWindowType::kEmojiSuggestion;
   learn_more_button_.id = ui::ime::ButtonId::kLearnMore;
   learn_more_button_.announce_string =
       l10n_util::GetStringUTF16(IDS_LEARN_MORE);
   learn_more_button_.window_type =
-      ui::ime::AssistiveWindowType::kEmojiSuggestion;
+      ash::ime::AssistiveWindowType::kEmojiSuggestion;
 }
 
 EmojiSuggester::~EmojiSuggester() = default;
@@ -160,15 +151,19 @@ void EmojiSuggester::RecordAcceptanceIndex(int index) {
 }
 
 void EmojiSuggester::OnFocus(int context_id) {
-  context_id_ = context_id;
+  // Some parts of the code reserve negative/zero context_id for unfocused
+  // context. As a result we should make sure it is not being erroneously set to
+  // a negative number, and cause unexpected behaviour.
+  DCHECK(context_id > 0);
+  focused_context_id_ = context_id;
 }
 
 void EmojiSuggester::OnBlur() {
-  context_id_ = -1;
+  focused_context_id_ = absl::nullopt;
 }
 
 void EmojiSuggester::OnExternalSuggestionsUpdated(
-    const std::vector<TextSuggestion>& suggestions) {
+    const std::vector<AssistiveSuggestion>& suggestions) {
   // EmojiSuggester doesn't utilize any suggestions produced externally, so
   // ignore this call.
 }
@@ -230,11 +225,24 @@ bool EmojiSuggester::ShouldShowSuggestion(const std::u16string& text) {
   return false;
 }
 
-bool EmojiSuggester::Suggest(const std::u16string& text,
-                             size_t cursor_pos,
-                             size_t anchor_pos) {
-  if (emoji_map_.empty() || text[text.length() - 1] != kSpaceChar)
+bool EmojiSuggester::TrySuggestWithSurroundingText(const std::u16string& text,
+                                                   int cursor_pos,
+                                                   int anchor_pos) {
+  if (emoji_map_.empty() || !focused_context_id_.has_value())
     return false;
+
+  // All these below conditions are required for a emoji suggestion to be
+  // triggered.
+  // eg. "wow |" where '|' denotes cursor position should trigger an emoji
+  // suggestion.
+  int len = static_cast<int>(text.length());
+  if (!(len && cursor_pos == len     // text not empty and cursor is end of text
+        && cursor_pos == anchor_pos  // no selection
+        && text[cursor_pos - 1] == kSpaceChar  // space before cursor
+        )) {
+    return false;
+  }
+
   std::string last_word =
       base::ToLowerASCII(GetLastWord(base::UTF16ToUTF8(text)));
   if (!last_word.empty() && emoji_map_.count(last_word)) {
@@ -265,7 +273,6 @@ void EmojiSuggester::ShowSuggestion(const std::string& text) {
   IncrementPrefValueTilCapped(kEmojiSuggesterShowSettingCount,
                               kEmojiSuggesterShowSettingMaxCount);
   ShowSuggestionWindow();
-  session_start_ = base::TimeTicks::Now();
 
   buttons_.clear();
   for (size_t i = 0; i < candidates_.size(); i++) {
@@ -281,65 +288,82 @@ void EmojiSuggester::ShowSuggestion(const std::string& text) {
 }
 
 void EmojiSuggester::ShowSuggestionWindow() {
+  if (!focused_context_id_.has_value()) {
+    LOG(ERROR) << "suggest: Failed to show suggestion. No context id.";
+  }
+
   std::string error;
-  suggestion_handler_->SetAssistiveWindowProperties(context_id_, properties_,
-                                                    &error);
+  suggestion_handler_->SetAssistiveWindowProperties(*focused_context_id_,
+                                                    properties_, &error);
   if (!error.empty()) {
     LOG(ERROR) << "Fail to show suggestion. " << error;
   }
 }
 
 bool EmojiSuggester::AcceptSuggestion(size_t index) {
+  if (!focused_context_id_.has_value()) {
+    LOG(ERROR) << "suggest: Failed to accept suggestion. No context id.";
+    return false;
+  }
+
   if (index < 0 || index >= candidates_.size())
     return false;
 
   std::string error;
-  suggestion_handler_->AcceptSuggestionCandidate(context_id_,
-                                                 candidates_[index], &error);
+  suggestion_handler_->AcceptSuggestionCandidate(
+      *focused_context_id_, candidates_[index],
+      /* delete_previous_utf16_len=*/0, &error);
 
   if (!error.empty()) {
     LOG(ERROR) << "Failed to accept suggestion. " << error;
     return false;
   }
 
-  RecordTimeToAccept(base::TimeTicks::Now() - session_start_);
   suggestion_shown_ = false;
   RecordAcceptanceIndex(index);
   return true;
 }
 
 void EmojiSuggester::DismissSuggestion() {
+  if (!focused_context_id_.has_value()) {
+    LOG(ERROR) << "suggest: Failed to dismiss suggestion. No context id.";
+    return;
+  }
+
   std::string error;
   properties_.visible = false;
   properties_.announce_string =
       l10n_util::GetStringUTF16(IDS_SUGGESTION_DISMISSED);
-  suggestion_handler_->SetAssistiveWindowProperties(context_id_, properties_,
-                                                    &error);
+  suggestion_handler_->SetAssistiveWindowProperties(*focused_context_id_,
+                                                    properties_, &error);
   if (!error.empty()) {
     LOG(ERROR) << "Failed to dismiss suggestion. " << error;
     return;
   }
   suggestion_shown_ = false;
-  RecordTimeToDismiss(base::TimeTicks::Now() - session_start_);
 }
 
 void EmojiSuggester::SetButtonHighlighted(
     const ui::ime::AssistiveWindowButton& button,
     bool highlighted) {
+  if (!focused_context_id_.has_value()) {
+    LOG(ERROR) << "suggest: Failed to set button highlighted. No context id.";
+    return;
+  }
   std::string error;
-  suggestion_handler_->SetButtonHighlighted(context_id_, button, highlighted,
-                                            &error);
+  suggestion_handler_->SetButtonHighlighted(*focused_context_id_, button,
+                                            highlighted, &error);
   if (!error.empty()) {
     LOG(ERROR) << "Failed to set button highlighted. " << error;
   }
 }
 
 int EmojiSuggester::GetPrefValue(const std::string& pref_name) {
-  DictionaryPrefUpdate update(profile_->GetPrefs(),
+  ScopedDictPrefUpdate update(profile_->GetPrefs(),
                               prefs::kAssistiveInputFeatureSettings);
-  auto value = update->FindIntKey(pref_name);
+  auto value = update->FindInt(pref_name);
   if (!value.has_value()) {
-    update->SetIntKey(pref_name, 0);
+    update->Set(pref_name, 0);
     return 0;
   }
   return *value;
@@ -349,9 +373,9 @@ void EmojiSuggester::IncrementPrefValueTilCapped(const std::string& pref_name,
                                                  int max_value) {
   int value = GetPrefValue(pref_name);
   if (value < max_value) {
-    DictionaryPrefUpdate update(profile_->GetPrefs(),
+    ScopedDictPrefUpdate update(profile_->GetPrefs(),
                                 prefs::kAssistiveInputFeatureSettings);
-    update->SetIntKey(pref_name, value + 1);
+    update->Set(pref_name, value + 1);
   }
 }
 
@@ -363,11 +387,11 @@ bool EmojiSuggester::HasSuggestions() {
   return suggestion_shown_;
 }
 
-std::vector<TextSuggestion> EmojiSuggester::GetSuggestions() {
-  std::vector<TextSuggestion> suggestions;
+std::vector<AssistiveSuggestion> EmojiSuggester::GetSuggestions() {
+  std::vector<AssistiveSuggestion> suggestions;
   if (HasSuggestions()) {
     for (const auto& candidate : candidates_) {
-      suggestions.emplace_back(MapToTextSuggestion(candidate));
+      suggestions.emplace_back(MapToAssistiveSuggestion(candidate));
     }
   }
   return suggestions;

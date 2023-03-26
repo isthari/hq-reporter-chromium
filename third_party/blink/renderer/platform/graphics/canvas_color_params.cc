@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,6 @@
 #include "ui/gfx/color_space.h"
 
 namespace blink {
-
-namespace {
 
 // The PredefinedColorSpace value definitions are specified in the CSS Color
 // Level 4 specification.
@@ -36,12 +34,10 @@ gfx::ColorSpace PredefinedColorSpaceToGfxColorSpace(
       return gfx::ColorSpace(gfx::ColorSpace::PrimaryID::BT2020,
                              gfx::ColorSpace::TransferID::PQ);
     case PredefinedColorSpace::kSRGBLinear:
-      return gfx::ColorSpace::CreateSCRGBLinear();
+      return gfx::ColorSpace::CreateSRGBLinear();
   }
   NOTREACHED();
 }
-
-}  // namespace
 
 sk_sp<SkColorSpace> PredefinedColorSpaceToSkColorSpace(
     PredefinedColorSpace color_space) {
@@ -67,6 +63,17 @@ PredefinedColorSpace PredefinedColorSpaceFromSkColorSpace(
     }
   }
   return PredefinedColorSpace::kSRGB;
+}
+
+SkColorType CanvasPixelFormatToSkColorType(CanvasPixelFormat pixel_format) {
+  switch (pixel_format) {
+    case CanvasPixelFormat::kF16:
+      return kRGBA_F16_SkColorType;
+    case CanvasPixelFormat::kUint8:
+      return kN32_SkColorType;
+  }
+  NOTREACHED();
+  return kN32_SkColorType;
 }
 
 CanvasColorParams::CanvasColorParams() = default;
@@ -102,14 +109,7 @@ String CanvasColorParams::GetPixelFormatAsString() const {
 }
 
 SkColorType CanvasColorParams::GetSkColorType() const {
-  switch (pixel_format_) {
-    case CanvasPixelFormat::kF16:
-      return kRGBA_F16_SkColorType;
-    case CanvasPixelFormat::kUint8:
-      return kN32_SkColorType;
-  }
-  NOTREACHED();
-  return kN32_SkColorType;
+  return CanvasPixelFormatToSkColorType(pixel_format_);
 }
 
 

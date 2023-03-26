@@ -1,9 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/services/speech/cros_speech_recognition_recognizer_impl.h"
 
+#include <string>
+
+#include "base/containers/flat_map.h"
 #include "base/files/file_path.h"
 #include "chrome/services/speech/soda/cros_soda_client.h"
 #include "google_apis/google_api_keys.h"
@@ -13,6 +16,7 @@
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/limits.h"
 #include "media/base/media_switches.h"
+#include "media/mojo/mojom/audio_data.mojom.h"
 #include "media/mojo/mojom/media_types.mojom.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 
@@ -41,14 +45,14 @@ GetSodaSpeechRecognitionMode(
 void CrosSpeechRecognitionRecognizerImpl::Create(
     mojo::PendingReceiver<media::mojom::SpeechRecognitionRecognizer> receiver,
     mojo::PendingRemote<media::mojom::SpeechRecognitionRecognizerClient> remote,
-    base::WeakPtr<SpeechRecognitionServiceImpl> speech_recognition_service_impl,
     media::mojom::SpeechRecognitionOptionsPtr options,
     const base::FilePath& binary_path,
-    const base::FilePath& config_path) {
+    const base::flat_map<std::string, base::FilePath>& config_paths,
+    const std::string& primary_language_name) {
   mojo::MakeSelfOwnedReceiver(
       std::make_unique<CrosSpeechRecognitionRecognizerImpl>(
-          std::move(remote), std::move(speech_recognition_service_impl),
-          std::move(options), binary_path, config_path),
+          std::move(remote), std::move(options), binary_path, config_paths,
+          primary_language_name),
       std::move(receiver));
 }
 CrosSpeechRecognitionRecognizerImpl::~CrosSpeechRecognitionRecognizerImpl() =
@@ -56,18 +60,16 @@ CrosSpeechRecognitionRecognizerImpl::~CrosSpeechRecognitionRecognizerImpl() =
 
 CrosSpeechRecognitionRecognizerImpl::CrosSpeechRecognitionRecognizerImpl(
     mojo::PendingRemote<media::mojom::SpeechRecognitionRecognizerClient> remote,
-    base::WeakPtr<SpeechRecognitionServiceImpl> speech_recognition_service_impl,
     media::mojom::SpeechRecognitionOptionsPtr options,
     const base::FilePath& binary_path,
-    const base::FilePath& config_path)
-    : SpeechRecognitionRecognizerImpl(
-          std::move(remote),
-          std::move(speech_recognition_service_impl),
-          std::move(options),
-          binary_path,
-          config_path),
-      binary_path_(binary_path),
-      languagepack_path_(config_path) {
+    const base::flat_map<std::string, base::FilePath>& config_paths,
+    const std::string& primary_language_name)
+    : SpeechRecognitionRecognizerImpl(std::move(remote),
+                                      std::move(options),
+                                      binary_path,
+                                      config_paths,
+                                      primary_language_name),
+      binary_path_(binary_path) {
   cros_soda_client_ = std::make_unique<soda::CrosSodaClient>();
 }
 
@@ -96,7 +98,7 @@ void CrosSpeechRecognitionRecognizerImpl::
     config->channel_count = channel_count;
     config->sample_rate = sample_rate;
     config->api_key = google_apis::GetSodaAPIKey();
-    config->language_dlc_path = languagepack_path_.value();
+    config->language_dlc_path = config_paths()[primary_language_name()].value();
     config->library_dlc_path = binary_path_.value();
     config->recognition_mode =
         GetSodaSpeechRecognitionMode(options_->recognition_mode);
@@ -112,10 +114,15 @@ void CrosSpeechRecognitionRecognizerImpl::
 }
 
 void CrosSpeechRecognitionRecognizerImpl::MarkDone() {
-  if (cros_soda_client_ == nullptr || !cros_soda_client_->IsInitialized()) {
-    LOG(DFATAL)
-        << "No soda client or soda client is not initialized, stopping.";
+  if (cros_soda_client_ == nullptr) {
+    LOG(DFATAL) << "No soda client, stopping.";
     mojo::ReportBadMessage(kNoClientError);
+    return;
+  }
+
+  if (!cros_soda_client_->IsInitialized()) {
+    // Speech recognition was stopped before it could initialize. Return early
+    // in this case.
     return;
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,72 +11,87 @@
  * </settings-setup-pin-dialog>
  */
 
-import '//resources/cr_components/chromeos/quick_unlock/setup_pin_keyboard.m.js';
-import '//resources/cr_elements/cr_button/cr_button.m.js';
-import '//resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import '../../settings_shared_css.js';
+import 'chrome://resources/ash/common/quick_unlock/setup_pin_keyboard.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import '../../settings_shared.css.js';
 
-import {assert, assertNotReached} from '//resources/js/assert.m.js';
-import {I18nBehavior} from '//resources/js/i18n_behavior.m.js';
-import {afterNextRender, flush, html, Polymer, TemplateInstanceBase, Templatizer} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/ash/common/i18n_behavior.js';
+import {mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {loadTimeData} from '../../i18n_setup.js';
+import {getTemplate} from './setup_pin_dialog.html.js';
 
-Polymer({
-  _template: html`{__html_template__}`,
-  is: 'settings-setup-pin-dialog',
+/**
+ * @constructor
+ * @extends {PolymerElement}
+ * @implements {I18nBehaviorInterface}
+ */
+const SettingsSetupPinDialogElementBase =
+    mixinBehaviors([I18nBehavior], PolymerElement);
 
-  behaviors: [I18nBehavior],
+/** @polymer */
+class SettingsSetupPinDialogElement extends SettingsSetupPinDialogElementBase {
+  static get is() {
+    return 'settings-setup-pin-dialog';
+  }
 
-  properties: {
-    /**
-     * Reflects property set in password_prompt_dialog.js.
-     * @type {?Object}
-     */
-    setModes: {
-      type: Object,
-      notify: true,
-    },
+  static get template() {
+    return getTemplate();
+  }
 
-    /**
-     * Should the step-specific submit button be displayed?
-     * @private
-     */
-    enableSubmit_: Boolean,
+  static get properties() {
+    return {
+      /**
+       * Reflects property set in password_prompt_dialog.js.
+       * @type {?Object}
+       */
+      setModes: {
+        type: Object,
+        notify: true,
+      },
 
-    /**
-     * The current step/subpage we are on.
-     * @private
-     */
-    isConfirmStep_: {type: Boolean, value: false},
+      /**
+       * Should the step-specific submit button be displayed?
+       * @private
+       */
+      enableSubmit_: Boolean,
 
-    /**
-     * Interface for chrome.quickUnlockPrivate calls. May be overridden by
-     * tests.
-     * @private
-     */
-    quickUnlockPrivate: {type: Object, value: chrome.quickUnlockPrivate},
+      /**
+       * The current step/subpage we are on.
+       * @private
+       */
+      isConfirmStep_: {type: Boolean, value: false},
 
-    /**
-     * writeUma is a function that handles writing uma stats. It may be
-     * overridden for tests.
-     *
-     * @type {Function}
-     * @private
-     */
-    writeUma_: {
-      type: Object,
-      value() {
-        return () => {};
-      }
-    },
-  },
+      /**
+       * Interface for chrome.quickUnlockPrivate calls. May be overridden by
+       * tests.
+       * @private
+       */
+      quickUnlockPrivate: {type: Object, value: chrome.quickUnlockPrivate},
+
+      /**
+       * writeUma is a function that handles writing uma stats. It may be
+       * overridden for tests.
+       *
+       * @type {Function}
+       * @private
+       */
+      writeUma_: {
+        type: Object,
+        value() {
+          return () => {};
+        },
+      },
+    };
+  }
 
   /** @override */
-  attached() {
+  connectedCallback() {
+    super.connectedCallback();
+
     this.$.dialog.showModal();
     this.$.pinKeyboard.focus();
-  },
+  }
 
   close() {
     if (this.$.dialog.open) {
@@ -84,27 +99,26 @@ Polymer({
     }
 
     this.$.pinKeyboard.resetState();
-  },
+  }
 
 
   /** @private */
   onCancelTap_() {
     this.$.pinKeyboard.resetState();
     this.$.dialog.close();
-  },
+  }
 
   /** @private */
   onPinSubmit_() {
     this.$.pinKeyboard.doSubmit();
-  },
-
+  }
 
   /** @private */
   onSetPinDone_() {
     if (this.$.dialog.open) {
       this.$.dialog.close();
     }
-  },
+  }
 
   /**
    * @private
@@ -115,7 +129,7 @@ Polymer({
     return this.i18n(
         isConfirmStep ? 'configurePinConfirmPinTitle' :
                         'configurePinChoosePinTitle');
-  },
+  }
 
   /**
    * @private
@@ -124,5 +138,8 @@ Polymer({
    */
   getContinueMessage_(isConfirmStep) {
     return this.i18n(isConfirmStep ? 'confirm' : 'continue');
-  },
-});
+  }
+}
+
+customElements.define(
+    SettingsSetupPinDialogElement.is, SettingsSetupPinDialogElement);

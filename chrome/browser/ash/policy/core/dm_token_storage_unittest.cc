@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,17 @@
 
 #include <memory>
 
-#include "ash/components/cryptohome/system_salt_getter.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/run_loop.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/userdataauth/fake_cryptohome_misc_client.h"
+#include "chromeos/ash/components/cryptohome/system_salt_getter.h"
+#include "chromeos/ash/components/dbus/userdataauth/fake_cryptohome_misc_client.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-using chromeos::FakeCryptohomeMiscClient;
+using ash::FakeCryptohomeMiscClient;
 
 namespace policy {
 
@@ -28,10 +28,10 @@ class DMTokenStorageTest : public testing::Test {
 
   void SetSaltPending() {
     // Clear the cached salt.
-    chromeos::SystemSaltGetter::Shutdown();
+    ash::SystemSaltGetter::Shutdown();
     FakeCryptohomeMiscClient::Get()->set_system_salt(std::vector<uint8_t>());
     FakeCryptohomeMiscClient::Get()->SetServiceIsAvailable(false);
-    chromeos::SystemSaltGetter::Initialize();
+    ash::SystemSaltGetter::Initialize();
   }
 
   void SetSaltAvailable() {
@@ -46,18 +46,16 @@ class DMTokenStorageTest : public testing::Test {
   }
 
   void SetUp() override {
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::CryptohomeMiscClient::InitializeFake();
+    ash::CryptohomeMiscClient::InitializeFake();
     SetSaltAvailable();
 
-    chromeos::SystemSaltGetter::Initialize();
+    ash::SystemSaltGetter::Initialize();
   }
 
   void TearDown() override {
     dm_token_storage_.reset();
-    chromeos::SystemSaltGetter::Shutdown();
-    chromeos::CryptohomeMiscClient::Shutdown();
-    chromeos::DBusThreadManager::Shutdown();
+    ash::SystemSaltGetter::Shutdown();
+    ash::CryptohomeMiscClient::Shutdown();
     base::RunLoop().RunUntilIdle();
   }
 

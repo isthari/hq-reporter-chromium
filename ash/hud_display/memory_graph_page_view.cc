@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 
 #include "ash/hud_display/hud_constants.h"
 #include "ash/hud_display/reference_lines.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -122,7 +122,7 @@ void MemoryGraphPageView::OnPaint(gfx::Canvas* canvas) {
   // Layout graphs.
   gfx::Rect rect = GetContentsBounds();
   // Adjust bounds to not overlap with bordering reference lines.
-  rect.Inset(kHUDGraphReferenceLineWidth, kHUDGraphReferenceLineWidth);
+  rect.Inset(kHUDGraphReferenceLineWidth);
   graph_chrome_rss_private_.Layout(rect, /*base=*/nullptr);
   graph_mem_free_.Layout(rect, &graph_chrome_rss_private_);
   graph_mem_used_unknown_.Layout(rect, &graph_mem_free_);

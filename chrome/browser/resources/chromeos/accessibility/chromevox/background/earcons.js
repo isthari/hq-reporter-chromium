@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,14 @@
  * auditory cues.
  */
 
+import {LocalStorage} from '../../common/local_storage.js';
+import {EarconId} from '../common/earcon_id.js';
+import {LogType} from '../common/log_types.js';
+
+import {AbstractEarcons} from './abstract_earcons.js';
+import {ChromeVoxRange} from './chromevox_range.js';
 import {EarconEngine} from './earcon_engine.js';
+import {LogStore} from './logging/log_store.js';
 
 export class Earcons extends AbstractEarcons {
   constructor() {
@@ -25,9 +32,9 @@ export class Earcons extends AbstractEarcons {
     if (chrome.audio) {
       chrome.audio.getDevices(
           {isActive: true, streamTypes: [chrome.audio.StreamType.OUTPUT]},
-          this.updateShouldPanForDevices_.bind(this));
+          devices => this.updateShouldPanForDevices_(devices));
       chrome.audio.onDeviceListChanged.addListener(
-          this.updateShouldPanForDevices_.bind(this));
+          devices => this.updateShouldPanForDevices_(devices));
     } else {
       this.shouldPan_ = false;
     }
@@ -42,22 +49,21 @@ export class Earcons extends AbstractEarcons {
 
   /**
    * Plays the specified earcon sound.
-   * @param {Earcon} earcon An earcon identifier.
-   * @param {Object=} opt_location A location associated with the earcon such as
-   *     a control's bounding rectangle.
+   * @param {EarconId} earcon An earcon identifier.
+   * @param {chrome.automation.Rect=} opt_location A location associated with
+   *     the earcon such as a control's bounding rectangle.
    * @override
    */
   playEarcon(earcon, opt_location) {
     if (!this.enabled) {
       return;
     }
-    if (localStorage['enableEarconLogging'] === 'true') {
-      LogStore.getInstance().writeTextLog(earcon, LogStore.LogType.EARCON);
+    if (LocalStorage.get('enableEarconLogging')) {
+      LogStore.instance.writeTextLog(earcon, LogType.EARCON);
       console.log('Earcon ' + earcon);
     }
-    if (ChromeVoxState.instance.currentRange &&
-        ChromeVoxState.instance.currentRange.isValid()) {
-      const node = ChromeVoxState.instance.currentRange.start.node;
+    if (ChromeVoxRange.current && ChromeVoxRange.current.isValid()) {
+      const node = ChromeVoxRange.current.start.node;
       const rect = opt_location || node.location;
       const container = node.root.location;
       if (this.shouldPan_) {
@@ -75,7 +81,7 @@ export class Earcons extends AbstractEarcons {
    */
   cancelEarcon(earcon) {
     switch (earcon) {
-      case Earcon.PAGE_START_LOADING:
+      case EarconId.PAGE_START_LOADING:
         this.engine_.cancelProgress();
         break;
     }
@@ -88,7 +94,7 @@ export class Earcons extends AbstractEarcons {
    * @private
    */
   updateShouldPanForDevices_(devices) {
-    this.shouldPan_ = !devices.some((device) => {
+    this.shouldPan_ = !devices.some(device => {
       return device.isActive &&
           device.deviceType === chrome.audio.DeviceType.INTERNAL_SPEAKER;
     });

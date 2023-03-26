@@ -1,10 +1,10 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/content_settings/sound_content_setting_observer.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -13,7 +13,6 @@
 #include "components/content_settings/core/common/content_settings_utils.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
-#include "components/ukm/content/source_url_recorder.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -23,6 +22,7 @@
 #include "third_party/blink/public/mojom/autoplay/autoplay.mojom.h"
 
 #if !BUILDFLAG(IS_ANDROID)
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_utils.h"
 #endif
 
@@ -53,16 +53,15 @@ void SoundContentSettingObserver::ReadyToCommitNavigation(
   if (navigation_handle->IsSameDocument())
     return;
 
-  GURL url = navigation_handle->IsInMainFrame()
+  GURL url = !navigation_handle->GetParentFrameOrOuterDocument()
                  ? navigation_handle->GetURL()
                  : navigation_handle->GetRenderFrameHost()
-                       ->GetMainFrame()
+                       ->GetOutermostMainFrame()
                        ->GetLastCommittedURL();
 
   content_settings::SettingInfo setting_info;
   const base::Value setting = host_content_settings_map_->GetWebsiteSetting(
-      url, navigation_handle->GetURL(), ContentSettingsType::SOUND,
-      &setting_info);
+      url, url, ContentSettingsType::SOUND, &setting_info);
 
   if (content_settings::ValueToContentSetting(setting) !=
       CONTENT_SETTING_ALLOW) {
@@ -72,8 +71,8 @@ void SoundContentSettingObserver::ReadyToCommitNavigation(
   if (setting_info.source != content_settings::SETTING_SOURCE_USER)
     return;
 
-  if (setting_info.primary_pattern == ContentSettingsPattern::Wildcard() &&
-      setting_info.secondary_pattern == ContentSettingsPattern::Wildcard()) {
+  if (setting_info.primary_pattern.MatchesAllHosts() &&
+      setting_info.secondary_pattern.MatchesAllHosts()) {
     return;
   }
 
@@ -159,10 +158,10 @@ void SoundContentSettingObserver::CheckSoundBlocked(bool is_audible) {
     // page.
     // TODO(https://crbug.com/1103176): For other types of FrameTrees(fenced
     // frames, portals) than prerendering, we should figure a way of not having
-    // to use GetMainFrame here. (pass the source frame somehow)
+    // to use GetPrimaryMainFrame here. (pass the source frame somehow)
     content_settings::PageSpecificContentSettings* settings =
         content_settings::PageSpecificContentSettings::GetForFrame(
-            web_contents()->GetMainFrame());
+            web_contents()->GetPrimaryMainFrame());
     if (settings)
       settings->OnAudioBlocked();
 
@@ -177,7 +176,7 @@ void SoundContentSettingObserver::RecordSiteMutedUKM() {
   logged_site_muted_ukm_ = true;
 
   ukm::builders::Media_SiteMuted(
-      ukm::GetSourceIdForWebContentsDocument(web_contents()))
+      web_contents()->GetPrimaryMainFrame()->GetPageUkmSourceId())
       .SetMuteReason(GetSiteMutedReason())
       .Record(ukm::UkmRecorder::Get());
 }

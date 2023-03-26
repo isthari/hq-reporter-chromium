@@ -1,18 +1,20 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/global_media_controls/public/views/media_item_ui_view.h"
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
+#include "base/observer_list.h"
 #include "components/global_media_controls/public/constants.h"
 #include "components/global_media_controls/public/media_item_manager.h"
 #include "components/global_media_controls/public/media_item_ui_observer.h"
 #include "components/global_media_controls/public/views/media_item_ui_device_selector.h"
 #include "components/global_media_controls/public/views/media_item_ui_footer.h"
 #include "components/media_message_center/media_notification_item.h"
+#include "components/media_message_center/media_notification_view_ash_impl.h"
 #include "components/media_message_center/media_notification_view_modern_impl.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/vector_icons/vector_icons.h"
@@ -30,6 +32,7 @@
 #include "ui/views/controls/button/image_button_factory.h"
 #include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/controls/image_view.h"
+#include "ui/views/controls/scroll_view.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
 
@@ -84,9 +87,6 @@ MediaItemUIView::MediaItemUIView(
     : views::Button(base::BindRepeating(&MediaItemUIView::ContainerClicked,
                                         base::Unretained(this))),
       id_(id),
-      footer_view_(footer_view.get()),
-      foreground_color_(kDefaultForegroundColor),
-      background_color_(kDefaultBackgroundColor),
       is_cros_(theme.has_value()) {
   DCHECK(item);
   SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -131,31 +131,36 @@ MediaItemUIView::MediaItemUIView(
       dismiss_button_container_->AddChildView(std::move(dismiss_button));
   UpdateDismissButtonIcon();
 
+#if BUILDFLAG(IS_CHROMEOS)
+  bool use_cros_updated_ui =
+      base::FeatureList::IsEnabled(media::kGlobalMediaControlsCrOSUpdatedUI);
+#else
+  bool use_cros_updated_ui = false;
+#endif
+
   std::unique_ptr<media_message_center::MediaNotificationView> view;
-  if (base::FeatureList::IsEnabled(media::kGlobalMediaControlsModernUI)) {
+  if (use_cros_updated_ui) {
+    view = std::make_unique<media_message_center::MediaNotificationViewAshImpl>(
+        this, std::move(item), std::move(dismiss_button_placeholder), theme);
+  } else if (base::FeatureList::IsEnabled(
+                 media::kGlobalMediaControlsModernUI)) {
+    footer_view_ = footer_view_.get();
     view =
         std::make_unique<media_message_center::MediaNotificationViewModernImpl>(
             this, std::move(item), std::move(dismiss_button_placeholder),
-            std::move(footer_view), kModernUIWidth);
+            std::move(footer_view), kModernUIWidth, theme);
     SetPreferredSize(kModernUISize);
   } else {
     view = std::make_unique<media_message_center::MediaNotificationViewImpl>(
         this, std::move(item), std::move(dismiss_button_placeholder),
         std::u16string(), kWidth, /*should_show_icon=*/false, theme);
 
-    if (footer_view)
-      AddChildView(std::move(footer_view));
-
+    UpdateFooterView(std::move(footer_view));
     SetPreferredSize(kNormalSize);
   }
   view_ = swipeable_container_->AddChildView(std::move(view));
 
-  if (device_selector_view) {
-    device_selector_view_ = device_selector_view.get();
-    device_selector_view_->SetMediaItemUIView(this);
-    AddChildView(std::move(device_selector_view));
-    view_->UpdateCornerRadius(message_center::kNotificationCornerRadius, 0);
-  }
+  UpdateDeviceSelector(std::move(device_selector_view));
 
   ForceExpandedState();
 
@@ -184,6 +189,11 @@ void MediaItemUIView::OnMouseEntered(const ui::MouseEvent& event) {
 
 void MediaItemUIView::OnMouseExited(const ui::MouseEvent& event) {
   UpdateDismissButtonVisibility();
+}
+
+void MediaItemUIView::OnGestureEvent(ui::GestureEvent* event) {
+  if (scroll_view_ && event->IsScrollGestureEvent())
+    scroll_view_->OnGestureEvent(event);
 }
 
 void MediaItemUIView::OnDidChangeFocus(views::View* focused_before,
@@ -243,9 +253,13 @@ void MediaItemUIView::OnMediaArtworkChanged(const gfx::ImageSkia& image) {
   ForceExpandedState();
 }
 
-void MediaItemUIView::OnColorsChanged(SkColor foreground, SkColor background) {
-  if (foreground_color_ != foreground) {
+void MediaItemUIView::OnColorsChanged(SkColor foreground,
+                                      SkColor foreground_disabled,
+                                      SkColor background) {
+  if (foreground_color_ != foreground ||
+      foreground_disabled_color_ != foreground_disabled) {
     foreground_color_ = foreground;
+    foreground_disabled_color_ = foreground_disabled;
     UpdateDismissButtonIcon();
   }
 
@@ -275,6 +289,22 @@ ui::Layer* MediaItemUIView::GetSlideOutLayer() {
   return swipeable_container_->layer();
 }
 
+void MediaItemUIView::OnSlideChanged(bool in_progress) {
+  // Make sure we are only scrolling in one dimension.
+  if (scroll_view_ && in_progress && !is_sliding_ &&
+      slide_out_controller_->GetGestureAmount()) {
+    is_sliding_ = true;
+    scroll_view_->SetVerticalScrollBarMode(
+        views::ScrollView::ScrollBarMode::kDisabled);
+  }
+
+  if (!in_progress && scroll_view_ && is_sliding_) {
+    is_sliding_ = false;
+    scroll_view_->SetVerticalScrollBarMode(
+        views::ScrollView::ScrollBarMode::kEnabled);
+  }
+}
+
 void MediaItemUIView::OnSlideOut() {
   DismissNotification();
 }
@@ -293,6 +323,41 @@ const std::u16string& MediaItemUIView::GetTitle() const {
   return title_;
 }
 
+void MediaItemUIView::SetScrollView(views::ScrollView* scroll_view) {
+  scroll_view_ = scroll_view;
+}
+
+void MediaItemUIView::UpdateFooterView(
+    std::unique_ptr<MediaItemUIFooter> footer_view) {
+  if (footer_view_) {
+    RemoveChildView(footer_view_);
+    delete footer_view_;
+    footer_view_ = nullptr;
+  }
+
+  if (footer_view) {
+    footer_view->OnColorsChanged(foreground_color_, background_color_);
+    footer_view_ = AddChildView(std::move(footer_view));
+  }
+}
+
+void MediaItemUIView::UpdateDeviceSelector(
+    std::unique_ptr<MediaItemUIDeviceSelector> device_selector_view) {
+  if (device_selector_view_) {
+    RemoveChildView(device_selector_view_);
+    delete device_selector_view_;
+    device_selector_view_ = nullptr;
+  }
+
+  if (device_selector_view) {
+    device_selector_view_ = AddChildView(std::move(device_selector_view));
+    device_selector_view_->SetMediaItemUIView(this);
+    view_->UpdateCornerRadius(message_center::kNotificationCornerRadius, 0);
+    device_selector_view_->OnColorsChanged(foreground_color_,
+                                           background_color_);
+  }
+}
+
 views::ImageButton* MediaItemUIView::GetDismissButtonForTesting() {
   return dismiss_button_;
 }
@@ -303,9 +368,9 @@ void MediaItemUIView::UpdateDismissButtonIcon() {
   if (base::FeatureList::IsEnabled(media::kGlobalMediaControlsModernUI))
     icon_size = kModernDismissButtonIconSize;
 
-  views::SetImageFromVectorIconWithColor(dismiss_button_,
-                                         vector_icons::kCloseRoundedIcon,
-                                         icon_size, foreground_color_);
+  views::SetImageFromVectorIconWithColor(
+      dismiss_button_, vector_icons::kCloseRoundedIcon, icon_size,
+      foreground_color_, foreground_disabled_color_);
 }
 
 void MediaItemUIView::UpdateDismissButtonBackground() {

@@ -1,10 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "sandbox/policy/sandbox.h"
 
 #include "base/command_line.h"
+#include "base/metrics/histogram_functions.h"
 #include "build/build_config.h"
 #include "sandbox/policy/mojom/sandbox.mojom.h"
 #include "sandbox/policy/switches.h"
@@ -52,13 +53,13 @@ bool Sandbox::Initialize(sandbox::mojom::Sandbox sandbox_type,
     // Only pre-create alternate desktop if there will be sandboxed processes in
     // the future.
     if (!command_line.HasSwitch(switches::kNoSandbox)) {
-      scoped_refptr<TargetPolicy> policy = broker_services->CreatePolicy();
       // IMPORTANT: This piece of code needs to run as early as possible in the
       // process because it will initialize the sandbox broker, which requires
       // the process to swap its window station. During this time all the UI
       // will be broken. This has to run before threads and windows are created.
-      ResultCode result = policy->CreateAlternateDesktop(true);
-      CHECK(SBOX_ERROR_FAILED_TO_SWITCH_BACK_WINSTATION != result);
+      ResultCode result = broker_services->CreateAlternateDesktop(
+          Desktop::kAlternateWinstation);
+      CHECK(result == SBOX_ALL_OK);
     }
     return true;
   }

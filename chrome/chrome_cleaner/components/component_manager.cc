@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,11 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/chrome_cleaner/components/component_api.h"
 
 namespace chrome_cleaner {
@@ -149,8 +148,8 @@ void ComponentManager::PostComponentTasks(
 
   if (components_.empty()) {
     DCHECK(!done_callback_.is_null());
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  std::move(done_callback_));
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, std::move(done_callback_));
     return;
   }
 
@@ -181,8 +180,8 @@ void ComponentManager::TaskCompleted() {
     // The callback must be run asynchronously so that the task tracker is not
     // on the call stack anymore in cases where the callback ends up calling
     // CloseAllComponents.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  std::move(done_callback_));
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, std::move(done_callback_));
   }
 }
 

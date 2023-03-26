@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,10 @@
 #include "components/subresource_filter/content/browser/subresource_filter_safe_browsing_activation_throttle.h"
 #include "components/subresource_filter/core/common/activation_decision.h"
 #include "components/subresource_filter/core/mojom/subresource_filter.mojom.h"
+
+#if BUILDFLAG(IS_ANDROID)
+#include "components/subresource_filter/content/browser/ads_blocked_message_delegate.h"
+#endif
 
 namespace content {
 class Page;
@@ -58,6 +62,12 @@ class ProfileInteractionManager
       mojom::ActivationLevel initial_activation_level,
       ActivationDecision* decision) override;
 
+#if BUILDFLAG(IS_ANDROID)
+  AdsBlockedMessageDelegate* ads_blocked_message_delegate_for_testing() {
+    return ads_blocked_message_delegate_;
+  }
+#endif
+
  private:
   content::WebContents* GetWebContents();
 
@@ -71,6 +81,10 @@ class ProfileInteractionManager
   raw_ptr<SubresourceFilterProfileContext> profile_context_ = nullptr;
 
   bool ads_violation_triggered_for_last_committed_navigation_ = false;
+
+#if BUILDFLAG(IS_ANDROID)
+  raw_ptr<AdsBlockedMessageDelegate> ads_blocked_message_delegate_;
+#endif
 };
 
 }  // namespace subresource_filter

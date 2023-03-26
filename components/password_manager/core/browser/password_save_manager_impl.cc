@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,16 +63,6 @@ PasswordForm PendingCredentialsForNewCredentials(
   return pending_credentials;
 }
 
-// Helper to get the platform specific identifier by which autofill and password
-// manager refer to a field. See http://crbug.com/896594
-std::u16string GetPlatformSpecificIdentifier(const FormFieldData& field) {
-#if BUILDFLAG(IS_IOS)
-  return field.unique_id;
-#else
-  return field.name;
-#endif
-}
-
 // Copies field properties masks from the form |from| to the form |to|.
 void CopyFieldPropertiesMasks(const FormData& from, FormData* to) {
   // Skip copying if the number of fields is different.
@@ -81,8 +71,7 @@ void CopyFieldPropertiesMasks(const FormData& from, FormData* to) {
 
   for (size_t i = 0; i < from.fields.size(); ++i) {
     to->fields[i].properties_mask =
-        GetPlatformSpecificIdentifier(to->fields[i]) ==
-                GetPlatformSpecificIdentifier(from.fields[i])
+        to->fields[i].name == from.fields[i].name
             ? from.fields[i].properties_mask
             : autofill::FieldPropertiesFlags::kErrorOccurred;
   }
@@ -133,10 +122,10 @@ bool AccountStoreMatchesContainForm(
     const std::vector<const PasswordForm*>& matches,
     const PasswordForm& form) {
   DCHECK(base::ranges::all_of(matches, &PasswordForm::IsUsingAccountStore));
-  return base::ranges::find_if(matches, [&form](const PasswordForm* match) {
-           return ArePasswordFormUniqueKeysEqual(*match, form) &&
-                  match->password_value == form.password_value;
-         }) != matches.end();
+  return base::ranges::any_of(matches, [&form](const PasswordForm* match) {
+    return ArePasswordFormUniqueKeysEqual(*match, form) &&
+           match->password_value == form.password_value;
+  });
 }
 
 PendingCredentialsState ResolvePendingCredentialsStates(
@@ -180,14 +169,14 @@ PendingCredentialsState ResolvePendingCredentialsStates(
 }
 
 // Returns a PasswordForm that has all fields taken from |update| except
-// date_created, times_used and moving_blocked_for_list that are
+// date_created, times_used_in_html_form and moving_blocked_for_list that are
 // taken from |original_form|.
 PasswordForm UpdateFormPreservingDifferentFieldsAcrossStores(
     const PasswordForm& original_form,
     const PasswordForm& update) {
   PasswordForm result(update);
   result.date_created = original_form.date_created;
-  result.times_used = original_form.times_used;
+  result.times_used_in_html_form = original_form.times_used_in_html_form;
   result.moving_blocked_for_list = original_form.moving_blocked_for_list;
   return result;
 }
@@ -310,7 +299,7 @@ void PasswordSaveManagerImpl::Save(const FormData* observed_form,
 
   SavePendingToStore(observed_form, parsed_submitted_form);
 
-  if (pending_credentials_.times_used == 1 &&
+  if (pending_credentials_.times_used_in_html_form == 1 &&
       pending_credentials_.type == PasswordForm::Type::kGenerated) {
     // This also includes PSL matched credentials.
     metrics_util::LogPasswordGenerationSubmissionEvent(
@@ -460,7 +449,8 @@ void PasswordSaveManagerImpl::BlockMovingToAccountStoreFor(
   // We offer moving credentials to the account store only upon successful
   // login. This entails that the credentials must exist in the profile store.
   PendingCredentialsStates states = ComputePendingCredentialsStates(
-      pending_credentials_, form_fetcher_->GetAllRelevantMatches());
+      pending_credentials_, form_fetcher_->GetAllRelevantMatches(),
+      username_updated_in_bubble_);
   DCHECK(states.similar_saved_form_from_profile_store);
   DCHECK_EQ(PendingCredentialsState::EQUAL_TO_SAVED_MATCH,
             states.profile_store_state);
@@ -611,7 +601,8 @@ std::pair<const PasswordForm*, PendingCredentialsState>
 PasswordSaveManagerImpl::FindSimilarSavedFormAndComputeState(
     const PasswordForm& parsed_submitted_form) const {
   PendingCredentialsStates states = ComputePendingCredentialsStates(
-      parsed_submitted_form, form_fetcher_->GetBestMatches());
+      parsed_submitted_form, form_fetcher_->GetBestMatches(),
+      username_updated_in_bubble_);
 
   // Resolve the two states to a single canonical one. This will be used to
   // decide what UI bubble (if any) to show to the user.
@@ -649,8 +640,8 @@ void PasswordSaveManagerImpl::SavePendingToStore(
 void PasswordSaveManagerImpl::SavePendingToStoreImpl(
     const PasswordForm& parsed_submitted_form) {
   auto matches = form_fetcher_->GetAllRelevantMatches();
-  PendingCredentialsStates states =
-      ComputePendingCredentialsStates(parsed_submitted_form, matches);
+  PendingCredentialsStates states = ComputePendingCredentialsStates(
+      parsed_submitted_form, matches, username_updated_in_bubble_);
 
   auto account_matches = AccountStoreMatches(matches);
   auto profile_matches = ProfileStoreMatches(matches);
@@ -699,11 +690,15 @@ void PasswordSaveManagerImpl::SavePendingToStoreImpl(
           UpdateFormPreservingDifferentFieldsAcrossStores(
               *states.similar_saved_form_from_profile_store,
               pending_credentials_);
-      // For other cases, |pending_credentials_.times_used| is updated in
-      // UpdateMetadataForUsage() invoked from UploadVotesAndMetrics().
+      // For other cases, |pending_credentials_.times_used_in_html_form| is
+      // updated in UpdateMetadataForUsage() invoked from
+      // UploadVotesAndMetrics().
       // UpdateFormPreservingDifferentFieldsAcrossStores() preserved the
-      // original times_used, and hence we should increment it here.
-      form_to_update.times_used++;
+      // original times_used_in_html_form, and hence we should increment it
+      // here.
+      if (form_to_update.scheme == PasswordForm::Scheme::kHtml) {
+        form_to_update.times_used_in_html_form++;
+      }
       profile_store_form_saver_->Update(form_to_update, profile_matches,
                                         old_profile_password);
     } break;
@@ -733,11 +728,15 @@ void PasswordSaveManagerImpl::SavePendingToStoreImpl(
             UpdateFormPreservingDifferentFieldsAcrossStores(
                 *states.similar_saved_form_from_account_store,
                 pending_credentials_);
-        // For other cases, |pending_credentials_.times_used| is updated in
-        // UpdateMetadataForUsage() invoked from UploadVotesAndMetrics().
+        // For other cases, |pending_credentials_.times_used_in_html_form| is
+        // updated in UpdateMetadataForUsage() invoked from
+        // UploadVotesAndMetrics().
         // UpdateFormPreservingDifferentFieldsAcrossStores() preserved the
-        // original times_used, and hence we should increment it here.
-        form_to_update.times_used++;
+        // original times_used_in_html_form, and hence we should increment it
+        // here.
+        if (form_to_update.scheme == PasswordForm::Scheme::kHtml) {
+          form_to_update.times_used_in_html_form++;
+        }
         account_store_form_saver_->Update(form_to_update, account_matches,
                                           old_account_password);
       } break;
@@ -773,8 +772,9 @@ void PasswordSaveManagerImpl::UploadVotesAndMetrics(
 #endif  // !BUILDFLAG(IS_ANDROID)
 
   if (IsNewLogin()) {
-    metrics_util::LogNewlySavedPasswordIsGenerated(
+    metrics_util::LogNewlySavedPasswordMetrics(
         pending_credentials_.type == PasswordForm::Type::kGenerated,
+        pending_credentials_.username_value.empty(),
         client_->GetPasswordFeatureManager()
             ->ComputePasswordAccountStorageUsageLevel());
     // Don't send votes if there was no observed form.
@@ -814,7 +814,7 @@ void PasswordSaveManagerImpl::UploadVotesAndMetrics(
         FormStructure(pending_credentials_.form_data).FormSignatureAsStr());
   }
 
-  if (pending_credentials_.times_used == 1) {
+  if (pending_credentials_.times_used_in_html_form == 1) {
     votes_uploader_->UploadFirstLoginVotes(form_fetcher_->GetBestMatches(),
                                            pending_credentials_,
                                            parsed_submitted_form);
@@ -822,7 +822,7 @@ void PasswordSaveManagerImpl::UploadVotesAndMetrics(
 }
 
 FormSaver* PasswordSaveManagerImpl::GetFormSaverForGeneration() {
-  return (account_store_form_saver_ && IsOptedInForAccountStorage())
+  return (ShouldStoreGeneratedPasswordsInAccountStore())
              ? account_store_form_saver_.get()
              : profile_store_form_saver_.get();
 }
@@ -832,7 +832,7 @@ PasswordSaveManagerImpl::GetRelevantMatchesForGeneration(
     const std::vector<const PasswordForm*>& matches) {
   //  For account store users, only matches in the account store should be
   //  considered for conflict resolution during generation.
-  return (account_store_form_saver_ && IsOptedInForAccountStorage())
+  return (ShouldStoreGeneratedPasswordsInAccountStore())
              ? MatchesInStore(matches, PasswordForm::Store::kAccountStore)
              : matches;
 }
@@ -855,20 +855,39 @@ bool PasswordSaveManagerImpl::AccountStoreIsDefault() const {
          PasswordForm::Store::kAccountStore;
 }
 
+bool PasswordSaveManagerImpl::ShouldStoreGeneratedPasswordsInAccountStore()
+    const {
+  if (account_store_form_saver_ &&
+      client_->GetPasswordFeatureManager()
+              ->ComputePasswordAccountStorageUsageLevel() ==
+          metrics_util::PasswordAccountStorageUsageLevel::
+              kUsingAccountStorage) {
+    return true;
+  }
+  return false;
+}
+
+void PasswordSaveManagerImpl::UsernameUpdatedInBubble() {
+  username_updated_in_bubble_ = true;
+}
+
 // static
 PasswordSaveManagerImpl::PendingCredentialsStates
 PasswordSaveManagerImpl::ComputePendingCredentialsStates(
     const PasswordForm& parsed_submitted_form,
-    const std::vector<const PasswordForm*>& matches) {
+    const std::vector<const PasswordForm*>& matches,
+    bool username_updated_in_bubble) {
   PendingCredentialsStates result;
 
   // Try to find a similar existing saved form from each of the stores.
   result.similar_saved_form_from_profile_store =
       password_manager_util::GetMatchForUpdating(parsed_submitted_form,
-                                                 ProfileStoreMatches(matches));
+                                                 ProfileStoreMatches(matches),
+                                                 username_updated_in_bubble);
   result.similar_saved_form_from_account_store =
       password_manager_util::GetMatchForUpdating(parsed_submitted_form,
-                                                 AccountStoreMatches(matches));
+                                                 AccountStoreMatches(matches),
+                                                 username_updated_in_bubble);
 
   // Compute the PendingCredentialsState (i.e. what to do - save, update, silent
   // update) separately for the two stores.

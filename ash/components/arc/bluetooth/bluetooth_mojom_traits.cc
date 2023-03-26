@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,8 +33,8 @@ struct ServiceUUID16Entry : public AdvertisementEntry {
 
   void AddTo(device::BluetoothAdvertisement::Data* data) override {
     auto string_uuids = data->service_uuids();
-    if (string_uuids == nullptr)
-      string_uuids = std::make_unique<std::vector<std::string>>();
+    if (!string_uuids)
+      string_uuids.emplace();
     for (const auto& uuid : service_uuids_16) {
       string_uuids->emplace_back(base::StringPrintf("%04x", uuid));
     }
@@ -49,8 +49,8 @@ struct ServiceUUIDEntry : public AdvertisementEntry {
 
   void AddTo(device::BluetoothAdvertisement::Data* data) override {
     auto string_uuids = data->service_uuids();
-    if (string_uuids == nullptr)
-      string_uuids = std::make_unique<std::vector<std::string>>();
+    if (!string_uuids)
+      string_uuids.emplace();
     for (const auto& uuid : service_uuids) {
       string_uuids->emplace_back(uuid.value());
     }
@@ -66,10 +66,7 @@ struct ServiceDataEntry : public AdvertisementEntry {
 
   void AddTo(device::BluetoothAdvertisement::Data* data) override {
     std::string string_uuid = base::StringPrintf("%04x", service_uuid);
-    using MapType = std::map<std::string, std::vector<uint8_t>>;
-    data->set_service_data(
-        std::make_unique<MapType, std::initializer_list<MapType::value_type>>(
-            {{string_uuid, service_data}}));
+    data->set_service_data({{std::make_pair(string_uuid, service_data)}});
   }
 };
 
@@ -80,10 +77,7 @@ struct ManufacturerDataEntry : public AdvertisementEntry {
   ~ManufacturerDataEntry() override {}
 
   void AddTo(device::BluetoothAdvertisement::Data* data) override {
-    using MapType = std::map<uint16_t, std::vector<uint8_t>>;
-    data->set_manufacturer_data(
-        std::make_unique<MapType, std::initializer_list<MapType::value_type>>(
-            {{company_id_code, blob}}));
+    data->set_manufacturer_data({{std::make_pair(company_id_code, blob)}});
   }
 };
 
@@ -170,8 +164,7 @@ struct UnionTraits<arc::mojom::BluetoothAdvertisingDataDataView,
   static bool Read(arc::mojom::BluetoothAdvertisingDataDataView data,
                    std::unique_ptr<AdvertisementEntry>* output) {
     switch (data.tag()) {
-      case arc::mojom::BluetoothAdvertisingDataDataView::Tag::
-          SERVICE_UUIDS_16: {
+      case arc::mojom::BluetoothAdvertisingDataDataView::Tag::kServiceUuids16: {
         std::unique_ptr<ServiceUUID16Entry> service_uuids_16 =
             std::make_unique<ServiceUUID16Entry>();
         if (!data.ReadServiceUuids16(&service_uuids_16->service_uuids_16))
@@ -179,7 +172,7 @@ struct UnionTraits<arc::mojom::BluetoothAdvertisingDataDataView,
         *output = std::move(service_uuids_16);
         break;
       }
-      case arc::mojom::BluetoothAdvertisingDataDataView::Tag::SERVICE_UUIDS: {
+      case arc::mojom::BluetoothAdvertisingDataDataView::Tag::kServiceUuids: {
         std::unique_ptr<ServiceUUIDEntry> service_uuids =
             std::make_unique<ServiceUUIDEntry>();
         if (!data.ReadServiceUuids(&service_uuids->service_uuids))
@@ -187,7 +180,7 @@ struct UnionTraits<arc::mojom::BluetoothAdvertisingDataDataView,
         *output = std::move(service_uuids);
         break;
       }
-      case arc::mojom::BluetoothAdvertisingDataDataView::Tag::SERVICE_DATA: {
+      case arc::mojom::BluetoothAdvertisingDataDataView::Tag::kServiceData: {
         std::unique_ptr<ServiceDataEntry> service_data =
             std::make_unique<ServiceDataEntry>();
         if (!data.ReadServiceData(service_data.get()))
@@ -196,7 +189,7 @@ struct UnionTraits<arc::mojom::BluetoothAdvertisingDataDataView,
         break;
       }
       case arc::mojom::BluetoothAdvertisingDataDataView::Tag::
-          MANUFACTURER_DATA: {
+          kManufacturerData: {
         std::unique_ptr<ManufacturerDataEntry> manufacturer_data =
             std::make_unique<ManufacturerDataEntry>();
         // We get manufacturer data as a big blob. The first two bytes

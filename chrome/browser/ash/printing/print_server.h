@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 
 #include "url/gurl.h"
 
-namespace chromeos {
+namespace ash {
 
 // Simple class representing Print Server.
 class PrintServer {
@@ -36,6 +36,6 @@ class PrintServer {
   std::string name_;
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_PRINT_SERVER_H_

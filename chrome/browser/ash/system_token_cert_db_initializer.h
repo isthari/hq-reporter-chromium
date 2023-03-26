@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "chromeos/dbus/tpm_manager/tpm_manager.pb.h"
 #include "chromeos/dbus/tpm_manager/tpm_manager_client.h"
 #include "crypto/scoped_nss_types.h"
+#include "net/cert/nss_cert_database.h"
 
 namespace net {
 class NSSCertDatabase;
@@ -25,7 +26,9 @@ namespace ash {
 // components, i.e. components under //chrome/browser/chromeos/ and //chromeos/
 //
 // All of the methods must be called on the UI thread.
-class SystemTokenCertDBInitializer : public TpmManagerClient::Observer {
+class SystemTokenCertDBInitializer
+    : public chromeos::TpmManagerClient::Observer,
+      public net::NSSCertDatabase::Observer {
  public:
   // It is stated in cryptohome implementation that 5 minutes is enough time to
   // wait for any TPM operations. For more information, please refer to:
@@ -51,6 +54,9 @@ class SystemTokenCertDBInitializer : public TpmManagerClient::Observer {
   void set_is_nss_slots_software_fallback_allowed_for_testing(bool is_allowed) {
     is_nss_slots_software_fallback_allowed_ = is_allowed;
   }
+
+  // net::NSSCertDatabase::Observer
+  void OnCertDBChanged() override;
 
  private:
   // Called once the cryptohome service is available.

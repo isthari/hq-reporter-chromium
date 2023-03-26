@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,10 @@
 
 #include <tuple>
 
+#include "chrome/browser/ui/color/chrome_color_id.h"
+#include "chrome/browser/ui/tabs/tab_types.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/color/color_id.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/geometry/insets.h"
@@ -79,14 +82,25 @@ class TabStyle {
   struct TabColors {
     SkColor foreground_color = gfx::kPlaceholderColor;
     SkColor background_color = gfx::kPlaceholderColor;
+    ui::ColorId focus_ring_color = kColorTabFocusRingInactive;
+    ui::ColorId close_button_focus_ring_color =
+        kColorTabCloseButtonFocusRingInactive;
 
     TabColors() = default;
-    TabColors(SkColor foreground_color, SkColor background_color)
+    TabColors(SkColor foreground_color,
+              SkColor background_color,
+              ui::ColorId focus_ring_color,
+              ui::ColorId close_button_focus_ring_color)
         : foreground_color(foreground_color),
-          background_color(background_color) {}
+          background_color(background_color),
+          focus_ring_color(focus_ring_color),
+          close_button_focus_ring_color(close_button_focus_ring_color) {}
     bool operator==(const TabColors& other) const {
-      return std::tie(foreground_color, background_color) ==
-             std::tie(other.foreground_color, other.background_color);
+      return std::tie(foreground_color, background_color, focus_ring_color,
+                      close_button_focus_ring_color) ==
+             std::tie(other.foreground_color, other.background_color,
+                      other.focus_ring_color,
+                      other.close_button_focus_ring_color);
     }
   };
 
@@ -111,6 +125,13 @@ class TabStyle {
   // ascending order. Return values are in the range (0,
   // TabStyle::GetMaximumZValue()).
   virtual float GetZValue() const = 0;
+
+  // Returns the current opacity of the "active" portion of the tab's state.
+  virtual float GetActiveOpacity() const = 0;
+
+  // Returns whichever of (active, inactive) the tab appears more like given the
+  // active opacity.
+  virtual TabActive GetApparentActiveState() const = 0;
 
   // Derives and returns colors for the tab. See TabColors, above.
   virtual TabColors CalculateColors() const = 0;

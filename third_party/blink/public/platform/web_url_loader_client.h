@@ -32,7 +32,7 @@
 #define THIRD_PARTY_BLINK_PUBLIC_PLATFORM_WEB_URL_LOADER_CLIENT_H_
 
 #include <memory>
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/time/time.h"
 #include "mojo/public/cpp/base/big_buffer.h"
 #include "mojo/public/cpp/system/data_pipe.h"
@@ -110,11 +110,13 @@ class BLINK_PLATFORM_EXPORT WebURLLoaderClient {
   // will be generated in devtools console if this flag is set to true.
   // TODO(crbug.com/798625): use different callback for subresources
   // with responses blocked due to document protection.
-  virtual void DidFinishLoading(base::TimeTicks finish_time,
-                                int64_t total_encoded_data_length,
-                                int64_t total_encoded_body_length,
-                                int64_t total_decoded_body_length,
-                                bool should_report_corb_blocking) {}
+  virtual void DidFinishLoading(
+      base::TimeTicks finish_time,
+      int64_t total_encoded_data_length,
+      uint64_t total_encoded_body_length,
+      int64_t total_decoded_body_length,
+      bool should_report_corb_blocking,
+      absl::optional<bool> pervasive_payload_requested = absl::nullopt) {}
 
   // Called when the load completes with an error.
   // |finish_time| indicating the time in which the response failed.
@@ -122,7 +124,7 @@ class BLINK_PLATFORM_EXPORT WebURLLoaderClient {
   virtual void DidFail(const WebURLError&,
                        base::TimeTicks finish_time,
                        int64_t total_encoded_data_length,
-                       int64_t total_encoded_body_length,
+                       uint64_t total_encoded_body_length,
                        int64_t total_decoded_body_length) {}
 
   // Value passed to DidFinishLoading when total encoded data length isn't

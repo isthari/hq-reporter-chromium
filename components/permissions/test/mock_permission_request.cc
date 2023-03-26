@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,8 +32,8 @@ MockPermissionRequest::MockPermissionRequest(
           requesting_origin,
           request_type,
           gesture_type == PermissionRequestGestureType::GESTURE,
-          base::BindOnce(&MockPermissionRequest::PermissionDecided,
-                         base::Unretained(this)),
+          base::BindRepeating(&MockPermissionRequest::PermissionDecided,
+                              base::Unretained(this)),
           base::BindOnce(&MockPermissionRequest::MarkFinished,
                          base::Unretained(this))),
       granted_(false),
@@ -50,7 +50,8 @@ MockPermissionRequest::~MockPermissionRequest() {
 }
 
 void MockPermissionRequest::PermissionDecided(ContentSetting result,
-                                              bool is_one_time) {
+                                              bool is_one_time,
+                                              bool is_final_decision) {
   granted_ = result == CONTENT_SETTING_ALLOW;
   if (result == CONTENT_SETTING_DEFAULT)
     cancelled_ = true;

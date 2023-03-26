@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,7 @@ export class TestPrivacyPageBrowserProxy extends TestBrowserProxy implements
     super([
       'getMetricsReporting',
       'setMetricsReportingEnabled',
-      'showManageSSLCertificates',
+      'showManageSslCertificates',
       'setBlockAutoplayEnabled',
       'getSecureDnsResolverList',
       'getSecureDnsSetting',
@@ -37,8 +37,12 @@ export class TestPrivacyPageBrowserProxy extends TestBrowserProxy implements
 
     this.secureDnsSetting = {
       mode: SecureDnsMode.AUTOMATIC,
-      templates: [],
+      config: '',
       managementMode: SecureDnsUiManagementMode.NO_OVERRIDE,
+      // <if expr="chromeos_ash">
+      dohWithIdentifiersActive: false,
+      configForDisplay: '',
+      // </if>
     };
 
     this.resolverList_ = [{name: 'Custom', value: 'custom', policy: ''}];
@@ -53,8 +57,8 @@ export class TestPrivacyPageBrowserProxy extends TestBrowserProxy implements
     this.methodCalled('setMetricsReportingEnabled', enabled);
   }
 
-  showManageSSLCertificates() {
-    this.methodCalled('showManageSSLCertificates');
+  showManageSslCertificates() {
+    this.methodCalled('showManageSslCertificates');
   }
 
   setBlockAutoplayEnabled(enabled: boolean) {

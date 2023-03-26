@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,7 +29,6 @@ import org.chromium.base.CommandLine;
 import org.chromium.base.FeatureList;
 import org.chromium.base.Log;
 import org.chromium.chrome.browser.flags.BooleanCachedFieldTrialParameter;
-import org.chromium.chrome.browser.flags.CachedFeatureFlags;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.components.browser_ui.widget.displaystyle.UiConfig;
@@ -61,7 +60,7 @@ public class FeedPlaceholderLayout extends LinearLayout {
     private static final int TEXT_PLACEHOLDER_RADIUS_DP = 12;
     private static final int LARGE_IMAGE_HEIGHT_DP = 207;
 
-    private static final int START_DELAY_MS = 733;
+    private static final int START_DELAY_MS = 0;
     private static final int FADE_DURATION_MS = 620;
     private static final PathInterpolator INITIAL_FADE_IN_CURVE =
             new PathInterpolator(0.17f, 0.17f, 0.85f, 1f);
@@ -161,7 +160,10 @@ public class FeedPlaceholderLayout extends LinearLayout {
     }
 
     private void setPlaceholders() {
-        setPadding();
+        // If showing this layout for Instant Start, add some padding to imitate the eventual width
+        // of the feed.
+        if (mInstantStart) setPadding();
+
         LinearLayout cardsParentView = findViewById(R.id.placeholders_layout);
         cardsParentView.removeAllViews();
 
@@ -366,7 +368,7 @@ public class FeedPlaceholderLayout extends LinearLayout {
     private static boolean isFeatureEnabled() {
         // If the feature flag is disabled, use the old behavior: Instant Start shows the static
         // placeholder, and the feed shouldn't show this placeholder view at all.
-        return CachedFeatureFlags.isEnabled(ChromeFeatureList.FEED_LOADING_PLACEHOLDER);
+        return ChromeFeatureList.sFeedLoadingPlaceholder.isEnabled();
     }
 
     private static boolean isInstantStartAnimationEnabled() {

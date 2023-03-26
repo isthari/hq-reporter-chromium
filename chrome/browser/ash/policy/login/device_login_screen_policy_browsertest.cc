@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,13 @@
 #include "ash/constants/ash_pref_names.h"
 #include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/login_screen_test_api.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/ash/accessibility/magnification_manager.h"
@@ -27,8 +26,8 @@
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/reset_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/reset_screen_handler.h"
 #include "chrome/common/pref_names.h"
 #include "components/policy/core/common/policy_types.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
@@ -37,11 +36,11 @@
 #include "content/public/test/browser_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace em = enterprise_management;
-
 namespace policy {
 
 namespace {
+
+namespace em = ::enterprise_management;
 
 // Spins the loop until a notification is received from |prefs| that the value
 // of |pref_name| has changed. If the notification is received before Wait()
@@ -210,7 +209,7 @@ IN_PROC_BROWSER_TEST_F(DeviceLoginScreenPolicyBrowsertest,
 IN_PROC_BROWSER_TEST_F(DeviceLoginScreenPolicyBrowsertest, DeviceLocalAccount) {
   EXPECT_TRUE(ash::LoginScreenTestApi::IsOobeDialogVisible());
   em::ChromeDeviceSettingsProto& proto(device_policy()->payload());
-  policy::DeviceLocalAccountTestHelper::AddPublicSession(&proto, "test");
+  DeviceLocalAccountTestHelper::AddPublicSession(&proto, "test");
   RefreshDevicePolicy();
 
   // Wait for Gaia dialog to be hidden.
@@ -236,12 +235,11 @@ IN_PROC_BROWSER_TEST_F(DeviceLoginScreenPolicyBrowsertest, ResetScreen) {
   EXPECT_EQ(ash::LoginScreenTestApi::GetUsersCount(), 0);
 
   // Switch to another (Reset) screen.
-  ash::LoginDisplayHost::default_host()->StartWizard(
-      chromeos::ResetView::kScreenId);
-  ash::OobeScreenWaiter(chromeos::ResetView::kScreenId).Wait();
+  ash::LoginDisplayHost::default_host()->StartWizard(ash::ResetView::kScreenId);
+  ash::OobeScreenWaiter(ash::ResetView::kScreenId).Wait();
 
   em::ChromeDeviceSettingsProto& proto(device_policy()->payload());
-  policy::DeviceLocalAccountTestHelper::AddPublicSession(&proto, "test");
+  DeviceLocalAccountTestHelper::AddPublicSession(&proto, "test");
   RefreshDevicePolicy();
 
   // Wait for users to propagate.
@@ -254,7 +252,7 @@ IN_PROC_BROWSER_TEST_F(DeviceLoginScreenPolicyBrowsertest, ResetScreen) {
   // Oobe screen should not change.
   EXPECT_EQ(
       ash::LoginDisplayHost::default_host()->GetOobeUI()->current_screen(),
-      chromeos::ResetView::kScreenId);
+      ash::ResetView::kScreenId);
 }
 
 }  // namespace policy

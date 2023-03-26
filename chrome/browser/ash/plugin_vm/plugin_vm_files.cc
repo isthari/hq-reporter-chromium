@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
@@ -26,8 +27,8 @@
 #include "chrome/browser/ui/ash/shelf/app_window_base.h"
 #include "chrome/browser/ui/ash/shelf/app_window_shelf_item_controller.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
-#include "chromeos/dbus/cicerone/cicerone_client.h"
-#include "chromeos/dbus/cicerone/cicerone_service.pb.h"
+#include "chromeos/ash/components/dbus/cicerone/cicerone_client.h"
+#include "chromeos/ash/components/dbus/cicerone/cicerone_service.pb.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -102,12 +103,10 @@ void LaunchPluginVmAppImpl(Profile* profile,
   request.set_vm_name(registration->VmName());
   request.set_container_name(registration->ContainerName());
   request.set_desktop_file_id(registration->DesktopFileId());
-  std::copy(
-      std::make_move_iterator(file_paths.begin()),
-      std::make_move_iterator(file_paths.end()),
-      google::protobuf::RepeatedFieldBackInserter(request.mutable_files()));
+  base::ranges::move(file_paths, google::protobuf::RepeatedFieldBackInserter(
+                                     request.mutable_files()));
 
-  chromeos::CiceroneClient::Get()->LaunchContainerApplication(
+  ash::CiceroneClient::Get()->LaunchContainerApplication(
       std::move(request),
       base::BindOnce(
           [](const std::string& app_id, LaunchPluginVmAppCallback callback,

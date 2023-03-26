@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,19 +33,24 @@ class CheckedNumeric {
   constexpr CheckedNumeric(const CheckedNumeric<Src>& rhs)
       : state_(rhs.state_.value(), rhs.IsValid()) {}
 
+  // Strictly speaking, this is not necessary, but declaring this allows class
+  // template argument deduction to be used so that it is possible to simply
+  // write `CheckedNumeric(777)` instead of `CheckedNumeric<int>(777)`.
+  // NOLINTNEXTLINE(google-explicit-constructor)
+  constexpr CheckedNumeric(T value) : state_(value) {}
+
   // This is not an explicit constructor because we implicitly upgrade regular
   // numerics to CheckedNumerics to make them easier to use.
-  template <typename Src>
-  constexpr CheckedNumeric(Src value)  // NOLINT(runtime/explicit)
-      : state_(value) {
-    static_assert(UnderlyingType<Src>::is_numeric, "Argument must be numeric.");
-  }
+  template <typename Src,
+            typename = std::enable_if_t<std::is_arithmetic<Src>::value>>
+  // NOLINTNEXTLINE(google-explicit-constructor)
+  constexpr CheckedNumeric(Src value) : state_(value) {}
 
   // This is not an explicit constructor because we want a seamless conversion
   // from StrictNumeric types.
   template <typename Src>
-  constexpr CheckedNumeric(
-      StrictNumeric<Src> value)  // NOLINT(runtime/explicit)
+  // NOLINTNEXTLINE(google-explicit-constructor)
+  constexpr CheckedNumeric(StrictNumeric<Src> value)
       : state_(static_cast<Src>(value)) {}
 
   // IsValid() - The public API to test if a CheckedNumeric is currently valid.
@@ -289,8 +294,8 @@ constexpr StrictNumeric<Dst> ValueOrDefaultForType(
   return value.template ValueOrDefault<Dst>(default_value);
 }
 
-// Convience wrapper to return a new CheckedNumeric from the provided arithmetic
-// or CheckedNumericType.
+// Convenience wrapper to return a new CheckedNumeric from the provided
+// arithmetic or CheckedNumericType.
 template <typename T>
 constexpr CheckedNumeric<typename UnderlyingType<T>::type> MakeCheckedNum(
     const T value) {
@@ -352,23 +357,23 @@ L* operator-(L* lhs, const StrictNumeric<R> rhs) {
 
 }  // namespace internal
 
+using internal::CheckAdd;
+using internal::CheckAnd;
+using internal::CheckDiv;
 using internal::CheckedNumeric;
-using internal::IsValidForType;
-using internal::ValueOrDieForType;
-using internal::ValueOrDefaultForType;
-using internal::MakeCheckedNum;
+using internal::CheckLsh;
 using internal::CheckMax;
 using internal::CheckMin;
-using internal::CheckAdd;
-using internal::CheckSub;
-using internal::CheckMul;
-using internal::CheckDiv;
 using internal::CheckMod;
-using internal::CheckLsh;
-using internal::CheckRsh;
-using internal::CheckAnd;
+using internal::CheckMul;
 using internal::CheckOr;
+using internal::CheckRsh;
+using internal::CheckSub;
 using internal::CheckXor;
+using internal::IsValidForType;
+using internal::MakeCheckedNum;
+using internal::ValueOrDefaultForType;
+using internal::ValueOrDieForType;
 
 }  // namespace base
 

@@ -13,8 +13,11 @@
 # limitations under the License.
 
 # Values: debian:<version>, ubuntu:<version>
-BASE_IMAGE ?= ubuntu:16.04
+BASE_IMAGE ?= ubuntu:18.04
 PYTHON_VERSION ?= 3.9
+
+# Nightly flag for build_arm_pip_package.sh
+NIGHLTY_FLAG ?= --nightly_flag
 
 MAKEFILE_DIR := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))
 WORKSPACE_DIR := $(MAKEFILE_DIR)/../../../..
@@ -57,7 +60,7 @@ docker-build: docker-image
 		--rm --interactive $(shell tty -s && echo --tty) \
 		$(DOCKER_PARAMS) \
 		$(TAG_IMAGE) \
-		/with_the_same_user /bin/bash -C tensorflow_lite_support/tools/pip_package/rpi/build_arm_pip_package.sh
+		/with_the_same_user /bin/bash -C tensorflow_lite_support/tools/pip_package/rpi/build_arm_pip_package.sh $(NIGHLTY_FLAG)
 
 clean:
 	rm -rf $(CURDIR)/wheels

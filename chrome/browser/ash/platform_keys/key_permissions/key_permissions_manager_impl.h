@@ -1,31 +1,32 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_PLATFORM_KEYS_KEY_PERMISSIONS_KEY_PERMISSIONS_MANAGER_IMPL_H_
 #define CHROME_BROWSER_ASH_PLATFORM_KEYS_KEY_PERMISSIONS_KEY_PERMISSIONS_MANAGER_IMPL_H_
 
+#include <stdint.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
 #include "base/containers/queue.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list_types.h"
 #include "base/scoped_observation.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/platform_keys/key_permissions/arc_key_permissions_manager_delegate.h"
 #include "chrome/browser/ash/platform_keys/key_permissions/key_permissions_manager.h"
-#include "chrome/browser/platform_keys/platform_keys.h"
+#include "chrome/browser/chromeos/platform_keys/platform_keys.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 class PrefRegistrySimple;
 class PrefService;
 class Profile;
 
-namespace ash {
-namespace platform_keys {
+namespace ash::platform_keys {
 
 class PlatformKeysService;
 
@@ -72,9 +73,9 @@ class KeyPermissionsManagerImpl : public KeyPermissionsManager,
         chromeos::platform_keys::Status keys_retrieval_status);
     void UpdateNextKey();
     void OnUpdateFinished();
-    void UpdatePermissionsForKey(const std::string& public_key_spki_der);
+    void UpdatePermissionsForKey(std::vector<uint8_t> public_key_spki_der);
     void UpdatePermissionsForKeyWithCorporateFlag(
-        const std::string& public_key_spki_der,
+        std::vector<uint8_t> public_key_spki_der,
         absl::optional<bool> corporate_usage_allowed,
         chromeos::platform_keys::Status corporate_usage_retrieval_status);
     void OnKeyPermissionsUpdated(
@@ -82,7 +83,7 @@ class KeyPermissionsManagerImpl : public KeyPermissionsManager,
 
     const Mode mode_;
     KeyPermissionsManagerImpl* const key_permissions_manager_;
-    base::queue<std::string> public_key_spki_der_queue_;
+    base::queue<std::vector<uint8_t>> public_key_spki_der_queue_;
     bool update_started_ = false;
     UpdateCallback callback_;
     // The time when the Update() method was called.
@@ -139,10 +140,10 @@ class KeyPermissionsManagerImpl : public KeyPermissionsManager,
 
   void AllowKeyForUsage(AllowKeyForUsageCallback callback,
                         KeyUsage usage,
-                        const std::string& public_key_spki_der) override;
+                        std::vector<uint8_t> public_key_spki_der) override;
   void IsKeyAllowedForUsage(IsKeyAllowedForUsageCallback callback,
                             KeyUsage usage,
-                            const std::string& public_key_spki_der) override;
+                            std::vector<uint8_t> public_key_spki_der) override;
   bool AreCorporateKeysAllowedForArcUsage() const override;
 
   void Shutdown() override;
@@ -176,7 +177,7 @@ class KeyPermissionsManagerImpl : public KeyPermissionsManager,
       chromeos::platform_keys::Status last_key_flags_migration_status);
 
   void AllowKeyForCorporateUsage(AllowKeyForUsageCallback callback,
-                                 const std::string& public_key_spki_der);
+                                 std::vector<uint8_t> public_key_spki_der);
 
   void OnKeyPermissionsRetrieved(
       IsKeyAllowedForUsageCallback callback,
@@ -216,7 +217,6 @@ class KeyPermissionsManagerImpl : public KeyPermissionsManager,
   base::WeakPtrFactory<KeyPermissionsManagerImpl> weak_ptr_factory_{this};
 };
 
-}  // namespace platform_keys
-}  // namespace ash
+}  // namespace ash::platform_keys
 
 #endif  // CHROME_BROWSER_ASH_PLATFORM_KEYS_KEY_PERMISSIONS_KEY_PERMISSIONS_MANAGER_IMPL_H_

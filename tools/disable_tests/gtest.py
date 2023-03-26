@@ -1,4 +1,4 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """Code specific to disabling GTest tests."""
@@ -27,7 +27,8 @@ TEST_MACROS = {
 }
 
 
-def disabler(full_test_name: str, source_file: str, new_cond: Condition) -> str:
+def disabler(full_test_name: str, source_file: str, new_cond: Condition,
+             message: Optional[str]) -> str:
   """Disable a GTest test within the given file.
 
   Args:
@@ -57,7 +58,6 @@ def disabler(full_test_name: str, source_file: str, new_cond: Condition) -> str:
   for i in range(len(lines) - 1, -1, -1):
     line = lines[i]
 
-    # TODO: This will incorrectly match test names within comments.
     idents = find_identifiers(line)
 
     if maybe in idents:
@@ -82,32 +82,14 @@ def disabler(full_test_name: str, source_file: str, new_cond: Condition) -> str:
 
   merged = conditions.merge(existing_cond, new_cond)
 
-  # If it's not conditionally disabled, we don't need a pre-processor block to
-  # conditionally define the name. We just change the name within the test macro
-  # to its appropriate value, and delete any existing preprocessor block.
-  if isinstance(merged, conditions.BaseCondition):
-    if merged == conditions.ALWAYS:
-      replacement_name = disabled
-    elif merged == conditions.NEVER:
-      replacement_name = test_name
-
-    lines[test_name_index] = \
-        lines[test_name_index].replace(current_name, replacement_name)
-    modified_line = test_name_index
-
-    if src_range:
-      del lines[src_range[0]:src_range[1] + 1]
-      modified_line -= src_range[1] - src_range[0] + 1
-
-    return clang_format('\n'.join(lines), [modified_line])
-
-  # => now conditionally disabled
-  lines[test_name_index] = lines[test_name_index].replace(current_name, maybe)
+  comment = None
+  if message:
+    comment = f'// {message}'
 
   # Keep track of the line numbers of the lines which have been modified. These
   # line numbers will be fed to clang-format to ensure any modified lines are
   # correctly formatted.
-  modified_lines = [test_name_index]
+  modified_lines = []
 
   # Ensure that we update modified_lines upon inserting new lines into the file,
   # as any lines after the insertion point will be shifted over.
@@ -137,6 +119,36 @@ def disabler(full_test_name: str, source_file: str, new_cond: Condition) -> str:
   def insert_line(index, new_line):
     insert_lines(index, index, [new_line])
 
+  def replace_line(index, new_line):
+    insert_lines(index, index + 1, [new_line])
+
+  def delete_lines(start_index, end_index):
+    insert_lines(start_index, end_index, [])
+
+  # If it's not conditionally disabled, we don't need a pre-processor block to
+  # conditionally define the name. We just change the name within the test macro
+  # to its appropriate value, and delete any existing preprocessor block.
+  if isinstance(merged, conditions.BaseCondition):
+    if merged == conditions.ALWAYS:
+      replacement_name = disabled
+    elif merged == conditions.NEVER:
+      replacement_name = test_name
+
+    replace_line(test_name_index,
+                 lines[test_name_index].replace(current_name, replacement_name))
+
+    if src_range:
+      delete_lines(src_range[0], src_range[1] + 1)
+
+    if comment:
+      insert_line(test_name_index, comment)
+
+    return clang_format('\n'.join(lines), modified_lines)
+
+  # => now conditionally disabled
+  replace_line(test_name_index,
+               lines[test_name_index].replace(current_name, maybe))
+
   condition_impl = cc_format_condition(merged)
 
   condition_block = [
@@ -150,6 +162,7 @@ def disabler(full_test_name: str, source_file: str, new_cond: Condition) -> str:
   if src_range:
     # Replace the existing condition.
     insert_lines(src_range[0], src_range[1] + 1, condition_block)
+    comment_index = src_range[0]
   else:
     # No existing condition, so find where to add a new one.
     for i in range(test_name_index, -1, -1):
@@ -159,6 +172,10 @@ def disabler(full_test_name: str, source_file: str, new_cond: Condition) -> str:
       raise Exception("Couldn't find where to insert test conditions")
 
     insert_lines(i, i, condition_block)
+    comment_index = i
+
+  if comment:
+    insert_line(comment_index, comment)
 
   # Insert includes.
   # First find the set of headers we need for the given condition.
@@ -232,6 +249,16 @@ def disabler(full_test_name: str, source_file: str, new_cond: Condition) -> str:
 
 
 def find_identifiers(line: str) -> List[str]:
+  # Strip C++-style comments.
+  line = re.sub('//.*$', '', line)
+
+  # Strip strings.
+  line = re.sub(r'"[^"]*[^\\]"', '', line)
+
+  # Remainder is identifiers.
+  # There are probably many corner cases this doesn't handle. We accept this
+  # trade-off for simplicity of implementation, and because occurrences of the
+  # test name in such corner case contexts are likely very rare.
   return re.findall('[a-zA-Z_][a-zA-Z_0-9]*', line)
 
 
@@ -345,6 +372,14 @@ def get_directive(lines: List[str], i: int) -> Optional[Tuple[str, Any]]:
     full_line = full_line[:-2] + lines[i]
 
   # TODO: Pre-compile regexes.
+  # Strip comments.
+  # C-style. Note that C-style comments don't nest, so we can just match them
+  # with a regex.
+  full_line = re.sub(r'/\*.*\*/', '', full_line)
+
+  # C++-style
+  full_line = re.sub('//.*$', '', full_line)
+
   # Preprocessor directives begin with a '#', which *must* be at the start of
   # the line, with only whitespace allowed to appear before them.
   match = re.match('^[ \t]*#[ \t]*(\\w*)(.*)', full_line)

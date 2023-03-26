@@ -1,4 +1,4 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -26,14 +26,14 @@ static_library("enterprise") {
 
   deps = [
     "//ash/components/arc:prefs",
-    "//ash/components/cryptohome",
-    "//ash/components/policy",
     "//ash/constants",
     "//base",
-    "//chromeos/dbus:dbus",
-    "//chromeos/dbus/arc:arc",
+    "//chromeos/ash/components/cryptohome",
+    "//chromeos/ash/components/dbus",
+    "//chromeos/ash/components/dbus/arc",
+    "//chromeos/ash/components/dbus/upstart:upstart",
+    "//chromeos/ash/components/policy",
     "//chromeos/dbus/power",
-    "//chromeos/dbus/upstart:upstart",
     "//components/prefs",
     "//components/session_manager/core",
     "//components/user_manager",

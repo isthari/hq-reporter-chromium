@@ -1,12 +1,12 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ICON_LOADER_H_
 #define CHROME_BROWSER_ICON_LOADER_H_
 
-#include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/task_traits.h"
 #include "build/build_config.h"
@@ -21,13 +21,20 @@
 ////////////////////////////////////////////////////////////////////////////////
 class IconLoader {
  public:
-  // An IconGroup is a class of files that all share the same icon. For all
-  // platforms but Windows, and for most files on Windows, it is the file type
-  // (e.g. all .mp3 files share an icon, all .html files share an icon). On
-  // Windows, for certain file types (.exe, .dll, etc), each file of that type
-  // is assumed to have a unique icon. In that case, each of those files is a
-  // group to itself.
+  // An IconGroup is a class of files that all share the same icon.
+#if BUILDFLAG(IS_MAC)
+  // On the Mac, it's the UTType's identifier. (Apps do have unique icons, just
+  // like in Windows, below, but `IconLoader` is never used to get their icons,
+  // so that case isn't handled.)
+  using IconGroup = std::string;
+#else
+  // On all other platforms except Windows, and for most files on Windows, it is
+  // the file type (e.g. all .mp3 files share an icon, all .html files share an
+  // icon). On Windows, for certain file types (.exe, .dll, etc), each file of
+  // that type is assumed to have a unique icon. In that case, each of those
+  // files is a group to itself.
   using IconGroup = base::FilePath::StringType;
+#endif
 
   enum IconSize {
     SMALL = 0,  // 16x16
@@ -42,20 +49,16 @@ class IconLoader {
   using IconLoadedCallback =
       base::OnceCallback<void(gfx::Image, const IconGroup&)>;
 
-  // Creates an IconLoader, which owns itself. If the IconLoader might outlive
-  // the caller, be sure to use a weak pointer in the |callback|.
-  static IconLoader* Create(const base::FilePath& file_path,
-                            IconSize size,
-                            float scale,
-                            IconLoadedCallback callback);
-
-  IconLoader(const IconLoader&) = delete;
-  IconLoader& operator=(const IconLoader&) = delete;
-
   // Starts the process of reading the icon. When the reading of the icon is
   // complete, the IconLoadedCallback callback will be fulfilled, and the
   // IconLoader will delete itself.
-  void Start();
+  static void LoadIcon(const base::FilePath& file_path,
+                       IconSize size,
+                       float scale,
+                       IconLoadedCallback callback);
+
+  IconLoader(const IconLoader&) = delete;
+  IconLoader& operator=(const IconLoader&) = delete;
 
  private:
   IconLoader(const base::FilePath& file_path,
@@ -65,14 +68,18 @@ class IconLoader {
 
   ~IconLoader();
 
+  void Start();
+
   // Given a file path, get the group for the given file.
   static IconGroup GroupForFilepath(const base::FilePath& file_path);
 
   // The TaskRunner that ReadIcon() must be called on.
   static scoped_refptr<base::TaskRunner> GetReadIconTaskRunner();
 
+#if !BUILDFLAG(IS_CHROMEOS)
   void ReadGroup();
   void ReadIcon();
+#endif
 #if BUILDFLAG(IS_WIN)
   // Reads an icon in a sandboxed service. Use this when the file itself must
   // be parsed.

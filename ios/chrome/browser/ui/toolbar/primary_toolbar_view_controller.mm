@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,17 @@
 
 #import <MaterialComponents/MaterialProgressView.h>
 
-#include "base/check.h"
+#import "base/check.h"
+#import "base/feature_list.h"
+#import "base/metrics/field_trial_params.h"
+#import "base/metrics/user_metrics.h"
+#import "base/metrics/user_metrics_action.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/omnibox_commands.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_animator.h"
 #import "ios/chrome/browser/ui/gestures/view_revealing_vertical_pan_handler.h"
+#import "ios/chrome/browser/ui/keyboard/UIKeyCommand+Chrome.h"
+#import "ios/chrome/browser/ui/omnibox/omnibox_ui_features.h"
 #import "ios/chrome/browser/ui/thumb_strip/thumb_strip_feature.h"
 #import "ios/chrome/browser/ui/toolbar/adaptive_toolbar_view_controller+subclassing.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button.h"
@@ -21,10 +27,11 @@
 #import "ios/chrome/browser/ui/toolbar/primary_toolbar_view_controller_delegate.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_constants.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_utils.h"
+#import "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/dynamic_type_util.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
-#import "ios/chrome/browser/ui/util/ui_util.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
+#import "ios/chrome/common/ui/util/ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -133,12 +140,12 @@
   self.view.locationBarContainer.alpha = progress;
   self.view.separator.alpha = progress;
 
-  // When the locationBarContainer is hidden, show the |fakeOmniboxTarget|.
+  // When the locationBarContainer is hidden, show the `fakeOmniboxTarget`.
   if (progress == 0 && !self.view.fakeOmniboxTarget) {
     [self.view addFakeOmniboxTarget];
-    UITapGestureRecognizer* tapRecognizer =
-        [[UITapGestureRecognizer alloc] initWithTarget:self.dispatcher
-                                                action:@selector(focusOmnibox)];
+    UITapGestureRecognizer* tapRecognizer = [[UITapGestureRecognizer alloc]
+        initWithTarget:self.omniboxCommandsHandler
+                action:@selector(focusOmnibox)];
     [self.view.fakeOmniboxTarget addGestureRecognizer:tapRecognizer];
   } else if (progress > 0 && self.view.fakeOmniboxTarget) {
     [self.view removeFakeOmniboxTarget];
@@ -170,6 +177,12 @@
   [self.view.collapsedToolbarButton addTarget:self
                                        action:@selector(exitFullscreen)
                              forControlEvents:UIControlEventTouchUpInside];
+  UIHoverGestureRecognizer* hoverGestureRecognizer =
+      [[UIHoverGestureRecognizer alloc]
+          initWithTarget:self
+                  action:@selector(exitFullscreen)];
+  [self.view.collapsedToolbarButton
+      addGestureRecognizer:hoverGestureRecognizer];
 }
 
 - (void)viewDidLoad {
@@ -187,6 +200,23 @@
 - (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
   [super traitCollectionDidChange:previousTraitCollection];
   [self updateLayoutForPreviousTraitCollection:previousTraitCollection];
+}
+
+#pragma mark - UIResponder
+
+// To always be able to register key commands via -keyCommands, the VC must be
+// able to become first responder.
+- (BOOL)canBecomeFirstResponder {
+  return YES;
+}
+
+- (NSArray<UIKeyCommand*>*)keyCommands {
+  return @[ UIKeyCommand.cr_close ];
+}
+
+- (void)keyCommand_close {
+  base::RecordAction(base::UserMetricsAction("MobileKeyCommandClose"));
+  [self.delegate close];
 }
 
 #pragma mark - Property accessors
@@ -239,12 +269,13 @@
       self.view.locationBarHeight.constant / 2;
   self.view.locationBarBottomConstraint.constant =
       [self verticalMarginForLocationBarForFullscreenProgress:progress];
-  self.view.locationBarContainer.backgroundColor =
-      [self.buttonFactory.toolbarConfiguration
-          locationBarBackgroundColorWithVisibility:alphaValue];
   self.previousFullscreenProgress = progress;
 
   self.view.collapsedToolbarButton.hidden = progress > 0.05;
+
+  self.view.locationBarContainer.backgroundColor =
+      [self.buttonFactory.toolbarConfiguration
+          locationBarBackgroundColorWithVisibility:alphaValue];
 }
 
 - (void)updateForFullscreenEnabled:(BOOL)enabled {
@@ -329,7 +360,7 @@
 }
 
 // Returns the desired height of the location bar, based on the fullscreen
-// |progress|.
+// `progress`.
 - (CGFloat)locationBarHeightForFullscreenProgress:(CGFloat)progress {
   CGFloat expandedHeight =
       LocationBarHeight(self.traitCollection.preferredContentSizeCategory);
@@ -341,7 +372,7 @@
 }
 
 // Returns the vertical margin to the location bar based on fullscreen
-// |progress|, aligned to the nearest pixel.
+// `progress`, aligned to the nearest pixel.
 - (CGFloat)verticalMarginForLocationBarForFullscreenProgress:(CGFloat)progress {
   // The vertical bottom margin for the location bar is such that the location
   // bar looks visually centered. However, the constraints are not geometrically

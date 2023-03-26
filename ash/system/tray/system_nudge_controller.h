@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "ash/ash_export.h"
+#include "ash/constants/notifier_catalogs.h"
 #include "base/memory/weak_ptr.h"
 #include "base/timer/timer.h"
 #include "ui/compositor/layer_animation_observer.h"
@@ -28,6 +29,11 @@ class ASH_EXPORT SystemNudgeController {
   SystemNudgeController& operator=(const SystemNudgeController&) = delete;
   virtual ~SystemNudgeController();
 
+  // Records Nudge "TimeToAction" metric, which tracks the time from when a
+  // nudge was shown to when the nudge's suggested action was performed.
+  // The metric is not recorded if the nudge hasn't been shown before.
+  static void RecordNudgeAction(NudgeCatalogName catalog_name);
+
   // Shows the nudge widget.
   void ShowNudge();
 
@@ -36,6 +42,13 @@ class ASH_EXPORT SystemNudgeController {
 
   // Test method for triggering the nudge timer to hide.
   void FireHideNudgeTimerForTesting();
+
+  // Get the system nudge for testing purpose.
+  SystemNudge* GetSystemNudgeForTesting() { return nudge_.get(); }
+
+  // Resets the `nudge_registry` object that records the time a nudge was last
+  // shown.
+  void ResetNudgeRegistryForTesting();
 
  protected:
   // Concrete subclasses must implement this method to return a
@@ -46,12 +59,20 @@ class ASH_EXPORT SystemNudgeController {
   // Hides the nudge widget.
   void HideNudge();
 
-  // Contextual nudge which shows a view.
-  std::unique_ptr<SystemNudge> nudge_;
-
  private:
+  // Returns the registry which keeps track of when a nudge was last shown.
+  static std::vector<std::pair<NudgeCatalogName, base::TimeTicks>>&
+  GetNudgeRegistry();
+
   // Begins the animation for fading in or fading out the nudge.
   void StartFadeAnimation(bool show);
+
+  // Records the time a nudge was last shown and stores it in the
+  // `nudge_registry`.
+  void RecordNudgeShown(NudgeCatalogName catalog_name);
+
+  // Contextual nudge which shows a view.
+  std::unique_ptr<SystemNudge> nudge_;
 
   // Timer to hide the nudge.
   base::OneShotTimer hide_nudge_timer_;

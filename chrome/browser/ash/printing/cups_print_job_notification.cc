@@ -1,9 +1,10 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/printing/cups_print_job_notification.h"
 
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -25,9 +26,11 @@
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/public/cpp/notification_delegate.h"
 
-namespace chromeos {
+namespace ash {
 
 namespace {
+
+using ::chromeos::PrinterErrorCode;
 
 const char kCupsPrintJobNotificationId[] =
     "chrome://settings/printing/cups-print-job-notification";
@@ -98,11 +101,12 @@ CupsPrintJobNotification::CupsPrintJobNotification(
       message_center::NOTIFICATION_TYPE_SIMPLE, notification_id_,
       std::u16string(),  // title
       std::u16string(),  // body
-      gfx::Image(),      // icon
+      ui::ImageModel(),  // icon
       l10n_util::GetStringUTF16(IDS_PRINT_JOB_NOTIFICATION_DISPLAY_SOURCE),
       GURL(kCupsPrintJobNotificationId),
       message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
-                                 kCupsPrintJobNotificationId),
+                                 kCupsPrintJobNotificationId,
+                                 NotificationCatalogName::kCupsPrintJob),
       message_center::RichNotificationData(),
       base::MakeRefCounted<message_center::ThunkNotificationDelegate>(
           weak_factory_.GetWeakPtr()));
@@ -224,17 +228,17 @@ void CupsPrintJobNotification::UpdateNotificationIcon() {
     case CupsPrintJob::State::STATE_PAGE_DONE:
     case CupsPrintJob::State::STATE_SUSPENDED:
     case CupsPrintJob::State::STATE_RESUMED:
-      notification_->set_accent_color(ash::kSystemNotificationColorNormal);
+      notification_->set_accent_color(kSystemNotificationColorNormal);
       notification_->set_vector_small_image(kNotificationPrintingIcon);
       break;
     case CupsPrintJob::State::STATE_DOCUMENT_DONE:
-      notification_->set_accent_color(ash::kSystemNotificationColorNormal);
+      notification_->set_accent_color(kSystemNotificationColorNormal);
       notification_->set_vector_small_image(kNotificationPrintingDoneIcon);
       break;
     case CupsPrintJob::State::STATE_CANCELLED:
     case CupsPrintJob::State::STATE_FAILED:
     case CupsPrintJob::State::STATE_ERROR:
-      notification_->set_accent_color(ash::kSystemNotificationColorWarning);
+      notification_->set_accent_color(kSystemNotificationColorWarning);
       notification_->set_vector_small_image(kNotificationPrintingWarningIcon);
       break;
     case CupsPrintJob::State::STATE_NONE:
@@ -302,4 +306,4 @@ void CupsPrintJobNotification::UpdateNotificationTimeout() {
   }
 }
 
-}  // namespace chromeos
+}  // namespace ash

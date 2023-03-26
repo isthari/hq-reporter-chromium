@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -100,5 +100,13 @@ public abstract class TabWebContentsDelegateAndroid extends WebContentsDelegateA
      */
     protected boolean isInstalledWebappDelegateGeolocation() {
         return false;
+    }
+
+    /**
+     * Checks if the associated tab uses modal context menu.
+     * @return true if the current tab uses modal context menu.
+     */
+    protected boolean isModalContextMenu() {
+        return true;
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,12 +13,12 @@ namespace ash {
 namespace file_system_provider {
 namespace operations {
 
-CopyEntry::CopyEntry(extensions::EventRouter* event_router,
+CopyEntry::CopyEntry(RequestDispatcher* dispatcher,
                      const ProvidedFileSystemInfo& file_system_info,
                      const base::FilePath& source_path,
                      const base::FilePath& target_path,
                      storage::AsyncFileUtil::StatusCallback callback)
-    : Operation(event_router, file_system_info),
+    : Operation(dispatcher, file_system_info),
       source_path_(source_path),
       target_path_(target_path),
       callback_(std::move(callback)) {}

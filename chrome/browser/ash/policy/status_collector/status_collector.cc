@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@
 #include "chrome/browser/ash/policy/status_collector/app_info_generator.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/system/statistics_provider.h"
+#include "chromeos/ash/components/system/statistics_provider.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/user_manager/user_manager.h"
 
@@ -83,25 +83,25 @@ void StatusCollector::RegisterProfilePrefs(PrefRegistrySimple* registry) {
 
 // static
 absl::optional<std::string> StatusCollector::GetBootMode(
-    chromeos::system::StatisticsProvider* statistics_provider) {
-  std::string dev_switch_mode;
-  if (!statistics_provider->GetMachineStatistic(
-          chromeos::system::kDevSwitchBootKey, &dev_switch_mode)) {
+    ash::system::StatisticsProvider* statistics_provider) {
+  const absl::optional<base::StringPiece> dev_switch_mode =
+      statistics_provider->GetMachineStatistic(ash::system::kDevSwitchBootKey);
+  if (!dev_switch_mode) {
     return absl::nullopt;
   }
 
-  if (dev_switch_mode == chromeos::system::kDevSwitchBootValueDev) {
+  if (dev_switch_mode == ash::system::kDevSwitchBootValueDev) {
     return std::string("Dev");
   }
 
-  if (dev_switch_mode == chromeos::system::kDevSwitchBootValueVerified) {
+  if (dev_switch_mode == ash::system::kDevSwitchBootValueVerified) {
     return std::string("Verified");
   }
 
   return absl::nullopt;
 }
 
-StatusCollector::StatusCollector(chromeos::system::StatisticsProvider* provider,
+StatusCollector::StatusCollector(ash::system::StatisticsProvider* provider,
                                  ash::CrosSettings* cros_settings,
                                  base::Clock* clock)
     : statistics_provider_(provider),
@@ -125,7 +125,7 @@ StatusCollector::GetAutoLaunchedKioskSessionInfo() {
                                           &current_app) &&
       current_app.was_auto_launched_with_zero_delay;
   bool arc_app_auto_launched_with_zero_delay =
-      chromeos::ArcKioskAppManager::Get()
+      ash::ArcKioskAppManager::Get()
           ->current_app_was_auto_launched_with_zero_delay();
 
   bool web_app_auto_launched_with_zero_delay =

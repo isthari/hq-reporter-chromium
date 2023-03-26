@@ -1,8 +1,8 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/ios/ios_util.h"
+#import "base/ios/ios_util.h"
 #import "base/test/ios/wait_util.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_features.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_grid_constants.h"
@@ -15,9 +15,9 @@
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/testing/earl_grey/app_launch_configuration.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#include "net/test/embedded_test_server/http_request.h"
-#include "net/test/embedded_test_server/http_response.h"
-#include "net/test/embedded_test_server/request_handler_util.h"
+#import "net/test/embedded_test_server/http_request.h"
+#import "net/test/embedded_test_server/http_response.h"
+#import "net/test/embedded_test_server/request_handler_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -117,7 +117,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
   [[EarlGrey
       selectElementWithMatcher:grey_allOf(
                                    grey_kindOfClassName(@"PlusSignCell"),
-                                   grey_accessibilityLabel(@"Create new tab."),
+                                   grey_accessibilityLabel(@"Create New Tab"),
                                    nil)]
       assertWithMatcher:grey_minimumVisiblePercent(1)];
 
@@ -142,7 +142,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
   [[EarlGrey
       selectElementWithMatcher:grey_allOf(
                                    grey_kindOfClassName(@"PlusSignCell"),
-                                   grey_accessibilityLabel(@"Create new tab."),
+                                   grey_accessibilityLabel(@"Create New Tab"),
                                    nil)]
       assertWithMatcher:grey_minimumVisiblePercent(1)];
   [[EarlGrey
@@ -159,7 +159,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
   [[EarlGrey
       selectElementWithMatcher:grey_allOf(
                                    grey_kindOfClassName(@"PlusSignCell"),
-                                   grey_accessibilityLabel(@"Create new tab."),
+                                   grey_accessibilityLabel(@"Create New Tab"),
                                    nil)] assertWithMatcher:grey_notVisible()];
   // Even when visible, this button has a visibility percent of around 0.15
   // because it is mostly a gradient.
@@ -282,7 +282,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
   [[EarlGrey
       selectElementWithMatcher:grey_allOf(
                                    grey_kindOfClassName(@"PlusSignCell"),
-                                   grey_accessibilityLabel(@"Create new tab."),
+                                   grey_accessibilityLabel(@"Create New Tab"),
                                    nil)]
       assertWithMatcher:grey_minimumVisiblePercent(1)];
 
@@ -353,7 +353,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
   [[[EarlGrey
       selectElementWithMatcher:grey_allOf(
                                    grey_kindOfClassName(@"PlusSignCell"),
-                                   grey_accessibilityLabel(@"Create new tab."),
+                                   grey_accessibilityLabel(@"Create New Tab"),
                                    nil)]
       assertWithMatcher:grey_minimumVisiblePercent(1)]
       performAction:grey_tap()];

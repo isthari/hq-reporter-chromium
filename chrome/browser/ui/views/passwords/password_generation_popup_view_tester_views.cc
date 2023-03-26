@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,4 +25,8 @@ void PasswordGenerationPopupViewTesterViews::SimulateMouseMovementAt(
   ui::MouseEvent mouse_down(ui::ET_MOUSE_MOVED, point, gfx::Point(0, 0),
                             ui::EventTimeForNow(), 0, 0);
   static_cast<views::View*>(view_)->OnMouseMoved(mouse_down);
+}
+
+bool PasswordGenerationPopupViewTesterViews::IsPopupMinimized() const {
+  return view_->IsPopupMinimized();
 }

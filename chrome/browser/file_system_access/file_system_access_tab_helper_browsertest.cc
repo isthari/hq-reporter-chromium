@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -93,7 +93,8 @@ class FileSystemAccessTabHelperPrerenderingBrowserTest
     return std::move(service);
   }
 
-  raw_ptr<MockFileSystemAccessPermissionContext> mock_service_;
+  raw_ptr<MockFileSystemAccessPermissionContext, DanglingUntriaged>
+      mock_service_;
   content::test::PrerenderTestHelper prerender_test_helper_;
 };
 

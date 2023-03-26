@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,9 +46,8 @@ std::vector<ComponentInfo> AwComponentMetricsProviderDelegate::GetComponents() {
   absl::optional<AppPackageNameLoggingRule> record =
       client_->GetCachedAppPackageNameLoggingRule();
   if (record.has_value()) {
-    components.push_back(
-        ComponentInfo(kWebViewAppsPackageNamesAllowlistComponentId, "",
-                      std::u16string(), record.value().GetVersion()));
+    components.emplace_back(kWebViewAppsPackageNamesAllowlistComponentId, "",
+                            std::u16string(), record.value().GetVersion(), "");
   }
 
   return components;

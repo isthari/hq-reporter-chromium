@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,10 +12,10 @@
 
 #include "base/trace_event/common/trace_event_common.h"
 #include "base/trace_event/trace_event.h"
-#include "base/win/windows_version.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/themes/theme_properties.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/glass_browser_caption_button_container.h"
@@ -44,7 +44,6 @@
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/scoped_canvas.h"
 #include "ui/strings/grit/ui_strings.h"
-#include "ui/views/image_model_utils.h"
 #include "ui/views/win/hwnd_util.h"
 #include "ui/views/window/client_view.h"
 
@@ -71,19 +70,6 @@ base::win::ScopedHICON CreateHICONFromSkBitmapSizedTo(
 
 ///////////////////////////////////////////////////////////////////////////////
 // GlassBrowserFrameView, public:
-
-SkColor GlassBrowserFrameView::GetReadableFeatureColor(
-    SkColor background_color) {
-  // color_utils::GetColorWithMaxContrast()/IsDark() aren't used here because
-  // they switch based on the Chrome light/dark endpoints, while we want to use
-  // the system native behavior below.
-  const auto windows_luma = [](SkColor c) {
-    return 0.25f * SkColorGetR(c) + 0.625f * SkColorGetG(c) +
-           0.125f * SkColorGetB(c);
-  };
-  return windows_luma(background_color) <= 128.0f ? SK_ColorWHITE
-                                                  : SK_ColorBLACK;
-}
 
 GlassBrowserFrameView::GlassBrowserFrameView(BrowserFrame* frame,
                                              BrowserView* browser_view)
@@ -112,8 +98,8 @@ GlassBrowserFrameView::GlassBrowserFrameView(BrowserFrame* frame,
   web_app::AppBrowserController* controller =
       browser_view->browser()->app_controller();
   if (controller) {
-    set_web_app_frame_toolbar(AddChildView(
-        std::make_unique<WebAppFrameToolbarView>(frame, browser_view)));
+    set_web_app_frame_toolbar(
+        AddChildView(std::make_unique<WebAppFrameToolbarView>(browser_view)));
   }
 
   // The window title appears above the web app frame toolbar (if present),
@@ -169,10 +155,6 @@ bool GlassBrowserFrameView::HasVisibleBackgroundTabShapes(
     BrowserFrameActiveState active_state) const {
   DCHECK(GetWidget());
 
-  // Pre-Win 8, tabs never match the glass frame appearance.
-  if (base::win::GetVersion() < base::win::Version::WIN8)
-    return true;
-
   // Enabling high contrast mode disables the custom-drawn titlebar (so the
   // system-drawn frame will respect the native frame colors) and enables the
   // IncreasedContrastThemeSupplier (which does not respect the native frame
@@ -185,22 +167,11 @@ bool GlassBrowserFrameView::HasVisibleBackgroundTabShapes(
   return BrowserNonClientFrameView::HasVisibleBackgroundTabShapes(active_state);
 }
 
-bool GlassBrowserFrameView::CanDrawStrokes() const {
-  // On Win 7, the tabs are drawn as flat shapes against the glass frame, so
-  // the active tab always has a visible shape and strokes are unnecessary.
-  if (base::win::GetVersion() < base::win::Version::WIN8)
-    return false;
-
-  return BrowserNonClientFrameView::CanDrawStrokes();
-}
-
 SkColor GlassBrowserFrameView::GetCaptionColor(
     BrowserFrameActiveState active_state) const {
-  const SkAlpha title_alpha = ShouldPaintAsActive(active_state)
-                                  ? SK_AlphaOPAQUE
-                                  : kInactiveTitlebarFeatureAlpha;
-  return SkColorSetA(GetReadableFeatureColor(GetFrameColor(active_state)),
-                     title_alpha);
+  return GetColorProvider()->GetColor(ShouldPaintAsActive(active_state)
+                                          ? kColorCaptionForegroundActive
+                                          : kColorCaptionForegroundInactive);
 }
 
 void GlassBrowserFrameView::UpdateThrobber(bool running) {
@@ -228,7 +199,6 @@ gfx::Size GlassBrowserFrameView::GetMinimumSize() const {
 
 void GlassBrowserFrameView::WindowControlsOverlayEnabledChanged() {
   caption_button_container_->OnWindowControlsOverlayEnabledChanged();
-  web_app_frame_toolbar()->OnWindowControlsOverlayEnabledChanged();
   InvalidateLayout();
 }
 
@@ -317,41 +287,39 @@ int GlassBrowserFrameView::NonClientHitTest(const gfx::Point& point) {
     }
   }
 
-  // On Windows 8+, the caption buttons are almost butted up to the top right
+  // On Windows, the caption buttons are almost butted up to the top right
   // corner of the window. This code ensures the mouse isn't set to a size
   // cursor while hovering over the caption buttons, thus giving the incorrect
   // impression that the user can resize the window.
-  if (base::win::GetVersion() >= base::win::Version::WIN8) {
-    RECT button_bounds = {0};
-    if (SUCCEEDED(DwmGetWindowAttribute(views::HWNDForWidget(frame()),
-                                        DWMWA_CAPTION_BUTTON_BOUNDS,
-                                        &button_bounds,
-                                        sizeof(button_bounds)))) {
-      gfx::RectF button_bounds_in_dips = gfx::ConvertRectToDips(
-          gfx::Rect(button_bounds), display::win::GetDPIScale());
-      // TODO(crbug.com/1131681): GetMirroredRect() requires an integer rect,
-      // but the size in DIPs may not be an integer with a fractional device
-      // scale factor. If we want to keep using integers, the choice to use
-      // ToFlooredRectDeprecated() seems to be doing the wrong thing given the
-      // comment below about insetting 1 DIP instead of 1 physical pixel. We
-      // should probably use ToEnclosedRect() and then we could have inset 1
-      // physical pixel here.
-      gfx::Rect buttons =
-          GetMirroredRect(gfx::ToFlooredRectDeprecated(button_bounds_in_dips));
+  RECT button_bounds = {0};
+  if (SUCCEEDED(DwmGetWindowAttribute(views::HWNDForWidget(frame()),
+                                      DWMWA_CAPTION_BUTTON_BOUNDS,
+                                      &button_bounds, sizeof(button_bounds)))) {
+    gfx::RectF button_bounds_in_dips = gfx::ConvertRectToDips(
+        gfx::Rect(button_bounds), display::win::GetDPIScale());
+    // TODO(crbug.com/1131681): GetMirroredRect() requires an integer rect,
+    // but the size in DIPs may not be an integer with a fractional device
+    // scale factor. If we want to keep using integers, the choice to use
+    // ToFlooredRectDeprecated() seems to be doing the wrong thing given the
+    // comment below about insetting 1 DIP instead of 1 physical pixel. We
+    // should probably use ToEnclosedRect() and then we could have inset 1
+    // physical pixel here.
+    gfx::Rect buttons =
+        GetMirroredRect(gfx::ToFlooredRectDeprecated(button_bounds_in_dips));
 
-      // There is a small one-pixel strip right above the caption buttons in
-      // which the resize border "peeks" through.
-      constexpr int kCaptionButtonTopInset = 1;
-      // The sizing region at the window edge above the caption buttons is
-      // 1 px regardless of scale factor. If we inset by 1 before converting
-      // to DIPs, the precision loss might eliminate this region entirely. The
-      // best we can do is to inset after conversion. This guarantees we'll
-      // show the resize cursor when resizing is possible. The cost of which
-      // is also maybe showing it over the portion of the DIP that isn't the
-      // outermost pixel.
-      buttons.Inset(0, kCaptionButtonTopInset, 0, 0);
-      if (buttons.Contains(point))
-        return HTNOWHERE;
+    // There is a small one-pixel strip right above the caption buttons in
+    // which the resize border "peeks" through.
+    constexpr int kCaptionButtonTopInset = 1;
+    // The sizing region at the window edge above the caption buttons is
+    // 1 px regardless of scale factor. If we inset by 1 before converting
+    // to DIPs, the precision loss might eliminate this region entirely. The
+    // best we can do is to inset after conversion. This guarantees we'll
+    // show the resize cursor when resizing is possible. The cost of which
+    // is also maybe showing it over the portion of the DIP that isn't the
+    // outermost pixel.
+    buttons.Inset(gfx::Insets::TLBR(kCaptionButtonTopInset, 0, 0, 0));
+    if (buttons.Contains(point)) {
+      return HTNOWHERE;
     }
   }
 
@@ -360,8 +328,8 @@ int GlassBrowserFrameView::NonClientHitTest(const gfx::Point& point) {
   // pixels at the end of the top and bottom edges trigger diagonal resizing.
   constexpr int kResizeCornerWidth = 16;
   int window_component = GetHTComponentForFrame(
-      point, gfx::Insets(top_border_thickness, 0, 0, 0), top_border_thickness,
-      kResizeCornerWidth - FrameBorderThickness(),
+      point, gfx::Insets::TLBR(top_border_thickness, 0, 0, 0),
+      top_border_thickness, kResizeCornerWidth - FrameBorderThickness(),
       frame()->widget_delegate()->CanResize());
   // Fall back to the caption if no other component matches.
   return (window_component == HTNOWHERE) ? HTCAPTION : window_component;
@@ -618,14 +586,14 @@ void GlassBrowserFrameView::PaintTitlebar(gfx::Canvas* canvas) const {
   // So the accent border also has to be opaque. We can blend the titlebar
   // color with the accent border to approximate the native effect.
   const SkColor titlebar_color = GetTitlebarColor();
-  const int color_id = ShouldPaintAsActive()
-                           ? ThemeProperties::COLOR_ACCENT_BORDER_ACTIVE
-                           : ThemeProperties::COLOR_ACCENT_BORDER_INACTIVE;
   gfx::ScopedCanvas scoped_canvas(canvas);
   float scale = canvas->UndoDeviceScaleFactor();
   cc::PaintFlags flags;
   flags.setColor(color_utils::GetResultingPaintColor(
-      GetThemeProvider()->GetColor(color_id), titlebar_color));
+      GetColorProvider()->GetColor(ShouldPaintAsActive()
+                                       ? kColorAccentBorderActive
+                                       : kColorAccentBorderInactive),
+      titlebar_color));
   canvas->DrawRect(gfx::RectF(0, 0, width() * scale, y), flags);
 
   const int titlebar_height =
@@ -784,7 +752,7 @@ void GlassBrowserFrameView::LayoutClientView() {
   if (browser_view()->IsWindowControlsOverlayEnabled()) {
     top_inset = frame()->IsFullscreen() ? 0 : WindowTopY();
   }
-  client_view_bounds_.Inset(0, top_inset, 0, 0);
+  client_view_bounds_.Inset(gfx::Insets::TLBR(top_inset, 0, 0, 0));
 }
 
 void GlassBrowserFrameView::StartThrobber() {
@@ -809,8 +777,8 @@ void GlassBrowserFrameView::StopThrobber() {
     HICON small_icon = nullptr;
     HICON big_icon = nullptr;
 
-    gfx::ImageSkia icon = views::GetImageSkiaFromImageModel(
-        browser_view()->GetWindowIcon(), GetColorProvider());
+    gfx::ImageSkia icon =
+        browser_view()->GetWindowIcon().Rasterize(GetColorProvider());
 
     if (!icon.isNull()) {
       // Keep previous icons alive as long as they are referenced by the HWND.

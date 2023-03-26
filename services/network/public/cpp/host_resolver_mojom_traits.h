@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 #include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
 #include "net/dns/public/dns_config_overrides.h"
+#include "net/dns/public/dns_over_https_config.h"
 #include "net/dns/public/dns_over_https_server_config.h"
 #include "net/dns/public/dns_query_type.h"
 #include "net/dns/public/host_resolver_source.h"
@@ -36,16 +37,31 @@ absl::optional<net::SecureDnsMode> FromOptionalSecureDnsMode(
     network::mojom::OptionalSecureDnsMode mode);
 
 template <>
-class StructTraits<network::mojom::DnsOverHttpsServerDataView,
+class StructTraits<network::mojom::DnsOverHttpsServerConfigDataView,
                    net::DnsOverHttpsServerConfig> {
  public:
-  static const std::string& server_template(
-      const net::DnsOverHttpsServerConfig& server_config) {
-    DCHECK(!server_config.server_template().empty());
-    return server_config.server_template();
+  static base::StringPiece server_template(
+      const net::DnsOverHttpsServerConfig& server) {
+    return server.server_template();
   }
-  static bool Read(network::mojom::DnsOverHttpsServerDataView data,
+  static const net::DnsOverHttpsServerConfig::Endpoints& endpoints(
+      const net::DnsOverHttpsServerConfig& server) {
+    return server.endpoints();
+  }
+  static bool Read(network::mojom::DnsOverHttpsServerConfigDataView data,
                    net::DnsOverHttpsServerConfig* out_config);
+};
+
+template <>
+class StructTraits<network::mojom::DnsOverHttpsConfigDataView,
+                   net::DnsOverHttpsConfig> {
+ public:
+  static const std::vector<net::DnsOverHttpsServerConfig>& servers(
+      const net::DnsOverHttpsConfig& doh_config) {
+    return doh_config.servers();
+  }
+  static bool Read(network::mojom::DnsOverHttpsConfigDataView data,
+                   net::DnsOverHttpsConfig* out_config);
 };
 
 template <>
@@ -82,9 +98,9 @@ struct StructTraits<network::mojom::DnsConfigOverridesDataView,
   static network::mojom::DnsConfigOverrides_Tristate use_local_ipv6(
       const net::DnsConfigOverrides& overrides);
 
-  static const absl::optional<std::vector<net::DnsOverHttpsServerConfig>>&
-  dns_over_https_servers(const net::DnsConfigOverrides& overrides) {
-    return overrides.dns_over_https_servers;
+  static const absl::optional<net::DnsOverHttpsConfig>& dns_over_https_config(
+      const net::DnsConfigOverrides& overrides) {
+    return overrides.dns_over_https_config;
   }
 
   static network::mojom::OptionalSecureDnsMode secure_dns_mode(
@@ -92,11 +108,6 @@ struct StructTraits<network::mojom::DnsConfigOverridesDataView,
 
   static network::mojom::DnsConfigOverrides_Tristate
   allow_dns_over_https_upgrade(const net::DnsConfigOverrides& overrides);
-
-  static const absl::optional<std::vector<std::string>>&
-  disabled_upgrade_providers(const net::DnsConfigOverrides& overrides) {
-    return overrides.disabled_upgrade_providers;
-  }
 
   static bool clear_hosts(const net::DnsConfigOverrides& overrides) {
     return overrides.clear_hosts;

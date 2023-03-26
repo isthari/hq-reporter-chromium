@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "base/guid.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "chrome/browser/sharing/fake_device_info.h"
 #include "chrome/browser/sharing/features.h"
@@ -28,7 +27,7 @@
 #include "chrome/browser/sharing/vapid_key_manager.h"
 #include "components/gcm_driver/crypto/gcm_encryption_provider.h"
 #include "components/gcm_driver/instance_id/instance_id_driver.h"
-#include "components/sync/driver/test_sync_service.h"
+#include "components/sync/test/test_sync_service.h"
 #include "components/sync_device_info/device_info.h"
 #include "components/sync_device_info/fake_device_info_sync_service.h"
 #include "components/sync_device_info/local_device_info_provider.h"
@@ -204,7 +203,6 @@ class SharingServiceTest : public testing::Test {
     return sharing_service_.get();
   }
 
-  base::test::ScopedFeatureList scoped_feature_list_;
   content::BrowserTaskEnvironment task_environment_{
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
 
@@ -308,8 +306,10 @@ TEST_F(SharingServiceTest, SendMessageToDeviceSuccess) {
 TEST_F(SharingServiceTest, DeviceRegistration) {
   test_sync_service_.SetTransportState(
       syncer::SyncService::TransportState::ACTIVE);
-  test_sync_service_.SetActiveDataTypes(
-      {syncer::DEVICE_INFO, syncer::PREFERENCES});
+  test_sync_service_.GetUserSettings()->SetSelectedTypes(
+      /*sync_everything=*/false,
+      /*types=*/syncer::UserSelectableTypeSet(
+          syncer::UserSelectableType::kPreferences));
 
   EXPECT_EQ(SharingService::State::DISABLED,
             GetSharingService()->GetStateForTesting());
@@ -346,7 +346,10 @@ TEST_F(SharingServiceTest, DeviceRegistration) {
 TEST_F(SharingServiceTest, DeviceRegistrationPreferenceNotAvailable) {
   test_sync_service_.SetTransportState(
       syncer::SyncService::TransportState::ACTIVE);
-  test_sync_service_.SetActiveDataTypes(syncer::DEVICE_INFO);
+  test_sync_service_.GetUserSettings()->SetSelectedTypes(
+      /*sync_everything=*/false,
+      /*types=*/syncer::UserSelectableTypeSet());
+  test_sync_service_.SetFailedDataTypes(syncer::SHARING_MESSAGE);
 
   EXPECT_EQ(SharingService::State::DISABLED,
             GetSharingService()->GetStateForTesting());
@@ -360,15 +363,8 @@ TEST_F(SharingServiceTest, DeviceRegistrationPreferenceNotAvailable) {
 }
 
 TEST_F(SharingServiceTest, DeviceRegistrationTransportMode) {
-  // Enable the transport mode required features.
-  scoped_feature_list_.InitWithFeatures(
-      /*enabled_features=*/{kSharingSendViaSync},
-      /*disabled_features=*/{});
-
   test_sync_service_.SetTransportState(
       syncer::SyncService::TransportState::ACTIVE);
-  test_sync_service_.SetActiveDataTypes(
-      {syncer::DEVICE_INFO, syncer::SHARING_MESSAGE});
 
   EXPECT_EQ(SharingService::State::DISABLED,
             GetSharingService()->GetStateForTesting());
@@ -386,8 +382,10 @@ TEST_F(SharingServiceTest, DeviceRegistrationTransportMode) {
 TEST_F(SharingServiceTest, DeviceRegistrationTransientError) {
   test_sync_service_.SetTransportState(
       syncer::SyncService::TransportState::ACTIVE);
-  test_sync_service_.SetActiveDataTypes(
-      {syncer::DEVICE_INFO, syncer::PREFERENCES});
+  test_sync_service_.GetUserSettings()->SetSelectedTypes(
+      /*sync_everything=*/false,
+      /*types=*/syncer::UserSelectableTypeSet(
+          syncer::UserSelectableType::kPreferences));
 
   EXPECT_EQ(SharingService::State::DISABLED,
             GetSharingService()->GetStateForTesting());
@@ -426,8 +424,10 @@ TEST_F(SharingServiceTest, DeviceUnregistrationSyncDisabled) {
 TEST_F(SharingServiceTest, DeviceRegisterAndUnregister) {
   test_sync_service_.SetTransportState(
       syncer::SyncService::TransportState::ACTIVE);
-  test_sync_service_.SetActiveDataTypes(
-      {syncer::DEVICE_INFO, syncer::PREFERENCES});
+  test_sync_service_.GetUserSettings()->SetSelectedTypes(
+      /*sync_everything=*/false,
+      /*types=*/syncer::UserSelectableTypeSet(
+          syncer::UserSelectableType::kPreferences));
 
   // Create new SharingService instance with feature enabled at constructor.
   GetSharingService();
@@ -490,7 +490,10 @@ TEST_F(SharingServiceTest, DeviceRegisterAndUnregister) {
             GetSharingService()->GetStateForTesting());
 
   // Disable syncing of preference and un-registration should happen.
-  test_sync_service_.SetActiveDataTypes(syncer::DEVICE_INFO);
+  test_sync_service_.GetUserSettings()->SetSelectedTypes(
+      /*sync_everything=*/false,
+      /*types=*/syncer::UserSelectableTypeSet());
+  test_sync_service_.SetFailedDataTypes({syncer::SHARING_MESSAGE});
   EXPECT_CALL(*fcm_handler_, StopListening()).Times(1);
   test_sync_service_.FireStateChanged();
   EXPECT_EQ(2, sharing_device_registration_->registration_attempts());
@@ -502,8 +505,10 @@ TEST_F(SharingServiceTest, DeviceRegisterAndUnregister) {
 TEST_F(SharingServiceTest, StartListeningToFCMAtConstructor) {
   test_sync_service_.SetTransportState(
       syncer::SyncService::TransportState::ACTIVE);
-  test_sync_service_.SetActiveDataTypes(
-      {syncer::DEVICE_INFO, syncer::PREFERENCES});
+  test_sync_service_.GetUserSettings()->SetSelectedTypes(
+      /*sync_everything=*/false,
+      /*types=*/syncer::UserSelectableTypeSet(
+          syncer::UserSelectableType::kPreferences));
 
   // Create new SharingService instance with FCM already registered at
   // constructor.

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,14 +9,16 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
+#include "chrome/browser/web_applications/web_app.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/webapps/browser/installable/fake_installable_manager.h"
 #include "components/webapps/browser/installable/installable_data.h"
+#include "components/webapps/browser/installable/installable_logging.h"
 #include "components/webapps/browser/installable/installable_manager.h"
 #include "components/webapps/browser/installable/installable_metrics.h"
 #include "components/webapps/common/web_page_metadata.mojom.h"
@@ -59,7 +61,7 @@ class FakeWebPageMetadataAgent
 
   // Set |web_app_info| to respond on |GetWebAppInstallInfo|.
   void SetWebAppInstallInfo(const WebAppInstallInfo& web_app_info) {
-    web_app_info_ = web_app_info;
+    web_app_info_ = web_app_info.Clone();
   }
 
   void GetWebPageMetadata(GetWebPageMetadataCallback callback) override {
@@ -94,7 +96,7 @@ class WebAppDataRetrieverTest : public ChromeRenderViewHostTestHarness {
   // Set fake WebPageMetadataAgent to avoid mojo connection errors.
   void SetFakeWebPageMetadataAgent() {
     web_contents()
-        ->GetMainFrame()
+        ->GetPrimaryMainFrame()
         ->GetRemoteAssociatedInterfaces()
         ->OverrideBinderForTesting(
             webapps::mojom::WebPageMetadataAgent::Name_,
@@ -110,7 +112,7 @@ class WebAppDataRetrieverTest : public ChromeRenderViewHostTestHarness {
     // TODO(crbug.com/936696): Make WebAppDataRetriever support a change of
     // RenderFrames.
     content::DisableProactiveBrowsingInstanceSwapFor(
-        web_contents()->GetMainFrame());
+        web_contents()->GetPrimaryMainFrame());
   }
 
   void SetRendererWebAppInstallInfo(const WebAppInstallInfo& web_app_info) {
@@ -309,11 +311,13 @@ TEST_F(WebAppDataRetrieverTest,
       web_contents(), /*bypass_service_worker_check=*/false,
       base::BindLambdaForTesting(
           [&](blink::mojom::ManifestPtr opt_manifest, const GURL& manifest_url,
-              bool valid_manifest_for_web_app, bool is_installable) {
+              bool valid_manifest_for_web_app,
+              webapps::InstallableStatusCode error_code) {
             EXPECT_FALSE(opt_manifest);
             EXPECT_EQ(manifest_url, GURL());
             EXPECT_FALSE(valid_manifest_for_web_app);
-            EXPECT_FALSE(is_installable);
+            EXPECT_EQ(error_code,
+                      webapps::InstallableStatusCode::RENDERER_CANCELLED);
             run_loop.Quit();
           }));
   DeleteContents();
@@ -325,12 +329,12 @@ TEST_F(WebAppDataRetrieverTest, GetIcons_WebContentsDestroyed) {
 
   web_contents_tester()->NavigateAndCommit(GURL("https://foo.example"));
 
-  const std::vector<GURL> icon_urls;
   bool skip_page_favicons = true;
 
   base::RunLoop run_loop;
   WebAppDataRetriever retriever;
-  retriever.GetIcons(web_contents(), icon_urls, skip_page_favicons,
+  retriever.GetIcons(web_contents(), /*icon_urls=*/base::flat_set<GURL>(),
+                     skip_page_favicons,
                      base::BindLambdaForTesting(
                          [&](IconsDownloadedResult result, IconsMap icons_map,
                              DownloadedIconsHttpResults icons_http_results) {
@@ -394,8 +398,10 @@ TEST_F(WebAppDataRetrieverTest, CheckInstallabilityAndRetrieveManifest) {
       web_contents(), /*bypass_service_worker_check=*/false,
       base::BindLambdaForTesting(
           [&](blink::mojom::ManifestPtr opt_manifest, const GURL& manifest_url,
-              bool valid_manifest_for_web_app, bool is_installable) {
-            EXPECT_TRUE(is_installable);
+              bool valid_manifest_for_web_app,
+              webapps::InstallableStatusCode error_code) {
+            EXPECT_EQ(error_code,
+                      webapps::InstallableStatusCode::NO_ERROR_DETECTED);
 
             EXPECT_EQ(manifest_short_name, opt_manifest->short_name);
             EXPECT_EQ(manifest_name, opt_manifest->name);
@@ -431,8 +437,9 @@ TEST_F(WebAppDataRetrieverTest, CheckInstallabilityFails) {
       web_contents(), /*bypass_service_worker_check=*/false,
       base::BindLambdaForTesting(
           [&](blink::mojom::ManifestPtr opt_manifest, const GURL& manifest_url,
-              bool valid_manifest_for_web_app, bool is_installable) {
-            EXPECT_FALSE(is_installable);
+              bool valid_manifest_for_web_app,
+              webapps::InstallableStatusCode error_code) {
+            EXPECT_EQ(error_code, webapps::InstallableStatusCode::NO_MANIFEST);
             EXPECT_FALSE(valid_manifest_for_web_app);
             EXPECT_EQ(manifest_url, GURL());
             callback_called = true;

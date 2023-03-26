@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,6 +48,13 @@ class COMPONENT_EXPORT(NETWORK_CPP) SelfDeletingURLLoaderFactory
   // should call DisconnectReceiversAndDestroy to prevent any future calls to
   // CreateLoaderAndStart.
   void DisconnectReceiversAndDestroy();
+
+  // Reports the currently dispatching Message as bad and closes+removes the
+  // receiver which received the message. Prefer this over the global
+  // `mojo::ReportBadMessage()` function, since calling this method promptly
+  // disconnects the receiver, preventing further (potentially bad) messages
+  // from being processed.
+  void ReportBadMessage(const std::string& message);
 
   THREAD_CHECKER(thread_checker_);
 

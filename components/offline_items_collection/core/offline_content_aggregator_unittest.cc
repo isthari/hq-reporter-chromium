@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@
 
 #include <map>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/bind.h"
 #include "base/test/test_mock_time_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/offline_items_collection/core/offline_item.h"
 #include "components/offline_items_collection/core/test_support/mock_offline_content_provider.h"
 #include "components/offline_items_collection/core/test_support/scoped_mock_offline_content_provider.h"
@@ -75,10 +75,33 @@ class OpenItemRemovalOfflineContentProvider
   }
 };
 
+// A helper class that delays GetAllItems() callback until RunCallback()
+// is called.
+class DelayedGetAllItemOfflineContentProvider
+    : public ScopedMockOfflineContentProvider {
+ public:
+  DelayedGetAllItemOfflineContentProvider(const std::string& name_space,
+                                          OfflineContentAggregator* aggregator)
+      : ScopedMockOfflineContentProvider(name_space, aggregator) {}
+  ~DelayedGetAllItemOfflineContentProvider() override = default;
+
+  void GetAllItems(MultipleItemCallback callback) override {
+    callback_ = std::move(callback);
+  }
+
+  void RunCallback(const OfflineItemList& items) {
+    std::move(callback_).Run(items);
+  }
+
+ private:
+  MultipleItemCallback callback_;
+};
+
 class OfflineContentAggregatorTest : public testing::Test {
  public:
   OfflineContentAggregatorTest()
-      : task_runner_(new base::TestMockTimeTaskRunner), handle_(task_runner_) {}
+      : task_runner_(new base::TestMockTimeTaskRunner),
+        current_default_handle_(task_runner_) {}
   ~OfflineContentAggregatorTest() override {}
 
  protected:
@@ -94,7 +117,7 @@ class OfflineContentAggregatorTest : public testing::Test {
                               const absl::optional<OfflineItem>& expected);
 
   scoped_refptr<base::TestMockTimeTaskRunner> task_runner_;
-  base::ThreadTaskRunnerHandle handle_;
+  base::SingleThreadTaskRunner::CurrentDefaultHandle current_default_handle_;
   OfflineContentAggregator aggregator_;
   base::WeakPtrFactory<OfflineContentAggregatorTest> weak_ptr_factory_{this};
 };
@@ -357,6 +380,67 @@ TEST_F(OfflineContentAggregatorTest, SameProviderWithMultipleNamespaces) {
 
   aggregator_.UnregisterProvider("2");
   EXPECT_FALSE(provider.HasObserver(&aggregator_));
+}
+
+// Tests that if the aggregator is in the mid of GetAllItems() call and is
+// waiting from multiple providers, it will remove deleted items from its
+// response when notified.
+TEST_F(OfflineContentAggregatorTest,
+       ItemRemovedWhileWaitingForItemsFromOtherProviders) {
+  ScopedMockOfflineContentProvider provider1("1", &aggregator_);
+  DelayedGetAllItemOfflineContentProvider provider2("2", &aggregator_);
+
+  ContentId id1 = ContentId("1", "A");
+  OfflineContentProvider::OfflineItemList items1;
+  OfflineItem item1(id1);
+  OfflineItem item2(ContentId("1", "B"));
+  items1.push_back(item1);
+  items1.push_back(item2);
+
+  OfflineContentProvider::OfflineItemList items2;
+  items2.push_back(OfflineItem(ContentId("2", "C")));
+  items2.push_back(OfflineItem(ContentId("2", "D")));
+
+  provider1.SetItems(items1);
+  provider2.SetItems(items2);
+
+  OfflineContentProvider::OfflineItemList combined_items;
+  combined_items.push_back(item2);
+  combined_items.insert(combined_items.end(), items2.begin(), items2.end());
+  GetAllItemsAndVerify(&aggregator_, combined_items);
+  provider1.NotifyOnItemRemoved(id1);
+  provider2.RunCallback(items2);
+}
+
+// Tests that if the aggregator is in the mid of GetAllItems() call and is
+// waiting from multiple providers, it will properly update items in its
+// response when notified.
+TEST_F(OfflineContentAggregatorTest,
+       ItemUpdatedWhileWaitingForItemsFromOtherProviders) {
+  ScopedMockOfflineContentProvider provider1("1", &aggregator_);
+  DelayedGetAllItemOfflineContentProvider provider2("2", &aggregator_);
+
+  OfflineContentProvider::OfflineItemList items1;
+  OfflineItem item1(ContentId("1", "A"));
+  OfflineItem item2(ContentId("1", "B"));
+  items1.push_back(item1);
+  items1.push_back(item2);
+
+  OfflineContentProvider::OfflineItemList items2;
+  items2.push_back(OfflineItem(ContentId("2", "C")));
+  items2.push_back(OfflineItem(ContentId("2", "D")));
+
+  provider1.SetItems(items1);
+  provider2.SetItems(items2);
+
+  OfflineContentProvider::OfflineItemList combined_items;
+  item1.title = "test";
+  combined_items.push_back(item1);
+  combined_items.push_back(item2);
+  combined_items.insert(combined_items.end(), items2.begin(), items2.end());
+  GetAllItemsAndVerify(&aggregator_, combined_items);
+  provider1.NotifyOnItemUpdated(item1, absl::nullopt);
+  provider2.RunCallback(items2);
 }
 
 }  // namespace

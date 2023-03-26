@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,18 +6,15 @@
 
 #include <cstdint>
 
-#include "base/bind.h"
 #include "base/files/file_proxy.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/sequence_checker.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/task/task_runner_util.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "build/build_config.h"
 #include "remoting/base/result.h"
 #include "remoting/host/file_transfer/ensure_user.h"
@@ -78,7 +75,7 @@ class LocalFileReader : public FileOperations::Reader {
 
  private:
   void OnEnsureUserResult(OpenCallback callback,
-                          protocol::FileTransferResult<Monostate> result);
+                          protocol::FileTransferResult<absl::monostate> result);
   void OnFileChooserResult(OpenCallback callback, FileChooser::Result result);
   void OnOpenResult(OpenCallback callback, base::File::Error error);
   void OnGetInfoResult(OpenCallback callback,
@@ -167,8 +164,8 @@ void LocalFileReader::Open(OpenCallback callback) {
   SetState(FileOperations::kBusy);
   file_task_runner_ = CreateFileTaskRunner();
   file_proxy_.emplace(file_task_runner_.get());
-  base::PostTaskAndReplyWithResult(
-      file_task_runner_.get(), FROM_HERE, base::BindOnce(&EnsureUserContext),
+  file_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&EnsureUserContext),
       base::BindOnce(&LocalFileReader::OnEnsureUserResult,
                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }
@@ -197,7 +194,7 @@ FileOperations::State LocalFileReader::state() const {
 
 void LocalFileReader::OnEnsureUserResult(
     FileOperations::Reader::OpenCallback callback,
-    protocol::FileTransferResult<Monostate> result) {
+    protocol::FileTransferResult<absl::monostate> result) {
   if (!result) {
     SetState(FileOperations::kFailed);
     std::move(callback).Run(std::move(result.error()));
@@ -311,10 +308,10 @@ void LocalFileWriter::Open(const base::FilePath& filename, Callback callback) {
   SetState(FileOperations::kBusy);
   file_task_runner_ = CreateFileTaskRunner();
   file_proxy_.emplace(file_task_runner_.get());
-  base::PostTaskAndReplyWithResult(
-      file_task_runner_.get(), FROM_HERE, base::BindOnce([] {
+  file_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce([] {
         return EnsureUserContext().AndThen(
-            [](Monostate) { return GetDesktopDirectory(); });
+            [](absl::monostate) { return GetDesktopDirectory(); });
       }),
       base::BindOnce(&LocalFileWriter::OnGetTargetDirectoryResult,
                      weak_ptr_factory_.GetWeakPtr(), filename,
@@ -365,9 +362,8 @@ void LocalFileWriter::Cancel() {
   file_proxy_.reset();
   // And finally, queue deletion of the temp file.
   if (!temp_filepath_.empty()) {
-    file_task_runner_->PostTask(
-        FROM_HERE,
-        base::BindOnce(base::GetDeleteFileCallback(), temp_filepath_));
+    file_task_runner_->PostTask(FROM_HERE,
+                                base::GetDeleteFileCallback(temp_filepath_));
   }
   SetState(FileOperations::kFailed);
 }
@@ -395,9 +391,8 @@ void LocalFileWriter::OnGetTargetDirectoryResult(
   base::FilePath temp_filepath =
       destination_filepath_.AddExtensionASCII(kTempFileExtension);
 
-  PostTaskAndReplyWithResult(
-      file_task_runner_.get(), FROM_HERE,
-      base::BindOnce(&base::GetUniquePath, temp_filepath),
+  file_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&base::GetUniquePath, temp_filepath),
       base::BindOnce(&LocalFileWriter::CreateTempFile,
                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }
@@ -490,9 +485,8 @@ void LocalFileWriter::OnCloseResult(Callback callback,
     return;
   }
 
-  base::PostTaskAndReplyWithResult(
-      file_task_runner_.get(), FROM_HERE,
-      base::BindOnce(&base::GetUniquePath, destination_filepath_),
+  file_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&base::GetUniquePath, destination_filepath_),
       base::BindOnce(&LocalFileWriter::MoveToDestination,
                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }
@@ -510,8 +504,8 @@ void LocalFileWriter::MoveToDestination(Callback callback,
 
   destination_filepath_ = std::move(destination_filepath);
 
-  PostTaskAndReplyWithResult(
-      file_task_runner_.get(), FROM_HERE,
+  file_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&base::Move, temp_filepath_, destination_filepath_),
       base::BindOnce(&LocalFileWriter::OnMoveResult,
                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)));

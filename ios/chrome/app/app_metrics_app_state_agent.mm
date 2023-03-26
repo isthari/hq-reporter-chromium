@@ -1,11 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/app/app_metrics_app_state_agent.h"
 
-#include "base/metrics/histogram_macros.h"
-#include "base/time/time.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/time/time.h"
 #import "ios/chrome/app/application_delegate/app_state.h"
 #import "ios/chrome/app/application_delegate/metrics_mediator.h"
 #import "ios/chrome/app/application_delegate/startup_information.h"
@@ -69,18 +69,12 @@
     self.appState.startupInformation.firstSceneConnectionTime =
         base::TimeTicks::Now();
     self.firstSceneHasConnected = YES;
+    if (self.appState.initStage > InitStageSafeMode)
+      [MetricsMediator createStartupTrackingTask];
   }
 
   if (self.appState.initStage <= InitStageSafeMode) {
     return;
-  }
-
-  if (level >= SceneActivationLevelForegroundActive) {
-    if (!self.firstSceneHasActivated) {
-      self.firstSceneHasActivated = YES;
-      [MetricsMediator logStartupDuration:self.appState.startupInformation
-                    connectionInformation:sceneState.controller];
-    }
   }
 
   if (level >= SceneActivationLevelForegroundInactive &&
@@ -103,6 +97,14 @@
 
     [self handleSessionEnd];
     DCHECK(self.appState.lastTimeInForeground.is_null());
+  }
+
+  if (level >= SceneActivationLevelForegroundActive) {
+    if (!self.firstSceneHasActivated) {
+      self.firstSceneHasActivated = YES;
+      [MetricsMediator logStartupDuration:self.appState.startupInformation
+                    connectionInformation:sceneState.controller];
+    }
   }
 }
 

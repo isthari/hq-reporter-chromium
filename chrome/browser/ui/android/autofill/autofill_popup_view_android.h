@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 
 #include <jni.h>
 #include <stddef.h>
+
+#include <string>
 
 #include "base/android/scoped_java_ref.h"
 #include "base/memory/weak_ptr.h"
@@ -52,6 +54,7 @@ class AutofillPopupViewAndroid : public AutofillPopupView {
   void OnSelectedRowChanged(absl::optional<int> previous_row_selection,
                             absl::optional<int> current_row_selection) override;
   void OnSuggestionsChanged() override;
+  void AxAnnounce(const std::u16string& text) override;
   absl::optional<int32_t> GetAxUniqueId() override;
 
  private:

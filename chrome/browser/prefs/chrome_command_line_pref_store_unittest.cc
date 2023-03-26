@@ -1,16 +1,16 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include "chrome/browser/prefs/chrome_command_line_pref_store.h"
 
 #include <stddef.h>
 
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
-#include "chrome/browser/prefs/chrome_command_line_pref_store.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/language/core/browser/pref_names.h"
@@ -41,7 +41,7 @@ class TestCommandLinePrefStore : public ChromeCommandLinePrefStore {
     const base::Value* value = nullptr;
     ASSERT_TRUE(GetValue(proxy_config::prefs::kProxy, &value));
     ASSERT_TRUE(value->is_dict());
-    ProxyConfigDictionary dict(value->Clone());
+    ProxyConfigDictionary dict(value->GetDict().Clone());
     ProxyPrefs::ProxyMode actual_mode;
     ASSERT_TRUE(dict.GetMode(&actual_mode));
     EXPECT_EQ(expected_mode, actual_mode);
@@ -73,9 +73,8 @@ TEST(ChromeCommandLinePrefStoreTest, SimpleStringPref) {
 
   const base::Value* actual = nullptr;
   EXPECT_TRUE(store->GetValue(language::prefs::kApplicationLocale, &actual));
-  std::string result;
-  EXPECT_TRUE(actual->GetAsString(&result));
-  EXPECT_EQ("hi-MOM", result);
+  ASSERT_TRUE(actual->is_string());
+  EXPECT_EQ("hi-MOM", actual->GetString());
 }
 
 // Tests a simple boolean pref on the command line.
@@ -120,7 +119,7 @@ TEST(ChromeCommandLinePrefStoreTest, MultipleSwitches) {
   const base::Value* value = nullptr;
   ASSERT_TRUE(store->GetValue(proxy_config::prefs::kProxy, &value));
   ASSERT_TRUE(value->is_dict());
-  ProxyConfigDictionary dict(value->Clone());
+  ProxyConfigDictionary dict(value->GetDict().Clone());
 
   std::string string_result;
 
@@ -195,7 +194,7 @@ TEST(ChromeCommandLinePrefStoreTest, DisableSSLCipherSuites) {
     "0x0005",
   };
   store1->VerifySSLCipherSuites(expected_ciphers1,
-                                base::size(expected_ciphers1));
+                                std::size(expected_ciphers1));
 
   base::CommandLine cl2(base::CommandLine::NO_PROGRAM);
   cl2.AppendSwitchASCII(switches::kCipherSuiteBlacklist,
@@ -208,7 +207,7 @@ TEST(ChromeCommandLinePrefStoreTest, DisableSSLCipherSuites) {
     "0x0005",
   };
   store2->VerifySSLCipherSuites(expected_ciphers2,
-                                base::size(expected_ciphers2));
+                                std::size(expected_ciphers2));
 
   base::CommandLine cl3(base::CommandLine::NO_PROGRAM);
   cl3.AppendSwitchASCII(switches::kCipherSuiteBlacklist,
@@ -219,7 +218,7 @@ TEST(ChromeCommandLinePrefStoreTest, DisableSSLCipherSuites) {
     "0x0004;MOAR;0x0005"
   };
   store3->VerifySSLCipherSuites(expected_ciphers3,
-                                base::size(expected_ciphers3));
+                                std::size(expected_ciphers3));
 }
 
 TEST(ChromeCommandLinePrefStoreTest, ExplicitlyAllowedPorts) {
@@ -227,7 +226,7 @@ TEST(ChromeCommandLinePrefStoreTest, ExplicitlyAllowedPorts) {
   cl.AppendSwitchASCII(switches::kExplicitlyAllowedPorts,
                        "79,554,  6000, foo,1000000");
   auto store = base::MakeRefCounted<TestCommandLinePrefStore>(&cl);
-  constexpr int kExpectedPorts[] = {
+  static constexpr int kExpectedPorts[] = {
       79,
       554,
       6000,
@@ -237,7 +236,7 @@ TEST(ChromeCommandLinePrefStoreTest, ExplicitlyAllowedPorts) {
   ASSERT_TRUE(store->GetValue(prefs::kExplicitlyAllowedNetworkPorts, &value));
   ASSERT_TRUE(value);
   ASSERT_TRUE(value->is_list());
-  ASSERT_EQ(base::size(kExpectedPorts), value->GetList().size());
+  ASSERT_EQ(std::size(kExpectedPorts), value->GetList().size());
 
   int i = 0;
   for (const base::Value& port : value->GetList()) {
@@ -245,4 +244,16 @@ TEST(ChromeCommandLinePrefStoreTest, ExplicitlyAllowedPorts) {
     EXPECT_EQ(kExpectedPorts[i], port.GetInt());
     ++i;
   }
+}
+
+TEST(ChromeCommandLinePrefStoreTest, AcceptLanguage) {
+  base::CommandLine cl(base::CommandLine::NO_PROGRAM);
+  cl.AppendSwitchASCII(switches::kAcceptLang, "de,en,fr,jp");
+  auto store = base::MakeRefCounted<ChromeCommandLinePrefStore>(&cl);
+
+  const base::Value* actual = nullptr;
+  EXPECT_TRUE(store->GetValue(language::prefs::kSelectedLanguages, &actual));
+  ASSERT_TRUE(actual);
+  ASSERT_TRUE(actual->is_string());
+  EXPECT_EQ("de,en,fr,jp", actual->GetString());
 }

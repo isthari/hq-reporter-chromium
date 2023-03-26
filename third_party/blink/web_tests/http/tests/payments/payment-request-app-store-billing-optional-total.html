@@ -10,7 +10,7 @@ test(() => {
 
 const onlySupportAppStoreBillingMethod = [{supportedMethods: "https://play.google.com/billing"}];
 const supportBothAppStoreBillingMethodAndNormalMethod = [{supportedMethods: "https://play.google.com/billing"},
-      {supportedMethods: "https://maxpay.com/payment-request"}];
+      {supportedMethods: "https://maxpay.test/payment-request"}];
 
 ["omitted", undefined].forEach(total => {
   test(() => {
@@ -35,7 +35,7 @@ const supportBothAppStoreBillingMethodAndNormalMethod = [{supportedMethods: "htt
       if (total === null) {
         expectedMessage = "Failed to construct 'PaymentRequest': Failed to read the 'total' property from 'PaymentDetailsInit': The provided value is not of type 'PaymentItem'.";
       } else {
-        expectedMessage = "Failed to construct 'PaymentRequest': Failed to read the 'total' property from 'PaymentDetailsInit': Failed to read the 'amount' property from 'PaymentItem': Failed to read the 'amount' property from 'PaymentItem': Required member is undefined.";
+        expectedMessage = "Failed to construct 'PaymentRequest': Failed to read the 'total' property from 'PaymentDetailsInit': Failed to read the 'amount' property from 'PaymentItem': Required member is undefined.";
       }
       assert_equals(err.message, expectedMessage, `Error messages mismatch.`);
       return;
@@ -57,7 +57,7 @@ const supportBothAppStoreBillingMethodAndNormalMethod = [{supportedMethods: "htt
       } else if (["omitted", undefined].includes(total)) {
         expectedMessage = "Failed to construct 'PaymentRequest': required member total is undefined.";
       } else {
-        expectedMessage = "Failed to construct 'PaymentRequest': Failed to read the 'total' property from 'PaymentDetailsInit': Failed to read the 'amount' property from 'PaymentItem': Failed to read the 'amount' property from 'PaymentItem': Required member is undefined.";
+        expectedMessage = "Failed to construct 'PaymentRequest': Failed to read the 'total' property from 'PaymentDetailsInit': Failed to read the 'amount' property from 'PaymentItem': Required member is undefined.";
       }
       assert_equals(err.message, expectedMessage,
         `Error messages mismatch.`);

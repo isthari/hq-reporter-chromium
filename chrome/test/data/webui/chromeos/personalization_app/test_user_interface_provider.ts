@@ -1,22 +1,24 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {DefaultUserImage, UserImageObserverRemote, UserInfo, UserProviderInterface} from 'chrome://personalization/trusted/personalization_app.mojom-webui.js';
+import {DefaultUserImage, UserImage, UserImageObserverRemote, UserInfo, UserProviderInterface} from 'chrome://personalization/js/personalization_app.js';
+import {BigBuffer} from 'chrome://resources/mojo/mojo/public/mojom/base/big_buffer.mojom-webui.js';
 import {Url} from 'chrome://resources/mojo/url/mojom/url.mojom-webui.js';
 import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
 
-export class TestUserProvider extends
-    TestBrowserProxy<UserProviderInterface> implements UserProviderInterface {
-  public defaultUserImages: Array<DefaultUserImage> = [
+export class TestUserProvider extends TestBrowserProxy implements
+    UserProviderInterface {
+  public defaultUserImages: DefaultUserImage[] = [
     {
       index: 8,
       title: {data: 'Test title'.split('').map(ch => ch.charCodeAt(0))},
       url: {url: 'data://test_url'},
+      sourceInfo: undefined,
     },
   ];
 
-  public image: Url = {url: 'data://avatar-url'};
+  public image: UserImage = {defaultImage: this.defaultUserImages[0]} as any;
 
   public info: UserInfo = {
     name: 'test name',
@@ -25,7 +27,7 @@ export class TestUserProvider extends
 
   public profileImage: Url = {
     url: 'data://test_profile_url',
-  }
+  };
 
   constructor() {
     super([
@@ -34,6 +36,9 @@ export class TestUserProvider extends
       'selectProfileImage',
       'getUserInfo',
       'selectDefaultImage',
+      'selectCameraImage',
+      'selectImageFromDisk',
+      'selectLastExternalUserImage',
     ]);
   }
 
@@ -50,7 +55,7 @@ export class TestUserProvider extends
   }
 
   async getDefaultUserImages():
-      Promise<{defaultUserImages: Array<DefaultUserImage>}> {
+      Promise<{defaultUserImages: DefaultUserImage[]}> {
     this.methodCalled('getDefaultUserImages');
     return Promise.resolve({defaultUserImages: this.defaultUserImages});
   }
@@ -64,5 +69,17 @@ export class TestUserProvider extends
     this.profileImage = {
       url: 'data://updated_test_url',
     };
+  }
+
+  selectCameraImage(data: BigBuffer) {
+    this.methodCalled('selectCameraImage', data);
+  }
+
+  selectImageFromDisk() {
+    this.methodCalled('selectImageFromDisk');
+  }
+
+  selectLastExternalUserImage() {
+    this.methodCalled('selectLastExternalUserImage');
   }
 }

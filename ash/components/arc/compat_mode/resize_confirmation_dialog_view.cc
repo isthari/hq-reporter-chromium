@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,9 @@
 
 #include "ash/components/arc/compat_mode/overlay_dialog.h"
 #include "ash/components/arc/compat_mode/style/arc_color_provider.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "ash/style/ash_color_id.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/color/color_id.h"
@@ -31,14 +32,14 @@ ResizeConfirmationDialogView::ResizeConfirmationDialogView(
   views::LayoutProvider* provider = views::LayoutProvider::Get();
   SetOrientation(views::BoxLayout::Orientation::kVertical);
   SetMainAxisAlignment(views::BoxLayout::MainAxisAlignment::kStart);
-  SetInsideBorderInsets(gfx::Insets(24, 24, 20, 24));
+  SetInsideBorderInsets(gfx::Insets::TLBR(24, 24, 20, 24));
   SetBetweenChildSpacing(
       provider->GetDistanceMetric(views::DISTANCE_RELATED_CONTROL_VERTICAL));
 
   constexpr int kCornerRadius = 12;
   auto border = std::make_unique<views::BubbleBorder>(
       views::BubbleBorder::NONE, views::BubbleBorder::STANDARD_SHADOW,
-      GetDialogBackgroundBaseColor());
+      ash::kColorAshDialogBackgroundColor);
   border->SetCornerRadius(kCornerRadius);
   SetBackground(std::make_unique<views::BubbleBackground>(border.get()));
   SetBorder(std::move(border));
@@ -89,7 +90,7 @@ std::unique_ptr<views::View> ResizeConfirmationDialogView::MakeContentsView() {
   return views::Builder<views::BoxLayoutView>()
       .SetOrientation(views::BoxLayout::Orientation::kVertical)
       .SetBetweenChildSpacing(19)
-      .SetProperty(views::kMarginsKey, gfx::Insets(0, 0, 23, 0))
+      .SetProperty(views::kMarginsKey, gfx::Insets::TLBR(0, 0, 23, 0))
       .AddChildren(views::Builder<views::Label>()
                        .SetText(l10n_util::GetStringUTF16(
                            IDS_ASH_ARC_APP_COMPAT_RESIZE_CONFIRM_BODY))

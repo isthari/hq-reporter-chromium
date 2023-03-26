@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,7 @@
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
+#include "ash/wm/float/float_controller.h"
 #include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/overview/overview_session.h"
@@ -28,10 +29,12 @@
 #include "ash/wm/window_positioning_utils.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/wm_event.h"
-#include "base/bind.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/ranges/algorithm.h"
 #include "chromeos/ui/base/chromeos_ui_constants.h"
 #include "chromeos/ui/frame/interior_resize_handler_targeter.h"
+#include "chromeos/ui/wm/features.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/capture_client.h"
 #include "ui/aura/client/focus_client.h"
@@ -86,8 +89,11 @@ class InteriorResizeHandleTargeterAsh
 }  // namespace
 
 aura::Window* GetActiveWindow() {
-  return ::wm::GetActivationClient(Shell::GetPrimaryRootWindow())
-      ->GetActiveWindow();
+  if (auto* activation_client =
+          wm::GetActivationClient(Shell::GetPrimaryRootWindow())) {
+    return activation_client->GetActiveWindow();
+  }
+  return nullptr;
 }
 
 aura::Window* GetFocusedWindow() {
@@ -178,9 +184,7 @@ int GetNonClientComponent(aura::Window* window, const gfx::Point& location) {
 }
 
 void SetChildrenUseExtendedHitRegionForWindow(aura::Window* window) {
-  gfx::Insets mouse_extend(
-      -chromeos::kResizeOutsideBoundsSize, -chromeos::kResizeOutsideBoundsSize,
-      -chromeos::kResizeOutsideBoundsSize, -chromeos::kResizeOutsideBoundsSize);
+  gfx::Insets mouse_extend(-chromeos::kResizeOutsideBoundsSize);
   gfx::Insets touch_extend = gfx::ScaleToFlooredInsets(
       mouse_extend, chromeos::kResizeOutsideBoundsScaleForTouch);
   window->SetEventTargeter(std::make_unique<::wm::EasyResizeWindowTargeter>(
@@ -267,12 +271,19 @@ void MinimizeAndHideWithoutAnimation(
     // minimization. We minimize ARC windows first so they receive occlusion
     // updates before losing focus from being hidden. See crbug.com/910304.
     // TODO(oshima): Investigate better way to handle ARC apps immediately.
-    WindowState::Get(window)->Minimize();
+
+    // Suspect some callsites may use this on a window without a window state
+    // (`aura::client::WINDOW_TYPE_CONTROL`) or windows that cannot be
+    // minimized. See https://crbug.com/1200596.
+    auto* window_state = WindowState::Get(window);
+    if (window_state && window_state->CanMinimize())
+      window_state->Minimize();
 
     window->Hide();
   }
+
   if (windows.size()) {
-    // Disable the animations using |disable|. However, doing so will skip
+    // Disabling the animations using `ScopedAnimationDisabler` will skip
     // detaching the resources associated with the layer. So we have to trick
     // the compositor into releasing the resources.
     // crbug.com/924802.
@@ -313,8 +324,7 @@ void ExpandArcPipWindow() {
     return;
 
   auto pip_window_iter =
-      std::find_if(pip_container->children().begin(),
-                   pip_container->children().end(), IsArcPipWindow);
+      base::ranges::find_if(pip_container->children(), IsArcPipWindow);
   if (pip_window_iter == pip_container->children().end())
     return;
 
@@ -345,8 +355,33 @@ aura::Window* GetTopWindow() {
   return windows.empty() ? nullptr : windows[0];
 }
 
+aura::Window* GetTopNonFloatedWindow() {
+  MruWindowTracker::WindowList windows =
+      Shell::Get()->mru_window_tracker()->BuildWindowForCycleList(kActiveDesk);
+  for (aura::Window* window : windows) {
+    if (!WindowState::Get(window)->IsFloated())
+      return window;
+  }
+  return nullptr;
+}
+
+aura::Window* GetFloatedWindowForActiveDesk() {
+  if (!chromeos::wm::features::IsFloatWindowEnabled()) {
+    return nullptr;
+  }
+
+  auto* float_controller = Shell::Get()->float_controller();
+  DCHECK(float_controller);
+  return float_controller->FindFloatedWindowOfDesk(
+      DesksController::Get()->GetTargetActiveDesk());
+}
+
 bool ShouldMinimizeTopWindowOnBack() {
   Shell* shell = Shell::Get();
+  // We never want to minimize the main app window in the Kiosk session.
+  if (shell->session_controller()->IsRunningInAppMode())
+    return false;
+
   if (!shell->tablet_mode_controller()->InTabletMode())
     return false;
 
@@ -380,6 +415,21 @@ bool ShouldMinimizeTopWindowOnBack() {
   return !shell->shell_delegate()->CanGoBack(window);
 }
 
+bool IsMinimizedOrTucked(aura::Window* window) {
+  DCHECK(window->parent());
+
+  WindowState* window_state = WindowState::Get(window);
+  if (!window_state) {
+    return false;
+  }
+  if (window_state->IsFloated()) {
+    return !window->is_destroying() &&
+           Shell::Get()->float_controller()->IsFloatedWindowTuckedForTablet(
+               window);
+  }
+  return window_state->IsMinimized();
+}
+
 void SendBackKeyEvent(aura::Window* root_window) {
   // Send up event as well as down event as ARC++ clients expect this
   // sequence.
@@ -411,19 +461,18 @@ gfx::RectF GetTransformedBounds(aura::Window* transformed_window,
       continue;
     }
     gfx::RectF window_bounds(window->GetTargetBounds());
-    gfx::Transform new_transform =
-        TransformAboutPivot(gfx::ToRoundedPoint(window_bounds.origin()),
-                            window->layer()->GetTargetTransform());
-    new_transform.TransformRect(&window_bounds);
+    const gfx::Transform new_transform = TransformAboutPivot(
+        window_bounds.origin(), window->layer()->GetTargetTransform());
+    window_bounds = new_transform.MapRect(window_bounds);
 
     // The preview title is shown above the preview window. Hide the window
     // header for apps or browser windows with no tabs (web apps) to avoid
     // showing both the window header and the preview title.
     if (top_inset > 0) {
-      gfx::RectF header_bounds(window_bounds);
+      gfx::RectF header_bounds = window_bounds;
       header_bounds.set_height(top_inset);
-      new_transform.TransformRect(&header_bounds);
-      window_bounds.Inset(0, header_bounds.height(), 0, 0);
+      header_bounds = new_transform.MapRect(header_bounds);
+      window_bounds.Inset(gfx::InsetsF::TLBR(header_bounds.height(), 0, 0, 0));
     }
     ::wm::TranslateRectToScreen(window->parent(), &window_bounds);
     bounds.Union(window_bounds);

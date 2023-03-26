@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/no_destructor.h"
 #include "components/history/core/browser/history_constants.h"
 #include "components/history/core/browser/top_sites_impl.h"
@@ -51,10 +51,10 @@ scoped_refptr<RefcountedKeyedService> TopSitesFactory::BuildServiceInstanceFor(
   history::HistoryService* history_service =
       ios::HistoryServiceFactory::GetForBrowserState(
           browser_state, ServiceAccessType::EXPLICIT_ACCESS);
-  scoped_refptr<history::TopSitesImpl> top_sites(
-      new history::TopSitesImpl(browser_state->GetPrefs(), history_service,
-                                history::PrepopulatedPageList(),
-                                base::BindRepeating(CanAddURLToHistory)));
+  scoped_refptr<history::TopSitesImpl> top_sites(new history::TopSitesImpl(
+      browser_state->GetPrefs(), history_service,
+      /*template_url_service=*/nullptr, history::PrepopulatedPageList(),
+      base::BindRepeating(CanAddURLToHistory)));
   top_sites->Init(
       browser_state->GetStatePath().Append(history::kTopSitesFilename));
   return top_sites;

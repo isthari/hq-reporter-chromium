@@ -1,96 +1,157 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-/**
- * Namespace for async utility functions.
- */
-const AsyncUtil = {};
-
-/**
- * Asynchronous version of Array.forEach.
- * This executes a provided function callback once per array element, then
- * run completionCallback to notify the completion.
- * The callback can be an asynchronous function, but the execution is
- * sequentially done.
- *
- * @param {Array<T>} array The array to be iterated.
- * @param {function(function(), T, number, Array<T>)} callback The iteration
- *     callback. The first argument is a callback to notify the completion of
- *     the iteration.
- * @param {function()} completionCallback Called when all iterations are
- *     completed.
- * @param {Object=} opt_thisObject Bound to callback if given.
- * @template T
- */
-AsyncUtil.forEach = (array, callback, completionCallback, opt_thisObject) => {
-  if (opt_thisObject) {
-    callback = callback.bind(opt_thisObject);
-  }
-
-  const queue = new AsyncUtil.Queue();
-  for (let i = 0; i < array.length; i++) {
-    queue.run(((element, index, iterationCompletionCallback) => {
-                callback(iterationCompletionCallback, element, index, array);
-              }).bind(null, array[i], i));
-  }
-  queue.run(iterationCompletionCallback => {
-    completionCallback();  // Don't pass iteration completion callback.
-  });
-};
 
 /**
  * Creates a class for executing several asynchronous closures in a fifo queue.
  * Added tasks will be started in order they were added. Tasks are run
  * concurrently. At most, |limit| jobs will be run at the same time.
  */
-AsyncUtil.ConcurrentQueue = class {
+export class ConcurrentQueue {
   /**
-   * @param {number} limit The number of jobs to run at the same time.
+   * @param {number} limit The number of tasks to run at the same time.
    */
   constructor(limit) {
     console.assert(limit > 0, '|limit| must be larger than 0');
-
     this.limit_ = limit;
-    this.addedTasks_ = [];
-    this.pendingTasks_ = [];
-    this.isCancelled_ = false;
+    this.added_ = [];
+    this.running_ = [];
+    this.cancelled_ = false;
   }
 
   /**
    * @return {boolean} True when a task is running, otherwise false.
    */
   isRunning() {
-    return this.pendingTasks_.length !== 0;
+    return this.running_.length !== 0;
   }
 
   /**
    * @return {number} Number of waiting tasks.
    */
   getWaitingTasksCount() {
-    return this.addedTasks_.length;
+    return this.added_.length;
   }
 
   /**
    * @return {number} Number of running tasks.
    */
   getRunningTasksCount() {
-    return this.pendingTasks_.length;
+    return this.running_.length;
   }
 
   /**
-   * Enqueues a closure to be executed.
-   * @param {function(function())} closure Closure with a completion
-   *     callback to be executed.
+   * Enqueues a task for running as soon as possible. If there is already the
+   * maximum number of tasks running, the run of this task is delayed until less
+   * than the limit given at the construction time of tasks are running.
+   * @param {function(function())} task The task to be enqueued for execution.
    */
-  run(closure) {
-    if (this.isCancelled_) {
-      console.error('Queue is cancelled. Cannot add a new task.');
-      return;
+  run(task) {
+    if (this.cancelled_) {
+      console.warn('Queue is cancelled. Cannot add a new task.');
+    } else {
+      this.added_.push(task);
+      this.scheduleNext_();
     }
+  }
 
-    this.addedTasks_.push(closure);
-    this.continue_();
+  /**
+   * Cancels the queue. It removes all the not-run (yet) tasks. Note that this
+   * does NOT stop tasks currently running.
+   */
+  cancel() {
+    this.cancelled_ = true;
+    this.added_ = [];
+  }
+
+  /**
+   * @return {boolean} True when the queue have been requested to cancel or is
+   *      already cancelled. Otherwise false.
+   */
+  isCancelled() {
+    return this.cancelled_;
+  }
+
+  /**
+   * Attempts to run another tasks. If there is less than the maximum number
+   * of task running, it immediately executes the task at the front of
+   * the queue.
+   */
+  maybeExecute_() {
+    if (this.added_.length > 0) {
+      if (this.running_.length < this.limit_) {
+        this.execute_(this.added_.shift());
+      }
+    }
+  }
+
+  /**
+   * Executes the given task. The task is placed in the list of running tasks
+   * and immediately executed.
+   * @param {function(function())} task The task to be immediately executed.
+   */
+  execute_(task) {
+    this.running_.push(task);
+    try {
+      task(this.onTaskFinished_.bind(this, task));
+      // If the task executes successfully, it calls the callback, where we
+      // schedule a next run.
+    } catch (e) {
+      console.warn('Failed to execute a task', e);
+      // If the task fails we call the callback explicitly.
+      this.onTaskFinished_(task);
+    }
+  }
+
+  /**
+   * Handles a task being finished.
+   */
+  onTaskFinished_(task) {
+    this.removeTask_(task);
+    this.scheduleNext_();
+  }
+
+  /**
+   * Attempts to remove the task that was running.
+   */
+  removeTask_(task) {
+    const index = this.running_.indexOf(task);
+    if (index >= 0) {
+      this.running_.splice(index, 1);
+    } else {
+      console.warn('Failed to find a finished task among running');
+    }
+  }
+
+  /**
+   * Schedules the next attempt at execution of the task at the front of
+   * the queue.
+   */
+  scheduleNext_() {
+    // TODO(1350885): Use setTimeout(()=>{this.maybeExecute();});
+    this.maybeExecute_();
+  }
+
+  /**
+   * Returns string representation of current ConcurrentQueue
+   * instance.
+   * @return {string} String representation of the instance.
+   */
+  toString() {
+    return 'ConcurrentQueue\n' +
+        '- WaitingTasksCount: ' + this.getWaitingTasksCount() + '\n' +
+        '- RunningTasksCount: ' + this.getRunningTasksCount() + '\n' +
+        '- isCancelled: ' + this.isCancelled();
+  }
+}
+
+/**
+ * Creates a class for executing several asynchronous closures in a fifo queue.
+ * Added tasks will be executed sequentially in order they were added.
+ */
+export class AsyncQueue extends ConcurrentQueue {
+  constructor() {
+    super(1);
   }
 
   /**
@@ -110,79 +171,12 @@ AsyncUtil.ConcurrentQueue = class {
   async lock() {
     return new Promise(resolve => this.run(unlock => resolve(unlock)));
   }
-
-  /**
-   * Cancels the queue. It removes all the not-run (yet) tasks. Note that this
-   * does NOT stop tasks currently running.
-   */
-  cancel() {
-    this.isCancelled_ = true;
-    this.addedTasks_ = [];
-  }
-
-  /**
-   * @return {boolean} True when the queue have been requested to cancel or is
-   *      already cancelled. Otherwise false.
-   */
-  isCancelled() {
-    return this.isCancelled_;
-  }
-
-  /**
-   * Runs the next tasks if available.
-   * @private
-   */
-  continue_() {
-    while (this.addedTasks_.length > 0 &&
-           this.pendingTasks_.length < this.limit_) {
-      // Run the next closure.
-      const closure = this.addedTasks_.shift();
-      this.pendingTasks_.push(closure);
-      closure(this.onTaskFinished_.bind(this, closure));
-    }
-  }
-
-  /**
-   * Called when a task is finished. Removes the tasks from pending task list.
-   * @param {function()} closure Finished task, which has been bound in
-   *     |continue_|.
-   * @private
-   */
-  onTaskFinished_(closure) {
-    const index = this.pendingTasks_.indexOf(closure);
-    console.assert(index >= 0, 'Invalid task is finished');
-    this.pendingTasks_.splice(index, 1);
-
-    this.continue_();
-  }
-
-  /**
-   * Returns string representation of current AsyncUtil.ConcurrentQueue
-   * instance.
-   * @return {string} String representation of the instance.
-   */
-  toString() {
-    return 'AsyncUtil.ConcurrentQueue\n' +
-        '- WaitingTasksCount: ' + this.getWaitingTasksCount() + '\n' +
-        '- RunningTasksCount: ' + this.getRunningTasksCount() + '\n' +
-        '- isCancelled: ' + this.isCancelled();
-  }
-};
+}
 
 /**
- * Creates a class for executing several asynchronous closures in a fifo queue.
- * Added tasks will be executed sequentially in order they were added.
+ * A task which is executed by Group.
  */
-AsyncUtil.Queue = class Queue extends AsyncUtil.ConcurrentQueue {
-  constructor() {
-    super(1);
-  }
-};
-
-/**
- * A task which is executed by AsyncUtil.Group.
- */
-AsyncUtil.GroupTask = class {
+export class GroupTask {
   /**
    * @param {!function(function())} closure Closure with a completion callback
    *     to be executed.
@@ -196,21 +190,21 @@ AsyncUtil.GroupTask = class {
   }
 
   /**
-   * Returns string representation of AsyncUtil.GroupTask instance.
+   * Returns string representation of GroupTask instance.
    * @return {string} String representation of the instance.
    */
   toString() {
-    return 'AsyncUtil.GroupTask\n' +
+    return 'GroupTask\n' +
         '- name: ' + this.name + '\n' +
         '- dependencies: ' + this.dependencies.join();
   }
-};
+}
 
 /**
  * Creates a class for executing several asynchronous closures in a group in
  * a dependency order.
  */
-AsyncUtil.Group = class {
+export class Group {
   constructor() {
     this.addedTasks_ = {};
     this.pendingTasks_ = {};
@@ -219,7 +213,7 @@ AsyncUtil.Group = class {
   }
 
   /**
-   * @return {!Object<AsyncUtil.GroupTask>} Pending tasks
+   * @return {!Object<GroupTask>} Pending tasks
    */
   get pendingTasks() {
     return this.pendingTasks_;
@@ -238,7 +232,7 @@ AsyncUtil.Group = class {
     const length = Object.keys(this.addedTasks_).length;
     const name = opt_name || ('(unnamed#' + (length + 1) + ')');
 
-    const task = new AsyncUtil.GroupTask(closure, opt_dependencies || [], name);
+    const task = new GroupTask(closure, opt_dependencies || [], name);
 
     this.addedTasks_[name] = task;
     this.pendingTasks_[name] = task;
@@ -300,7 +294,7 @@ AsyncUtil.Group = class {
     this.finishedTasks_[task.name] = task;
     this.continue_();
   }
-};
+}
 
 /**
  * Aggregates consecutive calls and executes the closure only once instead of
@@ -308,7 +302,7 @@ AsyncUtil.Group = class {
  * consecutive ones are aggregated and the closure is called only once once
  * |delay| amount of time passes after the last call to run().
  */
-AsyncUtil.Aggregator = class {
+export class Aggregator {
   /**
    * @param {function()} closure Closure to be aggregated.
    * @param {number=} opt_delay Minimum aggregation time in milliseconds.
@@ -378,14 +372,14 @@ AsyncUtil.Aggregator = class {
       this.scheduledRunsTimer_ = null;
     }
   }
-};
+}
 
 /**
  * Samples calls so that they are not called too frequently.
  * The first call is always called immediately, and the following calls may
  * be skipped or delayed to keep each interval no less than |minInterval_|.
  */
-AsyncUtil.RateLimiter = class {
+export class RateLimiter {
   /**
    * @param {function()} closure Closure to be called.
    * @param {number=} opt_minInterval Minimum interval between each call in
@@ -461,6 +455,4 @@ AsyncUtil.RateLimiter = class {
       this.scheduledRunsTimer_ = 0;
     }
   }
-};
-
-export {AsyncUtil};
+}

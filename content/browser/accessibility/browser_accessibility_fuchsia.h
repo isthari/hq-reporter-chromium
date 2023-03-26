@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -66,6 +66,18 @@ class CONTENT_EXPORT BrowserAccessibilityFuchsia : public BrowserAccessibility {
   fuchsia::ui::gfx::BoundingBox GetFuchsiaLocation() const;
   fuchsia::ui::gfx::mat4 GetFuchsiaTransform() const;
   std::vector<uint32_t> GetFuchsiaChildIDs() const;
+
+  // Returns true if this AXNode has role AXRole::kList.
+  // This may need to be expanded later to include more roles, maybe using
+  // ui::IsList
+  // (https://source.chromium.org/chromium/chromium/src/+/main:ui/accessibility/ax_role_properties.cc;l=399;drc=2c712b0d61f0788c0ed1b05176ae7430e8c705e5;bpv=1;bpt=1).
+  bool IsList() const;
+
+  // Returns true if this AXNode has role AXRole::klistItem.
+  // This may need to be expanded later to include more roles, maybe using
+  // ui::IsListItem
+  // (https://source.chromium.org/chromium/chromium/src/+/main:ui/accessibility/ax_role_properties.cc;drc=2c712b0d61f0788c0ed1b05176ae7430e8c705e5;l=413).
+  bool IsListElement() const;
 
   // Fuchsia-specific representation of this node.
   ui::AXPlatformNodeFuchsia* platform_node_;

@@ -1,6 +1,10 @@
 Tests ARIA 1.1 accessibility markup.
 {
     childIds : <object>
+    chromeRole : {
+        type : internalRole
+        value : 170
+    }
     domNode : input
     ignored : false
     name : {
@@ -18,14 +22,18 @@ Tests ARIA 1.1 accessibility markup.
                 type : relatedElement
             }
             [3] : {
+                attribute : title
+                type : attribute
+            }
+            [4] : {
                 attribute : placeholder
                 type : placeholder
             }
-            [4] : {
+            [5] : {
                 attribute : aria-placeholder
                 type : placeholder
             }
-            [5] : {
+            [6] : {
                 attribute : title
                 type : attribute
             }
@@ -105,6 +113,10 @@ Tests ARIA 1.1 accessibility markup.
 }
 {
     childIds : <object>
+    chromeRole : {
+        type : internalRole
+        value : 99
+    }
     domNode : img
     ignored : false
     name : {
@@ -163,6 +175,10 @@ Tests ARIA 1.1 accessibility markup.
 }
 {
     childIds : <object>
+    chromeRole : {
+        type : internalRole
+        value : 9
+    }
     domNode : button
     ignored : false
     name : {
@@ -227,6 +243,10 @@ Tests ARIA 1.1 accessibility markup.
 }
 {
     childIds : <object>
+    chromeRole : {
+        type : internalRole
+        value : 14
+    }
     domNode : input
     ignored : false
     name : {

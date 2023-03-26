@@ -1,9 +1,13 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 source_set("digital_asset_links") {
   sources = [
+    "browser_url_loader_throttle.cc",
+    "browser_url_loader_throttle.h",
+    "digital_asset_links_constants.cc",
+    "digital_asset_links_constants.h",
     "digital_asset_links_handler.cc",
     "digital_asset_links_handler.h",
   ]
@@ -11,11 +15,19 @@ source_set("digital_asset_links") {
   deps = [
     "//base",
     "//content/public/browser",
+    "//content/public/common",
     "//net",
     "//services/data_decoder/public/cpp",
     "//services/network/public/cpp",
     "//url",
   ]
+  if (is_android) {
+    sources += [
+      "origin_verifier.cc",
+      "origin_verifier.h",
+    ]
+    deps += [ "//components/digital_asset_links/android:jni_headers" ]
+  }
 }
 
 source_set("unit_tests") {

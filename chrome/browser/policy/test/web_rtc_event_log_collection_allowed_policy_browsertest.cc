@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <string>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/run_loop.h"
 #include "base/values.h"
 #include "chrome/browser/media/webrtc/webrtc_event_log_manager.h"
@@ -99,7 +99,7 @@ IN_PROC_BROWSER_TEST_P(WebRtcEventLogCollectionAllowedPolicyTest, RunTest) {
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   content::GlobalRenderFrameHostId frame_id =
-      web_contents->GetMainFrame()->GetGlobalId();
+      web_contents->GetPrimaryMainFrame()->GetGlobalId();
 
   constexpr int kLid = 123;
   const std::string kSessionId = "id";

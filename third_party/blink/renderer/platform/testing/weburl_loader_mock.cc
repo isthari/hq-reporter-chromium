@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/task/single_thread_task_runner.h"
 #include "net/cookies/site_for_cookies.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "third_party/blink/public/platform/resource_load_info_notifier_wrapper.h"
@@ -83,9 +84,9 @@ WebURL WebURLLoaderMock::ServeRedirect(
 
   bool report_raw_headers = false;
   bool follow = client_->WillFollowRedirect(
-      redirect_url, net::SiteForCookies::FromUrl(redirect_url), WebString(),
-      network::mojom::ReferrerPolicy::kDefault, method, redirect_response,
-      report_raw_headers, nullptr /* removed_headers */,
+      redirect_url, net::SiteForCookies::FromUrl(GURL(redirect_url)),
+      WebString(), network::mojom::ReferrerPolicy::kDefault, method,
+      redirect_response, report_raw_headers, nullptr /* removed_headers */,
       false /* insecure_scheme_was_upgraded */);
   // |this| might be deleted in willFollowRedirect().
   if (!self)
@@ -108,7 +109,7 @@ void WebURLLoaderMock::LoadSynchronously(
     absl::optional<WebURLError>& error,
     WebData& data,
     int64_t& encoded_data_length,
-    int64_t& encoded_body_length,
+    uint64_t& encoded_body_length,
     blink::WebBlobInfo& downloaded_blob,
     std::unique_ptr<blink::ResourceLoadInfoNotifierWrapper>
         resource_load_info_notifier_wrapper) {

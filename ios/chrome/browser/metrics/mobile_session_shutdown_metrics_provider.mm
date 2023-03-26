@@ -1,30 +1,28 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/metrics/mobile_session_shutdown_metrics_provider.h"
+#import "ios/chrome/browser/metrics/mobile_session_shutdown_metrics_provider.h"
 
 #import <Foundation/Foundation.h>
 
-#include "base/logging.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/path_service.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/system/sys_info.h"
-#include "base/task/post_task.h"
-#include "base/task/thread_pool.h"
-#include "base/version.h"
+#import "base/logging.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/path_service.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/system/sys_info.h"
+#import "base/task/thread_pool.h"
+#import "base/version.h"
 #import "components/breadcrumbs/core/breadcrumb_persistent_storage_manager.h"
-#include "components/breadcrumbs/core/features.h"
-#include "components/metrics/metrics_pref_names.h"
-#include "components/metrics/metrics_service.h"
+#import "components/breadcrumbs/core/features.h"
+#import "components/metrics/metrics_pref_names.h"
+#import "components/metrics/metrics_service.h"
 #import "components/previous_session_info/previous_session_info.h"
-#include "components/version_info/version_info.h"
-#include "ios/chrome/browser/application_context.h"
-#include "ios/chrome/browser/crash_report/crash_helper.h"
-#include "ios/chrome/browser/crash_report/features.h"
-#include "ios/chrome/browser/crash_report/main_thread_freeze_detector.h"
-#include "ios/chrome/browser/crash_report/synthetic_crash_report_util.h"
+#import "components/version_info/version_info.h"
+#import "ios/chrome/browser/application_context/application_context.h"
+#import "ios/chrome/browser/crash_report/crash_helper.h"
+#import "ios/chrome/browser/crash_report/features.h"
+#import "ios/chrome/browser/crash_report/main_thread_freeze_detector.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -192,19 +190,18 @@ void LogStabilityIOSExperimentalCounts(
       return;
   };
 
-  UMA_STABILITY_HISTOGRAM_ENUMERATION(
-      "Stability.iOS.Experimental.Counts", type,
-      IOSStabilityUserVisibleCrashType::kMaxValue);
+  UMA_STABILITY_HISTOGRAM_ENUMERATION("Stability.iOS.Experimental.Counts2",
+                                      type);
 }
 
-// Logs |type| in the shutdown type histogram.
+// Logs `type` in the shutdown type histogram.
 void LogShutdownType(MobileSessionShutdownType type) {
   UMA_STABILITY_HISTOGRAM_ENUMERATION("Stability.MobileSessionShutdownType",
                                       type, MOBILE_SESSION_SHUTDOWN_TYPE_COUNT);
 }
 
 // Logs the time which the application was in the background between
-// |session_end_time| and now.
+// `session_end_time` and now.
 void LogApplicationBackgroundedTime(NSDate* session_end_time) {
   NSTimeInterval background_time =
       [[NSDate date] timeIntervalSinceDate:session_end_time];
@@ -213,20 +210,20 @@ void LogApplicationBackgroundedTime(NSDate* session_end_time) {
       base::Seconds(background_time));
 }
 
-// Logs the device |battery_level| as a UTE stability metric.
+// Logs the device `battery_level` as a UTE stability metric.
 void LogBatteryCharge(float battery_level) {
   int battery_charge = static_cast<int>(battery_level * 100);
   UMA_STABILITY_HISTOGRAM_PERCENTAGE("Stability.iOS.UTE.BatteryCharge",
                                      battery_charge);
 }
 
-// Logs the device's |available_storage| as a UTE stability metric.
+// Logs the device's `available_storage` as a UTE stability metric.
 void LogAvailableStorage(NSInteger available_storage) {
   UMA_STABILITY_HISTOGRAM_CUSTOM_COUNTS("Stability.iOS.UTE.AvailableStorage",
                                         available_storage, 1, 200000, 100);
 }
 
-// Logs the OS version change between |os_version| and the current os version.
+// Logs the OS version change between `os_version` and the current os version.
 // Records whether the version is the same, if a minor version change occurred,
 // or if a major version change occurred.
 void LogOSVersionChange(std::string os_version) {
@@ -258,27 +255,6 @@ void LogDeviceThermalState(DeviceThermalState thermal_state) {
   UMA_STABILITY_HISTOGRAM_ENUMERATION("Stability.iOS.UTE.DeviceThermalState",
                                       thermal_state,
                                       DeviceThermalState::kMaxValue);
-}
-
-// Creates Synthetic Crash Report for Unexplained Termination Event to be
-// uploaded by Breakpad.
-void CreateSyntheticCrashReportWithBreadcrumbs(
-    std::vector<std::string> breadcrumbs) {
-  base::FilePath cache_dir_path;
-  base::PathService::Get(base::DIR_CACHE, &cache_dir_path);
-  NSDictionary* info_dict = NSBundle.mainBundle.infoDictionary;
-
-  base::ThreadPool::PostTask(
-      FROM_HERE, {base::MayBlock()},
-      base::BindOnce(
-          &CreateSyntheticCrashReportForUte,
-          cache_dir_path.Append(FILE_PATH_LITERAL("Breakpad")),
-          base::SysNSStringToUTF8(info_dict[@"BreakpadProductDisplay"]),
-          // Separate product makes throttling on the server easier.
-          base::SysNSStringToUTF8([NSString
-              stringWithFormat:@"%@_UTE", info_dict[@"BreakpadProduct"]]),
-          base::SysNSStringToUTF8(info_dict[@"BreakpadVersion"]),
-          base::SysNSStringToUTF8(info_dict[@"BreakpadURL"]), breadcrumbs));
 }
 
 }  // namespace
@@ -388,18 +364,6 @@ void MobileSessionShutdownMetricsProvider::ProvidePreviousSessionData(
         "Stability.iOS.UTE.MobileSessionAppWillTerminateWasReceived",
         GetMobileSessionAppWillTerminateWasReceived(possible_explanation),
         MobileSessionAppWillTerminateWasReceived::kMaxValue);
-
-    if (!possible_explanation && EnableSyntheticCrashReportsForUte() &&
-        GetApplicationContext()->GetLocalState()->GetBoolean(
-            metrics::prefs::kMetricsReportingEnabled)) {
-      // UTEs are so common that there will be a little or no value from
-      // generating crash reports for XTEs.
-
-      GetApplicationContext()
-          ->GetBreadcrumbPersistentStorageManager()
-          ->GetStoredEvents(
-              base::BindOnce(CreateSyntheticCrashReportWithBreadcrumbs));
-    }
   } else if (shutdown_type ==
                  SHUTDOWN_IN_FOREGROUND_WITH_CRASH_LOG_NO_MEMORY_WARNING ||
              shutdown_type ==

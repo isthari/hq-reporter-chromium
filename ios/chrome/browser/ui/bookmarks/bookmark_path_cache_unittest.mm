@@ -1,15 +1,15 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/ui/bookmarks/bookmark_path_cache.h"
+#import "ios/chrome/browser/ui/bookmarks/bookmark_path_cache.h"
 
-#include "components/bookmarks/browser/bookmark_model.h"
-#include "components/sync_preferences/testing_pref_service_syncable.h"
-#include "ios/chrome/browser/ui/bookmarks/bookmark_ios_unittest.h"
-#include "testing/gtest/include/gtest/gtest.h"
-#include "testing/gtest_mac.h"
-#include "testing/platform_test.h"
+#import "components/bookmarks/browser/bookmark_model.h"
+#import "components/sync_preferences/testing_pref_service_syncable.h"
+#import "ios/chrome/browser/bookmarks/bookmark_ios_unit_test_support.h"
+#import "testing/gtest/include/gtest/gtest.h"
+#import "testing/gtest_mac.h"
+#import "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -19,10 +19,10 @@ using bookmarks::BookmarkNode;
 
 namespace {
 
-class BookmarkPathCacheTest : public BookmarkIOSUnitTest {
+class BookmarkPathCacheTest : public BookmarkIOSUnitTestSupport {
  protected:
   void SetUp() override {
-    BookmarkIOSUnitTest::SetUp();
+    BookmarkIOSUnitTestSupport::SetUp();
     [BookmarkPathCache registerBrowserStatePrefs:prefs_.registry()];
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@ import android.util.TypedValue;
 
 import androidx.annotation.AttrRes;
 import androidx.annotation.ColorInt;
+import androidx.annotation.ColorRes;
 
 /** Helper functions for working with attributes. */
 public final class AttrUtils {
@@ -27,5 +28,19 @@ public final class AttrUtils {
         TypedValue typedValue = new TypedValue();
         theme.resolveAttribute(attrRes, typedValue, /*resolveRefs=*/true);
         return typedValue.data;
+    }
+
+    /**
+     * Returns the given color attribute from the theme or resolves and returns the given default
+     * resource if the attribute is not set in the theme.
+     */
+    public static @ColorInt int resolveColor(
+            Theme theme, @AttrRes int attrRes, @ColorRes int defaultColorRes) {
+        TypedValue typedValue = new TypedValue();
+        if (theme.resolveAttribute(attrRes, typedValue, /*resolveRefs=*/true)) {
+            return typedValue.data;
+        } else {
+            return theme.getResources().getColor(defaultColorRes, theme);
+        }
     }
 }

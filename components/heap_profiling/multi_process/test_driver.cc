@@ -1,22 +1,22 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/heap_profiling/multi_process/test_driver.h"
 
-#include <algorithm>
 #include <memory>
 #include <string>
 
 #include "base/allocator/partition_allocator/partition_root.h"
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/containers/contains.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/process/process_handle.h"
 #include "base/run_loop.h"
 #include "base/sampling_heap_profiler/poisson_allocation_sampler.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/bind.h"
 #include "base/threading/platform_thread.h"
 #include "base/trace_event/heap_profiler.h"
@@ -30,6 +30,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/tracing_controller.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace heap_profiling {
 
@@ -88,8 +89,8 @@ int NumProcessesWithName(base::Value* dump_json,
                          std::string name,
                          std::vector<int>* pids) {
   int num_processes = 0;
-  base::Value* events = dump_json->FindKey("traceEvents");
-  for (const base::Value& event : events->GetList()) {
+  base::Value::List* events = dump_json->GetDict().FindList("traceEvents");
+  for (const base::Value& event : *events) {
     const base::Value* found_name =
         event.FindKeyOfType("name", base::Value::Type::STRING);
     if (!found_name)
@@ -125,10 +126,10 @@ int NumProcessesWithName(base::Value* dump_json,
 base::Value* FindArgDump(base::ProcessId pid,
                          base::Value* dump_json,
                          const char* arg) {
-  base::Value* events = dump_json->FindKey("traceEvents");
+  base::Value::List* events = dump_json->GetDict().FindList("traceEvents");
   base::Value* dumps = nullptr;
   base::Value* heaps_v2 = nullptr;
-  for (base::Value& event : events->GetList()) {
+  for (base::Value& event : *events) {
     const base::Value* found_name =
         event.FindKeyOfType("name", base::Value::Type::STRING);
     if (!found_name)
@@ -161,29 +162,30 @@ using NodeMap = std::unordered_map<uint64_t, Node>;
 bool ParseTypes(base::Value* heaps_v2, NodeMap* output) {
   base::Value* types = heaps_v2->FindPath({"maps", "types"});
   for (const base::Value& type_value : types->GetList()) {
-    const base::Value* id = type_value.FindKey("id");
-    const base::Value* name_sid = type_value.FindKey("name_sid");
+    const absl::optional<int> id = type_value.GetDict().FindInt("id");
+    const absl::optional<int> name_sid =
+        type_value.GetDict().FindInt("name_sid");
     if (!id || !name_sid) {
       LOG(ERROR) << "Node missing id or name_sid field";
       return false;
     }
 
     Node node;
-    node.name_id = name_sid->GetInt();
-    (*output)[id->GetInt()] = node;
+    node.name_id = *name_sid;
+    (*output)[*id] = node;
   }
 
   base::Value* strings = heaps_v2->FindPath({"maps", "strings"});
-  for (const base::Value& string_value : strings->GetList()) {
-    const base::Value* id = string_value.FindKey("id");
-    const base::Value* string = string_value.FindKey("string");
+  for (const base::Value& string_dict : strings->GetList()) {
+    const absl::optional<int> id = string_dict.GetDict().FindInt("id");
+    const std::string* string = string_dict.GetDict().FindString("string");
     if (!id || !string) {
       LOG(ERROR) << "String struct missing id or string field";
       return false;
     }
     for (auto& pair : *output) {
-      if (pair.second.name_id == id->GetInt()) {
-        pair.second.name = string->GetString();
+      if (pair.second.name_id == id.value()) {
+        pair.second.name = *string;
         break;
       }
     }
@@ -197,7 +199,7 @@ bool GetAllocatorSubarray(base::Value* heaps_v2,
                           const char* allocator_name,
                           const char* subarray_name,
                           size_t expected_size,
-                          base::Value::ConstListView* output) {
+                          const base::Value::List*& output) {
   base::Value* subarray =
       heaps_v2->FindPath({"allocators", allocator_name, subarray_name});
   if (!subarray) {
@@ -206,13 +208,13 @@ bool GetAllocatorSubarray(base::Value* heaps_v2,
     return false;
   }
 
-  base::Value::ConstListView subarray_list = subarray->GetList();
+  const base::Value::List& subarray_list = subarray->GetList();
   if (expected_size && subarray_list.size() != expected_size) {
     LOG(ERROR) << subarray_name << " has wrong size";
     return false;
   }
 
-  *output = subarray_list;
+  output = &subarray_list;
   return true;
 }
 
@@ -241,30 +243,29 @@ bool ValidateSamplingAllocations(base::Value* heaps_v2,
   }
 
   // Find the type with the appropriate id.
-  base::Value::ConstListView types_list;
-  if (!GetAllocatorSubarray(heaps_v2, allocator_name, "types", 0,
-                            &types_list)) {
+  const base::Value::List* types_list = nullptr;
+  if (!GetAllocatorSubarray(heaps_v2, allocator_name, "types", 0, types_list)) {
     return false;
   }
 
   // Look up the size.
-  base::Value::ConstListView sizes;
+  const base::Value::List* sizes = nullptr;
   if (!GetAllocatorSubarray(heaps_v2, allocator_name, "sizes",
-                            types_list.size(), &sizes)) {
+                            types_list->size(), sizes)) {
     return false;
   }
 
   // Look up the count.
-  base::Value::ConstListView counts;
+  const base::Value::List* counts = nullptr;
   if (!GetAllocatorSubarray(heaps_v2, allocator_name, "counts",
-                            types_list.size(), &counts)) {
+                            types_list->size(), counts)) {
     return false;
   }
 
   int allocations_with_matching_type = 0;
   size_t index = 0;
-  for (size_t i = 0; i < types_list.size(); ++i) {
-    if (types_list[i].GetInt() == id_of_type) {
+  for (size_t i = 0; i < types_list->size(); ++i) {
+    if ((*types_list)[i].GetInt() == id_of_type) {
       index = i;
       ++allocations_with_matching_type;
     }
@@ -276,17 +277,17 @@ bool ValidateSamplingAllocations(base::Value* heaps_v2,
     return false;
   }
 
-  if (sizes[index].GetInt() < approximate_size / 2 ||
-      sizes[index].GetInt() > approximate_size * 2) {
-    LOG(ERROR) << "sampling size " << sizes[index].GetInt()
+  if ((*sizes)[index].GetInt() < approximate_size / 2 ||
+      (*sizes)[index].GetInt() > approximate_size * 2) {
+    LOG(ERROR) << "sampling size " << (*sizes)[index].GetInt()
                << " was not within a factor of 2 of expected size "
                << approximate_size;
     return false;
   }
 
-  if (counts[index].GetInt() < approximate_count / 2 ||
-      counts[index].GetInt() > approximate_count * 2) {
-    LOG(ERROR) << "sampling size " << counts[index].GetInt()
+  if ((*counts)[index].GetInt() < approximate_count / 2 ||
+      (*counts)[index].GetInt() > approximate_count * 2) {
+    LOG(ERROR) << "sampling size " << (*counts)[index].GetInt()
                << " was not within a factor of 2 of expected count "
                << approximate_count;
     return false;
@@ -296,11 +297,11 @@ bool ValidateSamplingAllocations(base::Value* heaps_v2,
 
 bool ValidateProcessMmaps(base::Value* process_mmaps,
                           bool should_have_contents) {
-  base::Value* vm_regions = nullptr;
+  base::Value::List* vm_regions = nullptr;
   size_t count = 0;
   if (process_mmaps) {
-    vm_regions = process_mmaps->FindKey("vm_regions");
-    count = vm_regions->GetList().size();
+    vm_regions = process_mmaps->GetDict().FindList("vm_regions");
+    count = vm_regions->size();
   }
   if (!should_have_contents) {
     if (count != 0) {
@@ -317,10 +318,10 @@ bool ValidateProcessMmaps(base::Value* process_mmaps,
 
   // File paths may contain PII. Make sure that "mf" entries only contain the
   // basename, rather than a full path.
-  for (const base::Value& vm_region : vm_regions->GetList()) {
-    const base::Value* file_path_value = vm_region.FindKey("mf");
+  for (const base::Value& vm_region : *vm_regions) {
+    const std::string* file_path_value = vm_region.GetDict().FindString("mf");
     if (file_path_value) {
-      std::string file_path = file_path_value->GetString();
+      const std::string& file_path = *file_path_value;
 
       base::FilePath::StringType path(file_path.begin(), file_path.end());
       if (base::FilePath(path).BaseName().AsUTF8Unsafe() != file_path) {
@@ -342,18 +343,19 @@ void HandleOOM(size_t unsued_size) {
 TestDriver::TestDriver()
     : wait_for_ui_thread_(base::WaitableEvent::ResetPolicy::AUTOMATIC,
                           base::WaitableEvent::InitialState::NOT_SIGNALED) {
-  base::PartitionAllocGlobalInit(HandleOOM);
+  partition_alloc::PartitionAllocGlobalInit(HandleOOM);
   partition_allocator_.init({
-      base::PartitionOptions::AlignedAlloc::kDisallowed,
-      base::PartitionOptions::ThreadCache::kDisabled,
-      base::PartitionOptions::Quarantine::kDisallowed,
-      base::PartitionOptions::Cookie::kAllowed,
-      base::PartitionOptions::BackupRefPtr::kDisabled,
-      base::PartitionOptions::UseConfigurablePool::kNo,
+      partition_alloc::PartitionOptions::AlignedAlloc::kDisallowed,
+      partition_alloc::PartitionOptions::ThreadCache::kDisabled,
+      partition_alloc::PartitionOptions::Quarantine::kDisallowed,
+      partition_alloc::PartitionOptions::Cookie::kAllowed,
+      partition_alloc::PartitionOptions::BackupRefPtr::kDisabled,
+      partition_alloc::PartitionOptions::BackupRefPtrZapping::kDisabled,
+      partition_alloc::PartitionOptions::UseConfigurablePool::kNo,
   });
 }
 TestDriver::~TestDriver() {
-  base::PartitionAllocGlobalUninitForTesting();
+  partition_alloc::PartitionAllocGlobalUninitForTesting();
 }
 
 bool TestDriver::RunTest(const Options& options) {
@@ -467,7 +469,7 @@ bool TestDriver::CheckOrStartProfilingOnUIThreadWithAsyncSignalling() {
       bool already_initialized = SetOnInitAllocatorShimCallbackForTesting(
           base::BindOnce(&base::WaitableEvent::Signal,
                          base::Unretained(&wait_for_ui_thread_)),
-          base::ThreadTaskRunnerHandle::Get());
+          base::SingleThreadTaskRunner::GetCurrentDefault());
       if (!already_initialized) {
         wait_for_profiling_to_start_ = true;
       }
@@ -484,7 +486,7 @@ bool TestDriver::CheckOrStartProfilingOnUIThreadWithAsyncSignalling() {
     SetOnInitAllocatorShimCallbackForTesting(
         base::BindOnce(&base::WaitableEvent::Signal,
                        base::Unretained(&wait_for_ui_thread_)),
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
   } else {
     start_callback = base::BindOnce(&base::WaitableEvent::Signal,
                                     base::Unretained(&wait_for_ui_thread_));
@@ -522,7 +524,8 @@ bool TestDriver::CheckOrStartProfilingOnUIThreadWithNestedRunLoops() {
   // start. Otherwise, wait for the Supervisor to start.
   if (ShouldProfileBrowser()) {
     SetOnInitAllocatorShimCallbackForTesting(
-        run_loop->QuitClosure(), base::ThreadTaskRunnerHandle::Get());
+        run_loop->QuitClosure(),
+        base::SingleThreadTaskRunner::GetCurrentDefault());
   } else {
     start_callback = run_loop->QuitClosure();
   }
@@ -751,8 +754,7 @@ void TestDriver::WaitForProfilingToStartForBrowserUIThread() {
     Supervisor::GetInstance()->GetProfiledPids(std::move(callback));
     run_loop.Run();
 
-    if (std::find(profiled_pids.begin(), profiled_pids.end(),
-                  base::GetCurrentProcId()) != profiled_pids.end()) {
+    if (base::Contains(profiled_pids, base::GetCurrentProcId())) {
       break;
     }
   }

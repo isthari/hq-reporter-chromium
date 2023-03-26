@@ -1,10 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/forced_extensions/install_stage_tracker.h"
 
 #include "base/check_op.h"
+#include "base/observer_list.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/forced_extensions/install_stage_tracker_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -13,6 +14,9 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ash/profiles/profile_helper.h"
+#include "components/user_manager/user.h"          // nogncheck
+#include "components/user_manager/user_manager.h"  // nogncheck
+#include "components/user_manager/user_type.h"     // nogncheck
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace extensions {

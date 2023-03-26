@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
 #include "chrome/browser/ui/web_applications/web_app_controller_browsertest.h"
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
+#include "chrome/browser/web_applications/test/web_app_test_observers.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/app_constants/constants.h"
@@ -29,26 +30,24 @@ using extensions::Extension;
 namespace {
 
 bool AccessingCamera(Profile* profile, const std::string& app_id) {
-  auto accessing_camera = apps::mojom::OptionalBool::kUnknown;
+  absl::optional<bool> accessing_camera;
   auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile);
-  proxy->FlushMojoCallsForTesting();
   proxy->AppCapabilityAccessCache().ForOneApp(
       app_id, [&accessing_camera](const apps::CapabilityAccessUpdate& update) {
         accessing_camera = update.Camera();
       });
-  return accessing_camera == apps::mojom::OptionalBool::kTrue;
+  return accessing_camera.value_or(false);
 }
 
 bool AccessingMicrophone(Profile* profile, const std::string& app_id) {
-  auto accessing_microphone = apps::mojom::OptionalBool::kUnknown;
+  absl::optional<bool> accessing_microphone;
   auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile);
-  proxy->FlushMojoCallsForTesting();
   proxy->AppCapabilityAccessCache().ForOneApp(
       app_id,
       [&accessing_microphone](const apps::CapabilityAccessUpdate& update) {
         accessing_microphone = update.Microphone();
       });
-  return accessing_microphone == apps::mojom::OptionalBool::kTrue;
+  return accessing_microphone.value_or(false);
 }
 
 class FakeMediaObserver : public MediaCaptureDevicesDispatcher::Observer {
@@ -104,8 +103,8 @@ void MediaRequestChangeForWebContent(content::WebContents* web_content,
                                      blink::mojom::MediaStreamType stream_type,
                                      content::MediaRequestState state) {
   ASSERT_TRUE(web_content);
-  MediaRequestChange(web_content->GetMainFrame()->GetProcess()->GetID(),
-                     web_content->GetMainFrame()->GetRoutingID(), url,
+  MediaRequestChange(web_content->GetPrimaryMainFrame()->GetProcess()->GetID(),
+                     web_content->GetPrimaryMainFrame()->GetRoutingID(), url,
                      stream_type, state);
 }
 
@@ -121,8 +120,7 @@ class MediaAccessExtensionAppsTest : public extensions::PlatformAppBrowserTest {
 
   void UninstallApp(const std::string& app_id) {
     auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile());
-    proxy->UninstallSilently(app_id, apps::mojom::UninstallSource::kAppList);
-    proxy->FlushMojoCallsForTesting();
+    proxy->UninstallSilently(app_id, apps::UninstallSource::kAppList);
   }
 
   GURL GetUrl1() {
@@ -205,8 +203,9 @@ IN_PROC_BROWSER_TEST_F(MediaAccessExtensionAppsTest,
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser1, GetUrl1()));
   content::WebContents* web_content1 =
       browser1->tab_strip_model()->GetActiveWebContents();
-  int render_process_id1 = web_content1->GetMainFrame()->GetProcess()->GetID();
-  int render_frame_id1 = web_content1->GetMainFrame()->GetRoutingID();
+  int render_process_id1 =
+      web_content1->GetPrimaryMainFrame()->GetProcess()->GetID();
+  int render_frame_id1 = web_content1->GetPrimaryMainFrame()->GetRoutingID();
   // Request accessing the camera and the microphone for |web_content1|.
   MediaRequestChangeForWebContent(
       web_content1, GetUrl1(),
@@ -225,8 +224,9 @@ IN_PROC_BROWSER_TEST_F(MediaAccessExtensionAppsTest,
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser1, GetUrl2()));
   content::WebContents* web_content2 =
       browser1->tab_strip_model()->GetActiveWebContents();
-  int render_process_id2 = web_content2->GetMainFrame()->GetProcess()->GetID();
-  int render_frame_id2 = web_content2->GetMainFrame()->GetRoutingID();
+  int render_process_id2 =
+      web_content2->GetPrimaryMainFrame()->GetProcess()->GetID();
+  int render_frame_id2 = web_content2->GetPrimaryMainFrame()->GetRoutingID();
   // Request accessing the camera and the microphone for |web_content2|.
   MediaRequestChangeForWebContent(
       web_content2, GetUrl2(),
@@ -405,9 +405,10 @@ class MediaAccessWebAppsTest : public web_app::WebAppControllerBrowserTest {
   }
 
   void UninstallWebApp(const std::string& app_id) const {
-    web_app::UninstallWebApp(browser()->profile(), app_id);
-    apps::AppServiceProxyFactory::GetForProfile(browser()->profile())
-        ->FlushMojoCallsForTesting();
+    web_app::WebAppTestUninstallObserver app_listener(browser()->profile());
+    app_listener.BeginListening();
+    web_app::test::UninstallWebApp(browser()->profile(), app_id);
+    app_listener.Wait();
   }
 
   GURL GetUrl1() {
@@ -488,8 +489,9 @@ IN_PROC_BROWSER_TEST_F(MediaAccessWebAppsTest,
 
   // Request accessing the camera for |app_id| in the new tab.
   content::WebContents* web_content1 = GetWebContents();
-  int render_process_id1 = web_content1->GetMainFrame()->GetProcess()->GetID();
-  int render_frame_id1 = web_content1->GetMainFrame()->GetRoutingID();
+  int render_process_id1 =
+      web_content1->GetPrimaryMainFrame()->GetProcess()->GetID();
+  int render_frame_id1 = web_content1->GetPrimaryMainFrame()->GetRoutingID();
   MediaRequestChangeForWebContent(
       web_content1, GetUrl1(),
       blink::mojom::MediaStreamType::DEVICE_AUDIO_CAPTURE,
@@ -498,8 +500,9 @@ IN_PROC_BROWSER_TEST_F(MediaAccessWebAppsTest,
 
   // Launch |app_id| in a new window.
   content::WebContents* web_content2 = OpenApplication(app_id);
-  int render_process_id2 = web_content2->GetMainFrame()->GetProcess()->GetID();
-  int render_frame_id2 = web_content2->GetMainFrame()->GetRoutingID();
+  int render_process_id2 =
+      web_content2->GetPrimaryMainFrame()->GetProcess()->GetID();
+  int render_frame_id2 = web_content2->GetPrimaryMainFrame()->GetRoutingID();
   Browser* app_browser = BrowserList::GetInstance()->GetLastActive();
   ASSERT_TRUE(app_browser);
   ASSERT_NE(browser(), app_browser);

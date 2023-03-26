@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -90,10 +90,11 @@ void PaintInvalidator::UpdateLayoutShiftTracking(
     const LayoutObject& object,
     const PaintPropertyTreeBuilderFragmentContext& tree_builder_context,
     PaintInvalidatorContext& context) {
-  if (!object.ShouldCheckGeometryForPaintInvalidation())
+  if (!object.ShouldCheckLayoutForPaintInvalidation())
     return;
 
-  if (tree_builder_context.this_or_ancestor_opacity_is_zero) {
+  if (tree_builder_context.this_or_ancestor_opacity_is_zero ||
+      context.inside_opaque_layout_shift_root) {
     object.GetMutableForPainting().SetShouldSkipNextLayoutShiftTracking(true);
     return;
   }
@@ -156,11 +157,17 @@ void PaintInvalidator::UpdateLayoutShiftTracking(
   PhysicalRect old_rect = box.PreviousPhysicalVisualOverflowRect();
   old_rect.Move(adjusted_old_paint_offset);
 
+  // TODO(crbug.com/1178618): We may want to do better than this. For now, just
+  // don't report anything inside multicol containers.
+  const auto* block_flow = DynamicTo<LayoutBlockFlow>(&box);
+  if (block_flow && block_flow->IsFragmentationContextRoot() &&
+      block_flow->IsLayoutNGObject())
+    context.inside_opaque_layout_shift_root = true;
+
   bool should_create_containing_block_scope =
-      // TODO(crbug.com/1178618): Support multiple-fragments when switching to
-      // LayoutNGFragmentTraversal.
-      context.fragment_data == &box.FirstFragment() &&
-      box.IsLayoutBlockFlow() && box.ChildrenInline() && box.SlowFirstChild();
+      // TODO(crbug.com/1178618): Support multiple-fragments.
+      context.fragment_data == &box.FirstFragment() && block_flow &&
+      block_flow->ChildrenInline() && block_flow->FirstChild();
   if (should_create_containing_block_scope) {
     // For layout shift tracking of contained LayoutTexts.
     context.containing_block_scope_.emplace(
@@ -229,7 +236,6 @@ bool PaintInvalidator::InvalidatePaint(
 
   UpdatePaintingLayer(object, context);
 
-#if DCHECK_IS_ON()
   // Assert that the container state in the invalidation context is consistent
   // with what the LayoutObject tree says. We cannot do this if we're fragment-
   // traversing an "orphaned" object (an object that has a fragment inside a
@@ -237,9 +243,7 @@ bool PaintInvalidator::InvalidatePaint(
   // happen to OOFs, and also to floats, if they are inside a non-atomic
   // inline). In such cases we'll just have to live with the inconsitency, which
   // means that we'll lose any paint effects from such "missing" ancestors.
-  if (!pre_paint_info || !pre_paint_info->is_inside_orphaned_object)
-    DCHECK_EQ(context.painting_layer, object.PaintingLayer()) << object;
-#endif  // DCHECK_IS_ON()
+  DCHECK_EQ(context.painting_layer, object.PaintingLayer()) << object;
 
   if (AXObjectCache* cache = object.GetDocument().ExistingAXObjectCache())
     cache->InvalidateBoundingBox(&object);
@@ -314,15 +318,6 @@ bool PaintInvalidator::InvalidatePaint(
        // Delay invalidation if the client has never been painted.
        reason == PaintInvalidationReason::kJustCreated))
     pending_delayed_paint_invalidations_.push_back(&object);
-
-  if (auto* local_frame = DynamicTo<LocalFrame>(object.GetFrame()->Top())) {
-    if (auto* mf_checker =
-            local_frame->View()->GetMobileFriendlinessChecker()) {
-      if (tree_builder_context &&
-          (!pre_paint_info || pre_paint_info->is_last_for_node))
-        mf_checker->NotifyInvalidatePaint(object);
-    }
-  }
 
   return reason != PaintInvalidationReason::kNone;
 }

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,7 @@
 #include "services/network/public/cpp/content_security_policy/csp_context.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom-shared.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
-#include "third_party/blink/public/mojom/web_feature/web_feature.mojom.h"
+#include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom.h"
 
 namespace content {
 
@@ -48,9 +48,8 @@ bool HeadersContainFrameAncestorsCSP(
 }
 
 // From a RenderFrameHost |rfh|, return its parent. This goes through nested
-// WebContents like Portals or GuestView, but doesn't go through FencedFrames.
-// This returns nullptr for the top-level document and FencedFrame top-level
-// document.
+// WebContents like Portals, but doesn't go through FencedFrames. This returns
+// nullptr for the top-level document and FencedFrame top-level document.
 RenderFrameHostImpl* GetParentExceptForFencedFrame(RenderFrameHostImpl* frame) {
   return frame->IsFencedFrameRoot() ? nullptr
                                     : frame->GetParentOrOuterDocument();
@@ -95,8 +94,7 @@ NavigationThrottle::ThrottleCheckResult AncestorThrottle::ProcessResponseImpl(
     bool is_response_check) {
   NavigationRequest* request = NavigationRequest::From(navigation_handle());
 
-  bool is_portal =
-      request->frame_tree_node()->current_frame_host()->InsidePortal();
+  bool is_portal = request->frame_tree_node()->frame_tree().IsPortal();
   if (request->IsInMainFrame() && !is_portal) {
     // Allow main frame navigations.
     return NavigationThrottle::PROCEED;

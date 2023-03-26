@@ -1,18 +1,26 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/quick_answers/quick_answers_controller_impl.h"
 
-#include "ash/public/cpp/new_window_delegate.h"
 #include "base/metrics/histogram_functions.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/quick_answers/quick_answers_ui_controller.h"
 #include "chromeos/components/quick_answers/public/cpp/quick_answers_prefs.h"
 #include "chromeos/components/quick_answers/public/cpp/quick_answers_state.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "components/prefs/pref_service.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "url/gurl.h"
+#include "ui/views/controls/menu/menu_controller.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ui/quick_answers/quick_answers_state_ash.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chrome/browser/ui/quick_answers/lacros/quick_answers_state_lacros.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 namespace {
 
@@ -24,21 +32,17 @@ using ::quick_answers::QuickAnswersExitPoint;
 using ::quick_answers::QuickAnswersRequest;
 using ::quick_answers::ResultType;
 
-constexpr char kQuickAnswersSettingsUrl[] =
-    "chrome://os-settings/osSearch/search";
-
 constexpr char kQuickAnswersExitPoint[] = "QuickAnswers.ExitPoint";
 
 std::u16string IntentTypeToString(IntentType intent_type) {
   switch (intent_type) {
     case IntentType::kUnit:
       return l10n_util::GetStringUTF16(
-          IDS_ASH_QUICK_ANSWERS_UNIT_CONVERSION_INTENT);
+          IDS_QUICK_ANSWERS_UNIT_CONVERSION_INTENT);
     case IntentType::kDictionary:
-      return l10n_util::GetStringUTF16(IDS_ASH_QUICK_ANSWERS_DEFINITION_INTENT);
+      return l10n_util::GetStringUTF16(IDS_QUICK_ANSWERS_DEFINITION_INTENT);
     case IntentType::kTranslation:
-      return l10n_util::GetStringUTF16(
-          IDS_ASH_QUICK_ANSWERS_TRANSLATION_INTENT);
+      return l10n_util::GetStringUTF16(IDS_QUICK_ANSWERS_TRANSLATION_INTENT);
     case IntentType::kUnknown:
       return std::u16string();
   }
@@ -55,27 +59,28 @@ bool ShouldShowQuickAnswers() {
     return false;
 
   bool settings_enabled = QuickAnswersState::Get()->settings_enabled();
-  // Respect the managed settings.
-  if (QuickAnswersState::Get()->IsSettingsEnforced())
-    return settings_enabled;
-
-  if (settings_enabled)
-    return true;
 
   bool should_show_consent = QuickAnswersState::Get()->consent_status() ==
                              quick_answers::prefs::ConsentStatus::kUnknown;
-  return should_show_consent;
+  return settings_enabled || should_show_consent;
 }
 
 }  // namespace
 
 QuickAnswersControllerImpl::QuickAnswersControllerImpl()
     : quick_answers_ui_controller_(
-          std::make_unique<QuickAnswersUiController>(this)),
-      quick_answers_access_token_fetcher_(
-          std::make_unique<QuickAnswersAccessTokenFetcher>()) {}
+          std::make_unique<QuickAnswersUiController>(this)) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  quick_answers_state_ = std::make_unique<QuickAnswersStateAsh>();
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  quick_answers_state_ = std::make_unique<QuickAnswersStateLacros>();
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+}
 
-QuickAnswersControllerImpl::~QuickAnswersControllerImpl() = default;
+QuickAnswersControllerImpl::~QuickAnswersControllerImpl() {
+  quick_answers_client_.reset();
+  quick_answers_state_.reset();
+}
 
 void QuickAnswersControllerImpl::SetClient(
     std::unique_ptr<QuickAnswersClient> client) {
@@ -183,7 +188,7 @@ void QuickAnswersControllerImpl::OnQuickAnswerReceived(
         std::make_unique<quick_answers::QuickAnswerText>(title_));
     quick_answer_with_no_result.first_answer_row.push_back(
         std::make_unique<quick_answers::QuickAnswerResultText>(
-            l10n_util::GetStringUTF8(IDS_ASH_QUICK_ANSWERS_VIEW_NO_RESULT_V2)));
+            l10n_util::GetStringUTF8(IDS_QUICK_ANSWERS_VIEW_NO_RESULT_V2)));
     quick_answers_ui_controller_->RenderQuickAnswersViewWithResult(
         anchor_bounds_, quick_answer_with_no_result);
     // Fallback query to title if no result is available.
@@ -216,18 +221,16 @@ void QuickAnswersControllerImpl::OnRequestPreprocessFinished(
     return;
   }
 
-  if (visibility_ == QuickAnswersVisibility::kClosed)
+  auto* active_menu_controller = views::MenuController::GetActiveInstance();
+  if (visibility_ == QuickAnswersVisibility::kClosed ||
+      !active_menu_controller || !active_menu_controller->owner()) {
     return;
+  }
 
   query_ = processed_request.preprocessed_output.query;
   title_ = processed_request.preprocessed_output.intent_info.intent_text;
 
   HandleQuickAnswerRequest(processed_request);
-}
-
-void QuickAnswersControllerImpl::RequestAccessToken(
-    AccessTokenCallback callback) {
-  quick_answers_access_token_fetcher_->RequestAccessToken(std::move(callback));
 }
 
 void QuickAnswersControllerImpl::OnRetryQuickAnswersRequest() {
@@ -267,14 +270,8 @@ void QuickAnswersControllerImpl::OnUserConsentResult(bool consented) {
   }
 }
 
-void QuickAnswersControllerImpl::OpenQuickAnswersSettings() {
-  ash::NewWindowDelegate::GetInstance()->OpenUrl(
-      GURL(kQuickAnswersSettingsUrl),
-      /*from_user_interaction=*/true);
-}
-
 void QuickAnswersControllerImpl::MaybeDismissQuickAnswersConsent() {
-  if (quick_answers_ui_controller_->is_showing_user_consent_view())
+  if (quick_answers_ui_controller_->IsShowingUserConsentView())
     QuickAnswersState::Get()->OnConsentResult(ConsentResultType::kDismiss);
   quick_answers_ui_controller_->CloseUserConsentView();
 }
@@ -283,7 +280,7 @@ void QuickAnswersControllerImpl::ShowUserConsent(
     const std::u16string& intent_type,
     const std::u16string& intent_text) {
   // Show consent informing user about the feature if required.
-  if (!quick_answers_ui_controller_->is_showing_user_consent_view()) {
+  if (!quick_answers_ui_controller_->IsShowingUserConsentView()) {
     quick_answers_ui_controller_->CreateUserConsentView(
         anchor_bounds_, intent_type, intent_text);
     QuickAnswersState::Get()->StartConsent();

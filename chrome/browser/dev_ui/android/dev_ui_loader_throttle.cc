@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,13 +31,12 @@ bool IsWebUiHostInDevUiDfm(const std::string& host) {
   return host == chrome::kChromeUIAccessibilityHost ||
          host == chrome::kChromeUIAutofillInternalsHost ||
          host == chrome::kChromeUIBluetoothInternalsHost ||
+         host == chrome::kChromeUIBrowsingTopicsInternalsHost ||
          host == chrome::kChromeUIComponentsHost ||
          host == chrome::kChromeUICrashesHost ||
          host == chrome::kChromeUIDeviceLogHost ||
-         host == chrome::kChromeUIDomainReliabilityInternalsHost ||
          host == chrome::kChromeUIDownloadInternalsHost ||
          host == chrome::kChromeUIFamilyLinkUserInternalsHost ||
-         host == chrome::kChromeUIFlocInternalsHost ||
          host == chrome::kChromeUIGCMInternalsHost ||
          host == chrome::kChromeUIInternalsHost ||
          host == chrome::kChromeUIInterstitialHost ||
@@ -62,6 +61,7 @@ bool IsWebUiHostInDevUiDfm(const std::string& host) {
          host == chrome::kChromeUIUserActionsHost ||
          host == chrome::kChromeUIWebApksHost ||
          host == chrome::kChromeUIWebRtcLogsHost ||
+         host == content::kChromeUIPrivateAggregationInternalsHost ||
          host == content::kChromeUIAttributionInternalsHost ||
          host == content::kChromeUIBlobInternalsHost ||
          host == content::kChromeUIGpuHost ||
@@ -91,7 +91,7 @@ std::unique_ptr<content::NavigationThrottle>
 DevUiLoaderThrottle::MaybeCreateThrottleFor(content::NavigationHandle* handle) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(handle);
-  if (!handle->IsInMainFrame())
+  if (!handle->IsInPrimaryMainFrame())
     return nullptr;
 
   if (!ShouldInstallDevUiDfm(handle->GetURL()))

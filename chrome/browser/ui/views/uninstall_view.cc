@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -70,14 +70,14 @@ void UninstallView::SetupControls() {
                   .SetHorizontalAlignment(gfx::ALIGN_LEFT)
                   .SetProperty(
                       views::kMarginsKey,
-                      gfx::Insets(0, 0, unrelated_vertical_spacing, 0)),
+                      gfx::Insets::TLBR(0, 0, unrelated_vertical_spacing, 0)),
               // The "delete profile" check box.
               views::Builder<views::Checkbox>()
                   .CopyAddressTo(&delete_profile_)
                   .SetText(
                       l10n_util::GetStringUTF16(IDS_UNINSTALL_DELETE_PROFILE))
                   .SetProperty(views::kMarginsKey,
-                               gfx::Insets(0, checkbox_indent, 0, 0)));
+                               gfx::Insets::TLBR(0, checkbox_indent, 0, 0)));
 
   // Set default browser combo box. If the default should not or cannot be
   // changed, widgets are not shown. We assume here that if Chrome cannot
@@ -91,7 +91,7 @@ void UninstallView::SetupControls() {
       builder.AddChildren(
           views::Builder<views::View>().SetProperty(
               views::kMarginsKey,
-              gfx::Insets(related_vertical_spacing, 0, 0, 0)),
+              gfx::Insets::TLBR(related_vertical_spacing, 0, 0, 0)),
           views::Builder<views::BoxLayoutView>()
               .SetOrientation(views::BoxLayout::Orientation::kHorizontal)
               .SetBetweenChildSpacing(related_horizontal_spacing)
@@ -107,7 +107,7 @@ void UninstallView::SetupControls() {
                           },
                           base::Unretained(this)))
                       .SetProperty(views::kMarginsKey,
-                                   gfx::Insets(0, checkbox_indent, 0, 0)),
+                                   gfx::Insets::TLBR(0, checkbox_indent, 0, 0)),
                   views::Builder<views::Combobox>()
                       .CopyAddressTo(&browsers_combo_)
                       .SetModel(this)
@@ -117,17 +117,18 @@ void UninstallView::SetupControls() {
 
   std::move(builder)
       .AddChild(views::Builder<views::View>().SetProperty(
-          views::kMarginsKey, gfx::Insets(related_vertical_small, 0, 0, 0)))
+          views::kMarginsKey,
+          gfx::Insets::TLBR(related_vertical_small, 0, 0, 0)))
       .BuildChildren();
 }
 
 void UninstallView::OnDialogAccepted() {
-  user_selection_ = content::RESULT_CODE_NORMAL_EXIT;
+  *user_selection_ = content::RESULT_CODE_NORMAL_EXIT;
   if (delete_profile_->GetChecked())
-    user_selection_ = chrome::RESULT_CODE_UNINSTALL_DELETE_PROFILE;
+    *user_selection_ = chrome::RESULT_CODE_UNINSTALL_DELETE_PROFILE;
   if (change_default_browser_ && change_default_browser_->GetChecked()) {
     BrowsersMap::const_iterator i = browsers_->begin();
-    std::advance(i, browsers_combo_->GetSelectedIndex());
+    std::advance(i, browsers_combo_->GetSelectedIndex().value());
     base::LaunchOptions options;
     options.start_hidden = true;
     base::LaunchProcess(i->second, options);
@@ -135,16 +136,16 @@ void UninstallView::OnDialogAccepted() {
 }
 
 void UninstallView::OnDialogCancelled() {
-  user_selection_ = chrome::RESULT_CODE_UNINSTALL_USER_CANCEL;
+  *user_selection_ = chrome::RESULT_CODE_UNINSTALL_USER_CANCEL;
 }
 
-int UninstallView::GetItemCount() const {
+size_t UninstallView::GetItemCount() const {
   DCHECK(!browsers_->empty());
   return browsers_->size();
 }
 
-std::u16string UninstallView::GetItemAt(int index) const {
-  DCHECK_LT(index, static_cast<int>(browsers_->size()));
+std::u16string UninstallView::GetItemAt(size_t index) const {
+  DCHECK_LT(index, browsers_->size());
   BrowsersMap::const_iterator i = browsers_->begin();
   std::advance(i, index);
   return base::WideToUTF16(i->first);

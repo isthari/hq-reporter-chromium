@@ -1,14 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/thumbnail/cc/thumbnail.h"
 
-#include "base/bind.h"
 #include "base/check.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "ui/android/resources/ui_resource_provider.h"
@@ -32,7 +32,7 @@ std::unique_ptr<Thumbnail> Thumbnail::Create(
     TabId tab_id,
     const base::Time& time_stamp,
     float scale,
-    ui::UIResourceProvider* ui_resource_provider,
+    base::WeakPtr<ui::UIResourceProvider> ui_resource_provider,
     ThumbnailDelegate* thumbnail_delegate) {
   return base::WrapUnique(new Thumbnail(
       tab_id, time_stamp, scale, ui_resource_provider, thumbnail_delegate));
@@ -41,7 +41,7 @@ std::unique_ptr<Thumbnail> Thumbnail::Create(
 Thumbnail::Thumbnail(TabId tab_id,
                      const base::Time& time_stamp,
                      float scale,
-                     ui::UIResourceProvider* ui_resource_provider,
+                     base::WeakPtr<ui::UIResourceProvider> ui_resource_provider,
                      ThumbnailDelegate* thumbnail_delegate)
     : tab_id_(tab_id),
       time_stamp_(time_stamp),
@@ -80,8 +80,9 @@ void Thumbnail::SetCompressedBitmap(sk_sp<SkPixelRef> compressed_bitmap,
 
 void Thumbnail::CreateUIResource() {
   DCHECK(ui_resource_provider_);
-  if (!ui_resource_id_)
+  if (!ui_resource_id_) {
     ui_resource_id_ = ui_resource_provider_->CreateUIResource(this);
+  }
 }
 
 cc::UIResourceBitmap Thumbnail::GetBitmap(cc::UIResourceId uid,
@@ -90,7 +91,7 @@ cc::UIResourceBitmap Thumbnail::GetBitmap(cc::UIResourceId uid,
     // InvalidateCachedThumbnail() causes |this| to be deleted, so
     // don't delete the resource while LayerTeeHost calls into |this|
     // to avoid reentry there.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&Thumbnail::DoInvalidate, weak_factory_.GetWeakPtr()));
     return bitmap_;
@@ -105,12 +106,14 @@ cc::UIResourceBitmap Thumbnail::GetBitmap(cc::UIResourceId uid,
 }
 
 void Thumbnail::DoInvalidate() {
-  if (thumbnail_delegate_)
+  if (thumbnail_delegate_) {
     thumbnail_delegate_->InvalidateCachedThumbnail(this);
+  }
 }
 
 void Thumbnail::ClearUIResourceId() {
-  if (ui_resource_id_ && ui_resource_provider_)
+  if (ui_resource_id_ && ui_resource_provider_) {
     ui_resource_provider_->DeleteUIResource(ui_resource_id_);
+  }
   ui_resource_id_ = 0;
 }

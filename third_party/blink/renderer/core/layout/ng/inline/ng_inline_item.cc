@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -98,7 +98,9 @@ NGInlineItem::NGInlineItem(const NGInlineItem& other,
     : start_offset_(start),
       end_offset_(end),
       shape_result_(shape_result),
-      layout_object_(other.layout_object_),
+      // Use atomic construction to allow for concurrently marking NGInlineItem.
+      layout_object_(other.layout_object_,
+                     Member<LayoutObject>::AtomicInitializerTag{}),
       type_(other.type_),
       text_type_(other.text_type_),
       style_variant_(other.style_variant_),
@@ -118,7 +120,7 @@ void NGInlineItem::ComputeBoxProperties() {
   DCHECK(!is_empty_item_);
 
   if (type_ == NGInlineItem::kText || type_ == NGInlineItem::kAtomicInline ||
-      type_ == NGInlineItem::kControl)
+      type_ == NGInlineItem::kControl || UNLIKELY(type_ == kInitialLetterBox))
     return;
 
   if (type_ == NGInlineItem::kOpenTag) {
@@ -198,7 +200,6 @@ unsigned NGInlineItem::SetBidiLevel(HeapVector<NGInlineItem>& items,
 const Font& NGInlineItem::FontWithSvgScaling() const {
   if (const auto* svg_text =
           DynamicTo<LayoutSVGInlineText>(layout_object_.Get())) {
-    DCHECK(RuntimeEnabledFeatures::SVGTextNGEnabled());
     // We don't need to care about StyleVariant(). SVG 1.1 doesn't support
     // ::first-line.
     return svg_text->ScaledFont();

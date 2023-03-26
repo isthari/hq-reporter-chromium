@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,15 +14,12 @@
 
 class GURL;
 
-namespace chromeos {
-namespace assistant {
-enum class AssistantEntryPoint;
-enum class AssistantQuerySource;
-}  // namespace assistant
-}  // namespace chromeos
-
 namespace ash {
 namespace assistant {
+
+enum class AssistantEntryPoint;
+enum class AssistantQuerySource;
+
 namespace util {
 
 // Enumeration of deep link types.
@@ -79,16 +76,14 @@ enum class ReminderAction {
 // Returns a new deep link, having appended or replaced the entry point param
 // from the original |deep_link| with |entry_point|.
 COMPONENT_EXPORT(ASSISTANT_UTIL)
-GURL AppendOrReplaceEntryPointParam(
-    const GURL& deep_link,
-    chromeos::assistant::AssistantEntryPoint entry_point);
+GURL AppendOrReplaceEntryPointParam(const GURL& deep_link,
+                                    AssistantEntryPoint entry_point);
 
 // Returns a new deep link, having appended or replaced the query source param
 // from the original |deep_link| with |query_source|.
 COMPONENT_EXPORT(ASSISTANT_UTIL)
-GURL AppendOrReplaceQuerySourceParam(
-    const GURL& deep_link,
-    chromeos::assistant::AssistantQuerySource query_source);
+GURL AppendOrReplaceQuerySourceParam(const GURL& deep_link,
+                                     AssistantQuerySource query_source);
 
 // Returns a deep link to perform an alarm/timer action.
 COMPONENT_EXPORT(ASSISTANT_UTIL)
@@ -135,9 +130,9 @@ absl::optional<bool> GetDeepLinkParamAsBool(
 // desired parameter is not found or is not mappable to an Assistant entry
 // point, an empty value is returned.
 COMPONENT_EXPORT(ASSISTANT_UTIL)
-absl::optional<chromeos::assistant::AssistantEntryPoint>
-GetDeepLinkParamAsEntryPoint(const std::map<std::string, std::string>& params,
-                             DeepLinkParam param);
+absl::optional<AssistantEntryPoint> GetDeepLinkParamAsEntryPoint(
+    const std::map<std::string, std::string>& params,
+    DeepLinkParam param);
 
 // Returns a specific GURL |param| from the given parameters. If the desired
 // parameter is not found, an absent value is returned.
@@ -164,9 +159,9 @@ absl::optional<int64_t> GetDeepLinkParamAsInt64(
 // desired parameter is not found or is not mappable to an Assistant query
 // source, an empty value is returned.
 COMPONENT_EXPORT(ASSISTANT_UTIL)
-absl::optional<chromeos::assistant::AssistantQuerySource>
-GetDeepLinkParamAsQuerySource(const std::map<std::string, std::string>& params,
-                              DeepLinkParam param);
+absl::optional<AssistantQuerySource> GetDeepLinkParamAsQuerySource(
+    const std::map<std::string, std::string>& params,
+    DeepLinkParam param);
 
 // Returns a specific ReminderAction |param| from the given parameters. If the
 // desired parameter is not found, an empty value is returned.

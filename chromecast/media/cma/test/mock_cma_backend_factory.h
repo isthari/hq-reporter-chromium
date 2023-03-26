@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/task/sequenced_task_runner.h"
 #include "chromecast/media/api/cma_backend.h"
 #include "chromecast/media/api/cma_backend_factory.h"
 #include "chromecast/public/media/media_pipeline_device_params.h"
@@ -22,6 +23,7 @@ class MockCmaBackendFactory : public CmaBackendFactory {
 
   MOCK_METHOD1(CreateBackend,
                std::unique_ptr<CmaBackend>(const MediaPipelineDeviceParams&));
+  MOCK_METHOD0(GetMediaTaskRunner, scoped_refptr<base::SequencedTaskRunner>());
 };
 
 }  // namespace media

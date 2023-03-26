@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,6 +32,10 @@ extern const char kFullscreenClientShellId[];
 // Base64-encoded application id suffix for borealis client windows.
 extern const char kBorealisClientSuffix[];
 
+// Anonymous apps do not have a CrOS-standard app_id (i.e. one registered with
+// the GuestOsRegistryService), so to identify them we prepend this.
+extern const char kBorealisAnonymousPrefix[];
+
 // The borealis window manager keeps track of the association of windows to
 // borealis apps. This includes determining which windows belong to a borealis
 // app, what the lifetime of the app is relative to its windows, and the
@@ -48,6 +52,9 @@ class BorealisWindowManager : public apps::InstanceRegistry::Observer {
   // Determines if a newly created window should be minimized on creation.
   // TODO(b/210569001): this is intended to be a temporary solution.
   static bool ShouldNewWindowBeMinimized(const std::string& window_id);
+
+  // Returns true when the given |app_id| is for an anonymous borealis app.
+  static bool IsAnonymousAppId(const std::string& app_id);
 
   // An observer for tracking the creation and deletion of anonymous windows.
   class AnonymousAppObserver : public base::CheckedObserver {

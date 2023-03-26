@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -138,8 +138,14 @@ void SetWillChangeTransform(LayerType* layer, bool will_change_transform) {
   DCHECK(layer->has_transform_node());
   auto* transform_node = GetTransformNode(layer);
   transform_node->will_change_transform = will_change_transform;
+  transform_node->node_or_ancestors_will_change_transform =
+      will_change_transform;
   transform_node->transform_changed = true;
-  GetPropertyTrees(layer)->transform_tree_mutable().set_needs_update(true);
+  TransformTree& transform_tree =
+      GetPropertyTrees(layer)->transform_tree_mutable();
+  transform_tree.UpdateNodeOrAncestorsWillChangeTransform(
+      transform_node, transform_tree.parent(transform_node));
+  transform_tree.set_needs_update(true);
 }
 
 template <typename LayerType>

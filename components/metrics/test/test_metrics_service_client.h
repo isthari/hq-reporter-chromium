@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,6 +30,7 @@ class TestMetricsServiceClient : public MetricsServiceClient {
   ~TestMetricsServiceClient() override;
 
   // MetricsServiceClient:
+  variations::SyntheticTrialRegistry* GetSyntheticTrialRegistry() override;
   metrics::MetricsService* GetMetricsService() override;
   void SetMetricsClientId(const std::string& client_id) override;
   bool ShouldUploadMetricsForUserId(uint64_t user_id) override;
@@ -78,6 +79,12 @@ class TestMetricsServiceClient : public MetricsServiceClient {
   }
   void set_max_ongoing_log_size(size_t bytes) {
     storage_limits_.max_ongoing_log_size = bytes;
+  }
+  void set_min_ongoing_log_queue_count(size_t log_count) {
+    storage_limits_.min_ongoing_log_queue_count = log_count;
+  }
+  void set_min_ongoing_log_queue_size(size_t bytes) {
+    storage_limits_.min_ongoing_log_queue_size = bytes;
   }
 
  private:

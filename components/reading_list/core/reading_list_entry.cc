@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 #include "base/time/time.h"
 #include "components/reading_list/core/offline_url_utils.h"
 #include "components/reading_list/core/proto/reading_list.pb.h"
-#include "components/reading_list/core/reading_list_store.h"
+#include "components/reading_list/core/reading_list_sync_bridge.h"
 #include "components/sync/protocol/reading_list_specifics.pb.h"
 #include "net/base/backoff_entry_serializer.h"
 
@@ -22,7 +22,7 @@ namespace {
 int64_t TimeToUS(const base::Time& time) {
   return (time - base::Time::UnixEpoch()).InMicroseconds();
 }
-}
+}  // namespace
 
 // The backoff time is the following: 10min, 10min, 1h, 2h, 2h..., starting
 // after the first failure.
@@ -74,8 +74,7 @@ ReadingListEntry::ReadingListEntry(const GURL& url,
                        0,
                        0,
                        0,
-                       std::move(backoff),
-                       reading_list::ContentSuggestionsExtra()) {}
+                       std::move(backoff)) {}
 
 ReadingListEntry::ReadingListEntry(
     const GURL& url,
@@ -92,8 +91,7 @@ ReadingListEntry::ReadingListEntry(
     int64_t distillation_time,
     int64_t distillation_size,
     int failed_download_counter,
-    std::unique_ptr<net::BackoffEntry> backoff,
-    const reading_list::ContentSuggestionsExtra& content_suggestions_extra)
+    std::unique_ptr<net::BackoffEntry> backoff)
     : url_(url),
       title_(title),
       estimated_read_time_(estimated_read_time),
@@ -107,8 +105,7 @@ ReadingListEntry::ReadingListEntry(
       update_time_us_(update_time),
       update_title_time_us_(update_title_time),
       distillation_time_us_(distillation_time),
-      distillation_size_(distillation_size),
-      content_suggestions_extra_(content_suggestions_extra) {
+      distillation_size_(distillation_size) {
   if (backoff) {
     backoff_ = std::move(backoff);
   } else {
@@ -136,8 +133,7 @@ ReadingListEntry::ReadingListEntry(ReadingListEntry&& entry)
       update_time_us_(std::move(entry.update_time_us_)),
       update_title_time_us_(std::move(entry.update_title_time_us_)),
       distillation_time_us_(std::move(entry.distillation_time_us_)),
-      distillation_size_(std::move(entry.distillation_size_)),
-      content_suggestions_extra_(std::move(entry.content_suggestions_extra_)) {}
+      distillation_size_(std::move(entry.distillation_size_)) {}
 
 ReadingListEntry::~ReadingListEntry() {}
 
@@ -197,7 +193,6 @@ ReadingListEntry& ReadingListEntry::operator=(ReadingListEntry&& other) {
   update_title_time_us_ = std::move(other.update_title_time_us_);
   distillation_time_us_ = std::move(other.distillation_time_us_);
   distillation_size_ = std::move(other.distillation_size_);
-  content_suggestions_extra_ = std::move(other.content_suggestions_extra_);
   return *this;
 }
 
@@ -238,16 +233,6 @@ bool ReadingListEntry::IsRead() const {
 
 bool ReadingListEntry::HasBeenSeen() const {
   return state_ != UNSEEN;
-}
-
-const reading_list::ContentSuggestionsExtra*
-ReadingListEntry::ContentSuggestionsExtra() const {
-  return &content_suggestions_extra_;
-}
-
-void ReadingListEntry::SetContentSuggestionsExtra(
-    const reading_list::ContentSuggestionsExtra& extra) {
-  content_suggestions_extra_ = extra;
 }
 
 void ReadingListEntry::SetEstimatedReadTime(
@@ -425,17 +410,9 @@ std::unique_ptr<ReadingListEntry> ReadingListEntry::FromReadingListLocal(
     std::unique_ptr<base::Value> value(
         deserializer.Deserialize(nullptr, nullptr));
     if (value) {
-      backoff = net::BackoffEntrySerializer::DeserializeFromValue(
-          *value, &kBackoffPolicy, nullptr, now);
-    }
-  }
-
-  reading_list::ContentSuggestionsExtra content_suggestions_extra;
-  if (pb_entry.has_content_suggestions_extra()) {
-    const reading_list::ReadingListContentSuggestionsExtra& pb_extra =
-        pb_entry.content_suggestions_extra();
-    if (pb_extra.has_dismissed()) {
-      content_suggestions_extra.dismissed = pb_extra.dismissed();
+      DCHECK(value->is_list());
+      backoff = net::BackoffEntrySerializer::DeserializeFromList(
+          value->GetList(), &kBackoffPolicy, nullptr, now);
     }
   }
 
@@ -443,8 +420,7 @@ std::unique_ptr<ReadingListEntry> ReadingListEntry::FromReadingListLocal(
       url, title, estimated_read_time, state, creation_time_us,
       first_read_time_us, update_time_us, update_title_time_us,
       distillation_state, distilled_path, distilled_url, distillation_time_us,
-      distillation_size, failed_download_counter, std::move(backoff),
-      content_suggestions_extra));
+      distillation_size, failed_download_counter, std::move(backoff)));
 }
 
 // static
@@ -510,8 +486,7 @@ std::unique_ptr<ReadingListEntry> ReadingListEntry::FromReadingListSpecifics(
   return base::WrapUnique<ReadingListEntry>(new ReadingListEntry(
       url, title, estimated_read_time, state, creation_time_us,
       first_read_time_us, update_time_us, update_title_time_us, WAITING,
-      base::FilePath(), GURL(), 0, 0, 0, nullptr,
-      reading_list::ContentSuggestionsExtra()));
+      base::FilePath(), GURL(), 0, 0, 0, nullptr));
 }
 
 void ReadingListEntry::MergeWithEntry(const ReadingListEntry& other) {
@@ -567,8 +542,9 @@ void ReadingListEntry::MergeWithEntry(const ReadingListEntry& other) {
 #if !defined(NDEBUG)
   std::unique_ptr<sync_pb::ReadingListSpecifics> new_this_pb(
       AsReadingListSpecifics());
-  DCHECK(ReadingListStore::CompareEntriesForSync(*old_this_pb, *new_this_pb));
-  DCHECK(ReadingListStore::CompareEntriesForSync(*other_pb, *new_this_pb));
+  DCHECK(
+      ReadingListSyncBridge::CompareEntriesForSync(*old_this_pb, *new_this_pb));
+  DCHECK(ReadingListSyncBridge::CompareEntriesForSync(*other_pb, *new_this_pb));
 #endif
 }
 
@@ -636,18 +612,14 @@ ReadingListEntry::AsReadingListLocal(const base::Time& now) const {
   pb_entry->set_failed_download_counter(failed_download_counter_);
 
   if (backoff_) {
-    base::Value backoff =
-        net::BackoffEntrySerializer::SerializeToValue(*backoff_, now);
+    base::Value::List backoff =
+        net::BackoffEntrySerializer::SerializeToList(*backoff_, now);
 
     std::string output;
     JSONStringValueSerializer serializer(&output);
     serializer.Serialize(backoff);
     pb_entry->set_backoff(output);
   }
-
-  reading_list::ReadingListContentSuggestionsExtra* pb_extra =
-      pb_entry->mutable_content_suggestions_extra();
-  pb_extra->set_dismissed(content_suggestions_extra_.dismissed);
 
   return pb_entry;
 }

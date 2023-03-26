@@ -1,10 +1,10 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/media/cdm_storage_id.h"
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/logging.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -17,12 +17,12 @@
 #include "url/origin.h"
 
 #if BUILDFLAG(IS_CHROMEOS)
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "mojo/public/cpp/bindings/callback_helpers.h"
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "ash/components/cryptohome/system_salt_getter.h"
+#include "chromeos/ash/components/cryptohome/system_salt_getter.h"
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
@@ -116,7 +116,7 @@ void ComputeStorageId(const std::vector<uint8_t>& profile_salt,
   CdmStorageIdCallback scoped_callback =
       mojo::WrapCallbackWithDefaultInvokeIfNotRun(std::move(callback),
                                                   std::vector<uint8_t>());
-  chromeos::SystemSaltGetter::Get()->GetSystemSalt(
+  ash::SystemSaltGetter::Get()->GetSystemSalt(
       base::BindOnce(&ComputeAndReturnStorageId, profile_salt, origin,
                      std::move(scoped_callback)));
 #elif BUILDFLAG(IS_CHROMEOS_LACROS)

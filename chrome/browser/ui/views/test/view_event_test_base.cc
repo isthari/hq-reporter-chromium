@@ -1,32 +1,33 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/test/view_event_test_base.h"
 #include "base/memory/raw_ptr.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/test/base/chrome_unit_test_suite.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "mojo/core/embedder/embedder.h"
+#include "ui/display/screen.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 
 #if defined(USE_AURA) && !BUILDFLAG(IS_CHROMEOS_ASH)
-#include "ui/display/screen.h"
 #include "ui/views/widget/desktop_aura/desktop_screen.h"
 
-#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && defined(USE_OZONE)
+#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && \
+    BUILDFLAG(IS_OZONE)
 #include "ui/views/test/test_desktop_screen_ozone.h"
 #endif  // (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) &&
-        // defined(USE_OZONE)
+        // BUILDFLAG(IS_OZONE)
 #endif
 
 namespace {
@@ -98,13 +99,13 @@ ViewEventTestBase::ViewEventTestBase() {
   // TODO(pkasting): Determine why the TestScreen in AuraTestHelper is
   // insufficient for these tests, then either bolster/replace it or fix the
   // tests.
-  DCHECK(!display::Screen::GetScreen());
-#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && defined(USE_OZONE)
-  if (!display::Screen::GetScreen())
-    display::Screen::SetScreenInstance(
-        views::test::TestDesktopScreenOzone::GetInstance());
+  DCHECK(!display::Screen::HasScreen());
+#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && \
+    BUILDFLAG(IS_OZONE)
+  if (!display::Screen::HasScreen())
+    screen_ = views::test::TestDesktopScreenOzone::Create();
 #endif
-  if (!display::Screen::GetScreen())
+  if (!display::Screen::HasScreen())
     screen_ = views::CreateDesktopScreen();
 #endif
 }
@@ -162,7 +163,7 @@ void ViewEventTestBase::StartMessageLoopAndRunTest() {
 
   // Schedule a task that starts the test. Need to do this as we're going to
   // run the message loop.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&ViewEventTestBase::DoTestOnMessageLoop,
                                 base::Unretained(this)));
 
@@ -185,7 +186,7 @@ ViewEventTestBase::GetDragTaskRunner() {
   // platforms cannot be posted from background threads.  The nested drag
   // message loop on non-Windows does not filter out non-input events, so these
   // tasks will run.
-  return base::ThreadTaskRunnerHandle::Get();
+  return base::SingleThreadTaskRunner::GetCurrentDefault();
 #endif
 }
 

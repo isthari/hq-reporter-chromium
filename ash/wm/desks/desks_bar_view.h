@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,23 +9,25 @@
 #include <vector>
 
 #include "ash/ash_export.h"
+#include "ash/wm/desks/cros_next_desk_button.h"
 #include "ash/wm/desks/desks_controller.h"
-#include "ash/wm/desks/templates/desks_templates_metrics_util.h"
+#include "ash/wm/desks/templates/saved_desk_metrics_util.h"
 #include "base/callback_list.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/view.h"
 
 namespace ash {
 
+class CrOSNextDefaultDeskButton;
+class CrOSNextDeskIconButton;
 class DesksBarScrollViewLayout;
 class DeskBarHoverObserver;
 class DeskDragProxy;
 class DeskMiniView;
 class ExpandedDesksBarButton;
-class GradientLayerDelegate;
-class NewDeskButton;
 class OverviewGrid;
 class PersistentDesksBarVerticalDotsButton;
+class PillButton;
 class ScrollArrowButton;
 class ZeroStateDefaultDeskButton;
 class ZeroStateIconButton;
@@ -59,6 +61,8 @@ class ASH_EXPORT DesksBarView : public views::View,
     is_bounds_animation_on_going_ = value;
   }
 
+  PillButton* up_next_button() const { return up_next_button_; }
+
   ZeroStateDefaultDeskButton* zero_state_default_desk_button() const {
     return zero_state_default_desk_button_;
   }
@@ -71,13 +75,21 @@ class ASH_EXPORT DesksBarView : public views::View,
     return expanded_state_new_desk_button_;
   }
 
-  ZeroStateIconButton* zero_state_desks_templates_button() const {
-    return zero_state_desks_templates_button_;
+  ZeroStateIconButton* zero_state_library_button() const {
+    return zero_state_library_button_;
   }
 
-  ExpandedDesksBarButton* expanded_state_desks_templates_button() const {
-    return expanded_state_desks_templates_button_;
+  ExpandedDesksBarButton* expanded_state_library_button() const {
+    return expanded_state_library_button_;
   }
+
+  CrOSNextDefaultDeskButton* default_desk_button() const {
+    return default_desk_button_;
+  }
+
+  CrOSNextDeskIconButton* new_desk_button() const { return new_desk_button_; }
+
+  CrOSNextDeskIconButton* library_button() const { return library_button_; }
 
   const std::vector<DeskMiniView*>& mini_views() const { return mini_views_; }
 
@@ -88,10 +100,6 @@ class ASH_EXPORT DesksBarView : public views::View,
   bool dragged_item_over_bar() const { return dragged_item_over_bar_; }
 
   OverviewGrid* overview_grid() const { return overview_grid_; }
-
-  void set_should_name_nudge(bool should_name_nudge) {
-    should_name_nudge_ = should_name_nudge;
-  }
 
   // Initializes and creates mini_views for any pre-existing desks, before the
   // bar was created. This should only be called after this view has been added
@@ -155,16 +163,15 @@ class ASH_EXPORT DesksBarView : public views::View,
   // If a desk is in a drag & drop cycle.
   bool IsDraggingDesk() const;
 
-  // Called when the desks templates grid is hidden. Transitions the desks bar
+  // Called when the saved desk library is hidden. Transitions the desks bar
   // view to zero state if necessary.
-  void OnDesksTemplatesGridHidden();
+  void OnSavedDeskLibraryHidden();
 
   // views::View:
   const char* GetClassName() const override;
   void Layout() override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
-  void OnThemeChanged() override;
 
   // DesksController::Observer:
   void OnDeskAdded(const Desk* desk) override;
@@ -172,8 +179,6 @@ class ASH_EXPORT DesksBarView : public views::View,
   void OnDeskReordered(int old_index, int new_index) override;
   void OnDeskActivationChanged(const Desk* activated,
                                const Desk* deactivated) override;
-  void OnDeskSwitchAnimationLaunching() override;
-  void OnDeskSwitchAnimationFinished() override;
   void OnDeskNameChanged(const Desk* desk,
                          const std::u16string& new_name) override;
 
@@ -193,16 +198,32 @@ class ASH_EXPORT DesksBarView : public views::View,
       DesksCreationRemovalSource desks_creation_removal_source);
 
   // If in expanded state, updates the border color of the
-  // `expanded_state_desks_templates_button_` and the active desk's mini view
-  // after the desk templates grid has been shown. If not in expanded state,
-  // updates the background color of the `zero_state_desks_templates_button_`
+  // `expanded_state_library_button_` and the active desk's mini view
+  // after the saved desk library has been shown. If not in expanded state,
+  // updates the background color of the `zero_state_library_button_`
   // and the `zero_state_default_desk_button_`.
-  void UpdateButtonsForDesksTemplatesGrid();
+  void UpdateButtonsForSavedDeskGrid();
 
-  // Updates the visibility of the desks templates button based on whether the
-  // desks templates feature is enabled, the user has any desks templates and
-  // the state of the desks bar.
-  void UpdateDesksTemplatesButtonVisibility();
+  // Updates the visibility of the two buttons inside the zero state desks bar
+  // and the ExpandedDesksBarButton on the desk bar's state.
+  void UpdateDeskButtonsVisibility();
+
+  // Udates the visibility of the `default_desk_button_` and
+  // `vertical_dots_button_` on the desks bar's state.
+  // TODO(conniekxu): Remove `UpdateDeskButtonsVisibility`, replace it with this
+  // function, and rename this function by removing the prefix CrOSNext.
+  void UpdateDeskButtonsVisibilityCrOSNext();
+
+  // Updates the visibility of the saved desk library button based on whether
+  // the saved desk feature is enabled, the user has any saved desks and the
+  // state of the desks bar.
+  void UpdateLibraryButtonVisibility();
+
+  // Updates the visibility of the saved desk library button based on whether
+  // the saved desk feature is enabled and the user has any saved desks.
+  // TODO(conniekxu): Remove `UpdateLibraryButtonVisibility`, replace it with
+  // this function, and rename this function by removing the prefix CrOSNext.
+  void UpdateLibraryButtonVisibilityCrOSNext();
 
   // Returns the mini_view associated with `desk` or nullptr if no mini_view
   // has been created for it yet.
@@ -210,6 +231,16 @@ class ASH_EXPORT DesksBarView : public views::View,
 
   // Animates the bar from expanded state to zero state. Clears `mini_views_`.
   void SwitchToZeroState();
+
+  // Bring focus to the name view of the desk with `desk_index`.
+  void NudgeDeskName(int desk_index);
+
+  // Called to update state of `new_desk_button_` to the given
+  // `target_state` for drag and drop window. To make the button a drop target
+  // for the window being dragged, the button needs to be updated to the
+  // `kDragAndDrop` state. At the end of the drag, the button needs to be
+  // updated to the `kExpanded` state.
+  void UpdateNewDeskButton(CrOSNextDeskIconButton::State target_state);
 
  private:
   friend class DesksBarScrollViewLayout;
@@ -231,10 +262,6 @@ class ASH_EXPORT DesksBarView : public views::View,
   // be moved when performing the mini_view creation or deletion animations.
   int GetFirstMiniViewXOffset() const;
 
-  // Updates the visibility of the two buttons inside the zero state desks bar
-  // and the ExpandedDesksBarButton on the desk bar's state.
-  void UpdateDeskButtonsVisibility();
-
   // Updates the visibility of |left_scroll_button_| and |right_scroll_button_|.
   // Show |left_scroll_button_| if there are contents outside of the left edge
   // of the |scroll_view_|, the same for |right_scroll_button_| based on the
@@ -244,7 +271,7 @@ class ASH_EXPORT DesksBarView : public views::View,
   // We will show a fade in gradient besides |left_scroll_button_| and a fade
   // out gradient besides |right_scroll_button_|. Show the gradient only when
   // the corresponding scroll button is visible.
-  void UpdateGradientZone();
+  void UpdateGradientMask();
 
   // Scrolls the desks bar to the previous or next page. The page size is the
   // width of the scroll view, the contents that are outside of the scroll view
@@ -256,7 +283,12 @@ class ASH_EXPORT DesksBarView : public views::View,
   // preview is cropped at the start position of the scrollable bar.
   int GetAdjustedUncroppedScrollPosition(int position) const;
 
-  void OnDesksTemplatesButtonPressed();
+  void OnLibraryButtonPressed();
+
+  // If the `DesksCloseAll` flag is enabled, this function cycles through
+  // `mini_views_` and updates the tooltip for each mini view's combine desks
+  // button.
+  void MaybeUpdateCombineDesksTooltips();
 
   // Scrollview callbacks.
   void OnContentsScrolled();
@@ -285,13 +317,8 @@ class ASH_EXPORT DesksBarView : public views::View,
 
   // Contents of `scroll_view_`, which includes `mini_views_`,
   // `expanded_state_new_desk_button_` and optionally
-  // `expanded_state_desks_templates_button_` currently.
+  // `expanded_state_library_button_` currently.
   views::View* scroll_view_contents_ = nullptr;
-
-  // If this is true, when `UpdateNewMiniViews()` is called, the newly created
-  // mini view's name view will be focused and |should_name_nudge_| will be
-  // reset.
-  bool should_name_nudge_ = false;
 
   // True if the `DesksBarBoundsAnimation` is started and hasn't finished yet.
   // It will be used to hold `Layout` until the bounds animation is completed.
@@ -300,13 +327,26 @@ class ASH_EXPORT DesksBarView : public views::View,
   // done to eliminate the unnecessary `Layout` calls during the animation.
   bool is_bounds_animation_on_going_ = false;
 
+  // Button to return to the glanceables screen.
+  PillButton* up_next_button_ = nullptr;
+
   ZeroStateDefaultDeskButton* zero_state_default_desk_button_ = nullptr;
   ZeroStateIconButton* zero_state_new_desk_button_ = nullptr;
   ExpandedDesksBarButton* expanded_state_new_desk_button_ = nullptr;
 
-  // Buttons to show the desks templates grid.
-  ZeroStateIconButton* zero_state_desks_templates_button_ = nullptr;
-  ExpandedDesksBarButton* expanded_state_desks_templates_button_ = nullptr;
+  // Buttons to show the saved desk grid.
+  ZeroStateIconButton* zero_state_library_button_ = nullptr;
+  ExpandedDesksBarButton* expanded_state_library_button_ = nullptr;
+
+  // Buttons for the CrOS Next updated UI. They're added behind the feature flag
+  // Jellyroll.
+  // TODO(conniekxu): After CrOS Next is launched, replace
+  // `zero_state_default_desk_button_`, `zero_state_default_desk_button_`,
+  // `expanded_state_new_desk_button_`, `zero_state_library_button_` and
+  // `expanded_state_library_button_` with the buttons below.
+  CrOSNextDefaultDeskButton* default_desk_button_ = nullptr;
+  CrOSNextDeskIconButton* new_desk_button_ = nullptr;
+  CrOSNextDeskIconButton* library_button_ = nullptr;
 
   ScrollArrowButton* left_scroll_button_ = nullptr;
   ScrollArrowButton* right_scroll_button_ = nullptr;
@@ -314,10 +354,6 @@ class ASH_EXPORT DesksBarView : public views::View,
   DeskMiniView* drag_view_ = nullptr;
   // Drag proxy for the dragged desk.
   std::unique_ptr<DeskDragProxy> drag_proxy_;
-
-  // The layer delegate used for |scroll_view_|'s mask layer, with left and
-  // right gradient asides the scroll buttons.
-  std::unique_ptr<GradientLayerDelegate> gradient_layer_delegate_;
 
   // A circular button which when clicked will open the context menu of the
   // persistent desks bar. Note that this button will only be created when

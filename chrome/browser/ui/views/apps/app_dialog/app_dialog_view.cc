@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,12 @@
 
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
-#include "ui/gfx/image/image_skia.h"
+#include "ui/base/models/image_model.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 
-AppDialogView::AppDialogView(const gfx::ImageSkia& image)
+AppDialogView::AppDialogView(const ui::ImageModel& image)
     : BubbleDialogDelegateView(nullptr, views::BubbleBorder::NONE) {
   SetIcon(image);
   SetShowIcon(true);

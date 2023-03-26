@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,13 +13,12 @@
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/peerconnection/peer_connection_dependency_factory.h"
-#include "third_party/blink/renderer/platform/mediastream/media_stream_component.h"
+#include "third_party/blink/renderer/platform/mediastream/media_stream_component_impl.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_source.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/thread_safe_ref_counted.h"
 #include "third_party/webrtc/api/media_stream_interface.h"
-#include "third_party/webrtc_overrides/metronome_provider.h"
 
 namespace base {
 class SingleThreadTaskRunner;
@@ -82,13 +81,17 @@ class MODULES_EXPORT RemoteMediaStreamTrackAdapter
     DCHECK(main_thread_->BelongsToCurrentThread());
   }
 
-  void InitializeTrack(MediaStreamSource::StreamType type) {
+  void InitializeTrack(
+      MediaStreamSource::StreamType type,
+      std::unique_ptr<WebPlatformMediaStreamSource> platform_source,
+      std::unique_ptr<MediaStreamTrackPlatform> platform_track) {
     DCHECK(main_thread_->BelongsToCurrentThread());
     DCHECK(!component_);
 
-    auto* source = MakeGarbageCollected<MediaStreamSource>(id_, type, id_,
-                                                           true /*remote*/);
-    component_ = MakeGarbageCollected<MediaStreamComponent>(id_, source);
+    auto* source = MakeGarbageCollected<MediaStreamSource>(
+        id_, type, id_, true /*remote*/, std::move(platform_source));
+    component_ = MakeGarbageCollected<MediaStreamComponentImpl>(
+        id_, source, std::move(platform_track));
     // If we have a reference to a window frame where the track was created,
     // store it on the component. This allows other code to use the correct
     // per-frame object for the track, such as the audio device for playout.
@@ -127,7 +130,6 @@ class MODULES_EXPORT RemoteVideoTrackAdapter
   RemoteVideoTrackAdapter(
       const scoped_refptr<base::SingleThreadTaskRunner>& main_thread,
       webrtc::VideoTrackInterface* webrtc_track,
-      scoped_refptr<MetronomeProvider> metronome_provider,
       ExecutionContext* execution_context);
 
  protected:
@@ -136,8 +138,6 @@ class MODULES_EXPORT RemoteVideoTrackAdapter
  private:
   void InitializeWebVideoTrack(std::unique_ptr<TrackObserver> observer,
                                bool enabled);
-
-  const scoped_refptr<MetronomeProvider> metronome_provider_;
 };
 
 // RemoteAudioTrackAdapter is responsible for listening on state

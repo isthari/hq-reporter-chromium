@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,8 @@
 
 #include "base/files/file_path.h"
 #include "base/memory/raw_ptr.h"
-#include "pdf/document_loader.h"
-#include "pdf/range_set.h"
+#include "pdf/loader/document_loader.h"
+#include "pdf/loader/range_set.h"
 
 namespace chrome_pdf {
 

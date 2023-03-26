@@ -1,13 +1,18 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/default_promo/default_browser_promo_coordinator.h"
 
-#include "base/feature_list.h"
-#include "base/metrics/histogram_functions.h"
-#include "base/metrics/user_metrics.h"
-#include "base/metrics/user_metrics_action.h"
+#import "base/feature_list.h"
+#import "base/metrics/histogram_functions.h"
+#import "base/metrics/user_metrics.h"
+#import "base/metrics/user_metrics_action.h"
+#import "components/feature_engagement/public/event_constants.h"
+#import "components/feature_engagement/public/tracker.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/feature_engagement/tracker_factory.h"
+#import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/ui/default_promo/default_browser_promo_view_controller.h"
 #import "ios/chrome/browser/ui/default_promo/default_browser_string_util.h"
 #import "ios/chrome/browser/ui/default_promo/default_browser_utils.h"
@@ -71,6 +76,7 @@
       base::UserMetricsAction("IOS.DefaultBrowserFullscreenPromo.Dismissed"));
   // This ensures that a modal swipe dismiss will also be logged.
   LogUserInteractionWithFullscreenPromo();
+  [self recordDefaultBrowserPromoShown];
 }
 
 #pragma mark - ConfirmationAlertActionHandler
@@ -79,17 +85,19 @@
   if (IsInRemindMeLaterGroup()) {
     if (self.defaultBrowerPromoViewController.tertiaryActionString) {
       [self logDefaultBrowserFullscreenPromoRemindMeHistogramForAction:
-                ACTION_BUTTON];
+                IOSDefaultBrowserFullscreenPromoAction::kActionButton];
     } else {
       [self logDefaultBrowserFullscreenRemindMeSecondPromoHistogramForAction:
-                ACTION_BUTTON];
+                IOSDefaultBrowserFullscreenPromoAction::kActionButton];
     }
   } else {
-    [self logDefaultBrowserFullscreenPromoHistogramForAction:ACTION_BUTTON];
+    [self logDefaultBrowserFullscreenPromoHistogramForAction:
+              IOSDefaultBrowserFullscreenPromoAction::kActionButton];
   }
   base::RecordAction(base::UserMetricsAction(
       "IOS.DefaultBrowserFullscreenPromo.PrimaryActionTapped"));
   LogUserInteractionWithFullscreenPromo();
+  [self recordDefaultBrowserPromoShown];
   [[UIApplication sharedApplication]
                 openURL:[NSURL URLWithString:UIApplicationOpenSettingsURLString]
                 options:{}
@@ -105,36 +113,43 @@
       // When the "Remind Me Later" button is visible, it is the secondary
       // button, while the "No Thanks" button is the tertiary button.
       [self logDefaultBrowserFullscreenPromoRemindMeHistogramForAction:
-                REMIND_ME_LATER];
+                IOSDefaultBrowserFullscreenPromoAction::kRemindMeLater];
       base::RecordAction(base::UserMetricsAction(
           "IOS.DefaultBrowserFullscreenPromo.RemindMeTapped"));
       LogRemindMeLaterPromoActionInteraction();
+      [self NotifyFETRemindMeLater];
     } else {
       [self logDefaultBrowserFullscreenRemindMeSecondPromoHistogramForAction:
-                CANCEL];
+                IOSDefaultBrowserFullscreenPromoAction::kCancel];
       base::RecordAction(base::UserMetricsAction(
           "IOS.DefaultBrowserFullscreenPromo.Dismissed"));
+      [self recordDefaultBrowserPromoShown];
     }
   } else {
-    [self logDefaultBrowserFullscreenPromoHistogramForAction:CANCEL];
+    [self logDefaultBrowserFullscreenPromoHistogramForAction:
+              IOSDefaultBrowserFullscreenPromoAction::kCancel];
     base::RecordAction(
         base::UserMetricsAction("IOS.DefaultBrowserFullscreenPromo.Dismissed"));
+    [self recordDefaultBrowserPromoShown];
   }
   [self.handler hidePromo];
 }
 
 - (void)confirmationAlertTertiaryAction {
   DCHECK(IsInRemindMeLaterGroup());
-  [self logDefaultBrowserFullscreenPromoRemindMeHistogramForAction:CANCEL];
+  [self logDefaultBrowserFullscreenPromoRemindMeHistogramForAction:
+            IOSDefaultBrowserFullscreenPromoAction::kCancel];
   base::RecordAction(
       base::UserMetricsAction("IOS.DefaultBrowserFullscreenPromo.Dismissed"));
   LogUserInteractionWithFullscreenPromo();
+  [self recordDefaultBrowserPromoShown];
   [self.handler hidePromo];
 }
 
 - (void)confirmationAlertLearnMoreAction {
   base::RecordAction(base::UserMetricsAction(
       "IOS.DefaultBrowserFullscreen.PromoMoreInfoTapped"));
+  [self recordDefaultBrowserPromoShown];
   NSString* message = GetDefaultBrowserLearnMoreText();
   self.learnMoreViewController =
       [[PopoverLabelViewController alloc] initWithMessage:message];
@@ -165,6 +180,32 @@
     (IOSDefaultBrowserFullscreenPromoAction)action {
   base::UmaHistogramEnumeration(
       "IOS.DefaultBrowserFullscreenPromoRemindMeSecondPromo", action);
+}
+
+#pragma mark - Private
+
+// Notifies the FET that the user has clicked "remind me later" on the default
+// browser promo, which is an eligibility criterion for the default browser blue
+// dot promo.
+- (void)NotifyFETRemindMeLater {
+  ChromeBrowserState* browserState = self.browser->GetBrowserState();
+  if (!browserState || browserState->IsOffTheRecord()) {
+    return;
+  }
+
+  feature_engagement::TrackerFactory::GetForBrowserState(browserState)
+      ->NotifyEvent(feature_engagement::events::kBlueDotPromoCriterionMet);
+}
+
+// Records that a default browser promo has been shown. This needs to be called
+// for any action the user takes other than "remind me later", since this event
+// is used by the FET to block the blue dot default browser promo, and clicking
+// "remind me later" should not block that promo. This is why this method isn't
+// simply called in something more generic like `start`.
+- (void)recordDefaultBrowserPromoShown {
+  ChromeBrowserState* browserState = self.browser->GetBrowserState();
+  LogToFETDefaultBrowserPromoShown(
+      feature_engagement::TrackerFactory::GetForBrowserState(browserState));
 }
 
 @end

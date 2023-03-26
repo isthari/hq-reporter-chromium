@@ -1,13 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/api/identity/identity_clear_all_cached_auth_tokens_function.h"
 
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/extensions/api/identity/identity_api.h"
 #include "chrome/browser/extensions/api/identity/identity_constants.h"
 #include "chrome/browser/extensions/api/identity/web_auth_flow.h"
@@ -60,12 +59,12 @@ void IdentityClearAllCachedAuthTokensFunction::OnCookiesDeleted(
     uint32_t num_deleted) {
   ++cleaned_partitions_;
 
-  if (cleaned_partitions_ < base::size(kPartitionsToClean))
+  if (cleaned_partitions_ < std::size(kPartitionsToClean))
     return;
 
   // Post a task to ensure Respond() is not synchronously called from Run(). The
   // object is retained by this task.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&IdentityClearAllCachedAuthTokensFunction::Respond, this,
                      NoArguments()));

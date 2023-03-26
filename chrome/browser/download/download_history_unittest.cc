@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,13 +13,14 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/guid.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/rand_util.h"
 #include "base/stl_util.h"
 #include "base/test/scoped_feature_list.h"
+#include "chrome/test/base/testing_profile.h"
 #include "components/download/public/common/download_features.h"
 #include "components/download/public/common/download_utils.h"
 #include "components/download/public/common/mock_download_item.h"
@@ -237,21 +238,18 @@ class DownloadHistoryTest : public testing::Test {
 
   content::MockDownloadManager::CreateDownloadItemAdapter
   GetCreateDownloadItemAdapterFromDownloadRow(const history::DownloadRow& row) {
-    download::DownloadItemRerouteInfo reroute_info;
-    if (!row.reroute_info_serialized.empty())
-      CHECK(reroute_info.ParseFromString(row.reroute_info_serialized));
     return content::MockDownloadManager::CreateDownloadItemAdapter(
         row.guid, history::ToContentDownloadId(row.id), row.current_path,
-        row.target_path, row.url_chain, row.referrer_url, row.site_url,
-        row.tab_url, row.tab_referrer_url, absl::nullopt, row.mime_type,
-        row.original_mime_type, row.start_time, row.end_time, row.etag,
-        row.last_modified, row.received_bytes, row.total_bytes, std::string(),
+        row.target_path, row.url_chain, row.referrer_url,
+        row.embedder_download_data, row.tab_url, row.tab_referrer_url,
+        absl::nullopt, row.mime_type, row.original_mime_type, row.start_time,
+        row.end_time, row.etag, row.last_modified, row.received_bytes,
+        row.total_bytes, std::string(),
         history::ToContentDownloadState(row.state),
         history::ToContentDownloadDangerType(row.danger_type),
         history::ToContentDownloadInterruptReason(row.interrupt_reason),
         row.opened, row.last_access_time, row.transient,
-        history::ToContentReceivedSlices(row.download_slice_info),
-        reroute_info);
+        history::ToContentReceivedSlices(row.download_slice_info));
   }
 
   // Creates the DownloadHistory. If |return_null_item| is true, |manager_|
@@ -366,7 +364,9 @@ class DownloadHistoryTest : public testing::Test {
     row->target_path = base::FilePath(path);
     row->url_chain.push_back(GURL(url_string));
     row->referrer_url = GURL(referrer_string);
-    row->site_url = GURL("http://example.com");
+    row->embedder_download_data =
+        manager_->StoragePartitionConfigToSerializedEmbedderDownloadData(
+            content::StoragePartitionConfig::CreateDefault(&profile_));
     row->tab_url = GURL("http://example.com/tab-url");
     row->tab_referrer_url = GURL("http://example.com/tab-referrer-url");
     row->mime_type = "application/octet-stream";
@@ -420,8 +420,8 @@ class DownloadHistoryTest : public testing::Test {
         .WillRepeatedly(Return(row->original_mime_type));
     EXPECT_CALL(item(index), GetReferrerUrl())
         .WillRepeatedly(ReturnRefOfCopy(row->referrer_url));
-    EXPECT_CALL(item(index), GetSiteUrl())
-        .WillRepeatedly(ReturnRefOfCopy(row->site_url));
+    EXPECT_CALL(item(index), GetSerializedEmbedderDownloadData())
+        .WillRepeatedly(ReturnRefOfCopy(row->embedder_download_data));
     EXPECT_CALL(item(index), GetTabUrl())
         .WillRepeatedly(ReturnRefOfCopy(row->tab_url));
     EXPECT_CALL(item(index), GetTabReferrerUrl())
@@ -470,16 +470,6 @@ class DownloadHistoryTest : public testing::Test {
                                           row->by_ext_name);
 #endif
 
-    download::DownloadItemRerouteInfo reroute_info;
-    if (!row->reroute_info_serialized.empty()) {
-      ASSERT_TRUE(reroute_info.ParseFromString(row->reroute_info_serialized));
-      EXPECT_CALL(item(index), GetRerouteInfo())
-          .WillRepeatedly(ReturnRefOfCopy(reroute_info));
-    } else {
-      EXPECT_CALL(item(index), GetRerouteInfo())
-          .WillRepeatedly(ReturnRefOfCopy(download::DownloadItemRerouteInfo()));
-    }
-
     std::vector<download::DownloadItem*> items;
     for (size_t i = 0; i < items_.size(); ++i) {
       items.push_back(&item(i));
@@ -506,8 +496,8 @@ class DownloadHistoryTest : public testing::Test {
   raw_ptr<content::DownloadManager::Observer> manager_observer_ = nullptr;
   size_t download_created_index_ = 0;
   base::test::ScopedFeatureList feature_list_;
+  TestingProfile profile_;
 };
-
 
 // Test loading an item from the database, changing it and removing it.
 TEST_F(DownloadHistoryTest, DownloadHistoryTest_LoadWithDownloadDB) {
@@ -691,7 +681,7 @@ TEST_F(DownloadHistoryTest, DownloadHistoryTest_RemoveWhileAdding) {
   // immediately remove the item's record from history.
   item(0).NotifyObserversDownloadRemoved();
   EXPECT_CALL(manager(), GetDownload(item(0).GetId()))
-      .WillRepeatedly(Return(static_cast<download::DownloadItem*>(NULL)));
+      .WillRepeatedly(Return(static_cast<download::DownloadItem*>(nullptr)));
   ExpectNoDownloadsRemoved();
   EXPECT_FALSE(DownloadHistory::IsPersisted(&item(0)));
 
@@ -931,37 +921,6 @@ TEST_F(DownloadHistoryTest, CreateLargeDataURLCompletedItem) {
   ExpectDownloadCreated(row);
 }
 
-// Test that reroute info will be stored into history.
-TEST_F(DownloadHistoryTest, RerouteInfo) {
-  // Create a fresh item not from download DB
-  CreateDownloadHistory({});
-
-  history::DownloadRow row;
-  download::DownloadItemRerouteInfo reroute_info;
-  reroute_info.set_service_provider(enterprise_connectors::BOX);
-  reroute_info.mutable_box()->set_folder_id("12345");
-  row.reroute_info_serialized = reroute_info.SerializeAsString();
-  InitBasicItem(FILE_PATH_LITERAL("/foo/bar.pdf"), "http://example.com/bar.pdf",
-                "http://example.com/referrer.html",
-                download::DownloadItem::IN_PROGRESS, &row);
-
-  // Incomplete download will not be inserted into history.
-  CallOnDownloadCreated(0);
-  ExpectNoDownloadCreated();
-
-  // Completed download should be inserted.
-  reroute_info.mutable_box()->set_file_id("67890");
-  EXPECT_CALL(item(0), IsDone()).WillRepeatedly(Return(true));
-  EXPECT_CALL(item(0), GetState())
-      .WillRepeatedly(Return(download::DownloadItem::COMPLETE));
-  EXPECT_CALL(item(0), GetRerouteInfo())
-      .WillRepeatedly(ReturnRefOfCopy(reroute_info));
-  row.state = history::DownloadState::COMPLETE;
-  row.reroute_info_serialized = reroute_info.SerializeAsString();
-  item(0).NotifyObserversDownloadUpdated();
-  ExpectDownloadCreated(row);
-}
-
 // Tests that overwritten download is removed from history DB after the
 // expiration time.
 TEST_F(DownloadHistoryTest,
@@ -1028,35 +987,6 @@ TEST_F(DownloadHistoryTest,
 
   EXPECT_TRUE(DownloadHistory::IsPersisted(&item(0)));
   EXPECT_TRUE(DownloadHistory::IsPersisted(&item(1)));
-}
-
-// Tests that download item's reroute info can be saved/updated into and
-// retrieved from history DB successfully.
-TEST_F(DownloadHistoryTest, DownloadHistoryTest_RerouteInfo) {
-  // Create a fresh item not from history, OnDownloadCreated, OnDownloadUpdated,
-  // OnDownloadRemoved.
-  CreateDownloadHistory({});
-
-  history::DownloadRow row;
-  InitBasicItem(FILE_PATH_LITERAL("/foo/bar.pdf"),
-                "http://example2.com/bar.pdf",
-                "http://example.com/referrer1.html",
-                download::DownloadItem::COMPLETE, &row);
-  EXPECT_CALL(item(0), IsDone()).WillRepeatedly(Return(true));
-  // Pretend the manager just created |item|.
-  CallOnDownloadCreated(0);
-  ExpectDownloadCreated(row);
-  EXPECT_TRUE(DownloadHistory::IsPersisted(&item(0)));
-
-  // Update reroute info and trigger an update.
-  download::DownloadItemRerouteInfo reroute_info;
-  reroute_info.set_service_provider(enterprise_connectors::BOX);
-  reroute_info.mutable_box()->set_file_id("12345");
-  ASSERT_TRUE(reroute_info.SerializeToString(&row.reroute_info_serialized));
-  EXPECT_CALL(item(0), GetRerouteInfo())
-      .WillRepeatedly(ReturnRefOfCopy(reroute_info));
-  item(0).NotifyObserversDownloadUpdated();
-  ExpectDownloadUpdated(row, true);
 }
 
 }  // anonymous namespace

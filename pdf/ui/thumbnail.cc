@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,7 +38,7 @@ constexpr int kMaxThumbnailPixels = 255 * 1024 / kImageColorChannels;
 // Maximum CSS dimensions are set to match UX specifications.
 // These constants should be kept in sync with `PORTRAIT_WIDTH` and
 // `LANDSCAPE_WIDTH` in
-// chrome/browser/resources/pdf/elements/viewer-thumbnail.js.
+// chrome/browser/resources/pdf/elements/viewer-thumbnail.ts.
 constexpr int kMaxWidthPortraitPx = 108;
 constexpr int kMaxWidthLandscapePx = 140;
 

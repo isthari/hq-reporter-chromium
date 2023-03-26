@@ -1,15 +1,15 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/sync/driver/backend_migrator.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/observer_list.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 
 namespace syncer {
 
@@ -104,7 +104,7 @@ void BackendMigrator::OnConfigureDone(
   // |manager_|'s methods aren't re-entrant, and we're notified from
   // them, so post a task to avoid problems.
   SDVLOG(1) << "Posting OnConfigureDoneImpl";
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&BackendMigrator::OnConfigureDoneImpl,
                                 weak_ptr_factory_.GetWeakPtr(), result));
 }
@@ -153,7 +153,7 @@ void BackendMigrator::OnConfigureDoneImpl(
     // DataTypeManager, which means it's never returned in GetPurgedDataTypes().
     // Luckily, there's no need to wait until NIGORI is purged, because that
     // takes effect immediately.
-    // TODO(crbug.com/922900): try to find better way to implement this logic.
+    // TODO(crbug.com/1142771): try to find better way to implement this logic.
     purged_types.Put(NIGORI);
 
     if (!purged_types.HasAll(to_migrate_)) {

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/time/time.h"
 #include "chrome/browser/performance_manager/decorators/page_aggregator.h"
+#include "chrome/browser/performance_manager/decorators/page_live_state_decorator_delegate_impl.h"
 #include "chrome/browser/performance_manager/policies/page_discarding_helper.h"
 #include "components/performance_manager/decorators/freezing_vote_decorator.h"
 #include "components/performance_manager/freezing/freezing_vote_aggregator.h"
@@ -23,6 +24,7 @@ LenientMockPageDiscarder::~LenientMockPageDiscarder() = default;
 
 void LenientMockPageDiscarder::DiscardPageNodes(
     const std::vector<const PageNode*>& page_nodes,
+    ::mojom::LifecycleUnitDiscardReason discard_reason,
     base::OnceCallback<void(bool)> post_discard_cb) {
   bool result = false;
   for (auto* node : page_nodes) {
@@ -32,10 +34,8 @@ void LenientMockPageDiscarder::DiscardPageNodes(
   std::move(post_discard_cb).Run(result);
 }
 
-GraphTestHarnessWithMockDiscarder::GraphTestHarnessWithMockDiscarder() {
-  // Some tests depends on the existence of the PageAggregator.
-  graph()->PassToGraph(std::make_unique<PageAggregator>());
-}
+GraphTestHarnessWithMockDiscarder::GraphTestHarnessWithMockDiscarder()
+    : GraphTestHarness(base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
 
 GraphTestHarnessWithMockDiscarder::~GraphTestHarnessWithMockDiscarder() =
     default;
@@ -43,12 +43,16 @@ GraphTestHarnessWithMockDiscarder::~GraphTestHarnessWithMockDiscarder() =
 void GraphTestHarnessWithMockDiscarder::SetUp() {
   GraphTestHarness::SetUp();
 
+  // Some tests depends on the existence of the PageAggregator.
+  graph()->PassToGraph(std::make_unique<PageAggregator>());
+
   // Make the policy use a mock PageDiscarder.
   auto mock_discarder = std::make_unique<MockPageDiscarder>();
   mock_discarder_ = mock_discarder.get();
 
-  // The discarding logic relies on the existance of the page live state data.
-  graph()->PassToGraph(std::make_unique<PageLiveStateDecorator>());
+  // The discarding logic relies on the existence of the page live state data.
+  graph()->PassToGraph(std::make_unique<PageLiveStateDecorator>(
+      PageLiveStateDelegateImpl::Create()));
 
   // Create the helper and pass it to the graph.
   auto page_discarding_helper =

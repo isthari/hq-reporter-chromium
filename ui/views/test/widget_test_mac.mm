@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,8 +15,7 @@
 #include "ui/views/widget/native_widget_mac.h"
 #include "ui/views/widget/root_view.h"
 
-namespace views {
-namespace test {
+namespace views::test {
 
 namespace {
 
@@ -82,7 +81,7 @@ ui::EventSink* WidgetTest::GetEventSink(Widget* widget) {
 }
 
 // static
-ui::internal::InputMethodDelegate* WidgetTest::GetInputMethodDelegateForWidget(
+ui::ImeKeyEventDispatcher* WidgetTest::GetImeKeyEventDispatcherForWidget(
     Widget* widget) {
   return NativeWidgetMacNSWindowHost::GetFromNativeWindow(
              widget->GetNativeWindow())
@@ -126,5 +125,4 @@ void WidgetTest::WaitForSystemAppActivation() {
   [observer wait];
 }
 
-}  // namespace test
-}  // namespace views
+}  // namespace views::test

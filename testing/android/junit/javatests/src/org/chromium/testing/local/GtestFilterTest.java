@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -99,9 +99,9 @@ public class GtestFilterTest {
 
     @Test
     public void testMultiplePositiveFilters() {
-        Filter filterUnderTest = new GtestFilter(String.format(
-                "%s.otherTestMethod:%s.otherTestMethod", TestClass.class.getName(),
-                OtherTestClass.class.getName()));
+        Filter filterUnderTest =
+                new GtestFilter(String.format("%s.otherTestMethod:%s.otherTestMethod[1]",
+                        TestClass.class.getName(), OtherTestClass.class.getName()));
         Assert.assertFalse(filterUnderTest.shouldRun(
                 Description.createTestDescription(TestClass.class, "testMethod")));
         Assert.assertTrue(filterUnderTest.shouldRun(
@@ -109,7 +109,7 @@ public class GtestFilterTest {
         Assert.assertFalse(filterUnderTest.shouldRun(
                 Description.createTestDescription(OtherTestClass.class, "testMethod")));
         Assert.assertTrue(filterUnderTest.shouldRun(
-                Description.createTestDescription(OtherTestClass.class, "otherTestMethod")));
+                Description.createTestDescription(OtherTestClass.class, "otherTestMethod[1]")));
     }
 
     @Test

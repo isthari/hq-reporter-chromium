@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Copyright 2014 The Chromium Authors. All rights reserved.
-     Use of this source code is governed by a BSD-style license that can be
-     found in the LICENSE file. -->
+<!--
+Copyright 2014 The Chromium Authors
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
 
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Please see src/ui/android/java/res/values/colors.xml for the shared common colors. -->
@@ -20,7 +22,6 @@
 
     <!--  Distilled Page Prefs colors -->
     <color name="distilled_page_prefs_selected">#999999</color>
-    <color name="distilled_page_prefs_unselected">@color/dialog_bg_color</color>
 
     <!-- Compositor Tab Title Colors -->
     <color name="compositor_tab_title_bar_text">@color/default_text_color_list</color>
@@ -48,11 +49,11 @@
     <color name="find_in_page_query_white_color">@android:color/white</color>
     <color name="find_in_page_query_incognito_hint_color">@color/white_alpha_70</color>
     <color name="find_in_page_failed_results_status_color">@color/default_red</color>
-    <color name="find_in_page_query_default_hint_color">@color/search_box_hint</color>
+    <color name="find_in_page_query_default_hint_color">@color/default_text_color_secondary_list</color>
+    <color name="find_in_page_background_color">@color/default_bg_color_baseline</color>
 
     <!-- App Background Colors -->
-    <color name="light_background_color">@android:color/white</color>
-    <color name="resizing_background_color">@android:color/white</color>
+    <color name="window_background_color">@color/default_bg_color_baseline</color>
 
     <!-- Bookmark widget colors -->
     <color name="bookmark_widget_pressed_highlight">@color/black_alpha_11</color>
@@ -64,21 +65,19 @@
     <!-- Scrollbar colors -->
     <color name="default_scroll_thumb">@color/modern_grey_800_alpha_38</color>
 
-    <!-- Explore Sites colors -->
-    <color name="explore_sites_dense_tile_background_color">#00000000</color>
-
     <!-- Offline indicator v2 colors -->
     <color name="offline_indicator_offline_color">@android:color/black</color>
-    <color name="offline_indicator_back_online_color">@color/default_bg_color_blue</color>
 
-    <!-- Material colorSurface  See See https://crbug.com/1186712 -->
-    <color name="material_color_surface">@color/default_bg_color_elev_4_baseline</color>
+    <!-- Model selector button TSR colors -->
+    <color name="model_selector_button_icon_color">@android:color/white</color>
+
+    <!-- Model selector button background TSR colors -->
+    <color name="model_selector_button_bg_color">@color/default_icon_color_inverse_dark</color>
 
     <!-- Other colors -->
     <color name="media_viewer_bg">#000000</color>
     <color name="image_viewer_bg">#0E0E0E</color>
     <color name="thumbnail_placeholder_on_primary_bg" tools:ignore="UnusedResources">@color/default_bg_color_secondary</color>
     <macro name="tab_layout_selected_tab_color">@macro/default_text_color_accent1</macro>
-    <color name="web_notification_text">#CCCCCC</color>
 
 </resources>

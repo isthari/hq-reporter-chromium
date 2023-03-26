@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,19 +12,17 @@
 
 #include <string>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/singleton.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/win/registry.h"
 #include "base/win/win_util.h"
 #include "base/win/windows_types.h"
-#include "base/win/windows_version.h"
 
 namespace {
 
@@ -125,8 +123,7 @@ class WinParentalControlsValue {
 
     // Parental controls APIs are not fully supported in Win10 and beyond, so
     // check registry properties for restictions.
-    if (base::win::GetVersion() >= base::win::Version::WIN10)
-      UpdateParentalControlsFromRegistry(&controls);
+    UpdateParentalControlsFromRegistry(&controls);
 
     return controls;
   }

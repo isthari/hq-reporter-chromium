@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,10 +29,10 @@ std::unique_ptr<WebAppInstallInfo> CreateWebAppInfoForCroshSystemWebApp() {
 }
 
 CroshSystemAppDelegate::CroshSystemAppDelegate(Profile* profile)
-    : web_app::SystemWebAppDelegate(web_app::SystemAppType::CROSH,
-                                    "Crosh",
-                                    GURL(chrome::kChromeUIUntrustedCroshURL),
-                                    profile) {}
+    : ash::SystemWebAppDelegate(ash::SystemWebAppType::CROSH,
+                                "Crosh",
+                                GURL(chrome::kChromeUIUntrustedCroshURL),
+                                profile) {}
 
 std::unique_ptr<WebAppInstallInfo> CroshSystemAppDelegate::GetWebAppInfo()
     const {
@@ -43,8 +43,9 @@ bool CroshSystemAppDelegate::ShouldShowInLauncher() const {
   return false;
 }
 
-bool CroshSystemAppDelegate::ShouldReuseExistingWindow() const {
-  return false;
+Browser* CroshSystemAppDelegate::GetWindowForLaunch(Profile* profile,
+                                                    const GURL& url) const {
+  return nullptr;
 }
 
 bool CroshSystemAppDelegate::ShouldShowInSearch() const {

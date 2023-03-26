@@ -1,10 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/bookmarks/bookmark_navigation_controller_delegate.h"
 
-#include "base/mac/foundation_util.h"
+#import "base/mac/foundation_util.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_controller.h"
 #import "ios/chrome/browser/ui/table_view/table_view_modal_presenting.h"
 
@@ -19,12 +19,11 @@
                     animated:(BOOL)animated {
   BOOL shouldDismissOnTouchOutside = YES;
 
-      UIViewController<UIAdaptivePresentationControllerDelegate>*
-          adaptiveViewController = base::mac::ObjCCast<
-              UIViewController<UIAdaptivePresentationControllerDelegate>>(
-              viewController);
-      navigationController.presentationController.delegate =
-          adaptiveViewController;
+  UIViewController<UIAdaptivePresentationControllerDelegate>*
+      adaptiveViewController = base::mac::ObjCCast<
+          UIViewController<UIAdaptivePresentationControllerDelegate>>(
+          viewController);
+  navigationController.presentationController.delegate = adaptiveViewController;
 
   ChromeTableViewController* tableViewController =
       base::mac::ObjCCast<ChromeTableViewController>(viewController);

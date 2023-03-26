@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,9 +14,9 @@
 #include <utility>
 
 #include "base/at_exit.h"
-#include "base/bind.h"
 #include "base/clang_profiling_buildflags.h"
 #include "base/command_line.h"
+#include "base/containers/adapters.h"
 #include "base/containers/contains.h"
 #include "base/environment.h"
 #include "base/files/file_enumerator.h"
@@ -24,12 +24,14 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
 #include "base/format_macros.h"
+#include "base/functional/bind.h"
 #include "base/hash/hash.h"
 #include "base/lazy_instance.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/process/kill.h"
 #include "base/process/launch.h"
@@ -53,14 +55,16 @@
 #include "base/test/launcher/test_launcher_tracer.h"
 #include "base/test/launcher/test_results_tracker.h"
 #include "base/test/scoped_logging_settings.h"
+#include "base/test/test_file_util.h"
 #include "base/test/test_switches.h"
 #include "base/test/test_timeouts.h"
+#include "base/threading/platform_thread.h"
 #include "base/threading/thread_restrictions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/libxml/chromium/libxml_utils.h"
 
 #if BUILDFLAG(IS_POSIX)
 #include <fcntl.h>
@@ -74,7 +78,6 @@
 
 #if BUILDFLAG(IS_WIN)
 #include "base/strings/string_util_win.h"
-#include "base/win/windows_version.h"
 
 #include <windows.h>
 
@@ -94,7 +97,8 @@
 
 namespace base {
 
-// See https://groups.google.com/a/chromium.org/d/msg/chromium-dev/nkdTP7sstSc/uT3FaE_sgkAJ .
+// See
+// https://groups.google.com/a/chromium.org/d/msg/chromium-dev/nkdTP7sstSc/uT3FaE_sgkAJ
 using ::operator<<;
 
 // The environment variable name for the total number of test shards.
@@ -107,6 +111,92 @@ const char kPreTestPrefix[] = "PRE_";
 
 // Prefix indicating test is disabled, will not run unless specified.
 const char kDisabledTestPrefix[] = "DISABLED_";
+
+ResultWatcher::ResultWatcher(FilePath result_file, size_t num_tests)
+    : result_file_(std::move(result_file)), num_tests_(num_tests) {}
+
+bool ResultWatcher::PollUntilDone(TimeDelta timeout_per_test) {
+  CHECK(timeout_per_test.is_positive());
+  TimeTicks batch_deadline = TimeTicks::Now() + num_tests_ * timeout_per_test;
+  TimeDelta time_to_next_check = timeout_per_test;
+  do {
+    if (WaitWithTimeout(time_to_next_check)) {
+      return true;
+    }
+    time_to_next_check = PollOnce(timeout_per_test);
+  } while (TimeTicks::Now() < batch_deadline &&
+           time_to_next_check.is_positive());
+  // The process may have exited or is about to exit. Give the process a grace
+  // period to exit on its own.
+  return WaitWithTimeout(TestTimeouts::tiny_timeout());
+}
+
+TimeDelta ResultWatcher::PollOnce(TimeDelta timeout_per_test) {
+  std::vector<TestResult> test_results;
+  // If the result watcher is unlucky enough to read the results while the
+  // runner process is writing an update, it is possible to read an incomplete
+  // XML entry, in which case `ProcessGTestOutput` will return false.
+  if (!ProcessGTestOutput(result_file_, &test_results, nullptr)) {
+    return TestTimeouts::tiny_timeout();
+  }
+  Time latest_completion = LatestCompletionTimestamp(test_results);
+  // Didn't complete a single test before timeout, fail.
+  if (latest_completion.is_null()) {
+    return TimeDelta();
+  }
+  // The gtest result writer gets timestamps from `Time::Now`.
+  TimeDelta time_since_latest_completion = Time::Now() - latest_completion;
+  // This heuristic attempts to prevent unrelated clock changes between the
+  // latest write and read from being falsely identified as a test timeout.
+  // For example, daylight savings time starting or ending can add an
+  // artificial delta of +1 or -1 hour to `time_since_latest_completion`.
+  if (time_since_latest_completion.is_negative() ||
+      time_since_latest_completion > kDaylightSavingsThreshold) {
+    return timeout_per_test;
+  }
+  // Expect another test to complete no later than `timeout_per_test` after
+  // the latest completion.
+  return timeout_per_test - time_since_latest_completion;
+}
+
+Time ResultWatcher::LatestCompletionTimestamp(
+    const std::vector<TestResult>& test_results) {
+  CHECK_LE(test_results.size(), num_tests_);
+  // Since the result file is append-only, timestamps should already be in
+  // ascending order.
+  for (const TestResult& result : Reversed(test_results)) {
+    if (result.completed()) {
+      Time test_start = result.timestamp.value_or(Time());
+      return test_start + result.elapsed_time;
+    }
+  }
+  return Time();
+}
+
+// Watch results generated by a child test process. Wait for the child process
+// to exit between result checks.
+class ProcessResultWatcher : public ResultWatcher {
+ public:
+  ProcessResultWatcher(FilePath result_file, size_t num_tests, Process& process)
+      : ResultWatcher(result_file, num_tests), process_(process) {}
+
+  // Get the exit code of the process, or -1 if the process has not exited yet.
+  int GetExitCode();
+
+  bool WaitWithTimeout(TimeDelta timeout) override;
+
+ private:
+  const raw_ref<Process> process_;
+  int exit_code_ = -1;
+};
+
+int ProcessResultWatcher::GetExitCode() {
+  return exit_code_;
+}
+
+bool ProcessResultWatcher::WaitWithTimeout(TimeDelta timeout) {
+  return process_->WaitForExitWithTimeout(timeout, &exit_code_);
+}
 
 namespace {
 
@@ -301,13 +391,15 @@ CommandLine PrepareCommandLineForGTest(const CommandLine& command_line,
   return new_command_line;
 }
 
-// Launches a child process using |command_line|. If the child process is still
-// running after |timeout|, it is terminated and |*was_timeout| is set to true.
-// Returns exit code of the process.
+// Launches a child process using |command_line|. If a test is still running
+// after |timeout|, the child process is terminated and |*was_timeout| is set to
+// true. Returns exit code of the process.
 int LaunchChildTestProcessWithOptions(const CommandLine& command_line,
                                       const LaunchOptions& options,
                                       int flags,
-                                      TimeDelta timeout,
+                                      const FilePath& result_file,
+                                      TimeDelta timeout_per_test,
+                                      size_t num_tests,
                                       TestLauncherDelegate* delegate,
                                       bool* was_timeout) {
 #if BUILDFLAG(IS_POSIX)
@@ -323,26 +415,19 @@ int LaunchChildTestProcessWithOptions(const CommandLine& command_line,
   win::ScopedHandle job_handle;
   if (flags & TestLauncher::USE_JOB_OBJECTS) {
     job_handle.Set(CreateJobObject(NULL, NULL));
-    if (!job_handle.IsValid()) {
+    if (!job_handle.is_valid()) {
       LOG(ERROR) << "Could not create JobObject.";
       return -1;
     }
 
     DWORD job_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
 
-    // Allow break-away from job since sandbox and few other places rely on it
-    // on Windows versions prior to Windows 8 (which supports nested jobs).
-    if (win::GetVersion() < win::Version::WIN8 &&
-        flags & TestLauncher::ALLOW_BREAKAWAY_FROM_JOB) {
-      job_flags |= JOB_OBJECT_LIMIT_BREAKAWAY_OK;
-    }
-
-    if (!SetJobObjectLimitFlags(job_handle.Get(), job_flags)) {
+    if (!SetJobObjectLimitFlags(job_handle.get(), job_flags)) {
       LOG(ERROR) << "Could not SetJobObjectLimitFlags.";
       return -1;
     }
 
-    new_options.job_handle = job_handle.Get();
+    new_options.job_handle = job_handle.get();
   }
 #elif BUILDFLAG(IS_FUCHSIA)
   DCHECK(!new_options.job_handle);
@@ -456,7 +541,13 @@ int LaunchChildTestProcessWithOptions(const CommandLine& command_line,
 
   {
     base::ScopedAllowBaseSyncPrimitivesForTesting allow_base_sync_primitives;
-    did_exit = process.WaitForExitWithTimeout(timeout, &exit_code);
+    if (num_tests == 1) {
+      did_exit = process.WaitForExitWithTimeout(timeout_per_test, &exit_code);
+    } else {
+      ProcessResultWatcher result_watcher(result_file, num_tests, process);
+      did_exit = result_watcher.PollUntilDone(timeout_per_test);
+      exit_code = result_watcher.GetExitCode();
+    }
   }
 
   if (!did_exit) {
@@ -559,7 +650,9 @@ void SetTemporaryDirectory(const FilePath& temp_dir,
 ChildProcessResults DoLaunchChildTestProcess(
     const CommandLine& command_line,
     const FilePath& process_temp_dir,
-    TimeDelta timeout,
+    const FilePath& result_file,
+    TimeDelta timeout_per_test,
+    size_t num_tests,
     const TestLauncher::LaunchOptions& test_launch_options,
     bool redirect_stdio,
     TestLauncherDelegate* delegate) {
@@ -628,8 +721,8 @@ ChildProcessResults DoLaunchChildTestProcess(
 #endif  // !BUILDFLAG(IS_WIN)
 
   result.exit_code = LaunchChildTestProcessWithOptions(
-      command_line, options, test_launch_options.flags, timeout, delegate,
-      &result.was_timeout);
+      command_line, options, test_launch_options.flags, result_file,
+      timeout_per_test, num_tests, delegate, &result.was_timeout);
 
   if (redirect_stdio) {
     fflush(output_file.get());
@@ -710,6 +803,10 @@ class TestRunner {
                  task_runner, last_task_temp_dir));
   }
 
+  // No-op error function that replaces libxml's default, which writes to
+  // stderr.
+  static void NullXmlErrorFunc(void* context, const char* message, ...) {}
+
   ThreadChecker thread_checker_;
 
   std::vector<std::string> tests_to_run_;
@@ -722,6 +819,9 @@ class TestRunner {
   // Number of tests per process, 0 is special case for all tests.
   const size_t batch_size_;
   RunLoop run_loop_;
+  // Set the global libxml error context and function pointer for the lifetime
+  // of this test runner.
+  ScopedXmlErrorFunc xml_error_func_{nullptr, &NullXmlErrorFunc};
 
   base::WeakPtrFactory<TestRunner> weak_ptr_factory_{this};
 };
@@ -738,7 +838,7 @@ void TestRunner::Run(const std::vector<std::string>& test_names) {
   for (size_t i = 0; i < runner_count_; i++) {
     task_runners_.push_back(ThreadPool::CreateSequencedTaskRunner(
         {MayBlock(), TaskShutdownBehavior::BLOCK_SHUTDOWN}));
-    ThreadTaskRunnerHandle::Get()->PostTask(
+    SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         BindOnce(&TestRunner::LaunchNextTask, weak_ptr_factory_.GetWeakPtr(),
                  task_runners_.back(), FilePath()));
@@ -771,7 +871,7 @@ void TestRunner::LaunchNextTask(scoped_refptr<TaskRunner> task_runner,
   // this directory will also contain one subdirectory per child for that
   // child's process-wide temp dir.
   base::FilePath task_temp_dir;
-  CHECK(CreateNewTempDirectory(FilePath::StringType(), &task_temp_dir));
+  CHECK(CreateTemporaryDirInDir(GetTempDirForTesting(), {}, &task_temp_dir));
   bool post_to_current_runner = true;
   size_t batch_size = (batch_size_ == 0) ? tests_to_run_.size() : batch_size_;
 
@@ -784,14 +884,15 @@ void TestRunner::LaunchNextTask(scoped_refptr<TaskRunner> task_runner,
     task_runner->PostTask(
         FROM_HERE,
         BindOnce(&TestLauncher::LaunchChildGTestProcess, Unretained(launcher_),
-                 ThreadTaskRunnerHandle::Get(), batch, task_temp_dir,
+                 SingleThreadTaskRunner::GetCurrentDefault(), batch,
+                 task_temp_dir,
                  CreateChildTempDirIfSupported(task_temp_dir, child_index++)));
     post_to_current_runner = ShouldReuseStateFromLastBatch(batch);
   }
   task_runner->PostTask(
-      FROM_HERE,
-      BindOnce(&TestRunner::ClearAndLaunchNext, Unretained(this),
-               ThreadTaskRunnerHandle::Get(), task_runner, task_temp_dir));
+      FROM_HERE, BindOnce(&TestRunner::ClearAndLaunchNext, Unretained(this),
+                          SingleThreadTaskRunner::GetCurrentDefault(),
+                          task_runner, task_temp_dir));
 }
 
 // Returns the number of files and directories in |dir|, or 0 if |dir| is empty.
@@ -954,11 +1055,18 @@ TestLauncher::TestLauncher(TestLauncherDelegate* launcher_delegate,
 
 TestLauncher::~TestLauncher() {
   if (base::ThreadPoolInstance::Get()) {
+    // Clear the ThreadPoolInstance entirely to make it clear to final cleanup
+    // phases that they are happening in a single-threaded phase. Assertions in
+    // code like ~ScopedFeatureList are unhappy otherwise (crbug.com/1359095).
     base::ThreadPoolInstance::Get()->Shutdown();
+    base::ThreadPoolInstance::Get()->JoinForTesting();
+    base::ThreadPoolInstance::Set(nullptr);
   }
 }
 
 bool TestLauncher::Run(CommandLine* command_line) {
+  base::PlatformThread::SetName("TestLauncherMain");
+
   if (!Init((command_line == nullptr) ? CommandLine::ForCurrentProcess()
                                       : command_line))
     return false;
@@ -1041,8 +1149,8 @@ void TestLauncher::LaunchChildGTestProcess(
   options.flags = launcher_delegate_->GetLaunchOptions();
 
   ChildProcessResults process_results = DoLaunchChildTestProcess(
-      new_command_line, child_temp_dir,
-      launcher_delegate_->GetTimeout() * test_names.size(), options,
+      new_command_line, child_temp_dir, result_file,
+      launcher_delegate_->GetTimeout(), test_names.size(), options,
       redirect_stdio_, launcher_delegate_);
 
   // Invoke ProcessTestResults on the original thread, not
@@ -1453,7 +1561,7 @@ bool TestLauncher::Init(CommandLine* command_line) {
   fprintf(stdout, "Using %zu parallel jobs.\n", parallel_jobs_);
   fflush(stdout);
 
-  CreateAndStartThreadPool(static_cast<int>(parallel_jobs_));
+  CreateAndStartThreadPool(parallel_jobs_);
 
   std::vector<std::string> positive_file_filter;
   std::vector<std::string> positive_gtest_filter;
@@ -1470,6 +1578,12 @@ bool TestLauncher::Init(CommandLine* command_line) {
                           &negative_test_filter_))
         return false;
     }
+  }
+
+  // If kGTestRunDisabledTestsFlag is set, force running all negative
+  // tests in testing/buildbot/filters.
+  if (command_line->HasSwitch(kGTestRunDisabledTestsFlag)) {
+    negative_test_filter_.clear();
   }
 
   // Split --gtest_filter at '-', if there is one, to separate into
@@ -1747,7 +1861,7 @@ bool TestLauncher::ProcessAndValidateTests() {
   return result;
 }
 
-void TestLauncher::CreateAndStartThreadPool(int num_parallel_jobs) {
+void TestLauncher::CreateAndStartThreadPool(size_t num_parallel_jobs) {
   base::ThreadPoolInstance::Create("TestLauncher");
   base::ThreadPoolInstance::Get()->Start({num_parallel_jobs});
 }

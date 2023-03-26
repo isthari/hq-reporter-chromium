@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,7 @@
 
 namespace password_manager {
 
-class CredentialProviderInterface;
+class SavedPasswordsPresenter;
 
 // Controls the exporting of passwords. One instance per export flow.
 // PasswordManagerExporter will perform the export asynchronously as soon as all
@@ -33,9 +33,9 @@ class PasswordManagerExporter {
   using SetPosixFilePermissionsCallback =
       base::RepeatingCallback<bool(const base::FilePath&, int)>;
 
-  explicit PasswordManagerExporter(
-      CredentialProviderInterface* credential_provider_interface,
-      ProgressCallback on_progress);
+  explicit PasswordManagerExporter(SavedPasswordsPresenter* presenter,
+                                   ProgressCallback on_progress,
+                                   base::OnceClosure completion_callback);
 
   PasswordManagerExporter(const PasswordManagerExporter&) = delete;
   PasswordManagerExporter& operator=(const PasswordManagerExporter&) = delete;
@@ -96,7 +96,7 @@ class PasswordManagerExporter {
   void Cleanup();
 
   // The source of the password list which will be exported.
-  const raw_ptr<CredentialProviderInterface> credential_provider_interface_;
+  const raw_ptr<SavedPasswordsPresenter> presenter_;
 
   // Callback to the UI.
   ProgressCallback on_progress_;
@@ -120,6 +120,9 @@ class PasswordManagerExporter {
   // The function which does the actual deleting of a file. It should wrap
   // base::DeleteFile, unless it's changed for testing purposes.
   DeleteCallback delete_function_;
+
+  // Resets the unique pointer to the current object instance.
+  base::OnceClosure completion_callback_;
 
   // Set the file permissions on a file. It should wrap
   // base::SetPosixFilePermissions, unless this is not Posix or it's changed for

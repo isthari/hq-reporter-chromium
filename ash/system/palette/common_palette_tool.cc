@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,9 +28,6 @@ void AddHistogramTimes(PaletteToolId id, base::TimeDelta duration) {
                                base::Milliseconds(100), base::Hours(1), 50);
   } else if (id == PaletteToolId::MAGNIFY) {
     UMA_HISTOGRAM_CUSTOM_TIMES("Ash.Shelf.Palette.InMagnifyMode", duration,
-                               base::Milliseconds(100), base::Hours(1), 50);
-  } else if (id == PaletteToolId::METALAYER) {
-    UMA_HISTOGRAM_CUSTOM_TIMES("Ash.Shelf.Palette.InAssistantMode", duration,
                                base::Milliseconds(100), base::Hours(1), 50);
   }
 }

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 #include <string>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
@@ -36,7 +36,7 @@ namespace {
 
 const std::vector<std::string> kStorageTypes{
     "LocalStorage", "FileSystem",   "FileSystemAccess", "SessionStorage",
-    "IndexedDb",    "CacheStorage", "ServiceWorker",    "StorageFoundation"};
+    "IndexedDb",    "CacheStorage", "ServiceWorker"};
 
 class ThirdPartyDataRemoverTest : public InProcessBrowserTest {
  public:
@@ -64,12 +64,6 @@ class ThirdPartyDataRemoverTest : public InProcessBrowserTest {
     // HTTPS server only serves a valid cert for localhost, so this is needed
     // to load pages from other hosts without an error.
     command_line->AppendSwitch(switches::kIgnoreCertificateErrors);
-    // Storage Foundation has to be enabled, since it is accessed from the tests
-    // that use chrome/browser/net/storage_test_utils.cc.
-    // TODO(fivedots): Remove this switch once Storage Foundation
-    // is enabled by default.
-    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
-                                    "StorageFoundationAPI");
   }
 
   network::mojom::CookieManager* CookieManager() {
@@ -86,8 +80,9 @@ class ThirdPartyDataRemoverTest : public InProcessBrowserTest {
     std::unique_ptr<net::CanonicalCookie> cookie =
         net::CanonicalCookie::CreateUnsafeCookieForTesting(
             name, "foobar", host, "/", base::Time(), base::Time(), base::Time(),
-            /* secure= */ true, /* httponly= */ false, same_site,
-            net::COOKIE_PRIORITY_LOW, /* same_party= */ false);
+            base::Time(),
+            /*secure=*/true, /*httponly=*/false, same_site,
+            net::COOKIE_PRIORITY_LOW, /*same_party=*/false);
     net::CookieOptions options;
     options.set_same_site_cookie_context(cookie_context);
     bool result_out;
@@ -131,7 +126,7 @@ class ThirdPartyDataRemoverTest : public InProcessBrowserTest {
   content::RenderFrameHost* GetFrame() {
     content::WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
-    return ChildFrameAt(web_contents->GetMainFrame(), 0);
+    return ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
   }
 
   void AddStorage(const std::string& top_level_host,

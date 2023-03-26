@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2022 The Chromium Authors. All rights reserved.
+# Copyright 2022 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """Pulls the latest revisions of the wpt tooling."""
@@ -22,7 +22,7 @@ def main():
     print("Roll wpt on branch: %s" % current_branch)
     print("Are there outstanding bugs at %s (Y/n)?" % BUG_QUERY_URLS[0],
           end='', flush=True)
-    yesno = sys.stdin.read(1)
+    yesno = sys.stdin.readline().strip()
     if yesno not in ['N', 'n']:
         return 1
 
@@ -61,7 +61,6 @@ def main():
     subprocess.check_call(['git', 'add', path_to_wpt_tools_dir])
     wpt_try_bots = ["linux-wpt-identity-fyi-rel",
                     "linux-wpt-input-fyi-rel",
-                    "android-weblayer-pie-x86-wpt-smoketest",
                     "linux-blink-rel"]
     upstream_url = "https://github.com/web-platform-tests/wpt"
     message = "Roll wpt tooling\n\nThis rolls wpt to latest commit at\n%s.\n" % upstream_url
@@ -71,6 +70,7 @@ def main():
     subprocess.check_call(['git',
                            'cl',
                            'upload',
+                           '--enable-auto-submit',
                            '--cq-dry-run',
                            '--bypass-hooks',
                            '-f'])
@@ -85,7 +85,7 @@ def main():
     print("\n\nNow roll wpt javascript")
     print("Are there outstanding bugs at %s (Y/n)?" % BUG_QUERY_URLS[1],
           end='', flush=True)
-    yesno = sys.stdin.read(1)
+    yesno = sys.stdin.readline().strip()
     if yesno not in ['N', 'n']:
         return 1
     javascript_branch = "%s-%d" % (current_branch, int(time.time()))
@@ -126,6 +126,7 @@ def main():
         subprocess.check_call(['git',
                                'cl',
                                'upload',
+                               '--enable-auto-submit',
                                '--cq-dry-run',
                                '--bypass-hooks',
                                '-f'])

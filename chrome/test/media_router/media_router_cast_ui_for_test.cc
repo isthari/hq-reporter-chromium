@@ -1,12 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/test/media_router/media_router_cast_ui_for_test.h"
 
 #include "base/memory/raw_ptr.h"
+#include "base/ranges/algorithm.h"
+#include "base/run_loop.h"
 #include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/ui/media_router/media_router_ui.h"
+#include "chrome/browser/ui/views/media_router/cast_dialog_coordinator.h"
 #include "chrome/browser/ui/views/media_router/cast_dialog_sink_button.h"
 #include "chrome/browser/ui/views/media_router/media_router_dialog_controller_views.h"
 #include "ui/events/base_event_utils.h"
@@ -46,7 +49,7 @@ void MediaRouterCastUiForTest::SetUp() {
 
 void MediaRouterCastUiForTest::ShowDialog() {
   dialog_controller_->ShowMediaRouterDialog(
-      MediaRouterDialogOpenOrigin::TOOLBAR);
+      MediaRouterDialogActivationLocation::TOOLBAR);
   base::RunLoop().RunUntilIdle();
 }
 
@@ -61,7 +64,7 @@ void MediaRouterCastUiForTest::HideDialog() {
 
 void MediaRouterCastUiForTest::ChooseSourceType(
     CastDialogView::SourceType source_type) {
-  CastDialogView* dialog_view = CastDialogView::GetInstance();
+  CastDialogView* dialog_view = GetDialogView();
   CHECK(dialog_view);
 
   views::test::ButtonTestApi(dialog_view->sources_button_for_test())
@@ -80,7 +83,7 @@ void MediaRouterCastUiForTest::ChooseSourceType(
 
 CastDialogView::SourceType MediaRouterCastUiForTest::GetChosenSourceType()
     const {
-  CastDialogView* dialog_view = CastDialogView::GetInstance();
+  const CastDialogView* dialog_view = GetDialogView();
   CHECK(dialog_view);
   return dialog_view->selected_source_;
 }
@@ -120,7 +123,7 @@ void MediaRouterCastUiForTest::WaitForDialogHidden() {
 
 void MediaRouterCastUiForTest::OnDialogCreated() {
   MediaRouterUiForTestBase::OnDialogCreated();
-  CastDialogView::GetInstance()->KeepShownForTesting();
+  GetDialogView()->KeepShownForTesting();
 }
 
 MediaRouterCastUiForTest::MediaRouterCastUiForTest(
@@ -137,29 +140,29 @@ void MediaRouterCastUiForTest::OnDialogModelUpdated(
 
   const std::vector<CastDialogSinkButton*>& sink_buttons =
       dialog_view->sink_buttons_for_test();
-  if (std::find_if(sink_buttons.begin(), sink_buttons.end(),
-                   [&, this](CastDialogSinkButton* sink_button) {
-                     switch (watch_type_) {
-                       case WatchType::kSink:
-                         return sink_button->sink().friendly_name ==
-                                base::UTF8ToUTF16(*watch_sink_name_);
-                       case WatchType::kSinkAvailable:
-                         return sink_button->sink().friendly_name ==
-                                    base::UTF8ToUTF16(*watch_sink_name_) &&
-                                sink_button->sink().state ==
-                                    UIMediaSinkState::AVAILABLE &&
-                                sink_button->GetEnabled();
-                       case WatchType::kAnyIssue:
-                         return sink_button->sink().issue.has_value();
-                       case WatchType::kAnyRoute:
-                         return sink_button->sink().route.has_value();
-                       case WatchType::kNone:
-                       case WatchType::kDialogShown:
-                       case WatchType::kDialogHidden:
-                         NOTREACHED() << "Invalid WatchType";
-                         return false;
-                     }
-                   }) != sink_buttons.end()) {
+  if (base::ranges::any_of(
+          sink_buttons, [&, this](CastDialogSinkButton* sink_button) {
+            switch (watch_type_) {
+              case WatchType::kSink:
+                return sink_button->sink().friendly_name ==
+                       base::UTF8ToUTF16(*watch_sink_name_);
+              case WatchType::kSinkAvailable:
+                return sink_button->sink().friendly_name ==
+                           base::UTF8ToUTF16(*watch_sink_name_) &&
+                       sink_button->sink().state ==
+                           UIMediaSinkState::AVAILABLE &&
+                       sink_button->GetEnabled();
+              case WatchType::kAnyIssue:
+                return sink_button->sink().issue.has_value();
+              case WatchType::kAnyRoute:
+                return sink_button->sink().route.has_value();
+              case WatchType::kNone:
+              case WatchType::kDialogShown:
+              case WatchType::kDialogHidden:
+                NOTREACHED() << "Invalid WatchType";
+                return false;
+            }
+          })) {
     std::move(*watch_callback_).Run();
     watch_callback_.reset();
     watch_sink_name_.reset();
@@ -181,7 +184,7 @@ void MediaRouterCastUiForTest::OnDialogWillClose(CastDialogView* dialog_view) {
 
 CastDialogSinkButton* MediaRouterCastUiForTest::GetSinkButton(
     const std::string& sink_name) const {
-  CastDialogView* dialog_view = CastDialogView::GetInstance();
+  const CastDialogView* dialog_view = GetDialogView();
   CHECK(dialog_view);
   const std::vector<CastDialogSinkButton*>& sink_buttons =
       dialog_view->sink_buttons_for_test();
@@ -199,7 +202,7 @@ void MediaRouterCastUiForTest::ObserveDialog(
   watch_callback_ = run_loop.QuitClosure();
   watch_type_ = watch_type;
 
-  CastDialogView* dialog_view = CastDialogView::GetInstance();
+  CastDialogView* dialog_view = GetDialogView();
   CHECK(dialog_view);
   dialog_view->AddObserver(this);
   // Check if the current dialog state already meets the condition that we are
@@ -207,6 +210,16 @@ void MediaRouterCastUiForTest::ObserveDialog(
   OnDialogModelUpdated(dialog_view);
 
   run_loop.Run();
+}
+
+const CastDialogView* MediaRouterCastUiForTest::GetDialogView() const {
+  return dialog_controller_->GetCastDialogCoordinatorForTesting()
+      .GetCastDialogView();
+}
+
+CastDialogView* MediaRouterCastUiForTest::GetDialogView() {
+  return dialog_controller_->GetCastDialogCoordinatorForTesting()
+      .GetCastDialogView();
 }
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(MediaRouterCastUiForTest);

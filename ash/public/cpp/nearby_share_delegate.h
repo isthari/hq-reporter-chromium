@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,9 @@ namespace ash {
 class ASH_PUBLIC_EXPORT NearbyShareDelegate {
  public:
   virtual ~NearbyShareDelegate() = default;
+
+  // Used to determine if NearbyShare has been enabled in the settings app.
+  virtual bool IsEnabled() = 0;
 
   // Used by the pod button to determine whether it should be visible.
   virtual bool IsPodButtonVisible() = 0;

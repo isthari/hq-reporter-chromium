@@ -1,14 +1,16 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
 
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/external_protocol/external_protocol_handler.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/tab_ui_helper.h"
@@ -31,14 +33,9 @@
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/network/public/cpp/features.h"
+#include "ui/events/test/test_event.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/test/button_test_api.h"
-
-class DummyEvent : public ui::Event {
- public:
-  DummyEvent() : Event(ui::ET_UNKNOWN, base::TimeTicks(), 0) {}
-  ~DummyEvent() override = default;
-};
 
 // Test suite covering the interaction between browser bookmarks and
 // `Sec-Fetch-*` headers that can't be covered by Web Platform Tests (yet).
@@ -111,7 +108,7 @@ class BookmarkBarNavigationTest : public InProcessBrowserTest {
     content::TestNavigationObserver observer(web_contents(), 1);
     views::LabelButton* button = GetBookmarkButton(0);
     views::test::ButtonTestApi clicker(button);
-    DummyEvent click_event;
+    ui::test::TestEvent click_event;
     clicker.NotifyClick(click_event);
     observer.Wait();
 
@@ -217,32 +214,34 @@ class FakeProtocolHandlerDelegate : public ExternalProtocolHandler::Delegate {
       delete;
   FakeProtocolHandlerDelegate& operator=(
       const FakeProtocolHandlerDelegate& other) = delete;
-  class FakeDefaultProtocolClientWorker
-      : public shell_integration::DefaultProtocolClientWorker {
+  class FakeDefaultSchemeClientWorker
+      : public shell_integration::DefaultSchemeClientWorker {
    public:
-    explicit FakeDefaultProtocolClientWorker(const std::string& protocol)
-        : DefaultProtocolClientWorker(protocol) {}
-    FakeDefaultProtocolClientWorker(
-        const FakeDefaultProtocolClientWorker& other) = delete;
-    FakeDefaultProtocolClientWorker& operator=(
-        const FakeDefaultProtocolClientWorker& other) = delete;
+    explicit FakeDefaultSchemeClientWorker(const GURL& url)
+        : DefaultSchemeClientWorker(url) {}
+    FakeDefaultSchemeClientWorker(const FakeDefaultSchemeClientWorker& other) =
+        delete;
+    FakeDefaultSchemeClientWorker& operator=(
+        const FakeDefaultSchemeClientWorker& other) = delete;
 
    private:
-    ~FakeDefaultProtocolClientWorker() override = default;
+    ~FakeDefaultSchemeClientWorker() override = default;
     shell_integration::DefaultWebClientState CheckIsDefaultImpl() override {
       return shell_integration::DefaultWebClientState::NOT_DEFAULT;
     }
 
+    std::u16string GetDefaultClientNameImpl() override { return u"TestApp"; }
+
     void SetAsDefaultImpl(base::OnceClosure on_finished_callback) override {
-      base::SequencedTaskRunnerHandle::Get()->PostTask(
+      base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, std::move(on_finished_callback));
     }
   };
 
  private:
-  scoped_refptr<shell_integration::DefaultProtocolClientWorker>
-  CreateShellWorker(const std::string& protocol) override {
-    return base::MakeRefCounted<FakeDefaultProtocolClientWorker>(protocol);
+  scoped_refptr<shell_integration::DefaultSchemeClientWorker> CreateShellWorker(
+      const GURL& url) override {
+    return base::MakeRefCounted<FakeDefaultSchemeClientWorker>(url);
   }
 
   void BlockRequest() override { FAIL(); }
@@ -257,7 +256,8 @@ class FakeProtocolHandlerDelegate : public ExternalProtocolHandler::Delegate {
       content::WebContents* web_contents,
       ui::PageTransition page_transition,
       bool has_user_gesture,
-      const absl::optional<url::Origin>& initiating_origin) override {
+      const absl::optional<url::Origin>& initiating_origin,
+      const std::u16string& program_name) override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
     EXPECT_TRUE(url_invoked_.is_empty());

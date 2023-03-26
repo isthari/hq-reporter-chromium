@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,10 +12,9 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/containers/adapters.h"
-#include "base/task/post_task.h"
+#include "base/functional/bind.h"
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -29,12 +28,12 @@
 #include "chrome/browser/task_manager/sampling/shared_sampler.h"
 #include "components/nacl/common/buildflags.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/child_process_host.h"
 #include "content/public/browser/gpu_data_manager.h"
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/child_process_host.h"
 #include "content/public/common/content_features.h"
 #include "services/network/public/cpp/features.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/memory_instrumentation.h"
@@ -468,7 +467,7 @@ TaskId TaskManagerImpl::GetTaskIdForWebContents(
     content::WebContents* web_contents) const {
   if (!web_contents)
     return -1;
-  content::RenderFrameHost* rfh = web_contents->GetMainFrame();
+  content::RenderFrameHost* rfh = web_contents->GetPrimaryMainFrame();
   Task* task = GetTaskByRoute(rfh->GetGlobalId());
   if (!task)
     return -1;

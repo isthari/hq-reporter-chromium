@@ -1,12 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/phonehub/browser_tabs_model_provider_impl.h"
 
-#include "ash/components/phonehub/browser_tabs_metadata_fetcher.h"
-#include "ash/components/phonehub/browser_tabs_model.h"
-#include "chromeos/components/multidevice/remote_device_ref.h"
+#include "chromeos/ash/components/multidevice/remote_device_ref.h"
+#include "chromeos/ash/components/phonehub/browser_tabs_metadata_fetcher.h"
+#include "chromeos/ash/components/phonehub/browser_tabs_model.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync_sessions/open_tabs_ui_delegate.h"
@@ -89,11 +89,12 @@ void BrowserTabsModelProviderImpl::AttemptBrowserTabsModelUpdate() {
   // |modified_time|.
   const sync_sessions::SyncedSession* phone_session = nullptr;
   for (const auto* session : sessions) {
-    if (session->session_name != *session_name)
+    if (session->GetSessionName() != *session_name) {
       continue;
+    }
 
     if (!phone_session ||
-        phone_session->modified_time < session->modified_time) {
+        phone_session->GetModifiedTime() < session->GetModifiedTime()) {
       phone_session = session;
     }
   }

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,10 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/files/file_util.h"
-#include "base/task/post_task.h"
-#include "base/threading/sequenced_task_runner_handle.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/functional/bind.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "base/trace_event/trace_event.h"
@@ -162,7 +161,7 @@ DownloadFileImpl::DownloadFileImpl(
       num_active_streams_(0),
       is_paused_(false),
       download_id_(download_id),
-      main_task_runner_(base::ThreadTaskRunnerHandle::Get()),
+      main_task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()),
       observer_(observer) {
   TRACE_EVENT_INSTANT0("download", "DownloadFileCreated",
                        TRACE_EVENT_SCOPE_THREAD);
@@ -194,7 +193,7 @@ void DownloadFileImpl::Initialize(
   cancel_request_callback_ = cancel_request_callback;
   received_slices_ = received_slices;
   if (!task_runner_)
-    task_runner_ = base::SequencedTaskRunnerHandle::Get();
+    task_runner_ = base::SequencedTaskRunner::GetCurrentDefault();
 
   // If the last slice is finished, then we know the actual content size.
   if (!received_slices_.empty() && received_slices_.back().finished) {
@@ -337,6 +336,13 @@ bool DownloadFileImpl::CalculateBytesToWrite(SourceStream* source_stream,
 
 void DownloadFileImpl::RenameAndUniquify(const base::FilePath& full_path,
                                          RenameCompletionCallback callback) {
+#if BUILDFLAG(IS_ANDROID)
+  if (full_path.IsContentUri()) {
+    DownloadInterruptReason reason = file_.Rename(full_path);
+    OnRenameComplete(full_path, std::move(callback), reason);
+    return;
+  }
+#endif  // BUILDFLAG(IS_ANDROID)
   std::unique_ptr<RenameParameters> parameters(
       new RenameParameters(UNIQUIFY, full_path, std::move(callback)));
   RenameWithRetryInternal(std::move(parameters));
@@ -359,38 +365,9 @@ void DownloadFileImpl::RenameAndAnnotate(
 }
 
 #if BUILDFLAG(IS_ANDROID)
-void DownloadFileImpl::RenameToIntermediateUri(
-    const GURL& original_url,
-    const GURL& referrer_url,
-    const base::FilePath& file_name,
-    const std::string& mime_type,
-    const base::FilePath& current_path,
-    RenameCompletionCallback callback) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // Create new content URI if |current_path| is not content URI
-  // or if it is already deleted.
-  base::FilePath content_path =
-      current_path.IsContentUri() && base::ContentUriExists(current_path)
-          ? current_path
-          : DownloadCollectionBridge::CreateIntermediateUriForPublish(
-                original_url, referrer_url, file_name, mime_type);
-  DownloadInterruptReason reason = DOWNLOAD_INTERRUPT_REASON_FILE_FAILED;
-  if (!content_path.empty()) {
-    reason = file_.Rename(content_path);
-    display_name_ = DownloadCollectionBridge::GetDisplayName(content_path);
-  }
-  if (display_name_.empty())
-    display_name_ = file_name;
-  OnRenameComplete(content_path, std::move(callback), reason);
-}
-
 void DownloadFileImpl::PublishDownload(RenameCompletionCallback callback) {
   DownloadInterruptReason reason = file_.PublishDownload();
   OnRenameComplete(file_.full_path(), std::move(callback), reason);
-}
-
-base::FilePath DownloadFileImpl::GetDisplayName() {
-  return display_name_;
 }
 #endif  // BUILDFLAG(IS_ANDROID)
 

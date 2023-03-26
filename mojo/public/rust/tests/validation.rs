@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,6 @@ use crate::util::mojom_validation::*;
 ///   1. Decode the header of the validation input.
 ///   2. Decode the payload of the validation input, expecting a validation
 ///      error.
-///
 macro_rules! validation_tests {
     ($($name:ident => $req_type:ident;)*) => {
         tests! {
@@ -69,11 +68,6 @@ validation_tests! {
     conformance_mthd11_num_bytes_version_mismatch_1 => ConformanceTestInterfaceRequestOption;
     conformance_mthd11_num_bytes_version_mismatch_2 => ConformanceTestInterfaceRequestOption;
     conformance_mthd12_invalid_request_flags => ConformanceTestInterfaceRequestOption;
-    // conformance_mthd14_unexpected_null_array_in_union => ConformanceTestInterfaceRequestOption;
-    // conformance_mthd14_unexpected_null_map_in_union => ConformanceTestInterfaceRequestOption;
-    // conformance_mthd14_unexpected_null_struct_in_union => ConformanceTestInterfaceRequestOption;
-    // conformance_mthd14_unexpected_null_union_in_union => ConformanceTestInterfaceRequestOption;
-    // conformance_mthd15_unexpected_null_union_in_array => ConformanceTestInterfaceRequestOption;
     conformance_mthd1_misaligned_struct => ConformanceTestInterfaceRequestOption;
     conformance_mthd1_struct_pointer_overflow => ConformanceTestInterfaceRequestOption;
     conformance_mthd1_unexpected_null_struct => ConformanceTestInterfaceRequestOption;
@@ -123,4 +117,12 @@ validation_tests! {
     integration_intf_resp_mthd0_unexpected_array_header => IntegrationTestInterfaceResponseOption;
     integration_intf_rqst_mthd0_unexpected_struct_header => IntegrationTestInterfaceRequestOption;
     integration_msghdr_invalid_flags => IntegrationTestInterfaceRequestOption;
+
+    // Tests with missing data:
+    //
+    // conformance_mthd14_unexpected_null_array_in_union => ConformanceTestInterfaceRequestOption;
+    // conformance_mthd14_unexpected_null_map_in_union => ConformanceTestInterfaceRequestOption;
+    // conformance_mthd14_unexpected_null_struct_in_union => ConformanceTestInterfaceRequestOption;
+    // conformance_mthd14_unexpected_null_union_in_union => ConformanceTestInterfaceRequestOption;
+    // conformance_mthd15_unexpected_null_union_in_array => ConformanceTestInterfaceRequestOption;
 }

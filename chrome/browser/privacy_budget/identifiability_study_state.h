@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@
 #include "chrome/browser/privacy_budget/encountered_surface_tracker.h"
 #include "chrome/browser/privacy_budget/mesa_distribution.h"
 #include "chrome/browser/privacy_budget/privacy_budget_prefs.h"
+#include "chrome/browser/privacy_budget/privacy_budget_reid_score_estimator.h"
 #include "chrome/browser/privacy_budget/representative_surface_set.h"
 #include "chrome/browser/privacy_budget/surface_set_equivalence.h"
 #include "chrome/browser/privacy_budget/surface_set_valuation.h"
@@ -111,6 +112,11 @@ class IdentifiabilityStudyState {
   // Initializes from fields persisted in `pref_service_`.
   void InitFromPrefs();
 
+  // Checks if this surface is part of a set of surfaces we want to estimate the
+  // Reid score of. If so, stores its value for later estimation.
+  void MaybeStoreValueForComputingReidScore(blink::IdentifiableSurface surface,
+                                            blink::IdentifiableToken token);
+
   // The largest offset that we can select. At worst `seen_surfaces_` must keep
   // track of this many (+1) surfaces. This value is approximately based on the
   // 90ᵗʰ percentile surface encounter rate as measured in June 2021.
@@ -128,6 +134,10 @@ class IdentifiabilityStudyState {
   // range. See `MesaDistribution` for details. The distribution is the source
   // of random numbers for selecting identifiable surface for measurement.
   static constexpr double kMesaDistributionRatio = 0.9;
+
+  // The parameter of the geometric distribution used for the tail of the Mesa
+  // distribution.
+  static constexpr double kMesaDistributionGeometricDistributionParam = 0.5;
 
  private:
   friend class test_utils::InspectableIdentifiabilityStudyState;
@@ -378,6 +388,10 @@ class IdentifiabilityStudyState {
   //
   // Where kSettings is the PrivacyBudgetSettingsProvider singleton.
   EncounteredSurfaceTracker surface_encounters_;
+
+  // Keeps track of the list of surfaces for which we need to estimate the Reid
+  // score.
+  PrivacyBudgetReidScoreEstimator reid_estimator_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 };

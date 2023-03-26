@@ -1,18 +1,18 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {FilesAppState} from '../files_app_state.js';
-import {addEntries, ENTRIES, getCaller, pending, repeatUntil, RootPath, sendTestMessage, TestEntryInfo} from '../test_util.js';
+import {addEntries, ENTRIES, EntryType, getCaller, pending, repeatUntil, RootPath, sendTestMessage, TestEntryInfo} from '../test_util.js';
 import {testcase} from '../testcase.js';
 
-import {remoteCall, setupAndWaitUntilReady} from './background.js';
-import {BASIC_DRIVE_ENTRY_SET, BASIC_LOCAL_ENTRY_SET} from './test_data.js';
+import {navigateWithDirectoryTree, remoteCall, setupAndWaitUntilReady} from './background.js';
+import {BASIC_DRIVE_ENTRY_SET, BASIC_LOCAL_ENTRY_SET, NESTED_ENTRY_SET} from './test_data.js';
 
 /**
  * Expected files shown in the search results for 'hello'
  *
- * @type {Array<TestEntryInfo>}
+ * @type {!Array<!TestEntryInfo>}
  * @const
  */
 const SEARCH_RESULTS_ENTRY_SET = [
@@ -93,14 +93,16 @@ testcase.searchDownloadsClearSearch = async () => {
   // Click on the clear search button.
   await remoteCall.waitAndClickElement(appId, '#search-box .clear');
 
-  // Wait for fil list to display all files.
+  // Wait for file list to display all files.
   await remoteCall.waitForFiles(
       appId, TestEntryInfo.getExpectedRows(BASIC_LOCAL_ENTRY_SET));
 
   // Check that a11y message for clearing the search term has been issued.
   const a11yMessages =
       await remoteCall.callRemoteTestUtil('getA11yAnnounces', appId, []);
-  chrome.test.assertEq(2, a11yMessages.length, 'Missing a11y message');
+  chrome.test.assertEq(
+      2, a11yMessages.length,
+      `Want 2 messages got ${JSON.stringify(a11yMessages)}`);
   chrome.test.assertEq(
       'Search text cleared, showing all files and folders.', a11yMessages[1]);
 };
@@ -124,6 +126,20 @@ testcase.searchDownloadsClearSearchKeyDown = async () => {
   const searchInput =
       await remoteCall.waitForElement(appId, '#search-box [type="search"]');
   chrome.test.assertEq('', searchInput.value);
+
+  // Wait until the search button get the focus.
+  // Use repeatUntil() here because the focus won't shift to search button
+  // until the CSS animation is finished.
+  const caller = getCaller();
+  await repeatUntil(async () => {
+    const activeElement =
+        await remoteCall.callRemoteTestUtil('getActiveElement', appId, []);
+    if (activeElement.attributes['id'] !== 'search-button') {
+      return pending(
+          caller, 'Expected active element should be search-button, got %s',
+          activeElement.attributes['id']);
+    }
+  });
 };
 
 /**
@@ -137,16 +153,15 @@ testcase.searchHidingTextEntryField = async () => {
   const appId = await setupAndWaitUntilReady(RootPath.DOWNLOADS, [entry], []);
 
   // Select an entry in the file list.
-  chrome.test.assertTrue(await remoteCall.callRemoteTestUtil(
-      'selectFile', appId, [entry.nameText]));
+  await remoteCall.waitUntilSelected(appId, entry.nameText);
 
   // Click the toolbar search button.
   await remoteCall.waitAndClickElement(appId, '#search-button');
 
   // Verify the toolbar search text entry box is enabled.
   let textInputElement =
-      await remoteCall.waitForElement(appId, ['#search-box cr-input']);
-  chrome.test.assertEq('false', textInputElement.attributes['aria-disabled']);
+      await remoteCall.waitForElement(appId, ['#search-box cr-input', 'input']);
+  chrome.test.assertEq(undefined, textInputElement.attributes['disabled']);
 
   // Send a 'mousedown' to the toolbar 'delete' button.
   chrome.test.assertTrue(await remoteCall.callRemoteTestUtil(
@@ -154,8 +169,8 @@ testcase.searchHidingTextEntryField = async () => {
 
   // Verify the toolbar search text entry is still enabled.
   textInputElement =
-      await remoteCall.waitForElement(appId, ['#search-box cr-input']);
-  chrome.test.assertEq('false', textInputElement.attributes['aria-disabled']);
+      await remoteCall.waitForElement(appId, ['#search-box cr-input', 'input']);
+  chrome.test.assertEq(undefined, textInputElement.attributes['disabled']);
 
   // Send a 'mouseup' to the toolbar 'delete' button.
   chrome.test.assertTrue(await remoteCall.callRemoteTestUtil(
@@ -163,8 +178,8 @@ testcase.searchHidingTextEntryField = async () => {
 
   // Verify the toolbar search text entry is still enabled.
   textInputElement =
-      await remoteCall.waitForElement(appId, ['#search-box cr-input']);
-  chrome.test.assertEq('false', textInputElement.attributes['aria-disabled']);
+      await remoteCall.waitForElement(appId, ['#search-box cr-input', 'input']);
+  chrome.test.assertEq(undefined, textInputElement.attributes['disabled']);
 };
 
 /**
@@ -296,4 +311,136 @@ testcase.searchQueryLaunchParam = async () => {
       return pending(caller, 'Waiting files list to be updated.');
     }
   });
+};
+
+/**
+ * Checks that changing location options correctly filters search results.
+ */
+testcase.searchWithLocationOptions = async () => {
+  // Open Files app on Downloads.
+  const appId = await setupAndWaitUntilReady(RootPath.DOWNLOADS);
+
+  // Modify the basic entry set by adding nested directories and
+  // a copy of the hello entry.
+  const nestedHello = ENTRIES.hello.cloneWith({
+    targetPath: 'A/hello.txt',
+  });
+  addEntries(['local'], [ENTRIES.directoryA, nestedHello]);
+
+  // Start in the nested directory, as the default search location
+  // is THIS_FOLDER. Expect to find one hello file. Then search on
+  // THIS_CHROMEBOOK and expect to find two.
+  await navigateWithDirectoryTree(appId, '/My files/Downloads/A');
+
+  // Search for all files with "hello" in their name.
+  await remoteCall.typeSearchText(appId, 'hello');
+
+  // Verify that the search options are visible.
+  await remoteCall.waitForElement(appId, 'xf-search-options:not([hidden])');
+
+  // Expect only the nested hello to be found.
+  await remoteCall.waitForFiles(appId, TestEntryInfo.getExpectedRows([
+    nestedHello,
+  ]));
+
+  // Click the second button, which is This Chromebook.
+  chrome.test.assertTrue(
+      !!await remoteCall.callRemoteTestUtil(
+          'fakeMouseClick', appId,
+          [
+            [
+              'xf-search-options',
+              'xf-select#location-selector',
+              'cr-action-menu cr-button:nth-of-type(2)',
+            ],
+          ]),
+      'Failed to click "This Chromebook" location selector');
+
+  // Expect all hello files to be found.
+  await remoteCall.waitForFiles(appId, TestEntryInfo.getExpectedRows([
+    ENTRIES.hello,
+    nestedHello,
+  ]));
+};
+
+/**
+ * Checks that changing recency options correctly filters search results.
+ */
+testcase.searchWithRecencyOptions = async () => {
+  // Open Files app on Downloads.
+  const appId = await setupAndWaitUntilReady(RootPath.DOWNLOADS);
+
+  // Modify the basic entry set by adding another hello file with
+  // a recent date. We cannot make it today's date as those dates
+  // are rendered with 'Today' string rather than actual date string.
+  const recentHello = ENTRIES.hello.cloneWith({
+    nameText: 'hello-recent.txt',
+    lastModifiedTime: new Date().toDateString(),
+    targetPath: 'hello-recent.txt',
+  });
+  await addEntries(['local'], [recentHello]);
+  // Unfortunately, today's files use custom date string. Make it so.
+  const todayHello = recentHello.cloneWith({
+    lastModifiedTime: 'Today 12:00 AM',
+  });
+
+  // Search for all files with "hello" in their name.
+  await remoteCall.typeSearchText(appId, 'hello');
+
+  // Expect two files, with no recency restrictions.
+  await remoteCall.waitForFiles(appId, TestEntryInfo.getExpectedRows([
+    ENTRIES.hello,
+    todayHello,
+  ]));
+
+  // Click the fourth button, which is "Last week" option.
+  chrome.test.assertTrue(
+      !!await remoteCall.callRemoteTestUtil(
+          'fakeMouseClick', appId,
+          [
+            [
+              'xf-search-options',
+              'xf-select#recency-selector',
+              'cr-action-menu cr-button:nth-of-type(4)',
+            ],
+          ]),
+      'Failed to click "Last week" recency selector');
+
+  // Expect only the recent hello file to be found.
+  await remoteCall.waitForFiles(appId, TestEntryInfo.getExpectedRows([
+    todayHello,
+  ]));
+};
+
+/**
+ * Checks that changing file types options correctly filters search results.
+ */
+testcase.searchWithTypeOptions = async () => {
+  // Open Files app on Downloads.
+  const appId = await setupAndWaitUntilReady(RootPath.DOWNLOADS);
+
+  // Search for all files with "hello" in their name.
+  await remoteCall.typeSearchText(appId, 'o');
+
+  // Expect all basic files, with no type restrictions.
+  await remoteCall.waitForFiles(
+      appId, TestEntryInfo.getExpectedRows(BASIC_LOCAL_ENTRY_SET));
+
+  // Click the fifth button, which is "Video" option.
+  chrome.test.assertTrue(
+      !!await remoteCall.callRemoteTestUtil(
+          'fakeMouseClick', appId,
+          [
+            [
+              'xf-search-options',
+              'xf-select#type-selector',
+              'cr-action-menu cr-button:nth-of-type(5)',
+            ],
+          ]),
+      'Failed to click "Videos" type selector');
+
+  // Expect only world, which is a video file.
+  await remoteCall.waitForFiles(appId, TestEntryInfo.getExpectedRows([
+    ENTRIES.world,
+  ]));
 };

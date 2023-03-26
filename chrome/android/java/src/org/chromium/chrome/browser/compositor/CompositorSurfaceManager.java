@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,6 @@ import android.view.View;
  * Manages Surface(s), and SurfaceView(s) when necessary, for the compositor.
  *
  * See CompositorSurfaceManagerImpl for the standard implementation of this class.
- * While in VR, the VRCompositorSurfaceManager will be used, which only partially implements the
- * contract implied by this interface. See the comments there for details.
  */
 public interface CompositorSurfaceManager {
     /**

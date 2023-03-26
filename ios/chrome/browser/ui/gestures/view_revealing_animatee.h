@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,9 @@
 // The 3 stages or steps of the transitions handled by the view revealing
 // vertical pan handler class.
 enum class ViewRevealState {
-  Hidden,      // The view is not revealed.
-  Peeked,      // The view is only partially revealed.
-  Revealed,    // The view is mostly revealed.
-  Fullscreen,  // The view is fully revealed - under software control only.
+  Hidden,    // The view is not revealed.
+  Peeked,    // The view is only partially revealed.
+  Revealed,  // The view is mostly revealed.
 };
 
 enum class ViewRevealTrigger {

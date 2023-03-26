@@ -1,11 +1,11 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/safe_browsing/download_protection/download_feedback.h"
 
-#include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/task/task_runner.h"
 #include "chrome/browser/safe_browsing/download_protection/two_phase_uploader.h"
@@ -106,8 +106,8 @@ DownloadFeedbackImpl::~DownloadFeedbackImpl() {
     uploader_.reset();
   }
 
-  file_task_runner_->PostTask(
-      FROM_HERE, base::BindOnce(base::GetDeleteFileCallback(), file_path_));
+  file_task_runner_->PostTask(FROM_HERE,
+                              base::GetDeleteFileCallback(file_path_));
 }
 
 void DownloadFeedbackImpl::Start(base::OnceClosure finish_callback) {

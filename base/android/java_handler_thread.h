@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,6 @@
 #include "base/task/sequence_manager/sequence_manager.h"
 #include "base/task/sequence_manager/task_queue.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 
 namespace base {
 
@@ -33,7 +32,7 @@ class BASE_EXPORT JavaHandlerThread {
   // Create new thread.
   explicit JavaHandlerThread(
       const char* name,
-      base::ThreadPriority priority = base::ThreadPriority::NORMAL);
+      base::ThreadType thread_type = base::ThreadType::kDefault);
   // Wrap and connect to an existing JavaHandlerThread.
   // |obj| is an instance of JavaHandlerThread.
   explicit JavaHandlerThread(

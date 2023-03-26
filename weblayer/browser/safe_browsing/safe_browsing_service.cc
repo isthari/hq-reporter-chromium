@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/android/remote_database_manager.h"
@@ -16,7 +16,6 @@
 #include "components/safe_browsing/content/browser/safe_browsing_navigation_throttle.h"
 #include "components/safe_browsing/content/browser/safe_browsing_network_context.h"
 #include "components/safe_browsing/content/browser/triggers/trigger_manager.h"
-#include "components/safe_browsing/core/browser/ping_manager.h"
 #include "components/safe_browsing/core/browser/realtime/url_lookup_service.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "content/public/browser/browser_context.h"
@@ -50,11 +49,6 @@ network::mojom::NetworkContextParamsPtr CreateDefaultNetworkContextParams(
   return network_context_params;
 }
 
-std::string GetProtocolConfigClientName() {
-  // Return a weblayer specific client name.
-  return "weblayer";
-}
-
 // Helper method that checks the RenderProcessHost is still alive and checks the
 // latest Safe Browsing pref value on the UI thread before hopping over to the
 // IO thread.
@@ -68,22 +62,26 @@ void MaybeCreateSafeBrowsing(
 
   content::RenderProcessHost* render_process_host =
       content::RenderProcessHost::FromID(rph_id);
-  if (!render_process_host)
+  if (!render_process_host) {
     return;
+  }
 
   bool is_safe_browsing_enabled = safe_browsing::IsSafeBrowsingEnabled(
       *static_cast<BrowserContextImpl*>(
            render_process_host->GetBrowserContext())
            ->pref_service());
 
-  if (!is_safe_browsing_enabled)
+  if (!is_safe_browsing_enabled) {
     return;
+  }
 
   content::GetIOThreadTaskRunner({})->PostTask(
       FROM_HERE,
-      base::BindOnce(&safe_browsing::MojoSafeBrowsingImpl::MaybeCreate, rph_id,
-                     resource_context, std::move(get_checker_delegate),
-                     std::move(receiver)));
+      base::BindOnce(
+          &safe_browsing::MojoSafeBrowsingImpl::MaybeCreate, rph_id,
+          // TODO(https://crbug.com/1407653) Fix this dangling pointer.
+          base::UnsafeDanglingUntriaged(resource_context),
+          std::move(get_checker_delegate), std::move(receiver)));
 }
 
 }  // namespace
@@ -100,11 +98,6 @@ void SafeBrowsingService::Initialize() {
     // already initialized
     return;
   }
-
-  safe_browsing_api_handler_ =
-      std::make_unique<safe_browsing::SafeBrowsingApiHandlerBridge>();
-  safe_browsing::SafeBrowsingApiHandler::SetInstance(
-      safe_browsing_api_handler_.get());
 
   base::FilePath user_data_dir;
   bool result =
@@ -137,7 +130,8 @@ SafeBrowsingService::CreateURLLoaderThrottle(
           },
           base::Unretained(this)),
       wc_getter, frame_tree_node_id,
-      url_lookup_service ? url_lookup_service->GetWeakPtr() : nullptr);
+      url_lookup_service ? url_lookup_service->GetWeakPtr() : nullptr,
+      /*hash_realtime_service=*/nullptr);
 }
 
 std::unique_ptr<content::NavigationThrottle>
@@ -169,16 +163,6 @@ SafeBrowsingService::GetSafeBrowsingDBManager() {
     CreateAndStartSafeBrowsingDBManager();
   }
   return safe_browsing_db_manager_;
-}
-
-safe_browsing::PingManager* SafeBrowsingService::GetPingManager() {
-  if (!ping_manager_) {
-    ping_manager_ =
-        ::safe_browsing::PingManager::Create(safe_browsing::GetV4ProtocolConfig(
-            GetProtocolConfigClientName(), false /* auto_update */));
-  }
-
-  return ping_manager_.get();
 }
 
 scoped_refptr<safe_browsing::SafeBrowsingUIManager>
@@ -229,8 +213,9 @@ void SafeBrowsingService::StartSafeBrowsingDBManagerOnIOThread() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   DCHECK(safe_browsing_db_manager_);
 
-  if (started_db_manager_)
+  if (started_db_manager_) {
     return;
+  }
 
   started_db_manager_ = true;
 
@@ -298,15 +283,17 @@ void SafeBrowsingService::StopDBManagerOnIOThread() {
 }
 
 network::mojom::NetworkContext* SafeBrowsingService::GetNetworkContext() {
-  if (!network_context_)
+  if (!network_context_) {
     return nullptr;
+  }
   return network_context_->GetNetworkContext();
 }
 
 scoped_refptr<network::SharedURLLoaderFactory>
 SafeBrowsingService::GetURLLoaderFactory() {
-  if (!network_context_)
+  if (!network_context_) {
     return nullptr;
+  }
   return network_context_->GetURLLoaderFactory();
 }
 

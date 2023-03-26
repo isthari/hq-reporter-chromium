@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,21 +15,20 @@ namespace {
 using base::Value;
 }  // namespace
 
-const Value* ResultParser::GetFirstListElement(const Value& value,
-                                               const std::string& path) {
-  const Value* entries = value.FindListPath(path);
+const Value::Dict* ResultParser::GetFirstListElement(const Value::Dict& dict,
+                                                     const std::string& path) {
+  const Value::List* entries = dict.FindListByDottedPath(path);
 
   if (!entries) {
     // No list found.
     return nullptr;
   }
 
-  auto list = entries->GetList();
-  if (list.empty()) {
+  if (entries->empty()) {
     // No valid dictionary entries found.
     return nullptr;
   }
-  return &list[0];
+  return &(*entries)[0].GetDict();
 }
 
 // static

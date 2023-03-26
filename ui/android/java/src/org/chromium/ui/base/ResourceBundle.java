@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,6 +49,10 @@ public final class ResourceBundle {
         sAvailableLocales = locales;
     }
 
+    public static void clearAvailablePakLocalesForTesting() {
+        sAvailableLocales = null;
+    }
+
     /**
      * Return the list of available locales.
      * @return The correct locale list for this build.
@@ -85,7 +89,7 @@ public final class ResourceBundle {
                 pathPrefix = "assets/fallback-locales/";
             } else {
                 String lang = LocalizationUtils.getSplitLanguageForAndroid(
-                        LocaleUtils.toLanguage(locale));
+                        LocaleUtils.toBaseLanguage(locale));
                 pathPrefix = "assets/locales#lang_" + lang + "/";
             }
         }

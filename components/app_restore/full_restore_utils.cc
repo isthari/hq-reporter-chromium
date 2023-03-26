@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include "base/files/file_path.h"
 #include "components/app_restore/app_launch_info.h"
+#include "components/app_restore/app_restore_info.h"
 #include "components/app_restore/desk_template_read_handler.h"
 #include "components/app_restore/features.h"
-#include "components/app_restore/full_restore_info.h"
 #include "components/app_restore/full_restore_read_handler.h"
 #include "components/app_restore/full_restore_save_handler.h"
 #include "components/app_restore/window_info.h"
@@ -47,11 +47,6 @@ bool HasBrowser(const base::FilePath& profile_path) {
   return FullRestoreReadHandler::GetInstance()->HasBrowser(profile_path);
 }
 
-bool HasWindowInfo(int32_t restore_window_id) {
-  return FullRestoreReadHandler::GetInstance()->HasWindowInfo(
-      restore_window_id);
-}
-
 void AddChromeBrowserLaunchInfoForTesting(const base::FilePath& profile_path) {
   FullRestoreReadHandler::GetInstance()
       ->AddChromeBrowserLaunchInfoForTesting(  // IN-TEST
@@ -67,8 +62,6 @@ void OnLacrosChromeAppWindowAdded(const std::string& app_id,
   if (!full_restore::features::IsFullRestoreForLacrosEnabled())
     return;
 
-  FullRestoreReadHandler::GetInstance()->OnLacrosChromeAppWindowAdded(
-      app_id, window_id);
   FullRestoreSaveHandler::GetInstance()->OnLacrosChromeAppWindowAdded(
       app_id, window_id);
 }
@@ -78,8 +71,6 @@ void OnLacrosChromeAppWindowRemoved(const std::string& app_id,
   if (!full_restore::features::IsFullRestoreForLacrosEnabled())
     return;
 
-  FullRestoreReadHandler::GetInstance()->OnLacrosChromeAppWindowRemoved(
-      app_id, window_id);
   FullRestoreSaveHandler::GetInstance()->OnLacrosChromeAppWindowRemoved(
       app_id, window_id);
 }

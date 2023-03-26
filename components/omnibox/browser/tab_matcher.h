@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,10 @@
 #if BUILDFLAG(IS_ANDROID)
 #include "base/android/jni_weak_ref.h"
 #endif
+
+namespace content {
+class WebContents;
+}
 
 // Abstraction of a mechanism that associates GURL objects with open tabs.
 class TabMatcher {
@@ -63,6 +67,11 @@ class TabMatcher {
   // benefits on Android where the operation is otherwise very expensive.
   virtual void FindMatchingTabs(GURLToTabInfoMap* map,
                                 const AutocompleteInput* input) const;
+
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
+  // Returns pointers to all open tab WebContents for the current profile.
+  virtual std::vector<content::WebContents*> GetOpenTabs() const;
+#endif
 };
 
 #endif  // COMPONENTS_OMNIBOX_BROWSER_TAB_MATCHER_H_

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 class AccountId;
 class Profile;
 
-namespace chromeos {
+namespace ash {
 
 class PrintServersProvider;
 
@@ -61,6 +61,6 @@ class PrintServersProviderFactory {
   std::unique_ptr<PrintServersProvider> device_provider_;
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_PRINT_SERVERS_PROVIDER_FACTORY_H_

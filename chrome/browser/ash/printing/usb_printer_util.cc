@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@
 #include <vector>
 
 #include "base/big_endian.h"
-#include "base/callback_helpers.h"
 #include "base/containers/span.h"
+#include "base/functional/callback_helpers.h"
 #include "base/hash/md5.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
@@ -256,7 +256,7 @@ bool UsbDeviceIsPrinter(const UsbDeviceInfo& device_info) {
 // are printers, not arbitrary USB devices, as we may get weird partial results
 // from arbitrary devices. The results are saved in the second parameter.
 bool UsbDeviceToPrinter(const UsbDeviceInfo& device_info,
-                        chromeos::PrinterDetector::DetectedPrinter* entry) {
+                        PrinterDetector::DetectedPrinter* entry) {
   DCHECK(entry);
 
   // Preflight all required fields and log errors if we find something wrong.

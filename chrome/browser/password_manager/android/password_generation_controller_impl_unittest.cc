@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #include "chrome/browser/password_manager/android/password_generation_controller_impl.h"
@@ -6,7 +6,7 @@
 #include <map>
 #include <utility>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -123,7 +123,7 @@ class MockPasswordGenerationDialogView
   MockPasswordGenerationDialogView& operator=(
       const MockPasswordGenerationDialogView&) = delete;
 
-  virtual ~MockPasswordGenerationDialogView() { Destroy(); }
+  ~MockPasswordGenerationDialogView() override { Destroy(); }
 };
 
 PasswordGenerationUIData GetTestGenerationUIData1() {

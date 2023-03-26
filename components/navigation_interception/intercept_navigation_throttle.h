@@ -1,26 +1,24 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_NAVIGATION_INTERCEPTION_INTERCEPT_NAVIGATION_THROTTLE_H_
 #define COMPONENTS_NAVIGATION_INTERCEPTION_INTERCEPT_NAVIGATION_THROTTLE_H_
 
-#include "base/callback.h"
 #include "base/feature_list.h"
+#include "base/functional/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/single_thread_task_runner.h"
-#include "components/navigation_interception/navigation_params.h"
 #include "content/public/browser/navigation_throttle.h"
 
 namespace content {
 class NavigationHandle;
-class WebContents;
 }
 
 namespace navigation_interception {
 
-class NavigationParams;
+BASE_DECLARE_FEATURE(kAsyncCheck);
 
 enum class SynchronyMode {
   // Support async interception in some cases (See ShouldCheckAsynchronously).
@@ -34,11 +32,8 @@ enum class SynchronyMode {
 class InterceptNavigationThrottle : public content::NavigationThrottle {
  public:
   typedef base::RepeatingCallback<bool(
-      content::WebContents* /* source */,
-      const NavigationParams& /* navigation_params */)>
+      content::NavigationHandle* /* navigation_handle */)>
       CheckCallback;
-
-  static const base::Feature kAsyncCheck;
 
   InterceptNavigationThrottle(content::NavigationHandle* navigation_handle,
                               CheckCallback should_ignore_callback,
@@ -58,12 +53,9 @@ class InterceptNavigationThrottle : public content::NavigationThrottle {
 
  private:
   ThrottleCheckResult CheckIfShouldIgnoreNavigation();
-  void RunCheckAsync(const NavigationParams& params);
+  void RunCheckAsync();
 
   bool ShouldCheckAsynchronously() const;
-
-  // Constructs NavigationParams for this navigation.
-  NavigationParams GetNavigationParams() const;
 
   // This callback should be called at the start of navigation and every
   // redirect, until |should_ignore_| is true.

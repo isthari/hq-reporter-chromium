@@ -1,10 +1,9 @@
-// Copyright (c) 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/settings_api_helpers.h"
 
-#include "chrome/browser/extensions/api/preference/preference_api.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
@@ -12,6 +11,7 @@
 #include "content/public/browser/browser_url_handler.h"
 #include "extensions/browser/extension_pref_value_map.h"
 #include "extensions/browser/extension_pref_value_map_factory.h"
+#include "extensions/browser/extension_prefs_helper.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension_set.h"
@@ -28,6 +28,8 @@ const Extension* FindOverridingExtension(
     SettingsApiOverrideType type) {
   const ExtensionSet& extensions =
       ExtensionRegistry::Get(browser_context)->enabled_extensions();
+  ExtensionPrefsHelper* prefs_helper =
+      ExtensionPrefsHelper::Get(browser_context);
 
   for (ExtensionSet::const_iterator it = extensions.begin();
        it != extensions.end();
@@ -55,9 +57,9 @@ const Extension* FindOverridingExtension(
       }
 
       // Found an extension overriding the current type, check if primary.
-      PreferenceAPI* preference_api = PreferenceAPI::Get(browser_context);
-      if (preference_api &&  // Expected to be NULL in unit tests.
-          !preference_api->DoesExtensionControlPref((*it)->id(), key, NULL))
+      // ExtensionPrefHelper is not instantiated in unit tests.
+      if (prefs_helper &&
+          !prefs_helper->DoesExtensionControlPref((*it)->id(), key, nullptr))
         continue;  // Not primary.
 
       // Found the primary extension.
@@ -65,7 +67,7 @@ const Extension* FindOverridingExtension(
     }
   }
 
-  return NULL;
+  return nullptr;
 }
 
 }  // namespace
@@ -102,12 +104,12 @@ const Extension* GetExtensionOverridingProxy(
   ExtensionPrefValueMap* extension_prefs_value_map =
       ExtensionPrefValueMapFactory::GetForBrowserContext(browser_context);
   if (!extension_prefs_value_map)
-    return NULL;  // Can be null during testing.
+    return nullptr;  // Can be null during testing.
   std::string extension_id =
       extension_prefs_value_map->GetExtensionControllingPref(
           proxy_config::prefs::kProxy);
   if (extension_id.empty())
-    return NULL;
+    return nullptr;
   return ExtensionRegistry::Get(browser_context)->GetExtensionById(
       extension_id, ExtensionRegistry::ENABLED);
 }

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,12 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "cc/animation/animation_host.h"
 #include "cc/benchmarks/micro_benchmark.h"
 #include "cc/layers/layer.h"
@@ -37,7 +38,8 @@ class MicroBenchmarkControllerTest : public testing::Test {
         &layer_tree_host_client_, &task_graph_runner_, animation_host_.get());
     layer_tree_host_->SetRootLayer(Layer::Create());
     layer_tree_host_->InitializeForTesting(
-        TaskRunnerProvider::Create(nullptr, nullptr),
+        TaskRunnerProvider::Create(
+            base::SingleThreadTaskRunner::GetCurrentDefault(), nullptr),
         std::unique_ptr<Proxy>(new FakeProxy));
   }
 

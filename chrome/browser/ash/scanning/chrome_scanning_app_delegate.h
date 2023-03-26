@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,10 @@
 #include <vector>
 
 #include "ash/webui/scanning/scanning_app_delegate.h"
-#include "base/callback_forward.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/memory/weak_ptr.h"
 #include "chrome/browser/ash/scanning/scanning_file_path_helper.h"
 
 class PrefService;
@@ -82,6 +83,8 @@ class ChromeScanningAppDelegate : public ScanningAppDelegate {
 
   // Task runner for the I/O function base::PathExists().
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
+
+  base::WeakPtrFactory<ChromeScanningAppDelegate> weak_ptr_factory_{this};
 };
 
 }  // namespace ash

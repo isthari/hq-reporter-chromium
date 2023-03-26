@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,10 @@
 
 #include "third_party/blink/renderer/core/streams/transferable_streams.h"
 
-#include "base/cxx17_backports.h"
+#include "third_party/blink/renderer/bindings/core/v8/iterable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
 #include "third_party/blink/renderer/bindings/core/v8/to_v8_traits.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_exception.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_iterator_result_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_post_message_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_readable_stream_default_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_throw_dom_exception.h"
@@ -77,10 +76,10 @@ v8::Local<v8::Object> CreateKeyValueObject(v8::Isolate* isolate,
   v8::Local<v8::Name> names[] = {V8AtomicString(isolate, key1),
                                  V8AtomicString(isolate, key2)};
   v8::Local<v8::Value> values[] = {value1, value2};
-  static_assert(base::size(names) == base::size(values),
+  static_assert(std::size(names) == std::size(values),
                 "names and values arrays must be the same size");
   return v8::Object::New(isolate, v8::Null(isolate), names, values,
-                         base::size(names));
+                         std::size(names));
 }
 
 // Unpacks an object created by CreateKeyValueObject(). |value1| and |value2|
@@ -811,11 +810,10 @@ class ConcatenatingUnderlyingSource final : public UnderlyingSourceBase {
     ScriptValue Call(ScriptState* script_state,
                      ScriptValue read_result) override {
       DCHECK(read_result.IsObject());
+      v8::Local<v8::Value> value;
       bool done = false;
-      v8::Local<v8::Value> value =
-          V8UnpackIteratorResult(script_state,
-                                 read_result.V8Value().As<v8::Object>(), &done)
-              .ToLocalChecked();
+      CHECK(V8UnpackIterationResult(
+          script_state, read_result.V8Value().As<v8::Object>(), &value, &done));
       if (done) {
         // We've finished reading `source1_`. Let's start reading `source2_`.
         source_->has_finished_reading_stream1_ = true;

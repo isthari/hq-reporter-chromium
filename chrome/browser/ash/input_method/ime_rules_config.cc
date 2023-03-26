@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,8 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
+#include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+#include "url/url_util.h"
 
 namespace ash {
 namespace input_method {
@@ -47,13 +49,15 @@ void ImeRulesConfig::InitFromTrialParams() {
     VLOG(2) << "Field trial parameter not set";
     return;
   }
-  absl::optional<base::Value> dict = base::JSONReader::Read(params);
-  if (!dict || !dict->is_dict()) {
+  auto dict = base::JSONReader::ReadAndReturnValueWithError(params);
+  if (!dict.has_value() || !dict->is_dict()) {
     VLOG(1) << "Failed to parse field trial params as JSON object: " << params;
     if (VLOG_IS_ON(1)) {
-      auto err = base::JSONReader::ReadAndReturnValueWithError(params);
-      VLOG(1) << err.error_message << ", line: " << err.error_line
-              << ", col: " << err.error_column;
+      if (dict.has_value())
+        VLOG(1) << "Expecting a dictionary";
+      else
+        VLOG(1) << dict.error().message << ", line: " << dict.error().line
+                << ", col: " << dict.error().column;
     }
     return;
   }
@@ -77,7 +81,7 @@ void ImeRulesConfig::InitFromTrialParams() {
     if (ac_domains_items != nullptr) {
       for (const auto& domain : ac_domains_items->GetList()) {
         if (domain.is_string()) {
-          auto_correct_domain_denylist_.push_back(*domain.GetIfString());
+          rule_auto_correct_domain_denylist_.push_back(*domain.GetIfString());
         }
       }
     }
@@ -86,13 +90,36 @@ void ImeRulesConfig::InitFromTrialParams() {
 
 bool ImeRulesConfig::IsAutoCorrectDisabled(
     const TextFieldContextualInfo& info) {
-  // Check the domain denylist rules
-  for (const auto& domain : auto_correct_domain_denylist_) {
-    if (info.tab_url.DomainIs(domain)) {
+  // Check the default domain denylist rules.
+  for (const auto& domain : default_auto_correct_domain_denylist_) {
+    if (IsSubDomain(info, domain)) {
+      return true;
+    }
+  }
+  // Check the rule domain denylist rules.
+  for (const auto& domain : rule_auto_correct_domain_denylist_) {
+    if (IsSubDomain(info, domain)) {
       return true;
     }
   }
   return false;
+}
+
+bool ImeRulesConfig::IsSubDomain(const TextFieldContextualInfo& info,
+                                 const std::string& domain) {
+  const size_t registryLength =
+      net::registry_controlled_domains::GetRegistryLength(
+          info.tab_url,
+          net::registry_controlled_domains::EXCLUDE_UNKNOWN_REGISTRIES,
+          net::registry_controlled_domains::EXCLUDE_PRIVATE_REGISTRIES);
+  if (registryLength == 0) {
+    return false;
+  }
+  const base::StringPiece urlContent = info.tab_url.host_piece();
+  const base::StringPiece urlDomain =
+      urlContent.substr(0, urlContent.length() - registryLength - 1);
+
+  return url::DomainIs(urlDomain, domain);
 }
 
 // static

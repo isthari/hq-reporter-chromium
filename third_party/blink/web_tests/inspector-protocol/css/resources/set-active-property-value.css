@@ -22,7 +22,7 @@
     container-type: size;
 }
 
-@container size(min-width: 50px) {
+@container (min-width: 50px) {
     #inspected {
         padding-right: 10px;
     }
@@ -33,3 +33,27 @@
         display: grid;
     }
 }
+
+@layer base {
+    #inspected {
+        background-color: blue;
+    }
+    @layer nested {
+        body {
+            background-color: green;
+        }
+    }
+}
+
+
+@scope (html) {
+    #inspected {
+        color: red;
+    }
+}
+
+@scope (html) to (.child-div) {
+    #inspected {
+      color: lightcyan;
+    }
+  }

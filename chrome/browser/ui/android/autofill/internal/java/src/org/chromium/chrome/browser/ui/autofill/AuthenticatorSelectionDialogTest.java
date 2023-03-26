@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
@@ -27,9 +26,10 @@ import org.chromium.chrome.browser.ui.autofill.AuthenticatorOptionsAdapter.Authe
 import org.chromium.chrome.browser.ui.autofill.data.AuthenticatorOption;
 import org.chromium.chrome.browser.ui.autofill.internal.R;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
-import org.chromium.ui.modaldialog.ModalDialogManager;
+import org.chromium.ui.modaldialog.ModalDialogManager.ModalDialogType;
 import org.chromium.ui.modaldialog.ModalDialogProperties;
 import org.chromium.ui.modelutil.PropertyModel;
+import org.chromium.ui.test.util.modaldialog.FakeModalDialogManager;
 
 import java.util.ArrayList;
 
@@ -45,6 +45,7 @@ public class AuthenticatorSelectionDialogTest {
                     .setIdentifier("identifier1")
                     .setDescription("description1")
                     .setIconResId(android.R.drawable.ic_media_pause)
+                    .setType(CardUnmaskChallengeOptionType.SMS_OTP)
                     .build();
 
     private static final AuthenticatorOption OPTION_2 =
@@ -53,44 +54,27 @@ public class AuthenticatorSelectionDialogTest {
                     .setIdentifier("identifier2")
                     .setDescription("description2")
                     .setIconResId(android.R.drawable.ic_media_play)
+                    .setType(CardUnmaskChallengeOptionType.SMS_OTP)
+                    .build();
+
+    private static final AuthenticatorOption OPTION_3 =
+            new AuthenticatorOption.Builder()
+                    .setTitle("title3")
+                    .setIdentifier("identifier3")
+                    .setDescription("description3")
+                    .setIconResId(android.R.drawable.ic_media_play)
+                    .setType(CardUnmaskChallengeOptionType.CVC)
                     .build();
 
     private FakeModalDialogManager mModalDialogManager;
     private AuthenticatorSelectionDialog mAuthenticatorSelectionDialog;
     @Mock
     private AuthenticatorSelectionDialog.Listener mAuthenticatorSelectedListener;
-    private class FakeModalDialogManager extends ModalDialogManager {
-        private PropertyModel mShownDialogModel;
-
-        public FakeModalDialogManager() {
-            super(Mockito.mock(Presenter.class), 0);
-        }
-
-        @Override
-        public void showDialog(PropertyModel model, int dialogType) {
-            mShownDialogModel = model;
-        }
-
-        @Override
-        public void dismissDialog(PropertyModel model, int dismissalCause) {
-            model.get(ModalDialogProperties.CONTROLLER).onDismiss(model, dismissalCause);
-            mShownDialogModel = null;
-        }
-
-        public void clickPositiveButton() {
-            mShownDialogModel.get(ModalDialogProperties.CONTROLLER)
-                    .onClick(mShownDialogModel, ModalDialogProperties.ButtonType.POSITIVE);
-        }
-
-        public PropertyModel getShownDialogModel() {
-            return mShownDialogModel;
-        }
-    }
 
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
-        mModalDialogManager = new FakeModalDialogManager();
+        mModalDialogManager = new FakeModalDialogManager(ModalDialogType.TAB);
         mAuthenticatorSelectionDialog =
                 new AuthenticatorSelectionDialog(ApplicationProvider.getApplicationContext(),
                         mAuthenticatorSelectedListener, mModalDialogManager);
@@ -178,6 +162,7 @@ public class AuthenticatorSelectionDialogTest {
         ArrayList<AuthenticatorOption> options = new ArrayList<>();
         options.add(OPTION_1);
         options.add(OPTION_2);
+        options.add(OPTION_3);
 
         mAuthenticatorSelectionDialog.show(options);
 
@@ -187,12 +172,18 @@ public class AuthenticatorSelectionDialogTest {
                 getAuthenticatorOptionViewHolderAtPosition(model, 0);
         AuthenticatorOptionViewHolder viewHolder2 =
                 getAuthenticatorOptionViewHolderAtPosition(model, 1);
+        AuthenticatorOptionViewHolder viewHolder3 =
+                getAuthenticatorOptionViewHolderAtPosition(model, 2);
+
         // Verify that the first radio button is selected by default.
         assertThat(viewHolder1.getRadioButton().isChecked()).isTrue();
+        assertThat(model.get(ModalDialogProperties.POSITIVE_BUTTON_TEXT)).isEqualTo("Send");
         assertThat(viewHolder2.getRadioButton().isChecked()).isFalse();
+        assertThat(viewHolder3.getRadioButton().isChecked()).isFalse();
 
         // Perform click for the radio button of authenticator option 2.
         viewHolder2.getRadioButton().performClick();
+        assertThat(model.get(ModalDialogProperties.POSITIVE_BUTTON_TEXT)).isEqualTo("Send");
 
         // Verify that the radio button's checked state reflects correctly. Note: we need to fetch
         // the viewHolder again as the performClick triggered a redraw of the views.
@@ -202,12 +193,31 @@ public class AuthenticatorSelectionDialogTest {
         assertThat(
                 getAuthenticatorOptionViewHolderAtPosition(model, 1).getRadioButton().isChecked())
                 .isTrue();
+        assertThat(
+                getAuthenticatorOptionViewHolderAtPosition(model, 2).getRadioButton().isChecked())
+                .isFalse();
+
+        // Perform click for the radio button of authenticator option 3.
+        viewHolder3.getRadioButton().performClick();
+        assertThat(model.get(ModalDialogProperties.POSITIVE_BUTTON_TEXT)).isEqualTo("Continue");
+
+        // Verify that the radio button's checked state reflects correctly. Note: we need to fetch
+        // the viewHolder again as the performClick triggered a redraw of the views.
+        assertThat(
+                getAuthenticatorOptionViewHolderAtPosition(model, 0).getRadioButton().isChecked())
+                .isFalse();
+        assertThat(
+                getAuthenticatorOptionViewHolderAtPosition(model, 1).getRadioButton().isChecked())
+                .isFalse();
+        assertThat(
+                getAuthenticatorOptionViewHolderAtPosition(model, 2).getRadioButton().isChecked())
+                .isTrue();
 
         // Trigger positive button click.
         mModalDialogManager.clickPositiveButton();
 
-        // Verify that the correct identifier is passed to the listener.
-        verify(mAuthenticatorSelectedListener, times(1)).onOptionSelected(OPTION_2.getIdentifier());
+        // Verify that the correct identifiers are passed to the listener.
+        verify(mAuthenticatorSelectedListener, times(1)).onOptionSelected(OPTION_3.getIdentifier());
     }
 
     private AuthenticatorOptionViewHolder getAuthenticatorOptionViewHolderAtPosition(

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,7 +42,8 @@ class TestBarView : public AccessiblePaneView {
   void Init();
 
   raw_ptr<LabelButton> child_button_;
-  raw_ptr<LabelButton> second_child_button_;
+  // TODO(crbug.com/1298696): Breaks views_unittests.
+  raw_ptr<LabelButton, DegradeToNoOpWhenMTE> second_child_button_;
   raw_ptr<LabelButton> third_child_button_;
   std::unique_ptr<LabelButton> not_child_button_;
 };
@@ -230,7 +231,15 @@ TEST_F(AccessiblePaneViewTest, PaneFocusTraversal) {
   widget.reset();
 }
 
-TEST_F(AccessiblePaneViewTest, DoesntCrashOnEscapeWithRemovedView) {
+// TODO(crbug.com/1314275): Re-enable this test
+#if defined(ADDRESS_SANITIZER) && defined(LEAK_SANITIZER)
+#define MAYBE_DoesntCrashOnEscapeWithRemovedView \
+  DISABLED_DoesntCrashOnEscapeWithRemovedView
+#else
+#define MAYBE_DoesntCrashOnEscapeWithRemovedView \
+  DoesntCrashOnEscapeWithRemovedView
+#endif
+TEST_F(AccessiblePaneViewTest, MAYBE_DoesntCrashOnEscapeWithRemovedView) {
   TestBarView* test_view1 = new TestBarView();
   TestBarView* test_view2 = new TestBarView();
   Widget widget;

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -115,7 +115,23 @@ enum class ProfileKeepAliveOrigin {
   // renders to a WebUI, so we can't just destroy it whenever we want.
   kCommanderFrontend = 26,
 
-  kMaxValue = kCommanderFrontend,
+  // UI bubble that may outlive the Browser, especially on Mac.
+  kDiceWebSigninInterceptionBubble = 27,
+
+  // Waiting for History menu entries to populate, so we have
+  // something to show after the profile is destroyed. macOS-specific.
+  kHistoryMenuBridge = 28,
+
+  // Protect Lacros Main Profile from being destroyed. Value expected to be set
+  // for main profile and never removed. Lacros main profile shouldn't be
+  // destroyed.
+  kLacrosMainProfile = 29,
+
+  // This profile is being created, and the SAML flow needs to be completed to
+  // finish signin in the user's account.
+  kProfileCreationSamlFlow = 30,
+
+  kMaxValue = kProfileCreationSamlFlow,
 };
 
 std::ostream& operator<<(std::ostream& out,

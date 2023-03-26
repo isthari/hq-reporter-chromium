@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,21 +7,37 @@
 
 #import <Foundation/Foundation.h>
 
+#import "ios/chrome/browser/ui/list_model/list_model.h"
 #include "url/gurl.h"
 
 namespace password_manager {
-struct PasswordForm;
+struct CredentialUIEntry;
 }  // namespace password_manager
 
-// Object which is used by |PasswordDetailsViewController| to show
+// Represents the credential type (blocked, federated or regular) of the
+// credential in this Password Details.
+typedef NS_ENUM(NSInteger, CredentialType) {
+  CredentialTypeRegular = kItemTypeEnumZero,
+  CredentialTypeBlocked,
+  CredentialTypeFederation,
+};
+
+// Object which is used by `PasswordDetailsViewController` to show
 // information about password.
 @interface PasswordDetails : NSObject
 
-// Short version of website.
-@property(nonatomic, copy, readonly) NSString* origin;
+// Represents the type of the credential (blocked, federated or regular).
+@property(nonatomic, assign) CredentialType credentialType;
 
-// Associated website.
-@property(nonatomic, copy, readonly) NSString* website;
+// Associated sign-on realm used as identifier for this object.
+@property(nonatomic, copy, readonly) NSString* signonRealm;
+
+// Short version of websites.
+@property(nonatomic, copy, readonly) NSArray<NSString*>* origins;
+
+// Associated websites. It is determined by either the sign-on realm or the
+// display name of the Android app.
+@property(nonatomic, copy, readonly) NSArray<NSString*>* websites;
 
 // Associated username.
 @property(nonatomic, copy) NSString* username;
@@ -38,7 +54,8 @@ struct PasswordForm;
 // URL which allows to change the password of compromised credential.
 @property(nonatomic, readonly) GURL changePasswordURL;
 
-- (instancetype)initWithPasswordForm:(const password_manager::PasswordForm&)form
+- (instancetype)initWithCredential:
+    (const password_manager::CredentialUIEntry&)credential
     NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)init NS_UNAVAILABLE;

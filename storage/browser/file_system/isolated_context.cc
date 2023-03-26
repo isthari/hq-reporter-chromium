@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -351,8 +351,8 @@ bool IsolatedContext::CrackVirtualPath(
   *mount_option = FileSystemMountOption();
 
   // The virtual_path should comprise <id_or_name> and <relative_path> parts.
-  std::vector<base::FilePath::StringType> components;
-  virtual_path.GetComponents(&components);
+  std::vector<base::FilePath::StringType> components =
+      virtual_path.GetComponents();
   if (components.size() < 1)
     return false;
   auto component_iter = components.begin();
@@ -404,8 +404,6 @@ FileSystemURL IsolatedContext::CreateCrackedFileSystemURL(
     const blink::StorageKey& storage_key,
     FileSystemType type,
     const base::FilePath& virtual_path) const {
-  // TODO(https://crbug.com/1221308): function will have StorageKey param in
-  // future CL; conversion from url::Origin is temporary
   return CrackFileSystemURL(FileSystemURL(storage_key, type, virtual_path));
 }
 

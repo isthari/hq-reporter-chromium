@@ -1,4 +1,4 @@
-# Copyright (c) 2017 The Chromium Authors. All rights reserved.
+# Copyright 2017 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -36,8 +36,6 @@ SPLIT_COMPAT_UTILS_IMPL_NAME_RE = re.compile(
 COMMENT_RE = re.compile(r'^\s*(//|/\*|\*)')
 
 BROWSER_ROOT = 'chrome/android/java/src/org/chromium/chrome/browser/'
-SIGNIN_UI_BROWSER_ROOT = 'chrome/browser/ui/android/signin'
-'/java/src/org/chromium/chrome/browser/ui/signin'
 
 
 def CheckChangeOnUpload(input_api, output_api):
@@ -89,14 +87,11 @@ def _CheckAlertDialogBuilder(input_api, output_api):
       BROWSER_ROOT + 'browsing_data/ConfirmImportantSitesDialogFragment.java',
       BROWSER_ROOT + 'browsing_data/OtherFormsOfHistoryDialogFragment.java',
       BROWSER_ROOT + 'dom_distiller/DistilledPagePrefsView.java',
+      BROWSER_ROOT + 'dom_distiller/DomDistillerUIUtils.java',
       BROWSER_ROOT + 'download/OMADownloadHandler.java',
       BROWSER_ROOT + 'password_manager/AccountChooserDialog.java',
       BROWSER_ROOT + 'password_manager/AutoSigninFirstRunDialog.java',
       BROWSER_ROOT + r'settings[\\\/].*',
-      SIGNIN_UI_BROWSER_ROOT + 'ConfirmManagedSyncDataDialog.java',
-      SIGNIN_UI_BROWSER_ROOT + 'ConfirmSyncDataStateMachineDelegate.java',
-      BROWSER_ROOT + 'signin/SyncConsentFragmentBase.java',
-      SIGNIN_UI_BROWSER_ROOT + 'SignOutDialogFragment.java',
       BROWSER_ROOT + 'site_settings/AddExceptionPreference.java',
       BROWSER_ROOT + 'site_settings/ChosenObjectSettings.java',
       BROWSER_ROOT + 'site_settings/ManageSpaceActivity.java',

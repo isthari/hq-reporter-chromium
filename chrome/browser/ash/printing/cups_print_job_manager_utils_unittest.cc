@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/test/scoped_mock_clock_override.h"
 #include "chrome/browser/ash/printing/cups_print_job.h"
 #include "chrome/browser/ash/printing/history/print_job_info.pb.h"
 #include "chromeos/crosapi/mojom/local_printer.mojom.h"
@@ -15,12 +16,19 @@
 #include "printing/printer_status.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+namespace ash {
+
 namespace {
 
-using State = chromeos::CupsPrintJob::State;
-using printing::CupsJob;
+using State = CupsPrintJob::State;
+using ::printing::CupsJob;
+using PrinterReason = ::printing::PrinterStatus::PrinterReason;
+using ::chromeos::PrinterErrorCode;
 
 constexpr int kTotalPages = 2;
+
+// Timeout value defined in cups_print_job_manager_utils.cc
+constexpr int kTimeout = 30;
 
 struct Params {
   Params(State state,
@@ -70,7 +78,7 @@ std::ostream& operator<<(std::ostream& out, const Params& params) {
   out << "job_state: " << params.job_state << ", ";
   for (const auto& job_state_reason : params.job_state_reasons) {
     out << "job_state_reason: "
-        << printing::ToJobStateReasonString(job_state_reason) << ", ";
+        << ::printing::ToJobStateReasonString(job_state_reason) << ", ";
   }
   out << "job_pages: " << params.job_pages << ", ";
   out << "expected_state: " << static_cast<int>(params.expected_state) << ", ";
@@ -229,20 +237,58 @@ TEST_P(CupsPrintJobManagerUtilsTest, UpdatePrintJob) {
   job.current_pages = params.job_pages;
   for (const auto& job_state_reason : params.job_state_reasons) {
     job.state_reasons.push_back(
-        printing::ToJobStateReasonString(job_state_reason).data());
+        ::printing::ToJobStateReasonString(job_state_reason).data());
   }
-  chromeos::CupsPrintJob print_job(
-      chromeos::Printer(), 0, std::string(), kTotalPages,
-      crosapi::mojom::PrintJob::Source::UNKNOWN, std::string(),
-      chromeos::printing::proto::PrintSettings());
+  CupsPrintJob print_job(chromeos::Printer(), 0, std::string(), kTotalPages,
+                         crosapi::mojom::PrintJob::Source::UNKNOWN,
+                         std::string(), printing::proto::PrintSettings());
   print_job.set_state(params.state);
   print_job.set_printed_page_number(params.pages);
   bool expected_print_job_updated = params.state != params.expected_state ||
                                     params.pages != params.expected_pages;
   EXPECT_EQ(expected_print_job_updated,
-            UpdatePrintJob(printing::PrinterStatus(), job, &print_job));
+            UpdatePrintJob(::printing::PrinterStatus(), job, &print_job));
   EXPECT_EQ(params.expected_state, print_job.state());
   EXPECT_EQ(params.expected_pages, print_job.printed_page_number());
 }
 
+// Testing the behavior that CUPS is allowed to have a few seconds to reset a
+// connection ot the printer.
+TEST(CupsPrintJobManagerUtilsTest, UpdatePrintJobTimeout) {
+  base::ScopedMockClockOverride mock_clock;
+
+  CupsJob job;
+  job.id = 0;
+  job.state = CupsJob::PROCESSING;
+
+  CupsPrintJob print_job(chromeos::Printer(), 0, std::string(), kTotalPages,
+                         crosapi::mojom::PrintJob::Source::UNKNOWN,
+                         std::string(), printing::proto::PrintSettings());
+  print_job.set_state(State::STATE_STARTED);
+
+  PrinterReason printer_reason;
+  printer_reason.severity = PrinterReason::Severity::kError;
+  printer_reason.reason = PrinterReason::Reason::kTimedOut;
+
+  ::printing::PrinterStatus printer_status;
+  printer_status.reasons.push_back(printer_reason);
+
+  // Idle time is less than CUPS timeout limit. No error should be found.
+  mock_clock.Advance(base::Seconds(kTimeout - 1));
+
+  UpdatePrintJob(printer_status, job, &print_job);
+
+  EXPECT_EQ(print_job.error_code(), PrinterErrorCode::NO_ERROR);
+  EXPECT_EQ(print_job.state(), State::STATE_STARTED);
+
+  // Idle time is more than CUPS timeout limit. Error should be returned.
+  mock_clock.Advance(base::Seconds(kTimeout + 1));
+
+  UpdatePrintJob(printer_status, job, &print_job);
+
+  EXPECT_EQ(print_job.error_code(), PrinterErrorCode::PRINTER_UNREACHABLE);
+  EXPECT_EQ(print_job.state(), CupsPrintJob::State::STATE_FAILED);
+}
+
 }  // namespace
+}  // namespace ash

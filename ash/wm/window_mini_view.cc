@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -98,7 +98,7 @@ void WindowMiniView::UpdatePreviewRoundedCorners(bool show) {
 
   ui::Layer* layer = preview_view()->layer();
   DCHECK(layer);
-  const float scale = layer->transform().Scale2d().x();
+  const float scale = layer->transform().To2dScale().x();
   const float rounding = views::LayoutProvider::Get()->GetCornerRadiusMetric(
       views::Emphasis::kLow);
   const gfx::RoundedCornersF radii(show ? rounding / scale : 0.0f);
@@ -173,7 +173,7 @@ void WindowMiniView::UpdateIconView() {
 
 gfx::Rect WindowMiniView::GetContentAreaBounds() const {
   gfx::Rect bounds(GetContentsBounds());
-  bounds.Inset(0, kHeaderHeightDp, 0, 0);
+  bounds.Inset(gfx::Insets::TLBR(kHeaderHeightDp, 0, 0, 0));
   return bounds;
 }
 

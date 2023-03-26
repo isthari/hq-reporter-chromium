@@ -1,4 +1,4 @@
-/* Copyright 2017 The Chromium Authors. All rights reserved.
+/* Copyright 2017 The Chromium Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
@@ -55,7 +55,7 @@ const ProximityAuth = {
     ProximityAuth.remoteDevicesController_ = new DeviceListController(
         document.querySelector('#remote-devices-control'));
     WebUI.getLocalState();
-  }
+  },
 };
 
 /**
@@ -92,7 +92,7 @@ class CryptAuthController {
         this.showExistingUserNewChromebookNotification_.bind(this);
 
     this.multiDeviceSetup =
-        chromeos.multideviceSetup.mojom.MultiDeviceSetup.getRemote();
+        ash.multideviceSetup.mojom.MultiDeviceSetup.getRemote();
   }
 
   /**
@@ -207,7 +207,7 @@ class CryptAuthController {
    */
   showNewUserNotification_() {
     this.showMultiDeviceSetupPromoNotification_(
-        chromeos.multideviceSetup.mojom.EventTypeForDebugging
+        ash.multideviceSetup.mojom.EventTypeForDebugging
             .kNewUserPotentialHostExists);
   }
 
@@ -216,7 +216,7 @@ class CryptAuthController {
    */
   showExistingUserNewHostNotification_() {
     this.showMultiDeviceSetupPromoNotification_(
-        chromeos.multideviceSetup.mojom.EventTypeForDebugging
+        ash.multideviceSetup.mojom.EventTypeForDebugging
             .kExistingUserConnectedHostSwitched);
   }
 
@@ -225,13 +225,13 @@ class CryptAuthController {
    */
   showExistingUserNewChromebookNotification_() {
     this.showMultiDeviceSetupPromoNotification_(
-        chromeos.multideviceSetup.mojom.EventTypeForDebugging
+        ash.multideviceSetup.mojom.EventTypeForDebugging
             .kExistingUserNewChromebookAdded);
   }
 
   /**
    * Shows a "MultiDevice Setup" notification of the given type.
-   * @param {!chromeos.multideviceSetup.mojom.EventTypeForDebugging} type
+   * @param {!ash.multideviceSetup.mojom.EventTypeForDebugging} type
    */
   showMultiDeviceSetupPromoNotification_(type) {
     this.multiDeviceSetup.triggerEventForDebugging(type)
@@ -351,7 +351,7 @@ const LocalStateInterface = {
   /** @param {!Array<!RemoteDevice>} remoteDevices */
   onRemoteDevicesChanged: function(remoteDevices) {
     ProximityAuth.remoteDevicesController_.updateRemoteDevices(remoteDevices);
-  }
+  },
 };
 
 document.addEventListener('DOMContentLoaded', function() {

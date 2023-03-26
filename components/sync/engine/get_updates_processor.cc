@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -207,14 +207,18 @@ void GetUpdatesProcessor::PrepareGetUpdates(
     sync_pb::DataTypeProgressMarker* progress_marker =
         get_updates->add_from_progress_marker();
     *progress_marker = handler_it->second->GetDownloadProgress();
-    progress_marker->clear_gc_directive();
+    DCHECK(!progress_marker->has_gc_directive());
 
     sync_pb::DataTypeContext context = handler_it->second->GetDataTypeContext();
     if (!context.context().empty())
       *get_updates->add_client_contexts() = std::move(context);
+    if (delegate_->IsNotificationInfoRequired()) {
+      handler_it->second->CollectPendingInvalidations(
+          progress_marker->mutable_get_update_triggers());
+    }
   }
 
-  delegate_.HelpPopulateGuMessage(get_updates);
+  delegate_->HelpPopulateGuMessage(get_updates);
 }
 
 SyncerError GetUpdatesProcessor::ExecuteDownloadUpdates(
@@ -233,7 +237,7 @@ SyncerError GetUpdatesProcessor::ExecuteDownloadUpdates(
   SyncerProtoUtil::AddRequiredFieldsToClientToServerMessage(cycle, msg);
 
   cycle->SendProtocolEvent(
-      *(delegate_.GetNetworkRequestEvent(base::Time::Now(), *msg)));
+      *(delegate_->GetNetworkRequestEvent(base::Time::Now(), *msg)));
 
   ModelTypeSet partial_failure_data_types;
 
@@ -356,7 +360,6 @@ SyncerError GetUpdatesProcessor::ProcessResponse(
 
 void GetUpdatesProcessor::ApplyUpdates(const ModelTypeSet& gu_types,
                                        StatusController* status_controller) {
-  status_controller->set_get_updates_request_types(gu_types);
   for (const auto& [type, update_handler] : *update_handler_map_) {
     if (gu_types.Has(type)) {
       update_handler->ApplyUpdates(status_controller);

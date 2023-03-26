@@ -1,29 +1,26 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {PromiseResolver} from 'chrome://resources/js/promise_resolver.m.js';
+import {PromiseResolver} from 'chrome://resources/ash/common/promise_resolver.js';
 import {FakeShimlessRmaService} from 'chrome://shimless-rma/fake_shimless_rma_service.js';
 import {setShimlessRmaServiceForTesting} from 'chrome://shimless-rma/mojo_interface_provider.js';
 import {OnboardingChooseDestinationPageElement} from 'chrome://shimless-rma/onboarding_choose_destination_page.js';
+import {ShimlessRma} from 'chrome://shimless-rma/shimless_rma.js';
+import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chromeos/chai_assert.js';
+import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
 
-import {assertEquals, assertFalse, assertTrue} from '../../chai_assert.js';
-import {flushTasks} from '../../test_util.js';
-
-export function onboardingChooseDestinationPageTest() {
+suite('onboardingChooseDestinationPageTest', function() {
   /** @type {?OnboardingChooseDestinationPageElement} */
   let component = null;
 
   /** @type {?FakeShimlessRmaService} */
   let service = null;
 
-  suiteSetup(() => {
-    service = new FakeShimlessRmaService();
-    setShimlessRmaServiceForTesting(service);
-  });
-
   setup(() => {
     document.body.innerHTML = '';
+    service = new FakeShimlessRmaService();
+    setShimlessRmaServiceForTesting(service);
   });
 
   teardown(() => {
@@ -63,18 +60,29 @@ export function onboardingChooseDestinationPageTest() {
         component.shadowRoot.querySelector('#destinationOriginalOwner');
     const newOwnerComponent =
         component.shadowRoot.querySelector('#destinationNewOwner');
+    const notSureOwnerComponent =
+        component.shadowRoot.querySelector('#destinationNotSureOwner');
 
     originalOwnerComponent.click();
     await flushTasks;
 
     assertTrue(originalOwnerComponent.checked);
     assertFalse(newOwnerComponent.checked);
+    assertFalse(notSureOwnerComponent.checked);
 
     newOwnerComponent.click();
     await flushTasks;
 
     assertFalse(originalOwnerComponent.checked);
     assertTrue(newOwnerComponent.checked);
+    assertFalse(notSureOwnerComponent.checked);
+
+    notSureOwnerComponent.click();
+    await flushTasks;
+
+    assertFalse(originalOwnerComponent.checked);
+    assertFalse(newOwnerComponent.checked);
+    assertTrue(notSureOwnerComponent.checked);
   });
 
   test('ChooseDestinationPageSameOwnerOnNextCallsSetSameOwner', async () => {
@@ -107,6 +115,22 @@ export function onboardingChooseDestinationPageTest() {
         assertEquals(component.onNextButtonClick(), resolver.promise);
       });
 
+  test(
+      'ChooseDestinationPageNotSureOwnerOnNextCallsSetDifferentOwner',
+      async () => {
+        const resolver = new PromiseResolver();
+        await initializeChooseDestinationPage();
+        service.setDifferentOwner = () => resolver.promise;
+        const notSureOwnerComponent =
+            component.shadowRoot.querySelector('#destinationNotSureOwner');
+
+        notSureOwnerComponent.click();
+        await flushTasks;
+        assertTrue(notSureOwnerComponent.checked);
+
+        assertEquals(component.onNextButtonClick(), resolver.promise);
+      });
+
   test('ChooseDestinationPageDisabledRadioGroup', async () => {
     await initializeChooseDestinationPage();
 
@@ -116,4 +140,4 @@ export function onboardingChooseDestinationPageTest() {
     component.allButtonsDisabled = true;
     assertTrue(chooseDestinationGroup.disabled);
   });
-}
+});

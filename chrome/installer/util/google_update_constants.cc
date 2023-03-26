@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -60,7 +60,6 @@ const wchar_t kRegPathField[] = L"path";
 const wchar_t kRegRLZBrandField[] = L"brand";
 const wchar_t kRegRLZReactivationBrandField[] = L"reactivationbrand";
 const wchar_t kRegReferralField[] = L"referral";
-const wchar_t kRegRenameCmdField[] = L"cmd";
 const wchar_t kRegRunAsUserField[] = L"RunAsUser";
 const wchar_t kRegSendsPingsField[] = L"SendsPings";
 const wchar_t kRegUninstallCmdLine[] = L"UninstallCmdLine";

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include <string>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "chrome/browser/ash/file_system_provider/icon_set.h"
 #include "chrome/browser/ash/file_system_provider/operations/test_util.h"
 #include "chrome/browser/ash/file_system_provider/provided_file_system_interface.h"
@@ -57,11 +57,9 @@ TEST_F(FileSystemProviderOperationsDeleteEntryTest, Execute) {
   util::StatusCallbackLog callback_log;
 
   DeleteEntry delete_entry(
-      NULL, file_system_info_, base::FilePath(kEntryPath), true /* recursive */,
+      &dispatcher, file_system_info_, base::FilePath(kEntryPath),
+      true /* recursive */,
       base::BindOnce(&util::LogStatusCallback, &callback_log));
-  delete_entry.SetDispatchEventImplForTesting(
-      base::BindRepeating(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
-                          base::Unretained(&dispatcher)));
 
   EXPECT_TRUE(delete_entry.Execute(kRequestId));
 
@@ -70,10 +68,10 @@ TEST_F(FileSystemProviderOperationsDeleteEntryTest, Execute) {
   EXPECT_EQ(
       extensions::api::file_system_provider::OnDeleteEntryRequested::kEventName,
       event->event_name);
-  base::ListValue* event_args = event->event_args.get();
-  ASSERT_EQ(1u, event_args->GetList().size());
+  const base::Value::List& event_args = event->event_args;
+  ASSERT_EQ(1u, event_args.size());
 
-  const base::Value* options_as_value = &event_args->GetList()[0];
+  const base::Value* options_as_value = &event_args[0];
   ASSERT_TRUE(options_as_value->is_dict());
 
   DeleteEntryRequestedOptions options;
@@ -90,11 +88,9 @@ TEST_F(FileSystemProviderOperationsDeleteEntryTest, Execute_NoListener) {
   util::StatusCallbackLog callback_log;
 
   DeleteEntry delete_entry(
-      NULL, file_system_info_, base::FilePath(kEntryPath), true /* recursive */,
+      &dispatcher, file_system_info_, base::FilePath(kEntryPath),
+      true /* recursive */,
       base::BindOnce(&util::LogStatusCallback, &callback_log));
-  delete_entry.SetDispatchEventImplForTesting(
-      base::BindRepeating(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
-                          base::Unretained(&dispatcher)));
 
   EXPECT_FALSE(delete_entry.Execute(kRequestId));
 }
@@ -109,12 +105,9 @@ TEST_F(FileSystemProviderOperationsDeleteEntryTest, Execute_ReadOnly) {
       true /* watchable */, extensions::SOURCE_FILE, IconSet());
 
   DeleteEntry delete_entry(
-      NULL, read_only_file_system_info, base::FilePath(kEntryPath),
+      &dispatcher, read_only_file_system_info, base::FilePath(kEntryPath),
       true /* recursive */,
       base::BindOnce(&util::LogStatusCallback, &callback_log));
-  delete_entry.SetDispatchEventImplForTesting(
-      base::BindRepeating(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
-                          base::Unretained(&dispatcher)));
 
   EXPECT_FALSE(delete_entry.Execute(kRequestId));
 }
@@ -124,11 +117,9 @@ TEST_F(FileSystemProviderOperationsDeleteEntryTest, OnSuccess) {
   util::StatusCallbackLog callback_log;
 
   DeleteEntry delete_entry(
-      NULL, file_system_info_, base::FilePath(kEntryPath), true /* recursive */,
+      &dispatcher, file_system_info_, base::FilePath(kEntryPath),
+      true /* recursive */,
       base::BindOnce(&util::LogStatusCallback, &callback_log));
-  delete_entry.SetDispatchEventImplForTesting(
-      base::BindRepeating(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
-                          base::Unretained(&dispatcher)));
 
   EXPECT_TRUE(delete_entry.Execute(kRequestId));
 
@@ -143,11 +134,9 @@ TEST_F(FileSystemProviderOperationsDeleteEntryTest, OnError) {
   util::StatusCallbackLog callback_log;
 
   DeleteEntry delete_entry(
-      NULL, file_system_info_, base::FilePath(kEntryPath), true /* recursive */,
+      &dispatcher, file_system_info_, base::FilePath(kEntryPath),
+      true /* recursive */,
       base::BindOnce(&util::LogStatusCallback, &callback_log));
-  delete_entry.SetDispatchEventImplForTesting(
-      base::BindRepeating(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
-                          base::Unretained(&dispatcher)));
 
   EXPECT_TRUE(delete_entry.Execute(kRequestId));
 

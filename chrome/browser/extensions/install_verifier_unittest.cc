@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,7 +39,7 @@ class InstallVerifierTest : public ExtensionServiceTestBase {
 
   // Adds an extension as being allowed by policy.
   void AddExtensionAsPolicyInstalled(const ExtensionId& id) {
-    std::unique_ptr<base::DictionaryValue> extension_entry =
+    base::Value::Dict extension_entry =
         DictionaryBuilder().Set("installation_mode", "allowed").Build();
     testing_profile()->GetTestingPrefService()->SetManagedPref(
         pref_names::kExtensionManagement,

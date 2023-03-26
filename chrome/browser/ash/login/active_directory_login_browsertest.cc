@@ -1,14 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <string>
 
+#include "ash/constants/ash_features.h"
 #include "base/base_paths.h"
 #include "base/environment.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "chrome/browser/ash/authpolicy/kerberos_files_handler.h"
 #include "chrome/browser/ash/login/test/active_directory_login_mixin.h"
 #include "chrome/browser/ash/login/test/device_state_mixin.h"
@@ -17,8 +19,12 @@
 #include "chrome/browser/ash/login/test/oobe_screens_utils.h"
 #include "chrome/browser/ash/login/test/session_manager_state_waiter.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
-#include "chrome/browser/ui/webui/chromeos/login/signin_fatal_error_screen_handler.h"
-#include "chromeos/dbus/authpolicy/fake_authpolicy_client.h"
+#include "chrome/browser/ash/settings/scoped_testing_cros_settings.h"
+#include "chrome/browser/ash/settings/stub_cros_settings_provider.h"
+#include "chrome/browser/ui/webui/ash/login/signin_fatal_error_screen_handler.h"
+#include "chromeos/ash/components/dbus/authpolicy/fake_authpolicy_client.h"
+#include "chromeos/ash/components/install_attributes/install_attributes.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "components/user_manager/user_names.h"
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/common/network_service_util.h"
@@ -28,6 +34,7 @@
 #include "services/network/public/mojom/network_service_test.mojom.h"
 
 namespace ash {
+
 namespace {
 
 constexpr char kTestActiveDirectoryUser[] = "test-user";
@@ -56,11 +63,16 @@ void AssertNetworkServiceEnvEquals(const std::string& name,
 class ActiveDirectoryLoginTest : public OobeBaseTest {
  public:
   ActiveDirectoryLoginTest()
-      : OobeBaseTest(),
-        // Using the same realm as supervised user domain. Should be treated
-        // as normal realm.
+      :  // Using the same realm as supervised user domain. Should be treated
+         // as normal realm.
         test_realm_(user_manager::kSupervisedUserDomain),
-        test_user_(kTestActiveDirectoryUser + ("@" + test_realm_)) {}
+        test_user_(kTestActiveDirectoryUser + ("@" + test_realm_)) {
+    // All tests related to Active Directory login don't make sense when the
+    // kChromadAvailable feature is disabled. We also don't need to verify that
+    // the device is disabled in that case, because the Chromad disabling
+    // feature is already tested in `device_disabling_manager_unittest.cc`.
+    scoped_feature_list_.InitAndEnableFeature(features::kChromadAvailable);
+  }
 
   ActiveDirectoryLoginTest(const ActiveDirectoryLoginTest&) = delete;
   ActiveDirectoryLoginTest& operator=(const ActiveDirectoryLoginTest&) = delete;
@@ -78,6 +90,9 @@ class ActiveDirectoryLoginTest : public OobeBaseTest {
       &mixin_host_,
       DeviceStateMixin::State::OOBE_COMPLETED_ACTIVE_DIRECTORY_ENROLLED};
   ActiveDirectoryLoginMixin ad_login_{&mixin_host_};
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 class ActiveDirectoryLoginAutocompleteTest : public ActiveDirectoryLoginTest {
@@ -92,15 +107,15 @@ class ActiveDirectoryLoginAutocompleteTest : public ActiveDirectoryLoginTest {
   void SetUpInProcessBrowserTestFixture() override {
     ActiveDirectoryLoginTest::SetUpInProcessBrowserTestFixture();
 
-    enterprise_management::ChromeDeviceSettingsProto device_settings;
-    device_settings.mutable_login_screen_domain_auto_complete()
-        ->set_login_screen_domain_auto_complete(kTestUserRealm);
-    fake_authpolicy_client()->set_device_policy(device_settings);
+    scoped_testing_cros_settings_.device_settings()->SetString(
+        kAccountsPrefLoginScreenDomainAutoComplete, kTestUserRealm);
     autocomplete_realm_ = "@" + std::string(kTestUserRealm);
     ad_login_.set_autocomplete_realm(autocomplete_realm_);
   }
 
+ protected:
   std::string autocomplete_realm_;
+  ScopedTestingCrosSettings scoped_testing_cros_settings_;
 };
 
 }  // namespace

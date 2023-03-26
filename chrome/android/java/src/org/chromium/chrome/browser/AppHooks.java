@@ -1,11 +1,8 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser;
-
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
 
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
@@ -14,6 +11,7 @@ import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.base.PackageUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
 import org.chromium.chrome.browser.directactions.DirectActionCoordinator;
@@ -30,20 +28,17 @@ import org.chromium.chrome.browser.notifications.chime.ChimeDelegate;
 import org.chromium.chrome.browser.omaha.RequestGenerator;
 import org.chromium.chrome.browser.partnerbookmarks.PartnerBookmark;
 import org.chromium.chrome.browser.partnerbookmarks.PartnerBookmarksProviderIterator;
-import org.chromium.chrome.browser.partnercustomizations.PartnerBrowserCustomizations;
 import org.chromium.chrome.browser.password_manager.GooglePasswordManagerUIProvider;
 import org.chromium.chrome.browser.policy.PolicyAuditor;
 import org.chromium.chrome.browser.rlz.RevenueStats;
 import org.chromium.chrome.browser.survey.SurveyController;
 import org.chromium.chrome.browser.sync.TrustedVaultClient;
-import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.ui.signin.GoogleActivityController;
 import org.chromium.chrome.browser.usage_stats.DigitalWellbeingClient;
 import org.chromium.chrome.browser.webapps.GooglePlayWebApkInstallDelegate;
 import org.chromium.chrome.browser.xsurface.ProcessScope;
 import org.chromium.chrome.browser.xsurface.ProcessScopeDependencyProvider;
 import org.chromium.chrome.modules.image_editor.ImageEditorModuleProvider;
-import org.chromium.components.external_intents.AuthenticatorNavigationInterceptor;
 import org.chromium.components.policy.AppRestrictionsProvider;
 import org.chromium.components.policy.CombinedPolicyProvider;
 import org.chromium.components.signin.AccountManagerDelegate;
@@ -100,14 +95,6 @@ public abstract class AppHooks {
      */
     public AppIndexingReporter createAppIndexingReporter() {
         return new AppIndexingReporter();
-    }
-
-    /**
-     * Return a {@link AuthenticatorNavigationInterceptor} for the given {@link Tab}.
-     * This can be null if there are no applicable interceptor to be built.
-     */
-    public AuthenticatorNavigationInterceptor createAuthenticatorNavigationInterceptor(Tab tab) {
-        return null;
     }
 
     /**
@@ -214,22 +201,12 @@ public abstract class AppHooks {
      * Only applicable when the user has a policy active, that is tracking the activity.
      */
     public PolicyAuditor getPolicyAuditor() {
-        // This class has a protected constructor to prevent accidental instantiation.
-        return new PolicyAuditor() {};
+        return null;
     }
 
     public void registerPolicyProviders(CombinedPolicyProvider combinedProvider) {
         combinedProvider.registerProvider(
                 new AppRestrictionsProvider(ContextUtils.getApplicationContext()));
-    }
-
-    /**
-     * @return A list of allowlisted apps that are allowed to receive notification when the
-     * set of offlined pages downloaded on their behalf has changed. Apps are listed by their
-     * package name.
-     */
-    public List<String> getOfflinePagesCctAllowlist() {
-        return Collections.emptyList();
     }
 
     /**
@@ -246,14 +223,6 @@ public abstract class AppHooks {
     @Nullable
     public PartnerBookmark.BookmarkIterator getPartnerBookmarkIterator() {
         return PartnerBookmarksProviderIterator.createIfAvailable();
-    }
-
-    /**
-     * @return An instance of PartnerBrowserCustomizations.Provider that provides customizations
-     * specified by partners.
-     */
-    public PartnerBrowserCustomizations.Provider getCustomizationProvider() {
-        return new PartnerBrowserCustomizations.ProviderPackage();
     }
 
     /**
@@ -276,16 +245,11 @@ public abstract class AppHooks {
      * same as {@link GoogleApiAvailability#isGooglePlayServicesAvailable()}.
      */
     public int isGoogleApiAvailableWithMinApkVersion(int minApkVersion) {
-        try {
-            PackageInfo gmsPackageInfo =
-                    ContextUtils.getApplicationContext().getPackageManager().getPackageInfo(
-                            GoogleApiAvailability.GOOGLE_PLAY_SERVICES_PACKAGE, /* flags= */ 0);
-            int apkVersion = gmsPackageInfo.versionCode;
-            if (apkVersion >= minApkVersion) return ConnectionResult.SUCCESS;
-        } catch (PackageManager.NameNotFoundException e) {
-            return ConnectionResult.SERVICE_MISSING;
-        }
-        return ConnectionResult.SERVICE_VERSION_UPDATE_REQUIRED;
+        int apkVersion =
+                PackageUtils.getPackageVersion(GoogleApiAvailability.GOOGLE_PLAY_SERVICES_PACKAGE);
+        return apkVersion < 0                ? ConnectionResult.SERVICE_MISSING
+                : apkVersion < minApkVersion ? ConnectionResult.SERVICE_VERSION_UPDATE_REQUIRED
+                                             : ConnectionResult.SUCCESS;
     }
 
     /**

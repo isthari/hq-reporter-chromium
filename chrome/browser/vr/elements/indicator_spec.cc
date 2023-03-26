@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,7 +31,7 @@ IndicatorSpec::IndicatorSpec(UiElementName name,
 IndicatorSpec::IndicatorSpec(const IndicatorSpec& other)
     : name(other.name),
       webvr_name(other.webvr_name),
-      icon(other.icon),
+      icon(*other.icon),
       resource_string(other.resource_string),
       background_resource_string(other.background_resource_string),
       potential_resource_string(other.potential_resource_string),

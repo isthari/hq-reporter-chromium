@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 
 #include "base/containers/flat_map.h"
 #include "base/memory/raw_ptr.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/media/router/providers/cast/cast_app_discovery_service.h"
 #include "chrome/browser/media/router/providers/cast/dual_media_sink_service.h"
 #include "components/media_router/common/mojom/logger.mojom.h"
@@ -57,14 +58,14 @@ class CastMediaRouteProvider : public mojom::MediaRouteProvider {
                    const std::string& sink_id,
                    const std::string& presentation_id,
                    const url::Origin& origin,
-                   int32_t tab_id,
+                   int32_t frame_tree_node_id,
                    base::TimeDelta timeout,
                    bool incognito,
                    CreateRouteCallback callback) override;
   void JoinRoute(const std::string& media_source,
                  const std::string& presentation_id,
                  const url::Origin& origin,
-                 int32_t tab_id,
+                 int32_t frame_tree_node_id,
                  base::TimeDelta timeout,
                  bool incognito,
                  JoinRouteCallback callback) override;
@@ -81,7 +82,7 @@ class CastMediaRouteProvider : public mojom::MediaRouteProvider {
   void StopListeningForRouteMessages(const std::string& route_id) override;
   void DetachRoute(const std::string& route_id) override;
   void EnableMdnsDiscovery() override;
-  void UpdateMediaSinks(const std::string& media_source) override;
+  void DiscoverSinksNow() override;
   void CreateMediaRouteController(
       const std::string& route_id,
       mojo::PendingReceiver<mojom::MediaController> media_controller,
@@ -90,6 +91,9 @@ class CastMediaRouteProvider : public mojom::MediaRouteProvider {
   void GetState(GetStateCallback callback) override;
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(CastMediaRouteProviderTest,
+                           GetRemotePlaybackCompatibleSinks);
+
   void Init(mojo::PendingReceiver<mojom::MediaRouteProvider> receiver,
             mojo::PendingRemote<mojom::MediaRouter> media_router,
             CastSessionTracker* session_tracker,

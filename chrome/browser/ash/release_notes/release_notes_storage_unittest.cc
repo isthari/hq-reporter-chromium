@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,9 @@
 #include "base/version.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
-#include "chrome/browser/supervised_user/supervised_user_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/login/login_state/login_state.h"
+#include "chromeos/ash/components/login/login_state/login_state.h"
 #include "components/account_id/account_id.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/scoped_user_manager.h"
@@ -60,7 +59,7 @@ class ReleaseNotesStorageTest : public testing::Test,
         user_manager_->set_ephemeral_users_enabled(true);
       } else if (is_unicorn_) {
         user_manager_->set_current_user_child(true);
-        builder.SetSupervisedUserId(supervised_users::kChildAccountSUID);
+        builder.SetIsSupervisedProfile();
       }
     }
     profile_ = builder.Build();

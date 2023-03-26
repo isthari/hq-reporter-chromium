@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -168,6 +168,17 @@ class COMPONENT_EXPORT(APP_RESTORE) RestoreData {
 
   const AppRestoreData* GetAppRestoreData(const std::string& app_id,
                                           int window_id) const;
+
+  // Sets `desk_index` as the desk to launch on for all windows.
+  void SetDeskIndex(int desk_index);
+
+  // Make all contained window IDs globally unique for a desk template
+  // launch. This must be done before launching.
+  void MakeWindowIdsUniqueForDeskTemplate();
+
+  // Update the app id for the browser app to lacros if lacros is enabled and is
+  // primary. This must be done before launching.
+  void UpdateBrowserAppIdToLacros();
 
   std::string ToString() const;
 

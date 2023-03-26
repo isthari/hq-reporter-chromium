@@ -1,11 +1,11 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef EXTENSIONS_BROWSER_API_FEEDBACK_PRIVATE_FEEDBACK_SERVICE_H_
 #define EXTENSIONS_BROWSER_API_FEEDBACK_PRIVATE_FEEDBACK_SERVICE_H_
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_base.h"
@@ -58,6 +58,8 @@ class FeedbackService : public base::RefCountedThreadSafe<FeedbackService> {
                             scoped_refptr<feedback::FeedbackData> feedback_data,
                             SendFeedbackCallback callback);
 
+  FeedbackPrivateDelegate* GetFeedbackPrivateDelegate() { return delegate_; }
+
  protected:
   virtual ~FeedbackService();
 
@@ -95,8 +97,8 @@ class FeedbackService : public base::RefCountedThreadSafe<FeedbackService> {
   void OnAllLogsFetched(const FeedbackParams& params,
                         scoped_refptr<feedback::FeedbackData> feedback_data);
 
-  raw_ptr<content::BrowserContext> browser_context_;
-  raw_ptr<FeedbackPrivateDelegate> delegate_;
+  raw_ptr<content::BrowserContext, DanglingUntriaged> browser_context_;
+  raw_ptr<FeedbackPrivateDelegate, DanglingUntriaged> delegate_;
 };
 
 }  // namespace extensions

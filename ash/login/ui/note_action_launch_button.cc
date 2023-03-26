@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,12 @@
 
 #include <memory>
 
+#include "ash/metrics/user_metrics_recorder.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/mojom/tray_action.mojom.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/i18n/rtl.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/layer.h"
@@ -125,8 +126,9 @@ class NoteActionLaunchButton::BackgroundView : public NonAccessibleView {
   // applying scale transform to the view's layout. Transformations are
   // animated.
   void SetBubbleRadiusAndOpacity(int target_radius, float opacity) {
-    if (target_radius == bubble_radius_ && opacity_ == opacity)
+    if (target_radius == bubble_radius_ && opacity_ == opacity) {
       return;
+    }
 
     ui::ScopedLayerAnimationSettings settings(layer()->GetAnimator());
     settings.SetPreemptionStrategy(
@@ -137,8 +139,9 @@ class NoteActionLaunchButton::BackgroundView : public NonAccessibleView {
     if (target_radius != kLargeBubbleRadiusDp) {
       // Move the buble to it's new origin before scaling the image - note that
       // in RTL layout, the origin remains the same - (0, 0) in local bounds.
-      if (!base::i18n::IsRTL())
+      if (!base::i18n::IsRTL()) {
         transform.Translate(kLargeBubbleRadiusDp - target_radius, 0);
+      }
       float scale = target_radius / static_cast<float>(kLargeBubbleRadiusDp);
       transform.Scale(scale, scale);
     }
@@ -258,8 +261,9 @@ class NoteActionLaunchButton::ActionButton : public views::ImageButton {
         // If the user has added fingers to the gesture, cancel the fling
         // detection - the note action requests are restricted to single finger
         // gestures.
-        if (event->details().touch_points() != 1)
+        if (event->details().touch_points() != 1) {
           SetTrackingPotentialActivationGesture(false);
+        }
         break;
       case ui::ET_GESTURE_END:
       case ui::ET_GESTURE_SCROLL_END:
@@ -275,8 +279,9 @@ class NoteActionLaunchButton::ActionButton : public views::ImageButton {
         break;
     }
 
-    if (!event->handled())
+    if (!event->handled()) {
       views::ImageButton::OnGestureEvent(event);
+    }
   }
 
  private:

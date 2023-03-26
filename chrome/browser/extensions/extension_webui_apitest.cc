@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/guest_view/browser/guest_view_base.h"
 #include "components/guest_view/browser/guest_view_manager_delegate.h"
 #include "components/guest_view/browser/test_guest_view_manager.h"
 #include "content/public/browser/render_frame_host.h"
@@ -62,8 +63,10 @@ class ExtensionWebUITest : public ExtensionApiTest {
     // Run the test.
     bool actual_result = false;
     EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), page_url));
-    content::RenderFrameHost* webui =
-        browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame();
+    content::RenderFrameHost* webui = browser()
+                                          ->tab_strip_model()
+                                          ->GetActiveWebContents()
+                                          ->GetPrimaryMainFrame();
     if (!webui)
       return testing::AssertionFailure() << "Failed to navigate to WebUI";
     CHECK(content::ExecuteScriptAndExtractBool(webui, script, &actual_result));
@@ -83,7 +86,7 @@ class ExtensionWebUITest : public ExtensionApiTest {
   }
 };
 
-// Tests running within an <extensionoptions> WebContents.
+// Tests running within an <extensionoptions>.
 class ExtensionWebUIEmbeddedOptionsTest : public ExtensionWebUITest {
  public:
   void SetUpOnMainThread() override {
@@ -99,8 +102,8 @@ class ExtensionWebUIEmbeddedOptionsTest : public ExtensionWebUITest {
 
  protected:
   // Loads |extension|'s options page in an <extensionoptions> and returns the
-  // <extensionoptions>'s WebContents.
-  content::WebContents* OpenExtensionOptions(const Extension* extension) {
+  // <extensionoptions>'s main RenderFrameHost.
+  content::RenderFrameHost* OpenExtensionOptions(const Extension* extension) {
     EXPECT_TRUE(ui_test_utils::NavigateToURL(
         browser(), GURL(chrome::kChromeUIExtensionsURL)));
     content::WebContents* webui =
@@ -116,17 +119,30 @@ class ExtensionWebUIEmbeddedOptionsTest : public ExtensionWebUITest {
             "document.body.appendChild(extensionoptions);",
             extension->id())));
 
-    content::WebContents* guest_web_contents =
-        test_guest_view_manager_->WaitForSingleGuestCreated();
-    EXPECT_TRUE(guest_web_contents);
-    EXPECT_TRUE(content::WaitForLoadStop(guest_web_contents));
+    guest_view::GuestViewBase* guest_view =
+        test_guest_view_manager_->WaitForSingleGuestViewCreated();
+    EXPECT_TRUE(guest_view);
+    WaitForGuestViewLoadStop(guest_view);
 
-    return guest_web_contents;
+    return guest_view->GetGuestMainFrame();
   }
 
  private:
+  // In preparation for the migration of guest view from inner WebContents to
+  // MPArch (crbug/1261928), individual tests should avoid accessing the guest's
+  // inner WebContents. The direct access is centralized in this helper function
+  // for easier migration.
+  //
+  // TODO(crbug/1261928): Update this implementation for MPArch, and consider
+  // relocate it to `content/public/test/browser_test_utils.h`.
+  void WaitForGuestViewLoadStop(guest_view::GuestViewBase* guest_view) {
+    auto* guest_contents = guest_view->web_contents();
+    ASSERT_TRUE(content::WaitForLoadStop(guest_contents));
+  }
+
   guest_view::TestGuestViewManagerFactory test_guest_view_manager_factory_;
-  raw_ptr<guest_view::TestGuestViewManager> test_guest_view_manager_ = nullptr;
+  raw_ptr<guest_view::TestGuestViewManager, DanglingUntriaged>
+      test_guest_view_manager_ = nullptr;
 };
 
 #if !BUILDFLAG(IS_WIN)  // flaky http://crbug.com/530722
@@ -142,12 +158,12 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, SanityCheckUnavailableAPIs) {
 // Tests chrome.test.sendMessage, which exercises WebUI making a
 // function call and receiving a response.
 IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, SendMessage) {
-  ExtensionTestMessageListener ping_listener("ping", true);
+  ExtensionTestMessageListener ping_listener("ping", ReplyBehavior::kWillReply);
 
   ASSERT_TRUE(RunTestOnExtensionsPage("send_message.js"));
   ASSERT_TRUE(ping_listener.WaitUntilSatisfied());
 
-  ExtensionTestMessageListener result_listener(false);
+  ExtensionTestMessageListener result_listener;
   ping_listener.Reply("pong");
 
   ASSERT_TRUE(result_listener.WaitUntilSatisfied());
@@ -159,7 +175,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, SendMessage) {
 IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, OnMessage) {
   ASSERT_TRUE(RunTestOnExtensionsPage("on_message.js"));
 
-  ExtensionTestMessageListener result_listener(false);
+  ExtensionTestMessageListener result_listener;
 
   OnMessage::Info info;
   info.data = "hi";
@@ -175,19 +191,20 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, OnMessage) {
 // Tests chrome.runtime.lastError, which exercises WebUI accessing a property
 // on an API which it doesn't actually have access to. A bindings test really.
 IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, RuntimeLastError) {
-  ExtensionTestMessageListener ping_listener("ping", true);
+  ExtensionTestMessageListener ping_listener("ping", ReplyBehavior::kWillReply);
 
   ASSERT_TRUE(RunTestOnExtensionsPage("runtime_last_error.js"));
   ASSERT_TRUE(ping_listener.WaitUntilSatisfied());
 
-  ExtensionTestMessageListener result_listener(false);
+  ExtensionTestMessageListener result_listener;
   ping_listener.ReplyWithError("unknown host");
   ASSERT_TRUE(result_listener.WaitUntilSatisfied());
   EXPECT_EQ("true", result_listener.message());
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, CanEmbedExtensionOptions) {
-  ExtensionTestMessageListener ready_listener("ready", true);
+  ExtensionTestMessageListener ready_listener("ready",
+                                              ReplyBehavior::kWillReply);
 
   const Extension* extension =
       LoadExtension(test_data_dir_.AppendASCII("extension_options")
@@ -197,7 +214,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, CanEmbedExtensionOptions) {
   ASSERT_TRUE(RunTestOnExtensionsPage("can_embed_extension_options.js"));
   ASSERT_TRUE(ready_listener.WaitUntilSatisfied());
 
-  ExtensionTestMessageListener load_listener("load", false);
+  ExtensionTestMessageListener load_listener("load");
   ready_listener.Reply(extension->id());
   ASSERT_TRUE(load_listener.WaitUntilSatisfied());
 }
@@ -211,13 +228,13 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebUIEmbeddedOptionsTest,
                         .AppendASCII("extension_with_options_page"));
   ASSERT_TRUE(extension);
 
-  content::WebContents* guest_web_contents = OpenExtensionOptions(extension);
+  auto* guest_rfh = OpenExtensionOptions(extension);
 
   const std::string storage_key = "test";
   const int storage_value = 42;
 
   EXPECT_TRUE(content::ExecuteScript(
-      guest_web_contents,
+      guest_rfh,
       content::JsReplace("var onChangedPromise = new Promise((resolve) => {"
                          "  chrome.storage.onChanged.addListener((change) => {"
                          "    resolve(change[$1].newValue);"
@@ -227,7 +244,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebUIEmbeddedOptionsTest,
 
   std::string set_result;
   EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      guest_web_contents,
+      guest_rfh,
       content::JsReplace(
           "try {"
           "  chrome.storage.local.set({$1: $2}, () => {"
@@ -244,7 +261,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebUIEmbeddedOptionsTest,
 
   int actual_value = 0;
   EXPECT_TRUE(content::ExecuteScriptAndExtractInt(
-      guest_web_contents,
+      guest_rfh,
       content::JsReplace("chrome.storage.local.get((storage) => {"
                          "  domAutomationController.send(storage[$1]);"
                          "});",
@@ -253,7 +270,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebUIEmbeddedOptionsTest,
   EXPECT_EQ(storage_value, actual_value);
 
   EXPECT_TRUE(content::ExecuteScriptAndExtractInt(
-      guest_web_contents,
+      guest_rfh,
       "onChangedPromise.then((newValue) => {"
       "  domAutomationController.send(newValue);"
       "});",
@@ -268,18 +285,19 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebUIEmbeddedOptionsTest,
                         .AppendASCII("extension_with_options_page"));
   ASSERT_TRUE(extension);
 
-  content::WebContents* guest_web_contents = OpenExtensionOptions(extension);
+  auto* guest_rfh = OpenExtensionOptions(extension);
 
   content::WebContentsAddedObserver new_contents_observer;
   EXPECT_TRUE(content::ExecuteScript(
-      guest_web_contents, "document.getElementById('link').click();"));
+      guest_rfh, "document.getElementById('link').click();"));
   content::WebContents* new_contents = new_contents_observer.GetWebContents();
   EXPECT_NE(TabStripModel::kNoTab,
             browser()->tab_strip_model()->GetIndexOfWebContents(new_contents));
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, ReceivesExtensionOptionsOnClose) {
-  ExtensionTestMessageListener ready_listener("ready", true);
+  ExtensionTestMessageListener ready_listener("ready",
+                                              ReplyBehavior::kWillReply);
 
   const Extension* extension =
       InstallExtension(test_data_dir_.AppendASCII("extension_options")
@@ -290,7 +308,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, ReceivesExtensionOptionsOnClose) {
       RunTestOnExtensionsPage("receives_extension_options_on_close.js"));
   ASSERT_TRUE(ready_listener.WaitUntilSatisfied());
 
-  ExtensionTestMessageListener onclose_listener("onclose received", false);
+  ExtensionTestMessageListener onclose_listener("onclose received");
   ready_listener.Reply(extension->id());
   ASSERT_TRUE(onclose_listener.WaitUntilSatisfied());
 }
@@ -300,7 +318,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, ReceivesExtensionOptionsOnClose) {
 // Same setup as CanEmbedExtensionOptions but disable the extension before
 // embedding.
 IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, EmbedDisabledExtension) {
-  ExtensionTestMessageListener ready_listener("ready", true);
+  ExtensionTestMessageListener ready_listener("ready",
+                                              ReplyBehavior::kWillReply);
 
   std::string extension_id;
   {
@@ -315,26 +334,28 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, EmbedDisabledExtension) {
   ASSERT_TRUE(RunTestOnExtensionsPage("can_embed_extension_options.js"));
   ASSERT_TRUE(ready_listener.WaitUntilSatisfied());
 
-  ExtensionTestMessageListener create_failed_listener("createfailed", false);
+  ExtensionTestMessageListener create_failed_listener("createfailed");
   ready_listener.Reply(extension_id);
   ASSERT_TRUE(create_failed_listener.WaitUntilSatisfied());
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, EmbedInvalidExtension) {
-  ExtensionTestMessageListener ready_listener("ready", true);
+  ExtensionTestMessageListener ready_listener("ready",
+                                              ReplyBehavior::kWillReply);
 
   const std::string extension_id = "thisisprobablynotrealextensionid";
 
   ASSERT_TRUE(RunTestOnExtensionsPage("can_embed_extension_options.js"));
   ASSERT_TRUE(ready_listener.WaitUntilSatisfied());
 
-  ExtensionTestMessageListener create_failed_listener("createfailed", false);
+  ExtensionTestMessageListener create_failed_listener("createfailed");
   ready_listener.Reply(extension_id);
   ASSERT_TRUE(create_failed_listener.WaitUntilSatisfied());
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, EmbedExtensionWithoutOptionsPage) {
-  ExtensionTestMessageListener ready_listener("ready", true);
+  ExtensionTestMessageListener ready_listener("ready",
+                                              ReplyBehavior::kWillReply);
 
   const Extension* extension =
       LoadExtension(test_data_dir_.AppendASCII("extension_options")
@@ -344,7 +365,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, EmbedExtensionWithoutOptionsPage) {
   ASSERT_TRUE(RunTestOnExtensionsPage("can_embed_extension_options.js"));
   ASSERT_TRUE(ready_listener.WaitUntilSatisfied());
 
-  ExtensionTestMessageListener create_failed_listener("createfailed", false);
+  ExtensionTestMessageListener create_failed_listener("createfailed");
   ready_listener.Reply(extension->id());
   ASSERT_TRUE(create_failed_listener.WaitUntilSatisfied());
 }
@@ -358,7 +379,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, MultipleURLListeners) {
                                            GURL("chrome://test/body1.html")));
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
-  content::RenderFrameHost* main_frame = web_contents->GetMainFrame();
+  content::RenderFrameHost* main_frame = web_contents->GetPrimaryMainFrame();
   EventRouter* event_router = EventRouter::Get(profile());
   EXPECT_FALSE(event_router->HasEventListener("test.onMessage"));
   // Register a listener and create a child frame at a different URL.

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -19,7 +19,6 @@ import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ImageView;
 import android.widget.ImageView.ScaleType;
-import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -34,7 +33,6 @@ import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.share.ChromeShareExtras.DetailedContentType;
 import org.chromium.chrome.browser.share.link_to_text.LinkToTextCoordinator.LinkGeneration;
 import org.chromium.chrome.browser.share.share_sheet.ShareSheetLinkToggleCoordinator.LinkToggleState;
@@ -54,6 +52,7 @@ import org.chromium.components.feature_engagement.EventConstants;
 import org.chromium.components.feature_engagement.FeatureConstants;
 import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.components.url_formatter.UrlFormatter;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.modelutil.LayoutViewBuilder;
 import org.chromium.ui.modelutil.MVCListAdapter.ListItem;
 import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
@@ -151,38 +150,6 @@ class ShareSheetBottomSheetContent implements BottomSheetContent, OnItemClickLis
                 /*firstParty=*/false);
         thirdParty.addOnScrollListener(
                 new ScrollEventReporter("SharingHubAndroid.ThirdPartyAppsScrolled"));
-
-        if (shouldSwapFirstAndThirdPartyRows()) {
-            swapFirstAndThirdPartyRows();
-        }
-    }
-
-    boolean shouldSwapFirstAndThirdPartyRows() {
-        return ChromeFeatureList.isEnabled(ChromeFeatureList.SWAP_ANDROID_SHARE_HUB_ROWS)
-                || ChromeFeatureList.isEnabled(ChromeFeatureList.UPCOMING_SHARING_FEATURES);
-    }
-
-    void swapFirstAndThirdPartyRows() {
-        View firstPartyRow = getContentView().findViewById(R.id.share_sheet_chrome_apps);
-        View thirdPartyRow = getContentView().findViewById(R.id.share_sheet_other_apps);
-
-        LinearLayout layout = getContentView().findViewById(R.id.share_sheet_layout);
-        assert firstPartyRow.getParent() == layout;
-        assert thirdPartyRow.getParent() == layout;
-
-        int firstPartyIndex = layout.indexOfChild(firstPartyRow);
-        int thirdPartyIndex = layout.indexOfChild(thirdPartyRow);
-
-        if (thirdPartyIndex > firstPartyIndex) {
-            // If the rows are already swapped, we're updating an existing sheet;
-            // don't swap them again.
-            return;
-        }
-
-        layout.removeViewAt(firstPartyIndex);
-        layout.removeViewAt(thirdPartyIndex);
-        layout.addView(firstPartyRow, thirdPartyIndex);
-        layout.addView(thirdPartyRow, firstPartyIndex);
     }
 
     void createFirstPartyRecyclerViews(List<PropertyModel> firstPartyModels) {
@@ -260,7 +227,7 @@ class ShareSheetBottomSheetContent implements BottomSheetContent, OnItemClickLis
             ViewGroup.LayoutParams params = view.getLayoutParams();
             params.height = iconSize;
             params.width = iconSize;
-            view.requestLayout();
+            ViewUtils.requestLayout(view, "ShareSheetBottomSheetContent.bind3PShareItem");
             layout.setPadding(0, paddingTop, 0, 0);
         }
     }

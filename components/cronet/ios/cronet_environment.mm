@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,18 @@
 #include <atomic>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
+#include "base/functional/bind.h"
 #include "base/mac/foundation_util.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/path_service.h"
 #include "base/synchronization/waitable_event.h"
+#import "base/task/sequenced_task_runner.h"
+#import "base/task/single_thread_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_restrictions.h"
 #include "components/cronet/cronet_buildflags.h"
@@ -48,10 +50,9 @@
 #include "net/proxy_resolution/proxy_resolution_service.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/ssl/ssl_key_logger_impl.h"
-#include "net/third_party/quiche/src/quic/core/quic_versions.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_versions.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_builder.h"
-#include "net/url_request/url_request_context_storage.h"
 #include "url/scheme_host_port.h"
 #include "url/url_util.h"
 
@@ -214,12 +215,12 @@ void CronetEnvironment::StopNetLogOnNetworkThread(
 }
 
 base::Value CronetEnvironment::GetNetLogInfo() const {
-  base::Value net_info = net::GetNetInfo(main_context_.get());
-  if (!effective_experimental_options_.DictEmpty()) {
-    net_info.SetKey("cronetExperimentalParams",
-                    effective_experimental_options_.Clone());
+  base::Value::Dict net_info = net::GetNetInfo(main_context_.get());
+  if (!effective_experimental_options_.empty()) {
+    net_info.Set("cronetExperimentalParams",
+                 effective_experimental_options_.Clone());
   }
-  return net_info;
+  return base::Value(std::move(net_info));
 }
 
 net::HttpNetworkSession* CronetEnvironment::GetHttpNetworkSession(
@@ -360,7 +361,7 @@ void CronetEnvironment::InitializeOnNetworkThread() {
   config->ConfigureURLRequestContextBuilder(&context_builder);
 
   effective_experimental_options_ =
-      base::Value(config->effective_experimental_options);
+      config->effective_experimental_options.Clone();
 
   // TODO(crbug.com/934402): Use a shared HostResolverManager instead of a
   // global HostResolver.
@@ -404,7 +405,7 @@ void CronetEnvironment::InitializeOnNetworkThread() {
     url::SchemeHostPort quic_hint_server("https", quic_hint.host(),
                                          quic_hint.port());
     main_context_->http_server_properties()->SetQuicAlternativeService(
-        quic_hint_server, net::NetworkIsolationKey(), alternative_service,
+        quic_hint_server, net::NetworkAnonymizationKey(), alternative_service,
         base::Time::Max(), quic::ParsedQuicVersionVector());
   }
 

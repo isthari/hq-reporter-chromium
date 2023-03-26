@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import android.app.job.JobParameters;
+import android.os.Build;
 import android.os.PersistableBundle;
 
 import org.junit.Before;
@@ -29,7 +30,7 @@ import java.util.concurrent.TimeUnit;
 
 /** Unit tests for {@link BackgroundTaskJobService}. */
 @RunWith(BaseRobolectricTestRunner.class)
-@Config(manifest = Config.NONE)
+@Config(manifest = Config.NONE, sdk = Build.VERSION_CODES.S)
 public class BackgroundTaskJobServiceTest {
     private static BackgroundTaskSchedulerJobService.Clock sClock = () -> 1415926535000L;
     private static BackgroundTaskSchedulerJobService.Clock sZeroClock = () -> 0L;
@@ -69,7 +70,7 @@ public class BackgroundTaskJobServiceTest {
     @Feature({"BackgroundTaskScheduler"})
     public void testOneOffTaskDoesNotStartExactlyAtDeadline() {
         JobParameters jobParameters =
-                buildOneOffJobParameters(TaskIds.TEST, sClock.currentTimeMillis(), new Long(0));
+                buildOneOffJobParameters(TaskIds.TEST, sClock.currentTimeMillis(), Long.valueOf(0));
 
         BackgroundTaskJobService jobService = new BackgroundTaskJobService();
         jobService.setClockForTesting(sClock);
@@ -82,8 +83,8 @@ public class BackgroundTaskJobServiceTest {
     @Test
     @Feature({"BackgroundTaskScheduler"})
     public void testOneOffTaskDoesNotStartAfterDeadline() {
-        JobParameters jobParameters =
-                buildOneOffJobParameters(TaskIds.TEST, sZeroClock.currentTimeMillis(), new Long(0));
+        JobParameters jobParameters = buildOneOffJobParameters(
+                TaskIds.TEST, sZeroClock.currentTimeMillis(), Long.valueOf(0));
 
         BackgroundTaskJobService jobService = new BackgroundTaskJobService();
         jobService.setClockForTesting(sClock);
@@ -185,43 +186,41 @@ public class BackgroundTaskJobServiceTest {
             int taskId, Long schedulingTimeMs, Long windowEndTimeForDeadlineMs) {
         PersistableBundle extras = new PersistableBundle();
         if (windowEndTimeForDeadlineMs != null) {
-            extras.putLong(BackgroundTaskSchedulerJobService.BACKGROUND_TASK_SCHEDULE_TIME_KEY,
+            extras.putLong(BackgroundTaskSchedulerDelegate.BACKGROUND_TASK_SCHEDULE_TIME_KEY,
                     schedulingTimeMs);
-            extras.putLong(BackgroundTaskSchedulerJobService.BACKGROUND_TASK_END_TIME_KEY,
+            extras.putLong(BackgroundTaskSchedulerDelegate.BACKGROUND_TASK_END_TIME_KEY,
                     windowEndTimeForDeadlineMs);
         }
         PersistableBundle taskExtras = new PersistableBundle();
         extras.putPersistableBundle(
-                BackgroundTaskSchedulerJobService.BACKGROUND_TASK_EXTRAS_KEY, taskExtras);
+                BackgroundTaskSchedulerDelegate.BACKGROUND_TASK_EXTRAS_KEY, taskExtras);
 
         return new JobParameters(null /* callback */, taskId, extras, null /* transientExtras */,
                 null /* clipData */, 0 /* clipGrantFlags */, false /* overrideDeadlineExpired */,
-                null /* triggeredContentUris */, null /* triggeredContentAuthorities */,
-                null /* network */);
+                false /* isExpedited */, null /* triggeredContentUris */,
+                null /* triggeredContentAuthorities */, null /* network */);
     }
 
     private static JobParameters buildPeriodicJobParameters(
             int taskId, Long schedulingTimeMs, Long intervalForDeadlineMs, Long flexForDeadlineMs) {
         PersistableBundle extras = new PersistableBundle();
         if (schedulingTimeMs != null) {
-            extras.putLong(BackgroundTaskSchedulerJobService.BACKGROUND_TASK_SCHEDULE_TIME_KEY,
+            extras.putLong(BackgroundTaskSchedulerDelegate.BACKGROUND_TASK_SCHEDULE_TIME_KEY,
                     schedulingTimeMs);
-            extras.putLong(
-                    BackgroundTaskSchedulerGcmNetworkManager.BACKGROUND_TASK_INTERVAL_TIME_KEY,
+            extras.putLong(BackgroundTaskSchedulerDelegate.BACKGROUND_TASK_INTERVAL_TIME_KEY,
                     intervalForDeadlineMs);
             if (flexForDeadlineMs != null) {
-                extras.putLong(
-                        BackgroundTaskSchedulerGcmNetworkManager.BACKGROUND_TASK_FLEX_TIME_KEY,
+                extras.putLong(BackgroundTaskSchedulerDelegate.BACKGROUND_TASK_FLEX_TIME_KEY,
                         flexForDeadlineMs);
             }
         }
         PersistableBundle taskExtras = new PersistableBundle();
         extras.putPersistableBundle(
-                BackgroundTaskSchedulerJobService.BACKGROUND_TASK_EXTRAS_KEY, taskExtras);
+                BackgroundTaskSchedulerDelegate.BACKGROUND_TASK_EXTRAS_KEY, taskExtras);
 
         return new JobParameters(null /* callback */, taskId, extras, null /* transientExtras */,
                 null /* clipData */, 0 /* clipGrantFlags */, false /* overrideDeadlineExpired */,
-                null /* triggeredContentUris */, null /* triggeredContentAuthorities */,
-                null /* network */);
+                false /* isExpedited */, null /* triggeredContentUris */,
+                null /* triggeredContentAuthorities */, null /* network */);
     }
 }

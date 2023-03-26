@@ -1,10 +1,9 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/printing/print_management/printing_manager.h"
 
-#include "ash/webui/print_management/mojom/printing_manager.mojom.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/scoped_observation.h"
@@ -17,6 +16,7 @@
 #include "chrome/browser/ash/printing/test_cups_print_job_manager.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile.h"
+#include "chromeos/components/print_management/mojom/printing_manager.mojom.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/test/history_service_test_util.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -30,7 +30,7 @@ namespace printing {
 namespace print_management {
 namespace {
 
-using printing_manager::mojom::PrintJobInfoPtr;
+using ::chromeos::printing::printing_manager::mojom::PrintJobInfoPtr;
 
 constexpr char kTitle[] = "title";
 const int kPagesNumber = 3;
@@ -88,8 +88,7 @@ class PrintingManagerTest : public ::testing::Test {
     test_prefs_.registry()->RegisterBooleanPref(
         prefs::kDeletePrintJobHistoryAllowed, true);
 
-    print_job_manager_ =
-        std::make_unique<chromeos::TestCupsPrintJobManager>(&profile_);
+    print_job_manager_ = std::make_unique<TestCupsPrintJobManager>(&profile_);
     auto print_job_database = std::make_unique<TestPrintJobDatabase>();
     print_job_history_service_ = std::make_unique<PrintJobHistoryServiceImpl>(
         std::move(print_job_database), print_job_manager_.get(), &test_prefs_);
@@ -130,11 +129,11 @@ class PrintingManagerTest : public ::testing::Test {
     print_job_manager_->CancelPrintJob(print_job.get());
   }
 
-  std::unique_ptr<chromeos::CupsPrintJob> CreateOngoingPrintJob(int id) {
-    auto print_job = std::make_unique<chromeos::CupsPrintJob>(
+  std::unique_ptr<CupsPrintJob> CreateOngoingPrintJob(int id) {
+    auto print_job = std::make_unique<CupsPrintJob>(
         chromeos::Printer(), id, kTitle, kPagesNumber,
         ::printing::PrintJob::Source::PRINT_PREVIEW,
-        /*source_id=*/"", chromeos::printing::proto::PrintSettings());
+        /*source_id=*/"", proto::PrintSettings());
     print_job_manager_->CreatePrintJob(print_job.get());
     return print_job;
   }
@@ -145,7 +144,7 @@ class PrintingManagerTest : public ::testing::Test {
   // as we have to ensure that those services are destructed before this
   // is destructed.
   TestingPrefServiceSimple test_prefs_;
-  std::unique_ptr<chromeos::TestCupsPrintJobManager> print_job_manager_;
+  std::unique_ptr<TestCupsPrintJobManager> print_job_manager_;
   std::unique_ptr<history::HistoryService> local_history_;
   std::unique_ptr<PrintingManager> printing_manager_;
   std::vector<PrintJobInfoPtr> entries_;
@@ -303,6 +302,21 @@ TEST_F(PrintingManagerTest, PolicyPreventsDeletingBrowserHistoryDeletingJobs) {
   EXPECT_EQ(1u, entries_.size());
 }
 
+TEST_F(PrintingManagerTest, ResetReceiverOnBindInterface) {
+  // This test simulates a user refreshing the WebUI page. The receiver should
+  // be reset before binding the new receiver. Otherwise we would get a DCHECK
+  // error from mojo::Receiver
+  mojo::Remote<
+      chromeos::printing::printing_manager::mojom::PrintingMetadataProvider>
+      remote;
+  printing_manager_->BindInterface(remote.BindNewPipeAndPassReceiver());
+  base::RunLoop().RunUntilIdle();
+
+  remote.reset();
+
+  printing_manager_->BindInterface(remote.BindNewPipeAndPassReceiver());
+  base::RunLoop().RunUntilIdle();
+}
 }  // namespace print_management
 }  // namespace printing
 }  // namespace ash

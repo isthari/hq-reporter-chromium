@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/observer_list.h"
 #include "base/time/time.h"
 #include "components/viz/client/frame_evictor.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
@@ -151,13 +152,14 @@ class CONTENT_EXPORT DelegatedFrameHost
   bool CanCopyFromCompositingSurface() const;
   const viz::FrameSinkId& frame_sink_id() const { return frame_sink_id_; }
 
+  // FrameEvictorClient:
   // Returns the surface id for the most recently embedded surface.
-  viz::SurfaceId GetCurrentSurfaceId() const {
-    return viz::SurfaceId(frame_sink_id_, local_surface_id_);
-  }
+  viz::SurfaceId GetCurrentSurfaceId() const override;
 
   bool HasPrimarySurface() const;
   bool HasFallbackSurface() const;
+
+  viz::SurfaceId GetFallbackSurfaceIdForTesting() const;
 
   void OnCompositingDidCommitForTesting(ui::Compositor* compositor) {
     OnCompositingDidCommit(compositor);
@@ -191,6 +193,10 @@ class CONTENT_EXPORT DelegatedFrameHost
     return frame_eviction_state_;
   }
 
+  const viz::FrameEvictor* GetFrameEvictorForTesting() const {
+    return frame_evictor_.get();
+  }
+
  private:
   friend class DelegatedFrameHostClient;
   FRIEND_TEST_ALL_PREFIXES(RenderWidgetHostViewAuraBrowserTest,
@@ -201,11 +207,15 @@ class CONTENT_EXPORT DelegatedFrameHost
                            StaleFrameContentOnEvictionNone);
 
   // FrameEvictorClient implementation.
-  void EvictDelegatedFrame() override;
+  void EvictDelegatedFrame(
+      const std::vector<viz::SurfaceId>& surface_ids) override;
+  std::vector<viz::SurfaceId> CollectSurfaceIdsForEviction() const override;
+  viz::SurfaceId GetPreNavigationSurfaceId() const override;
 
   void DidCopyStaleContent(std::unique_ptr<viz::CopyOutputResult> result);
 
-  void ContinueDelegatedFrameEviction();
+  void ContinueDelegatedFrameEviction(
+      const std::vector<viz::SurfaceId>& surface_ids);
 
   SkColor GetGutterColor() const;
 

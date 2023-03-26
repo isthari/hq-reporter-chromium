@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,7 @@ enum GpuFeatureType {
   GPU_FEATURE_TYPE_METAL,
   GPU_FEATURE_TYPE_VULKAN,
   GPU_FEATURE_TYPE_CANVAS_OOP_RASTERIZATION,
+  GPU_FEATURE_TYPE_ACCELERATED_WEBGPU,
   NUMBER_OF_GPU_FEATURE_TYPES
 };
 

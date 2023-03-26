@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,10 +18,6 @@ namespace base {
 class FilePath;
 }  // namespace base
 
-namespace extensions {
-class EventRouter;
-}  // namespace extensions
-
 namespace ash {
 namespace file_system_provider {
 namespace operations {
@@ -30,7 +26,7 @@ namespace operations {
 // the FILE_ERROR_EXISTS error. Created per request.
 class CreateFile : public Operation {
  public:
-  CreateFile(extensions::EventRouter* event_router,
+  CreateFile(RequestDispatcher* dispatcher,
              const ProvidedFileSystemInfo& file_system_info,
              const base::FilePath& file_path,
              storage::AsyncFileUtil::StatusCallback callback);

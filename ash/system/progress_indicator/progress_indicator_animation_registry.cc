@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,15 +59,19 @@ base::CallbackListSubscription AddAnimationChangedCallbackForKey(
     it->second.set_removal_callback(base::BindRepeating(
         [](KeyedAnimationChangedCallbackListMap<CallbackListType>*
                animation_changed_callback_lists_by_key,
-           const void* key) {
+           MayBeDangling<const void> key) {
           auto it = animation_changed_callback_lists_by_key->find(key);
           if (it != animation_changed_callback_lists_by_key->end() &&
               it->second.empty()) {
             animation_changed_callback_lists_by_key->erase(it);
           }
         },
+        // base::Unretained is safe, because this object is owning the callback.
         base::Unretained(animation_changed_callback_lists_by_key),
-        base::Unretained(key)));
+        // TODO(b/265440023) `key` may be a pointer to freed memory. Consider
+        // using base::IdType instead of void* to key the
+        // ProgressIndicatorAnimationRegistry.
+        base::UnsafeDangling(key)));
   }
 
   return it->second.Add(std::move(callback));
@@ -136,31 +140,31 @@ base::CallbackListSubscription ProgressIndicatorAnimationRegistry::
       &ring_animation_changed_callback_lists_by_key_, key, std::move(callback));
 }
 
-HoldingSpaceProgressIconAnimation*
+ProgressIconAnimation*
 ProgressIndicatorAnimationRegistry::GetProgressIconAnimationForKey(
     const void* key) {
   return GetAnimationForKey(&icon_animations_by_key_, key);
 }
 
-HoldingSpaceProgressRingAnimation*
+ProgressRingAnimation*
 ProgressIndicatorAnimationRegistry::GetProgressRingAnimationForKey(
     const void* key) {
   return GetAnimationForKey(&ring_animations_by_key_, key);
 }
 
-HoldingSpaceProgressIconAnimation*
+ProgressIconAnimation*
 ProgressIndicatorAnimationRegistry::SetProgressIconAnimationForKey(
     const void* key,
-    std::unique_ptr<HoldingSpaceProgressIconAnimation> animation) {
+    std::unique_ptr<ProgressIconAnimation> animation) {
   return SetAnimationForKey(&icon_animations_by_key_,
                             &icon_animation_changed_callback_lists_by_key_, key,
                             std::move(animation));
 }
 
-HoldingSpaceProgressRingAnimation*
+ProgressRingAnimation*
 ProgressIndicatorAnimationRegistry::SetProgressRingAnimationForKey(
     const void* key,
-    std::unique_ptr<HoldingSpaceProgressRingAnimation> animation) {
+    std::unique_ptr<ProgressRingAnimation> animation) {
   return SetAnimationForKey(&ring_animations_by_key_,
                             &ring_animation_changed_callback_lists_by_key_, key,
                             std::move(animation));

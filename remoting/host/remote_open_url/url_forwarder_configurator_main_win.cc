@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,18 +11,19 @@
 #include <memory>
 #include <string>
 
-#include "base/bind.h"
-#include "base/callback_forward.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_forward.h"
 #include "base/logging.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/notreached.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_executor.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
+#include "base/win/default_apps_util.h"
 #include "base/win/scoped_co_mem.h"
 #include "base/win/scoped_com_initializer.h"
 #include "base/win/windows_types.h"
@@ -32,7 +33,6 @@
 #include "remoting/host/remote_open_url/remote_open_url_constants.h"
 #include "remoting/host/user_setting_keys.h"
 #include "remoting/host/win/core_resource.h"
-#include "remoting/host/win/default_apps_util.h"
 #include "remoting/host/win/simple_task_dialog.h"
 
 namespace remoting {
@@ -177,7 +177,8 @@ void SetUpProcess::OnSetUpDialogContinue() {
   SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
 
   HOST_LOG << "Launching default apps settings dialog";
-  if (!LaunchDefaultAppsSettingsModernDialog()) {
+  if (!base::win::LaunchDefaultAppsSettingsModernDialog(
+          /*protocol=*/std::wstring())) {
     std::move(done_callback_).Run(false);
     return;
   }
@@ -204,7 +205,7 @@ void SetUpProcess::PollUrlForwarderSetupState() {
     return;
   }
   total_poll_time_ += kPollingInterval;
-  base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&SetUpProcess::PollUrlForwarderSetupState,
                      base::Unretained(this)),

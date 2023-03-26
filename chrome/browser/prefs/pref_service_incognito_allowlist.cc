@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <vector>
 
-#include "base/cxx17_backports.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/common/pref_names.h"
@@ -36,6 +35,7 @@ const char* const kPersistentPrefNames[] = {
     ash::prefs::kAccessibilityLargeCursorDipSize,
     ash::prefs::kAccessibilityStickyKeysEnabled,
     ash::prefs::kAccessibilitySpokenFeedbackEnabled,
+    ash::prefs::kAccessibilityChromeVoxAutoRead,
     ash::prefs::kAccessibilityHighContrastEnabled,
     ash::prefs::kAccessibilityScreenMagnifierCenterFocus,
     ash::prefs::kAccessibilityScreenMagnifierEnabled,
@@ -68,6 +68,7 @@ const char* const kPersistentPrefNames[] = {
     ash::prefs::kAccessibilityDictationLocale,
     ash::prefs::kDockedMagnifierEnabled,
     ash::prefs::kDockedMagnifierScale,
+    ash::prefs::kDockedMagnifierScreenHeightDivisor,
     ash::prefs::kDockedMagnifierAcceleratorDialogHasBeenAccepted,
     ash::prefs::kHighContrastAcceleratorDialogHasBeenAccepted,
     ash::prefs::kScreenMagnifierAcceleratorDialogHasBeenAccepted,
@@ -88,7 +89,6 @@ const char* const kPersistentPrefNames[] = {
     bookmarks::prefs::kManagedBookmarks,
     bookmarks::prefs::kManagedBookmarksFolderName,
     bookmarks::prefs::kShowAppsShortcutInBookmarkBar,
-    bookmarks::prefs::kShowReadingListInBookmarkBar,
     bookmarks::prefs::kShowManagedBookmarksInBookmarkBar,
     bookmarks::prefs::kShowBookmarkBar,
 #if BUILDFLAG(IS_ANDROID)
@@ -145,9 +145,6 @@ const char* const kPersistentPrefNames[] = {
     prefs::kUseCustomChromeFrame,
 #endif
 
-    // Reading list preferences are common between incognito and regular mode.
-    reading_list::prefs::kReadingListHasUnseenEntries,
-
     // Although UKMs are not collected in incognito, theses preferences may be
     // changed by UMA/Sync/Unity consent, and need to be the same between
     // incognito and regular modes.
@@ -168,7 +165,7 @@ namespace prefs {
 std::vector<const char*> GetIncognitoPersistentPrefsAllowlist() {
   std::vector<const char*> allowlist;
   allowlist.insert(allowlist.end(), kPersistentPrefNames,
-                   kPersistentPrefNames + base::size(kPersistentPrefNames));
+                   kPersistentPrefNames + std::size(kPersistentPrefNames));
   return allowlist;
 }
 

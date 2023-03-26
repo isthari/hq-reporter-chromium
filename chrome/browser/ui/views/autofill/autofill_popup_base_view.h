@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,15 +41,25 @@ class AutofillPopupBaseView : public views::WidgetDelegateView,
   // Consider the input element is |kElementBorderPadding| pixels larger at the
   // top and at the bottom in order to reposition the dropdown, so that it
   // doesn't look too close to the element.
-  static const int kElementBorderPadding = 1;
+  static constexpr int kElementBorderPadding = 1;
+
+  // The maximum number of pixels the suggestions dialog is shifted towards the
+  // center the focused field..
+  static constexpr int kMaximumPixelsToMoveSuggstionToCenter = 120;
+
+  // The maximum width percentage the suggestion dialog is shifted towards the
+  // center of the focused field.
+  static constexpr int kMaximumWidthPercentageToMoveTheSuggestionToCenter = 50;
 
   AutofillPopupBaseView(const AutofillPopupBaseView&) = delete;
   AutofillPopupBaseView& operator=(const AutofillPopupBaseView&) = delete;
 
   static int GetCornerRadius();
-
-  // views::View:
-  void VisibilityChanged(View* starting_from, bool is_visible) override;
+  // Returns the horizontal margin between elements and the edge of the view.
+  static int GetHorizontalMargin();
+  // Returns the horizontal space between elements in the view (e.g. icon and
+  // text).
+  static int GetHorizontalPadding();
 
   // Notify accessibility that an item has been selected.
   void NotifyAXSelection(View*);
@@ -61,7 +71,7 @@ class AutofillPopupBaseView : public views::WidgetDelegateView,
   SkColor GetSelectedBackgroundColor() const;
   SkColor GetSelectedForegroundColor() const;
   SkColor GetFooterBackgroundColor() const;
-  SkColor GetSeparatorColor() const;
+  ui::ColorId GetSeparatorColorId() const;
   SkColor GetWarningColor() const;
 
   base::TimeDelta time_delta_since_popup_shown() const {
@@ -82,7 +92,7 @@ class AutofillPopupBaseView : public views::WidgetDelegateView,
   // Hide the widget and delete |this|.
   void DoHide();
 
-  // Ensure the child views are not rendered beyond the bubble border
+  // Ensure the child views are not rendered beyond the popup border
   // boundaries. Should be overridden together with CreateBorder.
   void UpdateClipPath();
 
@@ -100,10 +110,10 @@ class AutofillPopupBaseView : public views::WidgetDelegateView,
   // Returns the border to be applied to the popup.
   virtual std::unique_ptr<views::Border> CreateBorder();
 
-  // Returns the optimal bounds to place the bubble with |preferred_size| and
-  // places an arrow on the bubble border to point towards |element_bounds|
+  // Returns the optimal bounds to place the popup with |preferred_size| and
+  // places an arrow on the popup border to point towards |element_bounds|
   // within |max_bounds_for_popup|.
-  gfx::Rect GetOptionalPositionAndPlaceArrowOnBubble(
+  gfx::Rect GetOptionalPositionAndPlaceArrowOnPopup(
       const gfx::Rect& element_bounds,
       const gfx::Rect& max_bounds_for_popup,
       const gfx::Size& preferred_size);

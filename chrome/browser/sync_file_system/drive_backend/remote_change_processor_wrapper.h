@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,8 +45,8 @@ class RemoteChangeProcessorWrapper
                              SyncStatusCallback callback);
 
  private:
-  raw_ptr<RemoteChangeProcessor> remote_change_processor_;
-  base::SequenceChecker sequence_checker_;
+  raw_ptr<RemoteChangeProcessor, DanglingUntriaged> remote_change_processor_;
+  SEQUENCE_CHECKER(sequence_checker_);
 };
 
 }  // namespace drive_backend

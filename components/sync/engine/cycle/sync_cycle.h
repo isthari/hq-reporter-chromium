@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 #include "components/sync/engine/cycle/sync_cycle_snapshot.h"
 #include "components/sync/engine/sync_cycle_event.h"
 #include "components/sync/protocol/sync_protocol_error.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace syncer {
 
@@ -68,18 +69,22 @@ class SyncCycle {
     virtual void OnSyncProtocolError(
         const SyncProtocolError& sync_protocol_error) = 0;
 
-    // Called when the server wants to change the number of hints the client
-    // will buffer locally.
-    virtual void OnReceivedClientInvalidationHintBufferSize(int size) = 0;
-
     // Called when server wants to schedule a retry GU.
     virtual void OnReceivedGuRetryDelay(const base::TimeDelta& delay) = 0;
 
     // Called when server requests a migration.
     virtual void OnReceivedMigrationRequest(ModelTypeSet types) = 0;
 
+    // Called when server wants to change the parameters for commit quotas of
+    // data types that can receive commits via extension APIs. Empty optional
+    // means using the client-side defaults.
+    virtual void OnReceivedQuotaParamsForExtensionTypes(
+        absl::optional<int> max_tokens,
+        absl::optional<base::TimeDelta> refill_interval,
+        absl::optional<base::TimeDelta> depleted_quota_nudge_delay) = 0;
+
    protected:
-    virtual ~Delegate() {}
+    virtual ~Delegate() = default;
   };
 
   SyncCycle(SyncCycleContext* context, Delegate* delegate);

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@ import android.os.Build;
 
 import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
-import org.chromium.chrome.browser.autofill_assistant.AutofillAssistantModuleEntryProvider;
 import org.chromium.chrome.browser.base.DexFixer;
 import org.chromium.chrome.browser.notifications.channels.ChannelsUpdater;
 import org.chromium.chrome.browser.vr.VrModuleProvider;
@@ -35,7 +34,6 @@ public final class PackageReplacedBroadcastReceiver extends BroadcastReceiver {
     public void onReceive(final Context context, Intent intent) {
         if (!Intent.ACTION_MY_PACKAGE_REPLACED.equals(intent.getAction())) return;
         VrModuleProvider.maybeRequestModuleIfDaydreamReady();
-        AutofillAssistantModuleEntryProvider.maybeInstallDeferred();
 
         final PendingResult result = goAsync();
         PostTask.postTask(TaskTraits.BEST_EFFORT_MAY_BLOCK, () -> {

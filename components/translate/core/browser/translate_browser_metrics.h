@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,7 +46,10 @@ enum InitiationStatusType {
   INITIATION_STATUS_NO_NETWORK,
   INITIATION_STATUS_DOESNT_NEED_TRANSLATION,
   INITIATION_STATUS_IDENTICAL_LANGUAGE_USE_SOURCE_LANGUAGE_UNKNOWN,
-  INITIATION_STATUS_DISABLED_BY_AUTOFILL_ASSISTANT,
+
+  // Deprecated since M110 with the removal of the autofill_assistant component.
+  DEPRECATED_STATUS_DISABLED_BY_AUTOFILL_ASSISTANT,
+
   INITIATION_STATUS_AUTO_BY_PREDEFINED_TARGET_LANGUAGE,
   // Insert new items here.
   INITIATION_STATUS_MAX,
@@ -86,9 +89,10 @@ enum class TargetLanguageOrigin {
   kDefaultEnglish,
   kChangedByUser,
   kUninitialized,
+  kAutoTranslate,
   // Insert new items here. Keep in sync with TranslateTargetLanguageOrigin in
   // enums.xml when adding values.
-  kMaxValue = kUninitialized
+  kMaxValue = kAutoTranslate
 };
 
 enum class MenuTranslationUnavailableReason {

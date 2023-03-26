@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -120,6 +120,10 @@ public class ArCoreInstallUtils {
     @CalledByNative
     private void onNativeDestroy() {
         mNativeArCoreInstallUtils = 0;
+        if (sInstallRequest != null) {
+            sInstallRequest.dispose();
+            sInstallRequest = null;
+        }
     }
 
     private ArCoreInstallUtils(long nativeArCoreInstallUtils) {
@@ -200,19 +204,8 @@ public class ArCoreInstallUtils {
 
     private void onArCoreRequestInstallReturned(Activity activity) {
         assert sInstallRequest != null;
-        try {
-            // Since |userRequestedInstall| parameter is false, the below call should
-            // throw if ARCore is still not installed - no need to check the result.
-            getArCoreShimInstance().requestInstall(activity, false);
-            maybeNotifyNativeOnRequestInstallSupportedArCoreResult(true);
-        } catch (ArCoreShim.UnavailableDeviceNotCompatibleException e) {
-            Log.w(TAG, "Exception thrown when trying to validate install state of ARCore: %s",
-                    e.toString());
-            maybeNotifyNativeOnRequestInstallSupportedArCoreResult(false);
-        } catch (ArCoreShim.UnavailableUserDeclinedInstallationException e) {
-            maybeNotifyNativeOnRequestInstallSupportedArCoreResult(false);
-        }
-
+        maybeNotifyNativeOnRequestInstallSupportedArCoreResult(
+                getArCoreInstallStatus() == ArCoreAvailability.SUPPORTED_INSTALLED);
         sInstallRequest.dispose();
         sInstallRequest = null;
     }

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,11 +24,15 @@ const char kDisableModalAnimations[] = "disable-modal-animations";
 const char kShowMacOverlayBorders[] = "show-mac-overlay-borders";
 #endif
 
+#if BUILDFLAG(IS_CHROMEOS)
+// Enable resources file sharing with ash-chrome.
+// This flag is enabled when feature::kLacrosResourcesFileSharing is set and
+// ash-side operation is successfully done.
+const char kEnableResourcesFileSharing[] = "enable-resources-file-sharing";
+#endif
+
 // Disables layer-edge anti-aliasing in the compositor.
 const char kDisableCompositedAntialiasing[] = "disable-composited-antialiasing";
-
-// Disables use of DWM composition for top level windows.
-const char kDisableDwmComposition[] = "disable-dwm-composition";
 
 // Disables touch event based drag and drop.
 const char kDisableTouchDragDrop[] = "disable-touch-drag-drop";

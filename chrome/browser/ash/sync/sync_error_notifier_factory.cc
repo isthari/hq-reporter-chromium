@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,11 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/sync_service_factory.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 
 namespace ash {
 
 SyncErrorNotifierFactory::SyncErrorNotifierFactory()
-    : BrowserContextKeyedServiceFactory(
-          "SyncErrorNotifier",
-          BrowserContextDependencyManager::GetInstance()) {
+    : ProfileKeyedServiceFactory("SyncErrorNotifier") {
   DependsOn(SyncServiceFactory::GetInstance());
 }
 
@@ -38,8 +35,9 @@ KeyedService* SyncErrorNotifierFactory::BuildServiceInstanceFor(
   syncer::SyncService* sync_service =
       SyncServiceFactory::GetForProfile(profile);
 
-  if (!sync_service)
+  if (!sync_service) {
     return nullptr;
+  }
 
   return new SyncErrorNotifier(sync_service, profile);
 }

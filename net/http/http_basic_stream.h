@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -45,8 +45,9 @@ class NET_EXPORT_PRIVATE HttpBasicStream : public HttpStream {
   ~HttpBasicStream() override;
 
   // HttpStream methods:
-  int InitializeStream(const HttpRequestInfo* request_info,
-                       bool can_send_early,
+  void RegisterRequest(const HttpRequestInfo* request_info) override;
+
+  int InitializeStream(bool can_send_early,
                        RequestPriority priority,
                        const NetLogWithSource& net_log,
                        CompletionOnceCallback callback) override;
@@ -63,7 +64,7 @@ class NET_EXPORT_PRIVATE HttpBasicStream : public HttpStream {
 
   void Close(bool not_reusable) override;
 
-  HttpStream* RenewStreamForAuth() override;
+  std::unique_ptr<HttpStream> RenewStreamForAuth() override;
 
   bool IsResponseBodyComplete() const override;
 
@@ -86,7 +87,7 @@ class NET_EXPORT_PRIVATE HttpBasicStream : public HttpStream {
 
   void GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info) override;
 
-  bool GetRemoteEndpoint(IPEndPoint* endpoint) override;
+  int GetRemoteEndpoint(IPEndPoint* endpoint) override;
 
   void Drain(HttpNetworkSession* session) override;
 
@@ -108,6 +109,12 @@ class NET_EXPORT_PRIVATE HttpBasicStream : public HttpStream {
   HttpBasicState state_;
   base::TimeTicks confirm_handshake_end_;
   RequestHeadersCallback request_headers_callback_;
+  // The request to send.
+  // Set to null before the response body is read. This is to allow |this| to
+  // be shared for reading and to possibly outlive request_info_'s owner.
+  // Setting to null happens after headers are completely read or upload data
+  // stream is uploaded, whichever is later.
+  raw_ptr<const HttpRequestInfo> request_info_;
 };
 
 }  // namespace net

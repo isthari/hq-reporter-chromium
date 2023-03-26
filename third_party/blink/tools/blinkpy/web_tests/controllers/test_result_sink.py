@@ -1,4 +1,4 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """TestResultSink uploads test results and artifacts to ResultDB via ResultSink.
@@ -129,6 +129,20 @@ class TestResultSink(object):
             pair('web_tests_base_timeout',
                  str(int(self._port.timeout_ms() / 1000))),
         ]
+        if result.image_diff_stats:
+            tags.append(
+                pair('web_tests_image_diff_stats',
+                     str(result.image_diff_stats)))
+        test_type = []
+        for name in result.artifacts.artifacts.keys():
+            if name == 'actual_text':
+                test_type.extend(['text'])
+            elif name == 'actual_image':
+                test_type.extend(['image'])
+            elif name == 'actual_audio':
+                test_type.extend(['audio'])
+        if len(test_type) > 0:
+            tags.append(pair('web_tests_test_type', str(test_type)))
 
         for used_file in self._port.used_expectations_files():
             tags.append(
@@ -247,6 +261,13 @@ class TestResultSink(object):
         if summaries:
             r['summaryHtml'] = '\n'.join(summaries)
 
+        if result.failure_reason:
+            primary_error_message = _truncate_to_utf8_bytes(
+                result.failure_reason.primary_error_message, 1024)
+            r['failureReason'] = {
+                'primaryErrorMessage': primary_error_message,
+            }
+
         self._send({'testResults': [r]})
 
     def close(self):
@@ -257,3 +278,31 @@ class TestResultSink(object):
         if not self.is_closed:
             self.is_closed = True
             self._session.close()
+
+
+def _truncate_to_utf8_bytes(s, length):
+    """ Truncates a string to a given number of bytes when encoded as UTF-8.
+
+    Ensures the given string does not take more than length bytes when encoded
+    as UTF-8. Adds trailing ellipsis (...) if truncation occurred. A truncated
+    string may end up encoding to a length slightly shorter than length
+    because only whole Unicode codepoints are dropped.
+
+    Args:
+        s: The string to truncate.
+        length: the length (in bytes) to truncate to.
+    """
+    try:
+        encoded = s.encode('utf-8')
+    # When encode throws UnicodeDecodeError in py2, it usually means the str is
+    # already encoded and has non-ascii chars. So skip re-encoding it.
+    except UnicodeDecodeError:
+        encoded = s
+    if len(encoded) > length:
+        # Truncate, leaving space for trailing ellipsis (...).
+        encoded = encoded[:length - 3]
+        # Truncating the string encoded as UTF-8 may have left the final
+        # codepoint only partially present. Pass 'ignore' to acknowledge
+        # and ensure this is dropped.
+        return encoded.decode('utf-8', 'ignore') + "..."
+    return s

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,9 +35,10 @@ TEST(EvaluateCapabilityTest, DISABLED_ShouldReturnCrashResult) {
 TEST(EvaluateCapabilityTest, ShouldReturnExitCodeAndOutput) {
   std::string output;
   ASSERT_EQ(EvaluateCapability("test", &output), 234);
-  ASSERT_EQ("In EvaluateTest(): Line 1\n"
-            "In EvaluateTest(): Line 2",
-            NormalizeOutput(output));
+  ASSERT_EQ(
+      "In EvaluateTest(): Line 1\n"
+      "In EvaluateTest(): Line 2",
+      NormalizeOutput(output));
 }
 
 TEST(EvaluateCapabilityTest, ShouldReturnSuccessAndOutput) {

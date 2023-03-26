@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -88,30 +88,21 @@ D3D11Status VideoProcessorProxy::Init(uint32_t width, uint32_t height) {
   HRESULT hr = video_device_->CreateVideoProcessorEnumerator(
       &desc, &processor_enumerator_);
   if (!SUCCEEDED(hr)) {
-    return DebugStatus(
-        HresultToStatus(hr, D3D11Status::Codes::kCreateDecoderOutputViewFailed),
-        device);
-  }
-
-  D3D11_VIDEO_PROCESSOR_CAPS caps = {0};
-  if (SUCCEEDED(processor_enumerator_->GetVideoProcessorCaps(&caps))) {
-    supports_tone_mapping_ =
-        caps.FeatureCaps & D3D11_VIDEO_PROCESSOR_FEATURE_CAPS_METADATA_HDR10;
+    return DebugStatus({D3D11Status::Codes::kCreateDecoderOutputViewFailed, hr},
+                       device);
   }
 
   hr = video_device_->CreateVideoProcessor(processor_enumerator_.Get(), 0,
                                            &video_processor_);
   if (!SUCCEEDED(hr)) {
-    return DebugStatus(
-        HresultToStatus(hr, D3D11Status::Codes::kCreateVideoProcessorFailed),
-        device);
+    return DebugStatus({D3D11Status::Codes::kCreateVideoProcessorFailed, hr},
+                       device);
   }
 
   hr = device_context_.As(&video_context_);
   if (!SUCCEEDED(hr)) {
-    return DebugStatus(
-        HresultToStatus(hr, D3D11Status::Codes::kQueryVideoContextFailed),
-        device);
+    return DebugStatus({D3D11Status::Codes::kQueryVideoContextFailed, hr},
+                       device);
   }
 
   return D3D11Status::Codes::kOk;

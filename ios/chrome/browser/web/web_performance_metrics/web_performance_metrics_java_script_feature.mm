@@ -1,27 +1,27 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/web/web_performance_metrics/web_performance_metrics_java_script_feature.h"
+#import "ios/chrome/browser/web/web_performance_metrics/web_performance_metrics_java_script_feature.h"
 
-#include "base/ios/ios_util.h"
-#include "base/logging.h"
-#include "base/metrics/histogram_functions.h"
-#include "base/no_destructor.h"
-#include "base/strings/strcat.h"
-#include "base/values.h"
-#include "ios/chrome/browser/web/web_performance_metrics/web_performance_metrics_java_script_feature_util.h"
-#include "ios/chrome/browser/web/web_performance_metrics/web_performance_metrics_tab_helper.h"
-#include "ios/web/public/js_messaging/java_script_feature_util.h"
-#include "ios/web/public/js_messaging/script_message.h"
-#include "ios/web/public/js_messaging/web_frame_util.h"
+#import "base/ios/ios_util.h"
+#import "base/logging.h"
+#import "base/metrics/histogram_functions.h"
+#import "base/no_destructor.h"
+#import "base/strings/strcat.h"
+#import "base/values.h"
+#import "ios/chrome/browser/web/web_performance_metrics/web_performance_metrics_java_script_feature_util.h"
+#import "ios/chrome/browser/web/web_performance_metrics/web_performance_metrics_tab_helper.h"
+#import "ios/web/public/js_messaging/java_script_feature_util.h"
+#import "ios/web/public/js_messaging/script_message.h"
+#import "ios/web/public/js_messaging/web_frame_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
 namespace {
-const char kPerformanceMetricsScript[] = "web_performance_metrics_js";
+const char kPerformanceMetricsScript[] = "web_performance_metrics";
 const char kWebPerformanceMetricsScriptName[] = "WebPerformanceMetricsHandler";
 
 // The time range's expected min and max values for custom histograms.
@@ -122,7 +122,7 @@ void WebPerformanceMetricsJavaScriptFeature::LogAggregateFirstContentfulPaint(
   WebPerformanceMetricsTabHelper* tab_helper =
       WebPerformanceMetricsTabHelper::FromWebState(web_state);
 
-  if (!tab_helper) {
+  if (!tab_helper || tab_helper->HasBeenHiddenSinceNavigationStarted()) {
     return;
   }
 
@@ -195,7 +195,7 @@ void WebPerformanceMetricsJavaScriptFeature::LogAggregateFirstInputDelay(
   WebPerformanceMetricsTabHelper* tab_helper =
       WebPerformanceMetricsTabHelper::FromWebState(web_state);
 
-  if (!tab_helper) {
+  if (!tab_helper || tab_helper->HasBeenHiddenSinceNavigationStarted()) {
     return;
   }
 

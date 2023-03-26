@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,9 +45,9 @@ class WebViewSyncClient : public browser_sync::BrowserSyncClient {
   base::FilePath GetLocalSyncBackendFolder() override;
   syncer::ModelTypeStoreService* GetModelTypeStoreService() override;
   syncer::DeviceInfoSyncService* GetDeviceInfoSyncService() override;
-  bookmarks::BookmarkModel* GetBookmarkModel() override;
   favicon::FaviconService* GetFaviconService() override;
   history::HistoryService* GetHistoryService() override;
+  ReadingListModel* GetReadingListModel() override;
   send_tab_to_self::SendTabToSelfSyncService* GetSendTabToSelfSyncService()
       override;
   sync_preferences::PrefServiceSyncable* GetPrefServiceSyncable() override;
@@ -57,7 +57,6 @@ class WebViewSyncClient : public browser_sync::BrowserSyncClient {
   invalidation::InvalidationService* GetInvalidationService() override;
   syncer::SyncInvalidationsService* GetSyncInvalidationsService() override;
   syncer::TrustedVaultClient* GetTrustedVaultClient() override;
-  BookmarkUndoService* GetBookmarkUndoService() override;
   scoped_refptr<syncer::ExtensionsActivity> GetExtensionsActivity() override;
   base::WeakPtr<syncer::ModelTypeControllerDelegate>
   GetControllerDelegateForModelType(syncer::ModelType type) override;

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
  */
 
 /** @polymerBehavior */
-/* #export */ const OobeScrollableBehavior = {
+export const OobeScrollableBehavior = {
   /**
    * Init observers to keep track of the scrollable element size changes.
    */
@@ -55,3 +55,9 @@
  * }}
  */
 OobeScrollableBehavior.Proto;
+
+/** @interface */
+export class OobeScrollableBehaviorInterface {
+  initScrollableObservers(scrollableElement, ...sizeChangeObservableElemenets) {
+  }
+}

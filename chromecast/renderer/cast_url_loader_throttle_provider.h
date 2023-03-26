@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <memory>
 #include <vector>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/string_piece.h"
 #include "base/threading/thread_checker.h"
@@ -16,16 +16,12 @@
 
 namespace chromecast {
 class CastActivityUrlFilterManager;
-class CastURLRewriteRulesStore;
 
 class CastURLLoaderThrottleProvider : public blink::URLLoaderThrottleProvider {
  public:
   CastURLLoaderThrottleProvider(
       blink::URLLoaderThrottleProviderType type,
-      CastActivityUrlFilterManager* url_filter_manager,
-      CastURLRewriteRulesStore* url_rewrite_rules_store,
-      base::RepeatingCallback<bool(base::StringPiece)>
-          is_cors_exempt_header_callback);
+      CastActivityUrlFilterManager* url_filter_manager);
   ~CastURLLoaderThrottleProvider() override;
   CastURLLoaderThrottleProvider& operator=(
       const CastURLLoaderThrottleProvider&) = delete;
@@ -44,9 +40,6 @@ class CastURLLoaderThrottleProvider : public blink::URLLoaderThrottleProvider {
 
   blink::URLLoaderThrottleProviderType type_;
   CastActivityUrlFilterManager* const cast_activity_url_filter_manager_;
-  CastURLRewriteRulesStore* const url_rewrite_rules_store_;
-  base::RepeatingCallback<bool(base::StringPiece)>
-      is_cors_exempt_header_callback_;
 
   THREAD_CHECKER(thread_checker_);
 };

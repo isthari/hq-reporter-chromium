@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,10 @@
 #include "chrome/browser/ui/quick_answers/ui/user_consent_view.h"
 #include "chromeos/components/quick_answers/public/cpp/quick_answers_state.h"
 #include "chromeos/components/quick_answers/quick_answers_client.h"
+#include "chromeos/components/quick_answers/quick_answers_model.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "services/network/test/test_url_loader_factory.h"
+#include "ui/views/controls/menu/menu_controller.h"
 
 namespace {
 
@@ -81,14 +83,14 @@ class QuickAnswersControllerTest : public ChromeQuickAnswersTestBase {
     return static_cast<QuickAnswersControllerImpl*>(
                QuickAnswersController::Get())
         ->quick_answers_ui_controller()
-        ->quick_answers_view_for_testing();
+        ->quick_answers_view();
   }
 
   const views::View* GetConsentView() const {
     return static_cast<QuickAnswersControllerImpl*>(
                QuickAnswersController::Get())
         ->quick_answers_ui_controller()
-        ->consent_view_for_testing();
+        ->user_consent_view();
   }
 
   void AcceptConsent() {
@@ -120,16 +122,16 @@ TEST_F(QuickAnswersControllerTest, ShouldNotShowWhenFeatureNotEligible) {
   ShowView();
 
   // The feature is not eligible, nothing should be shown.
-  EXPECT_FALSE(ui_controller()->is_showing_user_consent_view());
-  EXPECT_FALSE(ui_controller()->is_showing_quick_answers_view());
+  EXPECT_FALSE(ui_controller()->IsShowingUserConsentView());
+  EXPECT_FALSE(ui_controller()->IsShowingQuickAnswersView());
 }
 
 TEST_F(QuickAnswersControllerTest, ShouldNotShowWithoutSetPending) {
   ShowView(/*set_visibility=*/false);
 
   // The visibility has not been set to pending, nothing should be shown.
-  EXPECT_FALSE(ui_controller()->is_showing_user_consent_view());
-  EXPECT_FALSE(ui_controller()->is_showing_quick_answers_view());
+  EXPECT_FALSE(ui_controller()->IsShowingUserConsentView());
+  EXPECT_FALSE(ui_controller()->IsShowingQuickAnswersView());
   EXPECT_EQ(controller()->GetVisibilityForTesting(),
             QuickAnswersVisibility::kClosed);
 }
@@ -138,28 +140,28 @@ TEST_F(QuickAnswersControllerTest,
        ShouldShowPendingQueryAfterUserAcceptsConsent) {
   ShowView();
   // Without user consent, only the user consent view should show.
-  EXPECT_TRUE(ui_controller()->is_showing_user_consent_view());
-  EXPECT_FALSE(ui_controller()->is_showing_quick_answers_view());
+  EXPECT_TRUE(ui_controller()->IsShowingUserConsentView());
+  EXPECT_FALSE(ui_controller()->IsShowingQuickAnswersView());
 
   controller()->OnUserConsentResult(true);
 
   // With user consent granted, the consent view should dismiss and the cached
   // quick answer query should show.
-  EXPECT_FALSE(ui_controller()->is_showing_user_consent_view());
-  EXPECT_TRUE(ui_controller()->is_showing_quick_answers_view());
+  EXPECT_FALSE(ui_controller()->IsShowingUserConsentView());
+  EXPECT_TRUE(ui_controller()->IsShowingQuickAnswersView());
 }
 
 TEST_F(QuickAnswersControllerTest, ShouldDismissIfUserRejectConsent) {
   ShowView();
   // Without user consent, only the user consent view should show.
-  EXPECT_TRUE(ui_controller()->is_showing_user_consent_view());
-  EXPECT_FALSE(ui_controller()->is_showing_quick_answers_view());
+  EXPECT_TRUE(ui_controller()->IsShowingUserConsentView());
+  EXPECT_FALSE(ui_controller()->IsShowingQuickAnswersView());
 
   controller()->OnUserConsentResult(false);
 
   // With user consent rejected, the views should dismiss.
-  EXPECT_FALSE(ui_controller()->is_showing_user_consent_view());
-  EXPECT_FALSE(ui_controller()->is_showing_quick_answers_view());
+  EXPECT_FALSE(ui_controller()->IsShowingUserConsentView());
+  EXPECT_FALSE(ui_controller()->IsShowingQuickAnswersView());
 }
 
 TEST_F(QuickAnswersControllerTest, UserConsentAlreadyAccepted) {
@@ -168,8 +170,8 @@ TEST_F(QuickAnswersControllerTest, UserConsentAlreadyAccepted) {
 
   // With user consent already accepted, only the quick answers view should
   // show.
-  EXPECT_FALSE(ui_controller()->is_showing_user_consent_view());
-  EXPECT_TRUE(ui_controller()->is_showing_quick_answers_view());
+  EXPECT_FALSE(ui_controller()->IsShowingUserConsentView());
+  EXPECT_TRUE(ui_controller()->IsShowingQuickAnswersView());
 }
 
 TEST_F(QuickAnswersControllerTest, UserConsentAlreadyRejected) {
@@ -177,26 +179,26 @@ TEST_F(QuickAnswersControllerTest, UserConsentAlreadyRejected) {
   ShowView();
 
   // With user consent already rejected, nothing should show.
-  EXPECT_FALSE(ui_controller()->is_showing_user_consent_view());
-  EXPECT_FALSE(ui_controller()->is_showing_quick_answers_view());
+  EXPECT_FALSE(ui_controller()->IsShowingUserConsentView());
+  EXPECT_FALSE(ui_controller()->IsShowingQuickAnswersView());
 }
 
 TEST_F(QuickAnswersControllerTest, DismissUserConsentView) {
   ShowConsentView();
-  EXPECT_TRUE(ui_controller()->is_showing_user_consent_view());
+  EXPECT_TRUE(ui_controller()->IsShowingUserConsentView());
 
   DismissQuickAnswers();
 
-  EXPECT_FALSE(ui_controller()->is_showing_user_consent_view());
+  EXPECT_FALSE(ui_controller()->IsShowingUserConsentView());
 }
 
 TEST_F(QuickAnswersControllerTest, DismissQuickAnswersView) {
   AcceptConsent();
   ShowView();
-  EXPECT_TRUE(ui_controller()->is_showing_quick_answers_view());
+  EXPECT_TRUE(ui_controller()->IsShowingQuickAnswersView());
 
   DismissQuickAnswers();
-  EXPECT_FALSE(ui_controller()->is_showing_quick_answers_view());
+  EXPECT_FALSE(ui_controller()->IsShowingQuickAnswersView());
 }
 
 TEST_F(QuickAnswersControllerTest,
@@ -222,4 +224,33 @@ TEST_F(QuickAnswersControllerTest,
   // between the view and the menu.
   const views::View* consent_view = GetConsentView();
   EXPECT_EQ(123, consent_view->GetBoundsInScreen().x());
+}
+
+TEST_F(QuickAnswersControllerTest, ShouldNotCrashWhenContextMenuCloses) {
+  ShowConsentView();
+
+  auto* active_menu_controller = views::MenuController::GetActiveInstance();
+  // Ensure that the context menu currently exists and has a non-null owner.
+  ASSERT_TRUE(active_menu_controller != nullptr);
+  ASSERT_TRUE(active_menu_controller->owner() != nullptr);
+
+  // Simulate closing the context menu.
+  ChromeQuickAnswersTestBase::ResetMenuParent();
+
+  // Simulate returning a quick answers request after the context menu closed.
+  // This should *not* result in a crash.
+  std::unique_ptr<quick_answers::QuickAnswersRequest> processed_request =
+      std::make_unique<quick_answers::QuickAnswersRequest>();
+  processed_request->selected_text = "unfathomable";
+  quick_answers::PreprocessedOutput expected_processed_output;
+  expected_processed_output.intent_info.intent_text = "unfathomable";
+  expected_processed_output.query = "Define unfathomable";
+  expected_processed_output.intent_info.intent_type =
+      quick_answers::IntentType::kDictionary;
+  processed_request->preprocessed_output = expected_processed_output;
+  controller()->OnRequestPreprocessFinished(*processed_request);
+
+  // Confirm that the quick answers views are not showing.
+  EXPECT_FALSE(ui_controller()->IsShowingUserConsentView());
+  EXPECT_FALSE(ui_controller()->IsShowingQuickAnswersView());
 }

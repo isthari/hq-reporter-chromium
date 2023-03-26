@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -52,11 +52,11 @@ class InfoBarView : public infobars::InfoBar,
   using Labels = std::vector<views::Label*>;
 
   // Creates a label with the appropriate font and color for an infobar.
-  views::Label* CreateLabel(const std::u16string& text) const;
+  std::unique_ptr<views::Label> CreateLabel(const std::u16string& text) const;
 
   // Creates a link with the appropriate font and color for an infobar.
   // NOTE: Subclasses must ignore link clicks if we're unowned.
-  views::Link* CreateLink(const std::u16string& text);
+  std::unique_ptr<views::Link> CreateLink(const std::u16string& text);
 
   // Given |views| and the total |available_width| to display them in, sets
   // each view's size so that the longest view shrinks until it reaches the
@@ -90,10 +90,6 @@ class InfoBarView : public infobars::InfoBar,
   // Does the actual work for AssignWidths().  Assumes |views| is sorted by
   // decreasing preferred width.
   static void AssignWidthsSorted(Views* views, int available_width);
-
-  // Returns the current color for the theme property |id|.  Will return the
-  // wrong value if no theme provider is available.
-  SkColor GetColor(int id) const;
 
   // Sets various attributes on |label| that are common to all child links and
   // labels.

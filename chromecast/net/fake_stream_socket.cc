@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,12 @@
 #include <cstring>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/check_op.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/weak_ptr.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/socket/next_proto.h"
@@ -85,7 +85,7 @@ class SocketBuffer {
   }
 
   void PostReadCallback(net::CompletionOnceCallback callback, int result) {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&SocketBuffer::CallReadCallback,
                                   weak_factory_.GetWeakPtr(),
                                   std::move(callback), result));
@@ -212,14 +212,6 @@ net::NextProto FakeStreamSocket::GetNegotiatedProtocol() const {
 bool FakeStreamSocket::GetSSLInfo(net::SSLInfo* /* ssl_info */) {
   return false;
 }
-
-void FakeStreamSocket::GetConnectionAttempts(
-    net::ConnectionAttempts* /* out */) const {}
-
-void FakeStreamSocket::ClearConnectionAttempts() {}
-
-void FakeStreamSocket::AddConnectionAttempts(
-    const net::ConnectionAttempts& /* attempts */) {}
 
 int64_t FakeStreamSocket::GetTotalReceivedBytes() const {
   return 0;

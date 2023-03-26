@@ -1,5 +1,5 @@
 This is a testharness.js-based test.
-Found 736 tests; 405 PASS, 331 FAIL, 0 TIMEOUT, 0 NOTRUN.
+Found 738 tests; 406 PASS, 332 FAIL, 0 TIMEOUT, 0 NOTRUN.
 PASS Loading data…
 PASS Parsing: <http://example	.
 org> against <http://example.org/foo/bar>
@@ -287,7 +287,7 @@ FAIL Parsing: <http://%ef%bc%85%ef%bc%94%ef%bc%91.com> against <http://other.com
 FAIL Parsing: <http://％００.com> against <http://other.com/> assert_equals: failure should set href to input expected "http://％００.com" but got "http://%00.com/"
 FAIL Parsing: <http://%ef%bc%85%ef%bc%90%ef%bc%90.com> against <http://other.com/> assert_equals: failure should set href to input expected "http://%ef%bc%85%ef%bc%90%ef%bc%90.com" but got "http://%00.com/"
 PASS Parsing: <http://你好你好> against <http://other.com/>
-FAIL Parsing: <https://faß.ExAmPlE/> against <about:blank> assert_equals: href expected "https://xn--fa-hia.example/" but got "https://fass.example/"
+PASS Parsing: <https://faß.ExAmPlE/> against <about:blank>
 FAIL Parsing: <sc://faß.ExAmPlE/> against <about:blank> assert_equals: host expected "fa%C3%9F.ExAmPlE" but got ""
 FAIL Parsing: <http://%zz%66%a.com> against <http://other.com/> assert_equals: failure should set href to input expected "http://%zz%66%a.com" but got "http://%25zzf%25a.com/"
 FAIL Parsing: <http://%25> against <http://other.com/> assert_equals: failure should set href to input expected "http://%25" but got "http://%25/"
@@ -301,6 +301,7 @@ FAIL Parsing: <https://x x:12> against <about:blank> assert_unreached: Expected 
 PASS Parsing: <http://０Ｘｃ０．０２５０．０１> against <http://other.com/>
 PASS Parsing: <http://./> against <about:blank>
 PASS Parsing: <http://../> against <about:blank>
+FAIL Parsing: <h://.> against <about:blank> assert_equals: href expected "h://." but got "file:///H://"
 PASS Parsing: <http://[www.google.com]/> against <about:blank>
 FAIL Parsing: <http://[google.com]> against <http://other.com/> assert_equals: failure should set href to input expected "http://[google.com]" but got "http://[google.com]/"
 FAIL Parsing: <http://[::1.2.3.4x]> against <http://other.com/> assert_equals: failure should set href to input expected "http://[::1.2.3.4x]" but got "http://[::1.2.3.4x]/"
@@ -695,6 +696,7 @@ PASS Parsing: <a!@$*=/foo.html> against <file:///some/dir/bar.html>
 PASS Parsing: <a1234567890-+.:foo/bar> against <http://example.com/dir/file>
 PASS Parsing: <file://a­b/p> against <about:blank>
 PASS Parsing: <file://a%C2%ADb/p> against <about:blank>
+FAIL Parsing: <file://loC𝐀𝐋𝐇𝐨𝐬𝐭/usr/bin> against <about:blank> assert_equals: href expected "file:///usr/bin" but got "file://localhost/usr/bin"
 FAIL Parsing: <file://­/p> against <about:blank> assert_equals: failure should set href to input expected "file://­/p" but got "file://%C2%AD/p"
 PASS Parsing: <file://%C2%AD/p> against <about:blank>
 FAIL Parsing: <file://xn--/p> against <about:blank> assert_unreached: Expected URL to fail parsing Reached unreachable code

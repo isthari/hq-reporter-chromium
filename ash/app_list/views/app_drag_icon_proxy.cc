@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,13 +21,22 @@
 
 namespace ash {
 
+constexpr SystemShadow::Type kShadowType = SystemShadow::Type::kElevation12;
+
+// For all app icons, there is an intended transparent ring around the visible
+// icon that makes the icon looks smaller than its actual size. The shadow is
+// needed to resize to align with the visual icon. Note that this constant is
+// the same as `kBackgroundCircleScale` in
+// chrome/browser/apps/icon_standardizer.cc
+constexpr float kShadowScaleFactor = 176.f / 192.f;
+
 AppDragIconProxy::AppDragIconProxy(
     aura::Window* root_window,
     const gfx::ImageSkia& icon,
     const gfx::Point& pointer_location_in_screen,
     const gfx::Vector2d& pointer_offset_from_center,
     float scale_factor,
-    bool use_blurred_background) {
+    bool is_folder_icon) {
   drag_image_widget_ =
       DragImageView::Create(root_window, ui::mojom::DragEventSource::kMouse);
 
@@ -36,6 +45,7 @@ AppDragIconProxy::AppDragIconProxy(
   drag_image->SetImage(icon);
 
   gfx::Size size = drag_image->GetPreferredSize();
+
   size.set_width(std::round(size.width() * scale_factor));
   size.set_height(std::round(size.height() * scale_factor));
 
@@ -52,7 +62,21 @@ AppDragIconProxy::AppDragIconProxy(
   drag_image->SetPaintToLayer();
   drag_image->layer()->SetFillsBoundsOpaquely(false);
 
-  if (use_blurred_background) {
+  // Create the shadow layer.
+  gfx::Size shadow_size =
+      is_folder_icon ? size : gfx::ScaleToFlooredSize(size, kShadowScaleFactor);
+  gfx::Point shadow_offset((size.width() - shadow_size.width()) / 2,
+                           (size.height() - shadow_size.height()) / 2);
+  shadow_ = SystemShadow::CreateShadowOnTextureLayer(kShadowType);
+  shadow_->SetRoundedCornerRadius(shadow_size.width() / 2);
+  auto* shadow_layer = shadow_->GetLayer();
+  auto* image_layer = drag_image->layer();
+
+  image_layer->Add(shadow_layer);
+  image_layer->StackAtBottom(shadow_layer);
+  shadow_->SetContentBounds(gfx::Rect(shadow_offset, shadow_size));
+
+  if (is_folder_icon) {
     const float radius = size.width() / 2.0f;
     drag_image->layer()->SetRoundedCornerRadius(
         {radius, radius, radius, radius});

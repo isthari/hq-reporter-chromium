@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -89,10 +89,6 @@ class FakeSocket : public net::StreamSocket {
   bool WasAlpnNegotiated() const override;
   net::NextProto GetNegotiatedProtocol() const override;
   bool GetSSLInfo(net::SSLInfo* ssl_info) override;
-  void GetConnectionAttempts(net::ConnectionAttempts* out) const override;
-  void ClearConnectionAttempts() override {}
-  void AddConnectionAttempts(const net::ConnectionAttempts& attempts) override {
-  }
   int64_t GetTotalReceivedBytes() const override;
   void ApplySocketTag(const net::SocketTag& tag) override {}
 
@@ -132,7 +128,7 @@ class FakeSocketClient : public mojom::P2PSocketClient {
   MOCK_METHOD1(SendComplete, void(const P2PSendPacketMetrics&));
   MOCK_METHOD3(DataReceived,
                void(const net::IPEndPoint&,
-                    const std::vector<int8_t>&,
+                    base::span<const uint8_t>,
                     base::TimeTicks));
 
   bool connection_error() { return disconnect_error_; }
@@ -143,10 +139,10 @@ class FakeSocketClient : public mojom::P2PSocketClient {
   bool disconnect_error_ = false;
 };
 
-void CreateRandomPacket(std::vector<int8_t>* packet);
-void CreateStunRequest(std::vector<int8_t>* packet);
-void CreateStunResponse(std::vector<int8_t>* packet);
-void CreateStunError(std::vector<int8_t>* packet);
+void CreateRandomPacket(std::vector<uint8_t>* packet);
+void CreateStunRequest(std::vector<uint8_t>* packet);
+void CreateStunResponse(std::vector<uint8_t>* packet);
+void CreateStunError(std::vector<uint8_t>* packet);
 
 net::IPEndPoint ParseAddress(const std::string& ip_str, uint16_t port);
 

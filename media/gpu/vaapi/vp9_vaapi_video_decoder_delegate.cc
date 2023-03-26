@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <type_traits>
 
-#include "base/cxx17_backports.h"
 #include "base/numerics/checked_math.h"
 #include "base/trace_event/trace_event.h"
 #include "build/chromeos_buildflags.h"
@@ -56,7 +55,8 @@ DecodeStatus VP9VaapiVideoDecoderDelegate::SubmitDecode(
     base::OnceClosure done_cb) {
   TRACE_EVENT0("media,gpu", "VP9VaapiVideoDecoderDelegate::SubmitDecode");
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // |done_cb| should be null as we return false from IsFrameContextRequired().
+  // |done_cb| should be null as we return false from
+  // NeedsCompressedHeaderParsed().
   DCHECK(!done_cb);
 
   const Vp9FrameHeader* frame_hdr = pic->frame_hdr.get();
@@ -113,8 +113,8 @@ DecodeStatus VP9VaapiVideoDecoderDelegate::SubmitDecode(
   pic_param.frame_width = base::checked_cast<uint16_t>(frame_hdr->frame_width);
   pic_param.frame_height =
       base::checked_cast<uint16_t>(frame_hdr->frame_height);
-  CHECK_EQ(kVp9NumRefFrames, base::size(pic_param.reference_frames));
-  for (size_t i = 0; i < base::size(pic_param.reference_frames); ++i) {
+  CHECK_EQ(kVp9NumRefFrames, std::size(pic_param.reference_frames));
+  for (size_t i = 0; i < std::size(pic_param.reference_frames); ++i) {
     auto ref_pic = ref_frames.GetFrame(i);
     if (ref_pic) {
       pic_param.reference_frames[i] =
@@ -177,7 +177,7 @@ DecodeStatus VP9VaapiVideoDecoderDelegate::SubmitDecode(
       std::extent<decltype(Vp9SegmentationParams::feature_enabled)>() ==
           std::extent<decltype(slice_param.seg_param)>(),
       "seg_param array of incorrect size");
-  for (size_t i = 0; i < base::size(slice_param.seg_param); ++i) {
+  for (size_t i = 0; i < std::size(slice_param.seg_param); ++i) {
     VASegmentParameterVP9& seg_param = slice_param.seg_param[i];
 #define SEG_TO_SP_SF(a, b) seg_param.segment_flags.fields.a = b
     SEG_TO_SP_SF(
@@ -197,9 +197,8 @@ DecodeStatus VP9VaapiVideoDecoderDelegate::SubmitDecode(
     seg_param.chroma_ac_quant_scale = seg.uv_dequant[i][1];
   }
 
-  // Always re-create |encoded_data| because reusing the buffer causes horrific
-  // artifacts in decoded buffers. TODO(b/169725321): This seems to be a driver
-  // bug, fix it and reuse the buffer.
+  // Create VASliceData buffer |encoded_data| every frame so that decoding can
+  // be more asynchronous than reusing the buffer.
   std::unique_ptr<ScopedVABuffer> encoded_data;
 
   std::vector<std::pair<VABufferID, VaapiWrapper::VABufferDescriptor>> buffers =
@@ -233,16 +232,32 @@ DecodeStatus VP9VaapiVideoDecoderDelegate::SubmitDecode(
     buffers.push_back({protected_params_->id(),
                        {protected_params_->type(), protected_params_->size(),
                         amd_decrypt_params.data()}});
+
+    // For transcrypted VP9 on AMD we need to send the UCH + cypher_bytes from
+    // the buffer as the slice data per AMD's instructions.
+    base::CheckedNumeric<size_t> protected_data_size =
+        decrypt_config->subsamples()[0].cypher_bytes;
+    protected_data_size += frame_hdr->uncompressed_header_size;
+    if (!protected_data_size.IsValid()) {
+      DVLOG(1) << "Invalid protected_data_size";
+      return DecodeStatus::kFail;
+    }
     encoded_data = vaapi_wrapper_->CreateVABuffer(
-        VASliceDataBufferType,
-        base::strict_cast<size_t>(
-            decrypt_config->subsamples()[0].cypher_bytes));
+        VASliceDataBufferType, protected_data_size.ValueOrDie());
     if (!encoded_data)
       return DecodeStatus::kFail;
-    buffers.push_back(
-        {encoded_data->id(),
-         {encoded_data->type(), encoded_data->size(),
-          frame_hdr->data + decrypt_config->subsamples()[0].clear_bytes}});
+    protected_vp9_data =
+        std::make_unique<uint8_t[]>(protected_data_size.ValueOrDie());
+    // Copy the UCH.
+    memcpy(protected_vp9_data.get(), frame_hdr->data,
+           frame_hdr->uncompressed_header_size);
+    // Copy the transcrypted data.
+    memcpy(protected_vp9_data.get() + frame_hdr->uncompressed_header_size,
+           frame_hdr->data + decrypt_config->subsamples()[0].clear_bytes,
+           base::strict_cast<size_t>(decrypt_config->subsamples()[0].cypher_bytes));
+    buffers.push_back({encoded_data->id(),
+                       {encoded_data->type(), encoded_data->size(),
+                        protected_vp9_data.get()}});
   } else {
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
     encoded_data = vaapi_wrapper_->CreateVABuffer(VASliceDataBufferType,
@@ -287,7 +302,7 @@ bool VP9VaapiVideoDecoderDelegate::OutputPicture(
   return true;
 }
 
-bool VP9VaapiVideoDecoderDelegate::IsFrameContextRequired() const {
+bool VP9VaapiVideoDecoderDelegate::NeedsCompressedHeaderParsed() const {
   return false;
 }
 

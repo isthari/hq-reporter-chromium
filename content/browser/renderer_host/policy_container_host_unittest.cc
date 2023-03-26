@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "services/network/public/mojom/content_security_policy.mojom.h"
 #include "services/network/public/mojom/ip_address_space.mojom-shared.h"
 #include "services/network/public/mojom/referrer_policy.mojom-shared.h"
+#include "services/network/public/mojom/web_sandbox_flags.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -28,6 +29,9 @@ struct SameSizeAsPolicyContainerPolicies {
       content_security_policies;
   network::CrossOriginOpenerPolicy cross_origin_opener_policy;
   network::CrossOriginEmbedderPolicy cross_origin_embedder_policy;
+  network::mojom::WebSandboxFlags sandbox_flags;
+  bool is_credentialless;
+  bool can_navigate_top_without_user_gesture;
 };
 
 }  // namespace
@@ -50,6 +54,9 @@ TEST(PolicyContainerPoliciesTest, CloneIsEqual) {
   csp->treat_as_public_address = true;
   csps.push_back(std::move(csp));
   network::CrossOriginOpenerPolicy coop;
+  network::mojom::WebSandboxFlags sandbox_flags =
+      network::mojom::WebSandboxFlags::kOrientationLock |
+      network::mojom::WebSandboxFlags::kPropagatesToAuxiliaryBrowsingContexts;
   coop.value = network::mojom::CrossOriginOpenerPolicyValue::kSameOrigin;
   coop.report_only_value =
       network::mojom::CrossOriginOpenerPolicyValue::kSameOriginAllowPopups;
@@ -62,12 +69,15 @@ TEST(PolicyContainerPoliciesTest, CloneIsEqual) {
   coep.reporting_endpoint = "endpoint 1";
   coep.report_only_reporting_endpoint = "endpoint 2";
 
-  auto policies = std::make_unique<PolicyContainerPolicies>(
+  PolicyContainerPolicies policies(
       network::mojom::ReferrerPolicy::kAlways,
       network::mojom::IPAddressSpace::kUnknown,
-      /*is_web_secure_context=*/true, std::move(csps), coop, coep);
+      /*is_web_secure_context=*/true, std::move(csps), coop, coep,
+      sandbox_flags,
+      /*is_credentialless=*/true,
+      /*can_navigate_top_without_user_gesture=*/true);
 
-  EXPECT_THAT(policies->Clone(), Pointee(Eq(ByRef(*policies))));
+  EXPECT_THAT(policies.Clone(), Eq(ByRef(policies)));
 }
 
 TEST(PolicyContainerHostTest, ReferrerPolicy) {

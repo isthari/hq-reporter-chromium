@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {cssStyle} from '../../css.js';
+import {CameraManager} from '../../device/index.js';
 import * as dom from '../../dom.js';
 import * as state from '../../state.js';
-import {Mode} from '../../type.js';
 import {windowController} from '../../window_controller.js';
 
 /**
@@ -13,10 +13,15 @@ import {windowController} from '../../window_controller.js';
  */
 export class Layout {
   private readonly previewBox = dom.get('#preview-box', HTMLDivElement);
+
   private readonly faceOverlay =
       dom.get('#preview-face-overlay', HTMLCanvasElement);
+
   private readonly viewportRule = cssStyle('#preview-viewport');
+
   private readonly contentRule = cssStyle('.preview-content');
+
+  constructor(private readonly cameraManager: CameraManager) {}
 
   private setContentSize(width: number, height: number) {
     this.contentRule.setProperty('width', `${width}px`);
@@ -51,7 +56,7 @@ export class Layout {
     const {width: boxW, height: boxH} = this.previewBox.getBoundingClientRect();
     const video = dom.get('#preview-video', HTMLVideoElement);
 
-    if (state.get(Mode.SQUARE)) {
+    if (this.cameraManager.useSquareResolution()) {
       const viewportSize = Math.min(boxW, boxH);
       this.setViewportSize(viewportSize, viewportSize);
       const scale =

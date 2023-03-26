@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -120,7 +120,7 @@ IN_PROC_BROWSER_TEST_F(LoginPolicyTestBase, AllowedInputMethods) {
   // should be "xkb:fr::fra", enabling "xkb:us::eng" should not be possible,
   // enabling "xkb:de::ger" should be possible.
   EXPECT_EQ(2U, ime_state->GetAllowedInputMethodIds().size());
-  EXPECT_EQ(2U, ime_state->GetEnabledInputMethods()->size());
+  EXPECT_EQ(2U, ime_state->GetEnabledInputMethods().size());
   EXPECT_EQ(input_methods[1], ime_state->GetCurrentInputMethod().id());
   EXPECT_FALSE(ime_state->EnableInputMethod(input_methods[0]));
   EXPECT_TRUE(ime_state->EnableInputMethod(input_methods[2]));
@@ -205,13 +205,14 @@ IN_PROC_BROWSER_TEST_F(PrimaryUserPoliciesProxiedTest,
           ->GetPolicyService();
 
   // Sanity check default state without a policy active.
-  EXPECT_FALSE(device_wide_policy_service
-                   ->GetPolicies(PolicyNamespace(
-                       POLICY_DOMAIN_CHROME, std::string() /* component_id */))
-                   .GetValue(key::kAudioOutputAllowed));
+  EXPECT_FALSE(
+      device_wide_policy_service
+          ->GetPolicies(PolicyNamespace(POLICY_DOMAIN_CHROME,
+                                        std::string() /* component_id */))
+          .GetValue(key::kAudioOutputAllowed, base::Value::Type::BOOLEAN));
   const PrefService::Preference* pref =
       g_browser_process->local_state()->FindPreference(
-          chromeos::prefs::kAudioOutputAllowed);
+          ash::prefs::kAudioOutputAllowed);
   EXPECT_FALSE(pref->IsManaged());
   EXPECT_TRUE(pref->GetValue()->GetBool());
 
@@ -229,7 +230,7 @@ IN_PROC_BROWSER_TEST_F(PrimaryUserPoliciesProxiedTest,
       device_wide_policy_service
           ->GetPolicies(PolicyNamespace(POLICY_DOMAIN_CHROME,
                                         std::string() /* component_id */))
-          .GetValue(key::kAudioOutputAllowed);
+          .GetValue(key::kAudioOutputAllowed, base::Value::Type::BOOLEAN);
   ASSERT_TRUE(policy_value);
   EXPECT_FALSE(policy_value->GetBool());
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,19 +6,18 @@
 
 #include <utility>
 
+#include "base/command_line.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
+#include "chrome/common/chrome_switches.h"
+#include "chrome/common/pref_names.h"
 #include "ui/aura/window.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
-
-#if !BUILDFLAG(IS_CHROMEOS_LACROS)
-#include "chrome/common/pref_names.h"
-#endif
 
 namespace {
 
@@ -27,13 +26,7 @@ namespace {
 constexpr int kForceMaximizeWidthLimit = 1366;
 
 bool ShouldForceMaximizeOnFirstRun(Profile* profile) {
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-  // TODO(https://crbug.com/1110548): Support the ForceMaximizeOnFirstRun policy
-  // in lacros-chrome.
-  return false;
-#else
   return profile->GetPrefs()->GetBoolean(prefs::kForceMaximizeOnFirstRun);
-#endif
 }
 
 }  // namespace
@@ -102,8 +95,13 @@ bool WindowSizerChromeOS::GetBrowserBounds(
     } else if (browser()->is_trusted_source()) {
       // For trusted popups (v1 apps and system windows), do not use the last
       // active window bounds, only use saved or default bounds.
-      if (!GetSavedWindowBounds(bounds, show_state))
-        *bounds = GetDefaultWindowBounds(GetDisplayForNewWindow());
+      // For PWA app windows (which are also a trusted source) we do want to use
+      // the last active window bounds.
+      if (!browser()->is_type_app() || !browser()->app_controller() ||
+          !GetAppBrowserBoundsFromLastActive(bounds, show_state)) {
+        if (!GetSavedWindowBounds(bounds, show_state))
+          *bounds = GetDefaultWindowBounds(GetDisplayForNewWindow());
+      }
       determined = true;
     } else if (state_provider()) {
       // Finally, prioritize the last saved |show_state|. If you have questions
@@ -151,6 +149,7 @@ void WindowSizerChromeOS::GetTabbedBrowserBounds(
   display::Display display = GetDisplayForNewWindow(*bounds_in_screen);
   if (!is_saved_bounds)
     *bounds_in_screen = GetDefaultWindowBounds(display);
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 
   if (browser()->is_session_restore()) {
     // Respect display for saved bounds during session restore.
@@ -158,7 +157,9 @@ void WindowSizerChromeOS::GetTabbedBrowserBounds(
         display::Screen::GetScreen()->GetDisplayMatching(*bounds_in_screen);
   } else if (BrowserList::GetInstance()->empty() && !is_saved_bounds &&
              (ShouldForceMaximizeOnFirstRun(browser()->profile()) ||
-              display.work_area().width() <= kForceMaximizeWidthLimit)) {
+              (display.work_area().width() <= kForceMaximizeWidthLimit &&
+               !command_line->HasSwitch(
+                   switches::kDisableAutoMaximizeForTests)))) {
     // No browsers, no saved bounds: assume first run. Maximize if set by policy
     // or if the screen is narrower than a predetermined size.
     *show_state = ui::SHOW_STATE_MAXIMIZED;
@@ -178,4 +179,34 @@ void WindowSizerChromeOS::GetTabbedBrowserBounds(
   }
 
   bounds_in_screen->AdjustToFit(display.work_area());
+}
+
+bool WindowSizerChromeOS::GetAppBrowserBoundsFromLastActive(
+    gfx::Rect* bounds_in_screen,
+    ui::WindowShowState* show_state) const {
+  DCHECK(show_state);
+  DCHECK(bounds_in_screen);
+  DCHECK(browser()->app_controller());
+
+  if (state_provider() && state_provider()->GetLastActiveWindowState(
+                              bounds_in_screen, show_state)) {
+    // TODO(crbug.com/1413902): This is broken when the last active window is
+    // minimized as bounds_in_screen doesn't get updated. If
+    // GetLastActiveWindowState can return false for minimized windows, this
+    // code can be reverted.
+    if (bounds_in_screen->IsEmpty()) {
+      return false;
+    }
+    bounds_in_screen->Offset(kWindowTilePixels, kWindowTilePixels);
+    // Adjusting bounds_in_screen to fit on the display as returned by
+    // GetDisplayForNewWindow here matches behavior for tabbed browsers above.
+    // This would mean that we might take into account the size of the last
+    // active matching window but ignore the position, if it is on a different
+    // display. However the current implementation for GetLastActiveWindowState
+    // only looks for windows on the same display, so in practice there should
+    // never be a mismatch.
+    bounds_in_screen->AdjustToFit(GetDisplayForNewWindow().work_area());
+    return true;
+  }
+  return false;
 }

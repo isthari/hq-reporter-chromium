@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,6 +28,8 @@ NSString* const kPasteboardChangeCountKey = @"PasteboardChangeCount";
 // Key used to store the last date at which it was detected that the pasteboard
 // changed. It is used to evaluate the age of the pasteboard's content.
 NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
+// Default Scheme to use for urls with no scheme.
+NSString* const kDefaultScheme = @"https";
 
 }  // namespace
 
@@ -386,11 +388,25 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
               completionHandler:^(
                   NSDictionary<UIPasteboardDetectionPattern, id>* values,
                   NSError* error) {
-                DCHECK(!error) << error.debugDescription;
-
+                // On iOS 16, users can deny access to the clipboard.
+                if (error) {
+                  weakSelf.cachedURL = nil;
+                  callback(nil);
+                  return;
+                }
                 NSURL* url = [NSURL
                     URLWithString:
                         values[UIPasteboardDetectionPatternProbableWebURL]];
+
+                // |detectValuesForPatterns:| will return a url even if the url
+                // is missing a scheme. In this case, default to https.
+                if (url && url.scheme == nil) {
+                  NSURLComponents* components =
+                      [[NSURLComponents alloc] initWithURL:url
+                                   resolvingAgainstBaseURL:NO];
+                  components.scheme = kDefaultScheme;
+                  url = components.URL;
+                }
 
                 if (![self.authorizedSchemes containsObject:url.scheme]) {
                   weakSelf.cachedURL = nil;

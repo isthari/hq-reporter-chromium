@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include <set>
 
 #include "base/files/scoped_file.h"
-#include "base/memory/platform_shared_memory_region.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/lock.h"
 #include "base/thread_annotations.h"
@@ -34,7 +34,7 @@ class DecoderProtectedBufferManager
   // after use. |response_cb| is called on the calling sequence and may be
   // called before this method returns.
   using GetProtectedSharedMemoryRegionForResponseCB =
-      base::OnceCallback<void(base::subtle::PlatformSharedMemoryRegion)>;
+      base::OnceCallback<void(base::UnsafeSharedMemoryRegion)>;
   virtual void GetProtectedSharedMemoryRegionFor(
       base::ScopedFD dummy_fd,
       GetProtectedSharedMemoryRegionForResponseCB response_cb) = 0;
@@ -70,10 +70,10 @@ class ProtectedBufferManager : public DecoderProtectedBufferManager {
   CreateProtectedBufferAllocator(
       scoped_refptr<ProtectedBufferManager> protected_buffer_manager);
 
-  // Return a duplicated PlatformSharedMemoryRegion associated with the
+  // Return a duplicated UnsafeSharedMemoryRegion associated with the
   // |dummy_fd|, if one exists, or an invalid handle otherwise. The client is
   // responsible for closing the handle after use.
-  base::subtle::PlatformSharedMemoryRegion GetProtectedSharedMemoryRegionFor(
+  base::UnsafeSharedMemoryRegion GetProtectedSharedMemoryRegionFor(
       base::ScopedFD dummy_fd);
 
   // Return a duplicated NativePixmapHandle associated with the |dummy_fd|,

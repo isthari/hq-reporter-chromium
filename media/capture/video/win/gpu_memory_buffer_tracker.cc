@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -112,6 +112,7 @@ bool GpuMemoryBufferTracker::CreateBufferInternal() {
   }
 
   region_ = base::UnsafeSharedMemoryRegion::Create(GetMemorySizeInBytes());
+  mapping_ = region_.Map();
 
   return true;
 }
@@ -151,8 +152,10 @@ GpuMemoryBufferTracker::DuplicateAsUnsafeRegion() {
   }
 
   CHECK(region_.IsValid());
+  CHECK(mapping_.IsValid());
 
-  if (!gpu::CopyDXGIBufferToShMem(buffer_->GetHandle(), region_.Duplicate(),
+  if (!gpu::CopyDXGIBufferToShMem(buffer_->GetHandle(),
+                                  mapping_.GetMemoryAsSpan<uint8_t>(),
                                   d3d_device_.Get(), &staging_texture_)) {
     DLOG(ERROR) << "Couldn't copy DXGI buffer to shmem";
     return base::UnsafeSharedMemoryRegion();

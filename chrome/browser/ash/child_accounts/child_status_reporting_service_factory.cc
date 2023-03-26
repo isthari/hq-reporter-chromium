@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include "base/no_destructor.h"
 #include "chrome/browser/ash/child_accounts/child_status_reporting_service.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 
 namespace ash {
 
@@ -26,9 +25,7 @@ ChildStatusReportingServiceFactory::GetInstance() {
 }
 
 ChildStatusReportingServiceFactory::ChildStatusReportingServiceFactory()
-    : BrowserContextKeyedServiceFactory(
-          "ChildStatusReportingServiceFactory",
-          BrowserContextDependencyManager::GetInstance()) {}
+    : ProfileKeyedServiceFactory("ChildStatusReportingServiceFactory") {}
 
 ChildStatusReportingServiceFactory::~ChildStatusReportingServiceFactory() =
     default;

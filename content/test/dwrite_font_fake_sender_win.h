@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -125,12 +125,6 @@ class FakeFontCollection : public blink::mojom::DWriteFontProxy {
                      MapCharactersCallback callback) override;
   void MatchUniqueFont(const std::u16string& unique_font_name,
                        MatchUniqueFontCallback callback) override;
-  void GetUniqueFontLookupMode(
-      GetUniqueFontLookupModeCallback callback) override;
-  void GetUniqueNameLookupTableIfAvailable(
-      GetUniqueNameLookupTableIfAvailableCallback callback) override;
-  void GetUniqueNameLookupTable(
-      GetUniqueNameLookupTableCallback callback) override;
   void FallbackFamilyAndStyleForCodepoint(
       const std::string& base_family_name,
       const std::string& locale_name,

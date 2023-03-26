@@ -1,17 +1,17 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_MEDIA_MESSAGE_CENTER_MEDIA_NOTIFICATION_VIEW_MODERN_IMPL_H_
 #define COMPONENTS_MEDIA_MESSAGE_CENTER_MEDIA_NOTIFICATION_VIEW_MODERN_IMPL_H_
 
-#include "base/memory/raw_ptr.h"
-#include "components/media_message_center/media_notification_view.h"
-
 #include "base/component_export.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "components/media_message_center/media_notification_view.h"
+#include "components/media_message_center/notification_theme.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/image_view.h"
@@ -64,7 +64,8 @@ class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationViewModernImpl
       base::WeakPtr<MediaNotificationItem> item,
       std::unique_ptr<views::View> notification_controls_view,
       std::unique_ptr<views::View> notification_footer_view,
-      int notification_width);
+      int notification_width,
+      absl::optional<NotificationTheme> theme = absl::nullopt);
   MediaNotificationViewModernImpl(const MediaNotificationViewModernImpl&) =
       delete;
   MediaNotificationViewModernImpl& operator=(
@@ -90,7 +91,7 @@ class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationViewModernImpl
       const media_session::MediaPosition& position) override;
   void UpdateWithMediaArtwork(const gfx::ImageSkia& image) override;
   void UpdateWithFavicon(const gfx::ImageSkia& icon) override;
-  void UpdateWithVectorIcon(const gfx::VectorIcon& vector_icon) override {}
+  void UpdateWithVectorIcon(const gfx::VectorIcon* vector_icon) override {}
   void UpdateDeviceSelectorAvailability(bool availability) override;
   void UpdateWithMuteStatus(bool mute) override;
   void UpdateWithVolume(float volume) override;
@@ -144,10 +145,6 @@ class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationViewModernImpl
   // Set of enabled actions.
   base::flat_set<media_session::mojom::MediaSessionAction> enabled_actions_;
 
-  // Stores the text to be read by screen readers describing the notification.
-  // Contains the title, artist and album separated by hyphens.
-  std::u16string accessible_name_;
-
   raw_ptr<MediaNotificationBackground> background_;
 
   media_session::MediaPosition position_;
@@ -164,6 +161,8 @@ class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationViewModernImpl
   raw_ptr<MediaControlsProgressView> progress_ = nullptr;
   raw_ptr<views::ToggleImageButton> mute_button_ = nullptr;
   raw_ptr<MediaNotificationVolumeSliderView> volume_slider_ = nullptr;
+
+  absl::optional<NotificationTheme> theme_;
 };
 
 }  // namespace media_message_center

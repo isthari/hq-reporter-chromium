@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <limits>
 #include <string>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_number_conversions.h"
@@ -45,13 +45,7 @@ void ResetCheckDefaultBrowserPref(const base::FilePath& profile_path) {
 void ShowPrompt() {
   // Show the default browser request prompt in the most recently active,
   // visible, tabbed browser. Do not show the prompt if no such browser exists.
-  BrowserList* browser_list = BrowserList::GetInstance();
-  for (auto browser_iterator =
-           browser_list->begin_browsers_ordered_by_activation();
-       browser_iterator != browser_list->end_browsers_ordered_by_activation();
-       ++browser_iterator) {
-    Browser* browser = *browser_iterator;
-
+  for (Browser* browser : BrowserList::GetInstance()->OrderedByActivation()) {
     // |browser| may be null in UI tests. Also, don't show the prompt in an app
     // window, which is not meant to be treated as a Chrome window. Only show in
     // a normal, tabbed browser.

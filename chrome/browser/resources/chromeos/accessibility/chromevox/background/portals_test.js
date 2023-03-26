@@ -1,14 +1,14 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // Include test fixture.
-GEN_INCLUDE(['../testing/chromevox_next_e2e_test_base.js']);
+GEN_INCLUDE(['../testing/chromevox_e2e_test_base.js']);
 
 /**
  * Test fixture for Portals.
  */
-ChromeVoxPortalsTest = class extends ChromeVoxNextE2ETest {
+ChromeVoxPortalsTest = class extends ChromeVoxE2ETest {
   /** @override */
   testGenCppIncludes() {
     super.testGenCppIncludes();
@@ -18,6 +18,20 @@ ChromeVoxPortalsTest = class extends ChromeVoxNextE2ETest {
   /** @override */
   get featureList() {
     return {enabled: ['blink::features::kPortals']};
+  }
+
+  /** @override */
+  async setUpDeferred() {
+    await super.setUpDeferred();
+
+    // Alphabetical based on file path.
+    await importModule(
+        'ChromeVoxRange', '/chromevox/background/chromevox_range.js');
+    await importModule(
+        'ChromeVoxState', '/chromevox/background/chromevox_state.js');
+
+    globalThis.EventType = chrome.automation.EventType;
+    globalThis.RoleType = chrome.automation.RoleType;
   }
 
   get testServer() {
@@ -64,44 +78,38 @@ ChromeVoxPortalsTest = class extends ChromeVoxNextE2ETest {
   }
 };
 
-TEST_F('ChromeVoxPortalsTest', 'ShouldFocusPortal', function() {
-  this.runWithLoadedTree(
-      undefined, function(root) {
-        const portal = root.find({role: RoleType.PORTAL});
-        const button = root.find({role: RoleType.BUTTON});
-        assertEquals(RoleType.PORTAL, portal.role);
-        assertEquals(RoleType.BUTTON, button.role);
+AX_TEST_F('ChromeVoxPortalsTest', 'ShouldFocusPortal', async function() {
+  const root = await this.runWithLoadedTree(null, {
+    url: `${testRunnerParams.testServerBaseUrl}portal/portal-and-button.html`,
+  });
+  const portal = root.find({role: RoleType.PORTAL});
+  const button = root.find({role: RoleType.BUTTON});
+  assertEquals(RoleType.PORTAL, portal.role);
+  assertEquals(RoleType.BUTTON, button.role);
 
-        const afterPortalIsReady = this.newCallback(() => {
-          const chromeVoxState = ChromeVoxState.instance;
-          portal.addEventListener(EventType.FOCUS, this.newCallback(function() {
-            assertEquals(portal, chromeVoxState.currentRange.start.node);
-            // test is done.
-          }));
-          assertEquals(button, chromeVoxState.currentRange.start.node);
-          doCmd('nextObject')();
-        });
+  const afterPortalIsReady = this.newCallback(() => {
+    portal.addEventListener(EventType.FOCUS, this.newCallback(function() {
+      assertEquals(portal, ChromeVoxRange.current.start.node);
+      // test is done.
+    }));
+    assertEquals(button, ChromeVoxRange.current.start.node);
+    doCmd('nextObject')();
+  });
 
-        button.focus();
-        button.addEventListener(
-            EventType.FOCUS,
-            () => this.waitForPortal(portal).then(afterPortalIsReady));
-      }.bind(this), {
-        url:
-            `${testRunnerParams.testServerBaseUrl}portal/portal-and-button.html`
-      });
+  button.focus();
+  button.addEventListener(
+      EventType.FOCUS,
+      () => this.waitForPortal(portal).then(afterPortalIsReady));
 });
 
-TEST_F('ChromeVoxPortalsTest', 'PortalName', function() {
-  this.runWithLoadedTree(
-      undefined, function(root) {
-        const portal = root.find({role: RoleType.PORTAL});
-        assertEquals(RoleType.PORTAL, portal.role);
-        this.waitForPortal(portal).then(this.newCallback(() => {
-          assertTrue(portal.firstChild.docLoaded);
-          assertEquals(portal.name, 'some text');
-        }));
-      }.bind(this), {
-        url: `${testRunnerParams.testServerBaseUrl}portal/portal-with-text.html`
-      });
+AX_TEST_F('ChromeVoxPortalsTest', 'PortalName', async function() {
+  const root = await this.runWithLoadedTree(null, {
+    url: `${testRunnerParams.testServerBaseUrl}portal/portal-with-text.html`,
+  });
+  const portal = root.find({role: RoleType.PORTAL});
+  assertEquals(RoleType.PORTAL, portal.role);
+  this.waitForPortal(portal).then(this.newCallback(() => {
+    assertTrue(portal.firstChild.docLoaded);
+    assertEquals(portal.name, 'some text');
+  }));
 });

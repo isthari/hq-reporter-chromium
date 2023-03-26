@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,6 +58,7 @@ bool SnapFlingController::HandleGestureScrollUpdate(
   }
 
   if (start_offset == target_offset) {
+    client_->ScrollEndForSnapFling(true /* did_finish */);
     state_ = State::kFinished;
     return true;
   }

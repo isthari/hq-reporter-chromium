@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,8 @@
 #include <string>
 
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "google_apis/buildflags.h"
 
 // These functions enable you to retrieve keys to use for Google APIs
 // such as Translate and Safe Browsing.
@@ -77,19 +79,21 @@ std::string GetNonStableAPIKey();
 // Retrieves the Chrome Remote Desktop API key.
 std::string GetRemotingAPIKey();
 
-// Retrieves the Sharing API Key.
-std::string GetSharingAPIKey();
-
 // Retrieves the Speech On-Device API (SODA) API Key.
 std::string GetSodaAPIKey();
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+// Retrieves the Sharing API Key.
+std::string GetSharingAPIKey();
 
 // Retrieves the ReadAloud API Key.
 std::string GetReadAloudAPIKey();
 
 // Retrieves the Fresnel API Key.
 std::string GetFresnelAPIKey();
+#endif
 
-#if BUILDFLAG(IS_IOS) || BUILDFLAG(IS_FUCHSIA)
+#if BUILDFLAG(SUPPORT_EXTERNAL_GOOGLE_API_KEY)
 // Sets the API key. This should be called as early as possible before this
 // API key is even accessed. It must be called before GetAPIKey.
 // TODO(https://crbug.com/1166007): Enforce this is called before GetAPIKey.
@@ -135,8 +139,6 @@ void SetOAuth2ClientID(OAuth2Client client, const std::string& client_id);
 void SetOAuth2ClientSecret(OAuth2Client client,
                            const std::string& client_secret);
 #endif
-// Returns the auth token for the data reduction proxy.
-std::string GetSpdyProxyAuthValue();
 
 // Returns if the API key using in the current build is the one for official
 // Google Chrome.

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,10 +38,16 @@ bool operator==(const VideoEncoderInfo& l, const VideoEncoderInfo& r) {
   }
 
   return l.implementation_name == r.implementation_name &&
+         l.frame_delay == r.frame_delay &&
+         l.input_capacity == r.input_capacity &&
          l.supports_native_handle == r.supports_native_handle &&
          l.has_trusted_rate_controller == r.has_trusted_rate_controller &&
          l.is_hardware_accelerated == r.is_hardware_accelerated &&
          l.supports_simulcast == r.supports_simulcast &&
+         l.reports_average_qp == r.reports_average_qp &&
+         l.requested_resolution_alignment == r.requested_resolution_alignment &&
+         l.apply_alignment_to_all_simulcast_layers ==
+             r.apply_alignment_to_all_simulcast_layers &&
          l.resolution_bitrate_limits == r.resolution_bitrate_limits;
 }
 }  // namespace media

@@ -1,11 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {getCaller, pending, repeatUntil, RootPath, sendTestMessage} from '../test_util.js';
 import {testcase} from '../testcase.js';
 
-import {navigateWithDirectoryTree, remoteCall, setupAndWaitUntilReady} from './background.js';
+import {navigateWithDirectoryTree, openEntryChoosingWindow, remoteCall, setupAndWaitUntilReady} from './background.js';
 import {waitForDialog} from './file_dialog.js';
 
 /**
@@ -21,8 +21,9 @@ testcase.holdingSpaceWelcomeBanner = async () => {
   const holdingSpaceBannerShown =
       '#banners > holding-space-welcome-banner:not([hidden])';
   const holdingSpaceBannerDismissButton = [
-    '#banners > holding-space-welcome-banner', 'educational-banner',
-    '#dismiss-button'
+    '#banners > holding-space-welcome-banner',
+    'educational-banner',
+    '#dismiss-button',
   ];
   const holdingSpaceBannerHidden =
       '#banners > holding-space-welcome-banner[hidden]';
@@ -43,8 +44,9 @@ testcase.holdingSpaceWelcomeBanner = async () => {
  * using the new banners framework.
  */
 testcase.holdingSpaceWelcomeBannerWillShowForModalDialogs = async () => {
-  // Open Save as dialog.
-  chrome.fileSystem.chooseEntry({type: 'saveFile'}, entry => {});
+  // Open Save as dialog in the foreground window.
+  await openEntryChoosingWindow({type: 'saveFile'});
+
   const appId = await waitForDialog();
 
   // Ensure the Holding space welcome banner is the only banner prioritised.
@@ -92,11 +94,11 @@ testcase.holdingSpaceWelcomeBannerOnTabletModeChanged = async () => {
       appId, 'holding-space-welcome-banner');
   const text = [
     '#banners > holding-space-welcome-banner:not([hidden])',
-    'educational-banner > span[slot="subtitle"].tablet-mode-disabled'
+    'educational-banner > span[slot="subtitle"].tablet-mode-disabled',
   ];
   const textInTabletMode = [
     '#banners > holding-space-welcome-banner:not([hidden])',
-    'educational-banner > span[slot="subtitle"].tablet-mode-enabled'
+    'educational-banner > span[slot="subtitle"].tablet-mode-enabled',
   ];
   const expectedTextDisplayValue = 'inline';
   // Check: `text` should be displayed but `textInTabletMode` should not.

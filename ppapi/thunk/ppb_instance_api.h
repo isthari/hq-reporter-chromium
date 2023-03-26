@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "build/build_config.h"
 #include "ppapi/c/dev/ppb_url_util_dev.h"
 #include "ppapi/c/pp_bool.h"
@@ -72,17 +72,6 @@ class PPB_Instance_API {
                              PP_LogLevel log_level,
                              PP_Var source,
                              PP_Var value) = 0;
-
-  // Find.
-  virtual void SetPluginToHandleFindRequests(PP_Instance instance) = 0;
-  virtual void NumberOfFindResultsChanged(PP_Instance instance,
-                                          int32_t total,
-                                          PP_Bool final_result) = 0;
-  virtual void SelectedFindResultChanged(PP_Instance instance,
-                                         int32_t index) = 0;
-  virtual void SetTickmarks(PP_Instance instance,
-                            const PP_Rect* tickmarks,
-                            uint32_t count) = 0;
 
   // Fullscreen.
   virtual PP_Bool IsFullscreen(PP_Instance instance) = 0;

@@ -282,8 +282,7 @@ void RoundHarfBuzzBufferPositions(hb_buffer_t* buffer) {
 }
 
 inline bool ShapeRange(hb_buffer_t* buffer,
-                       const hb_feature_t* font_features,
-                       unsigned font_features_size,
+                       const FontFeatures& font_features,
                        const SimpleFontData* current_font,
                        scoped_refptr<UnicodeRangeSet> current_font_range_set,
                        UScriptCode current_run_script,
@@ -297,6 +296,25 @@ inline bool ShapeRange(hb_buffer_t* buffer,
     return false;
   }
 
+  FontFeatures variant_features;
+  if (!platform_data->ResolvedFeatures().empty()) {
+    const ResolvedFontFeatures& resolved_features =
+        platform_data->ResolvedFeatures();
+    for (const std::pair<uint32_t, uint32_t>& feature : resolved_features) {
+      variant_features.Append({feature.first, feature.second, 0 /* start */,
+                               static_cast<unsigned>(-1) /* end */});
+    }
+  }
+
+  bool needs_feature_merge = variant_features.size();
+  if (needs_feature_merge) {
+    for (wtf_size_t i = 0; i < font_features.size(); ++i) {
+      variant_features.Append(font_features.data()[i]);
+    }
+  }
+  const FontFeatures& argument_features =
+      needs_feature_merge ? variant_features : font_features;
+
   hb_buffer_set_language(buffer, language);
   hb_buffer_set_script(buffer, ICUScriptToHBScript(current_run_script));
   hb_buffer_set_direction(buffer, direction);
@@ -307,7 +325,7 @@ inline bool ShapeRange(hb_buffer_t* buffer,
                               ? HarfBuzzFace::kPrepareForVerticalLayout
                               : HarfBuzzFace::kNoVerticalLayout,
                           specified_size);
-  hb_shape(hb_font, buffer, font_features, font_features_size);
+  hb_shape(hb_font, buffer, argument_features.data(), argument_features.size());
   if (!face->ShouldSubpixelPosition())
     RoundHarfBuzzBufferPositions(buffer);
 
@@ -411,11 +429,11 @@ void HarfBuzzShaper::CommitGlyphs(RangeData* range_data,
   hb_script_t script = ICUScriptToHBScript(current_run_script);
   // Here we need to specify glyph positions.
   BufferSlice next_slice;
+  unsigned run_start_index = slice.start_character_index;
   for (const BufferSlice* current_slice = &slice;;) {
     auto run = ShapeResult::RunInfo::Create(
-        current_font, direction, canvas_rotation, script,
-        current_slice->start_character_index, current_slice->num_glyphs,
-        current_slice->num_characters);
+        current_font, direction, canvas_rotation, script, run_start_index,
+        current_slice->num_glyphs, current_slice->num_characters);
     unsigned next_start_glyph;
     shape_result->InsertRun(run, current_slice->start_glyph_index,
                             current_slice->num_glyphs, &next_start_glyph,
@@ -427,6 +445,7 @@ void HarfBuzzShaper::CommitGlyphs(RangeData* range_data,
         (next_start_glyph - current_slice->start_glyph_index);
     if (!next_num_glyphs)
       break;
+
     // If the slice exceeds the limit a RunInfo can store, create another
     // RunInfo for the rest of the slice.
     DCHECK_GT(current_slice->num_characters, run->num_characters_);
@@ -434,6 +453,12 @@ void HarfBuzzShaper::CommitGlyphs(RangeData* range_data,
                   current_slice->num_characters - run->num_characters_,
                   next_start_glyph, next_num_glyphs};
     current_slice = &next_slice;
+
+    // The |InsertRun| has truncated the right end. In LTR, advance the
+    // |run_start_index| because the end characters are truncated. In RTL, keep
+    // the same |run_start_index| because the start characters are truncated.
+    if (HB_DIRECTION_IS_FORWARD(direction))
+      run_start_index = next_slice.start_character_index;
   }
   if (is_last_font)
     range_data->font->ReportNotDefGlyph();
@@ -844,13 +869,10 @@ void HarfBuzzShaper::ShapeSegment(
         caps_support.FontFeatureToUse(small_caps_behavior));
     hb_direction_t direction = range_data->HarfBuzzDirection(canvas_rotation);
 
-    if (!ShapeRange(range_data->buffer,
-                    range_data->font_features.IsEmpty()
-                        ? nullptr
-                        : range_data->font_features.data(),
-                    range_data->font_features.size(), adjusted_font,
-                    current_font_data_for_range_set->Ranges(), segment.script,
-                    direction, language, font_description.SpecifiedSize()))
+    if (!ShapeRange(range_data->buffer, range_data->font_features,
+                    adjusted_font, current_font_data_for_range_set->Ranges(),
+                    segment.script, direction, language,
+                    font_description.SpecifiedSize()))
       DLOG(ERROR) << "Shaping range failed.";
 
     ExtractShapeResults(range_data, font_cycle_queued, current_queue_item,

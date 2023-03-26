@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -477,7 +477,7 @@ void TextTexture::PrepareDrawStringRect(
     PrepareDrawSingleLineText(text, font_list, bounds, parameters);
 
   if (parameters.shadows_enabled) {
-    bounds->Inset(-parameters.shadow_size, -parameters.shadow_size);
+    bounds->Inset(-parameters.shadow_size);
     bounds->Offset(parameters.shadow_size, parameters.shadow_size);
   }
 }

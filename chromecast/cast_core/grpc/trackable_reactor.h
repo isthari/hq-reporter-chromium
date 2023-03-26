@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define CHROMECAST_CAST_CORE_GRPC_TRACKABLE_REACTOR_H_
 
 #include "chromecast/cast_core/grpc/server_reactor_tracker.h"
+#include "base/check.h"
 
 namespace cast {
 namespace utils {

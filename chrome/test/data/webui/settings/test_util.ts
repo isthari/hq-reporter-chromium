@@ -1,12 +1,12 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import {ChooserType, ContentSetting, ContentSettingsTypes, DefaultContentSetting, OriginInfo, RawChooserException, RawSiteException, SiteGroup, SiteSettingSource} from 'chrome://settings/lazy_load.js';
+import {ChooserType, ContentSetting, ContentSettingProvider, ContentSettingsTypes, DefaultContentSetting, OriginInfo, PaperTooltipElement, RawChooserException, RawSiteException, SiteGroup, SiteSettingSource} from 'chrome://settings/lazy_load.js';
 import {Route, Router} from 'chrome://settings/settings.js';
+import {assertEquals} from 'chrome://webui-test/chai_assert.js';
 // clang-format on
-
 
 /**
  * Helper to create an object containing a ContentSettingsType key to array or
@@ -32,7 +32,7 @@ export function createDefaultContentSetting(
   return Object.assign(
       {
         setting: ContentSetting.ASK,
-        source: SiteSettingSource.PREFERENCE,
+        source: ContentSettingProvider.PREFERENCE,
       },
       override || {});
 }
@@ -85,11 +85,11 @@ export function createRawChooserException(
  * In the real (non-test) code, this data comes from the C++ handler.
  * Only used for tests.
  */
-export type SiteSettingsPref = {
-  defaults: {[key in ContentSettingsTypes]: DefaultContentSetting},
-  exceptions: {[key in ContentSettingsTypes]: RawSiteException[]},
-  chooserExceptions: {[key in ContentSettingsTypes]: RawChooserException[]},
-};
+export interface SiteSettingsPref {
+  defaults: {[key in ContentSettingsTypes]: DefaultContentSetting};
+  exceptions: {[key in ContentSettingsTypes]: RawSiteException[]};
+  chooserExceptions: {[key in ContentSettingsTypes]: RawChooserException[]};
+}
 
 /**
  * Helper to create a mock SiteSettingsPref.
@@ -223,4 +223,16 @@ export function setupPopstateListener() {
             (routerInstance.getRoutes() as {BASIC: Route}).BASIC,
         new URLSearchParams(window.location.search), true);
   });
+}
+
+/**
+ * Helper to assert that a paper-tooltip element is visually hidden but still
+ * accessible by screen readers.
+ */
+export function assertTooltipIsHidden(tooltip: PaperTooltipElement) {
+  const tooltipStyle = window.getComputedStyle(tooltip);
+  assertEquals('rect(0px, 0px, 0px, 0px)', tooltipStyle.clip);
+  assertEquals('1px', tooltipStyle.height);
+  assertEquals('1px', tooltipStyle.width);
+  assertEquals('hidden', tooltipStyle.overflow);
 }

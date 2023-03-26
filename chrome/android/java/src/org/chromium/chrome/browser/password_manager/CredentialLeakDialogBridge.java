@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,13 @@ package org.chromium.chrome.browser.password_manager;
 
 import android.app.Activity;
 
+import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncherImpl;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.fullscreen.BrowserControlsManagerSupplier;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
@@ -22,10 +22,6 @@ import org.chromium.ui.modaldialog.DialogDismissalCause;
 
 /** JNI call glue between the native password manager CredentialLeak class and Java objects. */
 public class CredentialLeakDialogBridge {
-    // Variation param for ChromeFeatureList.PASSWORD_CHANGE that determines whether the "change
-    // password automatically" button should contain an assistant icon.
-    private static final String VARIATION_PARAM_USE_ASSISTANT_ICON = "use_assistant_icon";
-
     private long mNativeCredentialLeakDialogViewAndroid;
     private final PasswordManagerDialogCoordinator mCredentialLeakDialog;
     private final WindowAndroid mWindowAndroid;
@@ -49,21 +45,18 @@ public class CredentialLeakDialogBridge {
 
     @CalledByNative
     public void showDialog(String credentialLeakTitle, String credentialLeakDetails,
-            boolean isChangeAutomaticallyAvailable, String positiveButton, String negativeButton) {
+            String positiveButton, String negativeButton) {
         Activity activity = mWindowAndroid.getActivity().get();
         if (activity == null) return;
 
-        boolean useAssistantIcon = isChangeAutomaticallyAvailable
-                && ChromeFeatureList.getFieldTrialParamByFeatureAsBoolean(
-                        ChromeFeatureList.PASSWORD_CHANGE, VARIATION_PARAM_USE_ASSISTANT_ICON,
-                        true);
+        @DrawableRes
+        int headerDrawableId;
+        headerDrawableId = PasswordManagerHelper.usesUnifiedPasswordManagerBranding()
+                ? R.drawable.password_check_header_red
+                : R.drawable.password_checkup_warning;
+
         PasswordManagerDialogContents contents = createDialogContents(credentialLeakTitle,
-                credentialLeakDetails,
-                isChangeAutomaticallyAvailable ? R.drawable.password_checkup_change_automatically
-                                               : R.drawable.password_checkup_warning,
-                positiveButton,
-                isChangeAutomaticallyAvailable ? R.drawable.ic_autofill_assistant_white_24dp : 0,
-                negativeButton);
+                credentialLeakDetails, headerDrawableId, positiveButton, negativeButton);
         contents.setPrimaryButtonFilled(negativeButton != null);
         contents.setHelpButtonCallback(this::showHelpArticle);
 
@@ -73,10 +66,9 @@ public class CredentialLeakDialogBridge {
 
     private PasswordManagerDialogContents createDialogContents(String credentialLeakTitle,
             String credentialLeakDetails, int illustrationId, String positiveButton,
-            int positiveButtonIconId, String negativeButton) {
+            String negativeButton) {
         return new PasswordManagerDialogContents(credentialLeakTitle, credentialLeakDetails,
-                illustrationId, positiveButton, positiveButtonIconId, negativeButton,
-                this::onClick);
+                illustrationId, positiveButton, negativeButton, this::onClick);
     }
 
     @CalledByNative

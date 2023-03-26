@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include <tuple>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/path_service.h"
@@ -17,10 +17,12 @@
 #include "base/synchronization/lock.h"
 #include "base/task/single_thread_task_executor.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/test/bind.h"
 #include "base/threading/thread.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "net/base/elements_upload_data_stream.h"
 #include "net/base/test_completion_callback.h"
+#include "net/base/upload_bytes_element_reader.h"
 #include "net/http/http_response_headers.h"
 #include "net/log/net_log_source.h"
 #include "net/socket/client_socket_factory.h"
@@ -33,14 +35,15 @@
 #include "net/test/test_with_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request.h"
+#include "net/url_request/url_request_context.h"
+#include "net/url_request/url_request_context_builder.h"
 #include "net/url_request/url_request_test_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using net::test::IsOk;
 
-namespace net {
-namespace test_server {
+namespace net::test_server {
 
 // Gets notified by the EmbeddedTestServer on incoming connections being
 // accepted, read from, or closed.
@@ -48,10 +51,7 @@ class TestConnectionListener
     : public net::test_server::EmbeddedTestServerConnectionListener {
  public:
   TestConnectionListener()
-      : socket_accepted_count_(0),
-        did_read_from_socket_(false),
-        did_get_socket_on_complete_(false),
-        task_runner_(base::ThreadTaskRunnerHandle::Get()) {}
+      : task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()) {}
 
   TestConnectionListener(const TestConnectionListener&) = delete;
   TestConnectionListener& operator=(const TestConnectionListener&) = delete;
@@ -102,9 +102,9 @@ class TestConnectionListener
   }
 
  private:
-  size_t socket_accepted_count_;
-  bool did_read_from_socket_;
-  bool did_get_socket_on_complete_;
+  size_t socket_accepted_count_ = 0;
+  bool did_read_from_socket_ = false;
+  bool did_get_socket_on_complete_ = false;
 
   base::RunLoop accept_loop_;
   base::RunLoop complete_loop_;
@@ -130,7 +130,8 @@ class EmbeddedTestServerTest
     : public testing::TestWithParam<EmbeddedTestServerConfig>,
       public WithTaskEnvironment {
  public:
-  EmbeddedTestServerTest() {}
+  EmbeddedTestServerTest()
+      : context_(CreateTestURLRequestContextBuilder()->Build()) {}
 
   void SetUp() override {
     server_ = std::make_unique<EmbeddedTestServer>(GetParam().type,
@@ -168,7 +169,7 @@ class EmbeddedTestServerTest
  protected:
   std::string request_relative_url_;
   GURL request_absolute_url_;
-  TestURLRequestContext context_;
+  std::unique_ptr<URLRequestContext> context_;
   TestConnectionListener connection_listener_;
   std::unique_ptr<EmbeddedTestServer> server_;
   base::OnceClosure quit_run_loop_;
@@ -219,8 +220,8 @@ TEST_P(EmbeddedTestServerTest, RegisterRequestHandler) {
 
   TestDelegate delegate;
   std::unique_ptr<URLRequest> request(
-      context_.CreateRequest(server_->GetURL("/test?q=foo"), DEFAULT_PRIORITY,
-                             &delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
+      context_->CreateRequest(server_->GetURL("/test?q=foo"), DEFAULT_PRIORITY,
+                              &delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
 
   request->Start();
   delegate.RunUntilComplete();
@@ -247,8 +248,8 @@ TEST_P(EmbeddedTestServerTest, ServeFilesFromDirectory) {
 
   TestDelegate delegate;
   std::unique_ptr<URLRequest> request(
-      context_.CreateRequest(server_->GetURL("/test.html"), DEFAULT_PRIORITY,
-                             &delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
+      context_->CreateRequest(server_->GetURL("/test.html"), DEFAULT_PRIORITY,
+                              &delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
 
   request->Start();
   delegate.RunUntilComplete();
@@ -276,7 +277,7 @@ TEST_P(EmbeddedTestServerTest, MockHeadersWithoutCRLF) {
   ASSERT_TRUE(server_->Start());
 
   TestDelegate delegate;
-  std::unique_ptr<URLRequest> request(context_.CreateRequest(
+  std::unique_ptr<URLRequest> request(context_->CreateRequest(
       server_->GetURL("/mock-headers-without-crlf.html"), DEFAULT_PRIORITY,
       &delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
 
@@ -297,9 +298,9 @@ TEST_P(EmbeddedTestServerTest, DefaultNotFoundResponse) {
   ASSERT_TRUE(server_->Start());
 
   TestDelegate delegate;
-  std::unique_ptr<URLRequest> request(
-      context_.CreateRequest(server_->GetURL("/non-existent"), DEFAULT_PRIORITY,
-                             &delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
+  std::unique_ptr<URLRequest> request(context_->CreateRequest(
+      server_->GetURL("/non-existent"), DEFAULT_PRIORITY, &delegate,
+      TRAFFIC_ANNOTATION_FOR_TESTS));
 
   request->Start();
   delegate.RunUntilComplete();
@@ -332,9 +333,9 @@ TEST_P(EmbeddedTestServerTest, ConnectionListenerRead) {
   ASSERT_TRUE(server_->Start());
 
   TestDelegate delegate;
-  std::unique_ptr<URLRequest> request(
-      context_.CreateRequest(server_->GetURL("/non-existent"), DEFAULT_PRIORITY,
-                             &delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
+  std::unique_ptr<URLRequest> request(context_->CreateRequest(
+      server_->GetURL("/non-existent"), DEFAULT_PRIORITY, &delegate,
+      TRAFFIC_ANNOTATION_FOR_TESTS));
 
   request->Start();
   delegate.RunUntilComplete();
@@ -364,7 +365,7 @@ TEST_P(EmbeddedTestServerTest, MAYBE_ConnectionListenerComplete) {
   // the network stack will close the socket if not reuable, resulting in
   // potentially racilly closing the socket before
   // OnResponseCompletedSuccessfully() is invoked.
-  std::unique_ptr<URLRequest> request(context_.CreateRequest(
+  std::unique_ptr<URLRequest> request(context_->CreateRequest(
       server_->GetURL("/set-header?Connection: Keep-Alive"), DEFAULT_PRIORITY,
       &delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
 
@@ -392,16 +393,16 @@ TEST_P(EmbeddedTestServerTest, ConcurrentFetches) {
 
   TestDelegate delegate1;
   std::unique_ptr<URLRequest> request1(
-      context_.CreateRequest(server_->GetURL("/test1"), DEFAULT_PRIORITY,
-                             &delegate1, TRAFFIC_ANNOTATION_FOR_TESTS));
+      context_->CreateRequest(server_->GetURL("/test1"), DEFAULT_PRIORITY,
+                              &delegate1, TRAFFIC_ANNOTATION_FOR_TESTS));
   TestDelegate delegate2;
   std::unique_ptr<URLRequest> request2(
-      context_.CreateRequest(server_->GetURL("/test2"), DEFAULT_PRIORITY,
-                             &delegate2, TRAFFIC_ANNOTATION_FOR_TESTS));
+      context_->CreateRequest(server_->GetURL("/test2"), DEFAULT_PRIORITY,
+                              &delegate2, TRAFFIC_ANNOTATION_FOR_TESTS));
   TestDelegate delegate3;
   std::unique_ptr<URLRequest> request3(
-      context_.CreateRequest(server_->GetURL("/test3"), DEFAULT_PRIORITY,
-                             &delegate3, TRAFFIC_ANNOTATION_FOR_TESTS));
+      context_->CreateRequest(server_->GetURL("/test3"), DEFAULT_PRIORITY,
+                              &delegate3, TRAFFIC_ANNOTATION_FOR_TESTS));
 
   // Fetch the three URLs concurrently. Have to manually create RunLoops when
   // running multiple requests simultaneously, to avoid the deprecated
@@ -460,7 +461,7 @@ class CancelRequestDelegate : public TestDelegate {
 
   void OnResponseStarted(URLRequest* request, int net_error) override {
     TestDelegate::OnResponseStarted(request, net_error);
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE, run_loop_.QuitClosure(), base::Seconds(1));
   }
 
@@ -486,7 +487,7 @@ class InfiniteResponse : public BasicHttpResponse {
  private:
   void SendInfinite(base::WeakPtr<HttpResponseDelegate> delegate) {
     delegate->SendContents("echo", base::DoNothing());
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&InfiniteResponse::SendInfinite,
                                   weak_ptr_factory_.GetWeakPtr(), delegate));
   }
@@ -514,8 +515,8 @@ TEST_P(EmbeddedTestServerTest, CloseDuringWrite) {
   ASSERT_TRUE(server_->Start());
 
   std::unique_ptr<URLRequest> request =
-      context_.CreateRequest(server_->GetURL("/infinite"), DEFAULT_PRIORITY,
-                             &cancel_delegate, TRAFFIC_ANNOTATION_FOR_TESTS);
+      context_->CreateRequest(server_->GetURL("/infinite"), DEFAULT_PRIORITY,
+                              &cancel_delegate, TRAFFIC_ANNOTATION_FOR_TESTS);
   request->Start();
   cancel_delegate.WaitUntilDone();
 }
@@ -564,9 +565,9 @@ TEST_P(EmbeddedTestServerTest, AcceptCHFrame) {
   ASSERT_TRUE(server_->Start());
 
   TestDelegate delegate;
-  std::unique_ptr<URLRequest> request_a(
-      context_.CreateRequest(server_->GetURL("/non-existent"), DEFAULT_PRIORITY,
-                             &delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
+  std::unique_ptr<URLRequest> request_a(context_->CreateRequest(
+      server_->GetURL("/non-existent"), DEFAULT_PRIORITY, &delegate,
+      TRAFFIC_ANNOTATION_FOR_TESTS));
   request_a->Start();
   delegate.RunUntilComplete();
 
@@ -588,7 +589,7 @@ TEST_P(EmbeddedTestServerTest, AcceptCHFrameDifferentOrigins) {
 
   {
     TestDelegate delegate;
-    std::unique_ptr<URLRequest> request_a(context_.CreateRequest(
+    std::unique_ptr<URLRequest> request_a(context_->CreateRequest(
         server_->GetURL("a.test", "/non-existent"), DEFAULT_PRIORITY, &delegate,
         TRAFFIC_ANNOTATION_FOR_TESTS));
     request_a->Start();
@@ -600,7 +601,7 @@ TEST_P(EmbeddedTestServerTest, AcceptCHFrameDifferentOrigins) {
 
   {
     TestDelegate delegate;
-    std::unique_ptr<URLRequest> request_a(context_.CreateRequest(
+    std::unique_ptr<URLRequest> request_a(context_->CreateRequest(
         server_->GetURL("b.test", "/non-existent"), DEFAULT_PRIORITY, &delegate,
         TRAFFIC_ANNOTATION_FOR_TESTS));
     request_a->Start();
@@ -612,7 +613,7 @@ TEST_P(EmbeddedTestServerTest, AcceptCHFrameDifferentOrigins) {
 
   {
     TestDelegate delegate;
-    std::unique_ptr<URLRequest> request_a(context_.CreateRequest(
+    std::unique_ptr<URLRequest> request_a(context_->CreateRequest(
         server_->GetURL("c.b.test", "/non-existent"), DEFAULT_PRIORITY,
         &delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
     request_a->Start();
@@ -621,6 +622,35 @@ TEST_P(EmbeddedTestServerTest, AcceptCHFrameDifferentOrigins) {
     EXPECT_EQ(1u, delegate.transports().size());
     EXPECT_EQ("c", delegate.transports().back().accept_ch_frame);
   }
+}
+
+TEST_P(EmbeddedTestServerTest, LargePost) {
+  // HTTP/2's default flow-control window is 65K. Send a larger request body
+  // than that to verify the server correctly updates flow control.
+  std::string large_post_body(100 * 1024, 'a');
+  server_->RegisterRequestMonitor(
+      base::BindLambdaForTesting([=](const HttpRequest& request) {
+        EXPECT_EQ(request.method, METHOD_POST);
+        EXPECT_TRUE(request.has_content);
+        EXPECT_EQ(large_post_body, request.content);
+      }));
+
+  server_->SetSSLConfig(net::EmbeddedTestServer::CERT_OK);
+  ASSERT_TRUE(server_->Start());
+
+  auto reader = std::make_unique<UploadBytesElementReader>(
+      large_post_body.data(), large_post_body.size());
+  auto stream = ElementsUploadDataStream::CreateWithReader(std::move(reader),
+                                                           /*identifier=*/0);
+
+  TestDelegate delegate;
+  std::unique_ptr<URLRequest> request(
+      context_->CreateRequest(server_->GetURL("/test"), DEFAULT_PRIORITY,
+                              &delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
+  request->set_method("POST");
+  request->set_upload(std::move(stream));
+  request->Start();
+  delegate.RunUntilComplete();
 }
 
 INSTANTIATE_TEST_SUITE_P(EmbeddedTestServerTestInstantiation,
@@ -673,7 +703,7 @@ class EmbeddedTestServerThreadingTestDelegate
           base::MessagePumpType::IO);
     }
 
-    auto context = std::make_unique<TestURLRequestContext>();
+    auto context = CreateTestURLRequestContextBuilder()->Build();
     TestDelegate delegate;
     std::unique_ptr<URLRequest> request(
         context->CreateRequest(server.GetURL("/test?q=foo"), DEFAULT_PRIORITY,
@@ -718,5 +748,4 @@ INSTANTIATE_TEST_SUITE_P(
                      testing::Bool(),
                      testing::ValuesIn(EmbeddedTestServerConfigs())));
 
-}  // namespace test_server
-}  // namespace net
+}  // namespace net::test_server

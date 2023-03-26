@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/web_applications/preinstalled_app_install_features.h"
+#include "chrome/browser/web_applications/preinstalled_web_app_config_utils.h"
 #include "chrome/browser/web_applications/preinstalled_web_app_manager.h"
 #include "chrome/browser/web_applications/test/fake_os_integration_manager.h"
 #include "chrome/browser/web_applications/test/with_crosapi_param.h"
@@ -30,7 +31,7 @@ class PreinstalledWebAppsBrowserTest : public InProcessBrowserTest,
   PreinstalledWebAppsBrowserTest() {
     PreinstalledWebAppManager::SkipStartupForTesting();
     // Ignore any default app configs on disk.
-    PreinstalledWebAppManager::SetConfigDirForTesting(&empty_path_);
+    SetPreinstalledWebAppConfigDirForTesting(&empty_path_);
     WebAppProvider::SetOsIntegrationManagerFactoryForTesting(
         [](Profile* profile) -> std::unique_ptr<OsIntegrationManager> {
           return std::make_unique<FakeOsIntegrationManager>(
@@ -38,12 +39,16 @@ class PreinstalledWebAppsBrowserTest : public InProcessBrowserTest,
         });
   }
 
+  ~PreinstalledWebAppsBrowserTest() override {
+    SetPreinstalledWebAppConfigDirForTesting(nullptr);
+  }
+
   void SetUpDefaultCommandLine(base::CommandLine* command_line) override {
     InProcessBrowserTest::SetUpDefaultCommandLine(command_line);
 
     // This was added by PrepareBrowserCommandLineForTests(), re-enable default
     // apps as we wish to test that they get installed.
-    command_line->RemoveSwitch(switches::kDisablePreinstalledApps);
+    command_line->RemoveSwitch(switches::kDisableDefaultApps);
   }
 
   base::FilePath empty_path_;
@@ -133,13 +138,14 @@ IN_PROC_BROWSER_TEST_P(PreinstalledWebAppsBrowserTest, CheckInstalledFields) {
                         kOfflineOnlyExpectedCount + kOnlineOnlyExpectedCount);
 
               for (const auto& expectation : kOfflineOnlyExpectations) {
-                EXPECT_EQ(install_results[GURL(expectation.install_url)].code,
-                          InstallResultCode::kSuccessOfflineOnlyInstall);
+                EXPECT_EQ(
+                    install_results[GURL(expectation.install_url)].code,
+                    webapps::InstallResultCode::kSuccessOfflineOnlyInstall);
               }
 
               for (const auto& expectation : kOnlineOnlyExpectations) {
                 EXPECT_EQ(install_results[GURL(expectation.install_url)].code,
-                          InstallResultCode::kInstallURLLoadFailed);
+                          webapps::InstallResultCode::kInstallURLLoadFailed);
               }
             } else {
               EXPECT_EQ(install_results.size(), 0u);
@@ -153,10 +159,10 @@ IN_PROC_BROWSER_TEST_P(PreinstalledWebAppsBrowserTest, CheckInstalledFields) {
 
   for (const auto& expectation : kOfflineOnlyExpectations) {
     if (GetParam() == test::CrosapiParam::kDisabled) {
-      EXPECT_EQ(provider.registrar().GetAppLaunchUrl(expectation.app_id),
+      EXPECT_EQ(provider.registrar_unsafe().GetAppLaunchUrl(expectation.app_id),
                 GURL(expectation.launch_url));
     } else {
-      EXPECT_FALSE(provider.registrar().GetAppById(expectation.app_id));
+      EXPECT_FALSE(provider.registrar_unsafe().GetAppById(expectation.app_id));
     }
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,9 +27,11 @@
 namespace ash {
 
 namespace {
+
 constexpr char kTestSupportPath[] =
     "chrome/browser/resources/chromeos/accessibility/switch_access/"
     "test_support.js";
+
 }
 
 class SwitchAccessTest : public InProcessBrowserTest {
@@ -142,7 +144,7 @@ class SwitchAccessTest : public InProcessBrowserTest {
     const display::Display& display =
         display::Screen::GetScreen()->GetDisplayNearestPoint(
             location_in_screen);
-    auto* host = ash::GetWindowTreeHostForDisplay(display.id());
+    auto* host = GetWindowTreeHostForDisplay(display.id());
     CHECK(host);
 
     aura::Window* root_window = host->window();

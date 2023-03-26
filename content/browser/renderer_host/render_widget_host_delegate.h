@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "build/build_config.h"
 #include "components/viz/common/vertical_scroll_direction.h"
 #include "content/common/content_export.h"
@@ -246,6 +246,11 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   // Update the renderer's cache of the screen rect of the view and window.
   virtual void SendScreenRects() {}
 
+  // Update the renderer's active focus state. This will replicate it for
+  // all descendants (including inner frame trees) of the primary page's
+  // frame tree.
+  virtual void SendActiveState(bool active) {}
+
   // Returns the TextInputManager tracking text input state.
   virtual TextInputManager* GetTextInputManager();
 
@@ -257,8 +262,8 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   virtual bool IsWidgetForPrimaryMainFrame(RenderWidgetHostImpl*);
 
   // Returns the object that tracks the start of content to visible events for
-  // the WebContents. May return nullptr if there is no RenderWidgetHostView.
-  virtual VisibleTimeRequestTrigger* GetVisibleTimeRequestTrigger();
+  // the WebContents.
+  virtual VisibleTimeRequestTrigger& GetVisibleTimeRequestTrigger() = 0;
 
   // Inner WebContents Helpers -------------------------------------------------
   //
@@ -308,6 +313,11 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
                                  const gfx::Rect& initial_rect_in_dips,
                                  const gfx::Rect& initial_anchor_rect_in_dips) {
   }
+
+  // Returns the amount that this view has been resized by a showing virtual
+  // keyboard or 0 if the virtual keyboard is hidden or in a mode that doesn't
+  // resize the view.
+  virtual int GetVirtualKeyboardResizeHeight();
 
  protected:
   virtual ~RenderWidgetHostDelegate() {}

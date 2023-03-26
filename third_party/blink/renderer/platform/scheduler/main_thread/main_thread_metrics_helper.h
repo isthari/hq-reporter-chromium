@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "components/scheduling_metrics/total_duration_metric_reporter.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/platform/task_type.h"
+#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/scheduler/common/metrics_helper.h"
 #include "third_party/blink/renderer/platform/scheduler/common/thread_load_tracker.h"
@@ -85,8 +86,6 @@ class PLATFORM_EXPORT MainThreadMetricsHelper : public MetricsHelper {
   using TaskDurationPerTaskTypeMetricReporter =
       scheduling_metrics::TaskDurationMetricReporter<TaskType>;
 
-  TaskDurationPerTaskTypeMetricReporter per_task_type_duration_reporter_;
-
   // The next three reporters are used to report the duration per task type
   // split by renderer scheduler use case (check use_case.h for reference):
   // None, Loading, and User Input (aggregation of multiple input-handling
@@ -98,19 +97,14 @@ class PLATFORM_EXPORT MainThreadMetricsHelper : public MetricsHelper {
   TaskDurationPerTaskTypeMetricReporter
       input_handling_per_task_type_duration_reporter_;
 
-  TaskDurationPerTaskTypeMetricReporter
-      foreground_per_task_type_duration_reporter_;
-  TaskDurationPerTaskTypeMetricReporter
-      background_per_task_type_duration_reporter_;
-  TaskDurationPerTaskTypeMetricReporter
-      background_after_fifth_minute_per_task_type_duration_reporter_;
-  TaskDurationPerTaskTypeMetricReporter
-      background_after_tenth_minute_per_task_type_duration_reporter_;
+  static_assert(TaskQueue::kQueuePriorityCount == 7);
+  CustomCountHistogram
+      queueing_delay_histograms_[TaskQueue::kQueuePriorityCount];
 
   scheduling_metrics::TotalDurationMetricReporter total_task_time_reporter_;
 
   MainThreadTaskLoadState main_thread_task_load_state_;
-  base::InsecureRandomGenerator random_generator_;
+  base::MetricsSubSampler metrics_subsampler_;
 };
 
 }  // namespace scheduler

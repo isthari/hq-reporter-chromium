@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,16 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/bind.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/public/browser/page.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
@@ -23,6 +25,8 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
+#include "content/public/test/fenced_frame_test_util.h"
+#include "content/public/test/prerender_test_util.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/shell/browser/shell.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
@@ -63,9 +67,13 @@ class MockWebContentsDelegate : public WebContentsDelegate {
                               const std::u16string& message,
                               int32_t line_no,
                               const std::u16string& source_id) override;
+  PreloadingEligibility IsPrerender2Supported(
+      WebContents& web_contents) override {
+    return PreloadingEligibility::kEligible;
+  }
 
  private:
-  raw_ptr<WebContents> web_contents_;
+  raw_ptr<WebContents, DanglingUntriaged> web_contents_;
   raw_ptr<ManifestBrowserTest> test_;
 };
 
@@ -128,7 +136,7 @@ class ManifestBrowserTest : public ContentBrowserTest,
     mojo::AssociatedRemote<blink::mojom::ManifestManager> remote;
     shell()
         ->web_contents()
-        ->GetMainFrame()
+        ->GetPrimaryMainFrame()
         ->GetRemoteAssociatedInterfaces()
         ->GetInterface(&remote);
     remote.FlushForTesting();
@@ -736,6 +744,179 @@ IN_PROC_BROWSER_TEST_F(ManifestBrowserTest, UniqueOrigin) {
   EXPECT_TRUE(manifest_url().is_empty());
   EXPECT_EQ(0, GetConsoleErrorCount());
   EXPECT_EQ(0u, reported_manifest_urls().size());
+}
+
+// This is testing the crash scenario encountered by https://crbug.com/1369363.
+// In it a GetManifest() request by WebAppInstallTask was interrupted by a page
+// navigation which destructed the internal ManifestManagerHost and forced the
+// GetManifest() callback to be invoked during the destruction stack frame. The
+// callback, which considered empty manifests valid for proceeding, proceeded to
+// read other data on the (not destroyed) WebContents that were also in the
+// middle of destruction and triggered a UAF crash.
+//
+// This test checks that the callback does not get invoked during the
+// ManifestManagerHost destruction stack frame and other fields of the
+// WebContents are still valid to synchronously access by the callback.
+IN_PROC_BROWSER_TEST_F(ManifestBrowserTest,
+                       GetManifestInterruptedByDestruction) {
+  // Attempting to fetch the manifest on this page will hang forever, giving
+  // this test time to interrupt the manifest request with the destruction of
+  // ManifestManagerHost.
+  ASSERT_TRUE(NavigateToURL(
+      shell(), embedded_test_server()->GetURL("/manifest/hung-manifest.html")));
+
+  base::RunLoop run_loop;
+  WebContents* web_contents = shell()->web_contents();
+  web_contents->GetPrimaryPage().GetManifest(base::BindLambdaForTesting(
+      [&](const GURL& url, blink::mojom::ManifestPtr manifest) {
+        EXPECT_TRUE(url.is_empty());
+        EXPECT_TRUE(blink::IsEmptyManifest(manifest));
+
+        // Accessing fields on the web_contents at this point in time should be
+        // safe.
+        std::ignore = web_contents->GetFaviconURLs().empty();
+
+        run_loop.Quit();
+      }));
+
+  // Unchecked downcast to get access to the
+  // ReinitializeDocumentAssociatedDataForTesting() method. This method was not
+  // put on the base class to avoid polluting the public interface with
+  // implementation details only used by this test.
+  auto* render_frame_host_impl =
+      static_cast<RenderFrameHostImpl*>(web_contents->GetPrimaryMainFrame());
+
+  // Resetting the DocumentAssociatedData, which owns ManifestManagerHost and
+  // the pending GetManifest() callback, forces the callback to be invoked.
+  // This is intended to reproduce the effects of a page navigation seen in
+  // https://crbug.com/1369363, this shortcut is used as it was too difficult to
+  // determine the exact sequence of JavaScript commands needed to cause the
+  // page navigation to trigger
+  // RenderFrameHostImpl::DidCommitNavigationInternal() (which reassigns the
+  // DocumentAssociatedData that owns ManifestManagerHost) without first
+  // triggering the callback safely as the in flight network request was
+  // cancelled.
+  render_frame_host_impl->ReinitializeDocumentAssociatedDataForTesting();
+
+  run_loop.Run();
+}
+
+class ManifestBrowserPrerenderingTest : public ManifestBrowserTest {
+ public:
+  ManifestBrowserPrerenderingTest()
+      : prerender_helper_(
+            base::BindRepeating(&ManifestBrowserPrerenderingTest::web_contents,
+                                base::Unretained(this))) {}
+
+  ~ManifestBrowserPrerenderingTest() override = default;
+
+ protected:
+  test::PrerenderTestHelper& prerender_helper() { return prerender_helper_; }
+
+ private:
+  test::PrerenderTestHelper prerender_helper_;
+};
+
+// Tests that GetManifest() returns an empty manifest if it's requested in
+// prerendering.
+IN_PROC_BROWSER_TEST_F(ManifestBrowserPrerenderingTest,
+                       GetManifestInPrerendering) {
+  GURL test_url =
+      embedded_test_server()->GetURL("/manifest/empty-manifest.html");
+
+  ASSERT_TRUE(NavigateToURL(shell(), test_url));
+  {
+    base::RunLoop run_loop;
+    web_contents()->GetPrimaryPage().GetManifest(base::BindLambdaForTesting(
+        [&](const GURL& manifest_url, blink::mojom::ManifestPtr manifest) {
+          // Get the manifest on a primary page.
+          EXPECT_FALSE(manifest_url.is_empty());
+          EXPECT_FALSE(blink::IsEmptyManifest(*manifest));
+          run_loop.Quit();
+        }));
+    run_loop.Run();
+  }
+
+  GURL prerender_url =
+      embedded_test_server()->GetURL("/manifest/dummy-manifest.html");
+  // Loads a page in the prerender.
+  int host_id = prerender_helper().AddPrerender(prerender_url);
+  content::RenderFrameHost* prerender_rfh =
+      prerender_helper().GetPrerenderedMainFrameHost(host_id);
+  {
+    base::RunLoop run_loop;
+    prerender_rfh->GetPage().GetManifest(base::BindLambdaForTesting(
+        [&](const GURL& manifest_url, blink::mojom::ManifestPtr manifest) {
+          // Ensure that the manifest is empty in prerendering.
+          EXPECT_TRUE(manifest_url.is_empty());
+          EXPECT_TRUE(blink::IsEmptyManifest(*manifest));
+          run_loop.Quit();
+        }));
+    run_loop.Run();
+  }
+
+  prerender_helper().NavigatePrimaryPage(prerender_url);
+  {
+    base::RunLoop run_loop;
+    prerender_rfh->GetPage().GetManifest(base::BindLambdaForTesting(
+        [&](const GURL& manifest_url, blink::mojom::ManifestPtr manifest) {
+          // Ensure that getting the manifest works after prerendering
+          // activation.
+          EXPECT_FALSE(manifest_url.is_empty());
+          EXPECT_FALSE(blink::IsEmptyManifest(*manifest));
+          run_loop.Quit();
+        }));
+    run_loop.Run();
+  }
+}
+
+class ManifestFencedFrameBrowserTest : public ManifestBrowserTest {
+ public:
+  ManifestFencedFrameBrowserTest() = default;
+  ~ManifestFencedFrameBrowserTest() override = default;
+
+ protected:
+  test::FencedFrameTestHelper& fenced_frame_test_helper() {
+    return fenced_frame_test_helper_;
+  }
+
+ private:
+  test::FencedFrameTestHelper fenced_frame_test_helper_;
+};
+
+// Tests that GetManifest() returns an empty manifest if it's requested in
+// a fenced frame.
+IN_PROC_BROWSER_TEST_F(ManifestFencedFrameBrowserTest,
+                       GetManifestInFencedFrame) {
+  const GURL test_url =
+      embedded_test_server()->GetURL("/manifest/empty-manifest.html");
+  ASSERT_TRUE(NavigateToURL(shell(), test_url));
+
+  const GURL fenced_frame_url =
+      embedded_test_server()->GetURL("/fenced_frames/title1.html");
+
+  content::RenderFrameHost* fenced_frame_rfh =
+      fenced_frame_test_helper().CreateFencedFrame(
+          web_contents()->GetPrimaryMainFrame(), fenced_frame_url);
+
+  // Add a manifest to `fenced_frame_rfh`.
+  ASSERT_TRUE(ExecJs(fenced_frame_rfh,
+                     R"( var link = document.createElement('link');
+                         link.rel = 'manifest';
+                         link.href = '../manifest/dummy-manifest.json';
+                         document.head.appendChild(link);)"));
+
+  base::RunLoop run_loop;
+  fenced_frame_rfh->GetPage().GetManifest(base::BindLambdaForTesting(
+      [&](const GURL& manifest_url, blink::mojom::ManifestPtr manifest) {
+        // Even though `fenced_frame_rfh` has a manifest updated above,
+        // this should get an empty manifest since it's not a primary main
+        // frame.
+        EXPECT_TRUE(manifest_url.is_empty());
+        EXPECT_TRUE(blink::IsEmptyManifest(*manifest));
+        run_loop.Quit();
+      }));
+  run_loop.Run();
 }
 
 } // namespace content

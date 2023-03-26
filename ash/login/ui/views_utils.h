@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,8 @@
 #include "ash/ash_export.h"
 #include "ash/style/ash_color_provider.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/chromeos/styles/cros_tokens_color_mappings.h"
+#include "ui/color/color_id.h"
 #include "ui/views/controls/label.h"
 
 namespace views {
@@ -21,13 +23,13 @@ namespace ash {
 namespace login_views_utils {
 
 // The most used font size on login/lock screen.
-constexpr inline int kLoginDefaultFontSize = 13;
+inline constexpr int kLoginDefaultFontSize = 13;
 
 // The most used font on login/lock screen.
-constexpr inline char kLoginDefaultFontName[] = "Roboto";
-constexpr inline char kGoogleSansFont[] = "Google Sans";
+inline constexpr char kLoginDefaultFontName[] = "Roboto";
+inline constexpr char kGoogleSansFont[] = "Google Sans";
 
-constexpr inline int kDefaultLineHeight = 20;
+inline constexpr int kDefaultLineHeight = 20;
 
 // Helper function to get default font list for login/lock screen text label.
 // It is slightly different from views::Label::GetDefaultFontList since the
@@ -52,11 +54,18 @@ ASH_EXPORT bool HasFocusInAnyChildView(views::View* view);
 // If |view_defining_max_width| is set, we allow the label to have multiple
 // lines and we set its maximum width to the preferred width of
 // |view_defining_max_width|.
-views::Label* CreateBubbleLabel(
+ASH_EXPORT std::unique_ptr<views::Label> CreateBubbleLabel(
     const std::u16string& message,
     views::View* view_defining_max_width = nullptr,
     SkColor color = AshColorProvider::Get()->GetContentLayerColor(
         AshColorProvider::ContentLayerType::kTextColorPrimary),
+    const gfx::FontList& font_list = GetLoginDefaultFontList(),
+    int line_height = kDefaultLineHeight);
+
+ASH_EXPORT std::unique_ptr<views::Label> CreateThemedBubbleLabel(
+    const std::u16string& message,
+    views::View* view_defining_max_width = nullptr,
+    ui::ColorId enabled_color_type = cros_tokens::kTextColorPrimary,
     const gfx::FontList& font_list = GetLoginDefaultFontList(),
     int line_height = kDefaultLineHeight);
 

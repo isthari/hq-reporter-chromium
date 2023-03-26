@@ -1,10 +1,11 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "printing/printing_utils.h"
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 
 #include "base/logging.h"
@@ -15,7 +16,7 @@
 #include "third_party/icu/source/common/unicode/uchar.h"
 #include "ui/gfx/text_elider.h"
 
-#if defined(USE_CUPS) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(USE_CUPS) && !BUILDFLAG(IS_CHROMEOS_ASH)
 #include <unicode/ulocdata.h>
 
 #include <cmath>
@@ -31,7 +32,7 @@ namespace {
 
 constexpr size_t kMaxDocumentTitleLength = 80;
 
-#if defined(USE_CUPS) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(USE_CUPS) && !BUILDFLAG(IS_CHROMEOS_ASH)
 constexpr gfx::Size kIsoA4Microns = gfx::Size(210000, 297000);
 #endif
 
@@ -84,7 +85,7 @@ std::u16string FormatDocumentTitleWithOwner(const std::u16string& owner,
                                                kMaxDocumentTitleLength);
 }
 
-#if defined(USE_CUPS) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(USE_CUPS) && !BUILDFLAG(IS_CHROMEOS_ASH)
 gfx::Size GetDefaultPaperSizeFromLocaleMicrons(base::StringPiece locale) {
   if (locale.empty())
     return kIsoA4Microns;
@@ -101,7 +102,7 @@ gfx::Size GetDefaultPaperSizeFromLocaleMicrons(base::StringPiece locale) {
     return kIsoA4Microns;
   }
   // Convert millis to microns
-  return gfx::Size(width * 1000, height * 1000);
+  return gfx::Size(width * kMicronsPerMm, height * kMicronsPerMm);
 }
 
 bool SizesEqualWithinEpsilon(const gfx::Size& lhs,
@@ -115,7 +116,7 @@ bool SizesEqualWithinEpsilon(const gfx::Size& lhs,
   return std::abs(lhs.width() - rhs.width()) <= epsilon &&
          std::abs(lhs.height() - rhs.height()) <= epsilon;
 }
-#endif  // defined(USE_CUPS) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(USE_CUPS) && !BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(IS_WIN)
 gfx::Rect GetCenteredPageContentRect(const gfx::Size& paper_size,
@@ -133,5 +134,10 @@ gfx::Rect GetCenteredPageContentRect(const gfx::Size& paper_size,
   return content_rect;
 }
 #endif  // BUILDFLAG(IS_WIN)
+
+bool LooksLikePdf(base::span<const char> maybe_pdf_data) {
+  return maybe_pdf_data.size() >= 50u &&
+         std::memcmp(maybe_pdf_data.data(), "%PDF-", 5) == 0;
+}
 
 }  // namespace printing

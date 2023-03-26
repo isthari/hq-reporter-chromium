@@ -40,11 +40,15 @@ class GlobalEventHandlers {
 
  public:
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(abort, kAbort)
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(aftertoggle, kAftertoggle)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(animationend, kAnimationend)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(animationiteration,
                                          kAnimationiteration)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(animationstart, kAnimationstart)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(auxclick, kAuxclick)
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(beforeinput, kBeforeinput)
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(beforematch, kBeforematch)
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(beforetoggle, kBeforetoggle)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(blur, kBlur)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(cancel, kCancel)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(canplay, kCanplay)
@@ -52,6 +56,8 @@ class GlobalEventHandlers {
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(change, kChange)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(click, kClick)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(close, kClose)
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(contentvisibilityautostatechange,
+                                         kContentvisibilityautostatechange)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(contextmenu, kContextmenu)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(contextlost, kContextlost)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(contextrestored, kContextrestored)
@@ -103,6 +109,8 @@ class GlobalEventHandlers {
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(pointerover, kPointerover)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(pointerrawupdate, kPointerrawupdate)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(pointerup, kPointerup)
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(popoverhide, kPopoverhide)
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(popovershow, kPopovershow)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(progress, kProgress)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(ratechange, kRatechange)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(reset, kReset)

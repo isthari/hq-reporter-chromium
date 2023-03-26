@@ -1,9 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.contextualsearch;
 
+import static org.hamcrest.CoreMatchers.anyOf;
 import static org.hamcrest.CoreMatchers.endsWith;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.startsWith;
@@ -23,14 +24,14 @@ import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
 
+import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
-import org.chromium.testing.local.LocalRobolectricTestRunner;
 
 /**
  * Tests the {@link RelatedSearchesStamp} class.
  */
-@RunWith(LocalRobolectricTestRunner.class)
+@RunWith(BaseRobolectricTestRunner.class)
 @Config(shadows = {RelatedSearchesStampTest.ShadowChromeFeatureList.class,
                 RelatedSearchesStampTest.ShadowContextualSearchFieldTrial.class})
 public class RelatedSearchesStampTest {
@@ -92,7 +93,6 @@ public class RelatedSearchesStampTest {
     private static Boolean sRelatedSearchesNeedsUrl;
     private static Boolean sRelatedSearchesNeedsContent;
     private static String sRelatedSearchesExperimentConfigurationStamp;
-    private static Boolean sIsDelayedIntelligenceEnabled;
 
     //=========================================================================================
     // Shadow classes are used to override static methods to enable them to return test values.
@@ -114,10 +114,26 @@ public class RelatedSearchesStampTest {
         }
 
         @Implementation
-        protected static boolean isEnabled(String featureName) {
-            if (featureName.equals(ChromeFeatureList.CONTEXTUAL_SEARCH_DELAYED_INTELLIGENCE)) {
-                return sIsDelayedIntelligenceEnabled;
+        protected static boolean getFieldTrialParamByFeatureAsBoolean(
+                String featureName, String paramName, boolean defaultValue) {
+            assertThat(featureName, is(ChromeFeatureList.RELATED_SEARCHES));
+            assertThat(paramName,
+                    anyOf(is(ContextualSearchFieldTrial.RELATED_SEARCHES_NEEDS_URL_PARAM_NAME),
+                            is(ContextualSearchFieldTrial
+                                            .RELATED_SEARCHES_NEEDS_CONTENT_PARAM_NAME)));
+            if (paramName.equals(
+                        ContextualSearchFieldTrial.RELATED_SEARCHES_NEEDS_URL_PARAM_NAME)) {
+                return sRelatedSearchesNeedsUrl == null ? defaultValue : sRelatedSearchesNeedsUrl;
+            } else if (paramName.equals(ContextualSearchFieldTrial
+                                                .RELATED_SEARCHES_NEEDS_CONTENT_PARAM_NAME)) {
+                return sRelatedSearchesNeedsContent == null ? defaultValue
+                                                            : sRelatedSearchesNeedsContent;
             }
+            return defaultValue;
+        }
+
+        @Implementation
+        protected static boolean isEnabled(String featureName) {
             return true;
         }
     }
@@ -162,6 +178,7 @@ public class RelatedSearchesStampTest {
         resetShadows();
         mPolicy = new ContextualSearchPolicy(null, null);
         mStamp = new RelatedSearchesStamp(mPolicy);
+        mStamp.disableDefaultAllowedLanguagesForTesting(true);
     }
 
     //====================================================================================
@@ -175,12 +192,6 @@ public class RelatedSearchesStampTest {
         sRelatedSearchesNeedsUrl = null;
         sRelatedSearchesNeedsContent = null;
         sRelatedSearchesExperimentConfigurationStamp = null;
-        sIsDelayedIntelligenceEnabled = null;
-    }
-
-    /** Sets whether the Delayed Intelligence Feature should behave as if it is enabled. */
-    private void setIsDelayedIntelligenceEnabled(boolean enabled) {
-        sIsDelayedIntelligenceEnabled = enabled;
     }
 
     /** Sets the verbosity character that our shadow should return (normally set in the config). */
@@ -286,7 +297,6 @@ public class RelatedSearchesStampTest {
         setCanSendContent(true);
         setVerbosity(verbosity);
         setRelatedSearchesExperimentConfigurationStamp(stampFromConfig);
-        setIsDelayedIntelligenceEnabled(false);
     }
 
     //====================================================================================
@@ -423,17 +433,6 @@ public class RelatedSearchesStampTest {
         setCanSendContent(false);
         assertTrue("Users that have not enabled sending page content are still generating Related "
                         + "Searches on a content-only experiment!",
-                TextUtils.isEmpty(mStamp.getRelatedSearchesStamp(ENGLISH)));
-    }
-
-    @Test
-    @Feature({"RelatedSearches", "RelatedSearchesStamp"})
-    public void testGetStampContentOkForDelayedIntelligence() {
-        setStandardExperimentConfiguration(CONFIG_STAMP_CONTENT_ONLY);
-        setCanSendContent(false);
-        setIsDelayedIntelligenceEnabled(true);
-        assertFalse("Users that have not enabled sending page content should still get Realted"
-                        + "Searches when the DelayedIntelligence experiment is enabled!",
                 TextUtils.isEmpty(mStamp.getRelatedSearchesStamp(ENGLISH)));
     }
 

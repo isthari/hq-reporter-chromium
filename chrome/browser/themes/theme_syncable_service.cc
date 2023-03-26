@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "base/containers/adapters.h"
+#include "base/observer_list.h"
 #include "base/one_shot_event.h"
 #include "base/strings/stringprintf.h"
 #include "base/version.h"
@@ -37,8 +38,9 @@ bool IsTheme(const extensions::Extension* extension,
 
 }  // namespace
 
-const char ThemeSyncableService::kCurrentThemeClientTag[] = "current_theme";
-const char ThemeSyncableService::kCurrentThemeNodeTitle[] = "Current Theme";
+// "Current" is part of the name for historical reasons, shouldn't be changed.
+const char ThemeSyncableService::kSyncEntityClientTag[] = "current_theme";
+const char ThemeSyncableService::kSyncEntityTitle[] = "Current Theme";
 
 ThemeSyncableService::ThemeSyncableService(Profile* profile,
                                            ThemeService* theme_service)
@@ -93,18 +95,15 @@ absl::optional<syncer::ModelError>
 ThemeSyncableService::MergeDataAndStartSyncing(
     syncer::ModelType type,
     const syncer::SyncDataList& initial_sync_data,
-    std::unique_ptr<syncer::SyncChangeProcessor> sync_processor,
-    std::unique_ptr<syncer::SyncErrorFactory> error_handler) {
+    std::unique_ptr<syncer::SyncChangeProcessor> sync_processor) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!sync_processor_.get());
   DCHECK(sync_processor.get());
-  DCHECK(error_handler.get());
 
   sync_processor_ = std::move(sync_processor);
-  sync_error_handler_ = std::move(error_handler);
 
   if (initial_sync_data.size() > 1) {
-    sync_error_handler_->CreateAndUploadError(
+    return syncer::ModelError(
         FROM_HERE,
         base::StringPrintf("Received %d theme specifics.",
                            static_cast<int>(initial_sync_data.size())));
@@ -145,7 +144,6 @@ void ThemeSyncableService::StopSyncing(syncer::ModelType type) {
   DCHECK_EQ(type, syncer::THEMES);
 
   sync_processor_.reset();
-  sync_error_handler_.reset();
 }
 
 syncer::SyncDataList ThemeSyncableService::GetAllSyncDataForTesting(
@@ -156,9 +154,8 @@ syncer::SyncDataList ThemeSyncableService::GetAllSyncDataForTesting(
   syncer::SyncDataList list;
   sync_pb::EntitySpecifics entity_specifics;
   if (GetThemeSpecificsFromCurrentTheme(entity_specifics.mutable_theme())) {
-    list.push_back(syncer::SyncData::CreateLocalData(kCurrentThemeClientTag,
-                                                     kCurrentThemeNodeTitle,
-                                                     entity_specifics));
+    list.push_back(syncer::SyncData::CreateLocalData(
+        kSyncEntityClientTag, kSyncEntityTitle, entity_specifics));
   }
   return list;
 }
@@ -184,14 +181,12 @@ absl::optional<syncer::ModelError> ThemeSyncableService::ProcessSyncChanges(
     for (size_t i = 0; i < change_list.size(); ++i) {
       base::StringAppendF(&err_msg, "[%s] ", change_list[i].ToString().c_str());
     }
-    sync_error_handler_->CreateAndUploadError(FROM_HERE, err_msg);
-  } else if (change_list.begin()->change_type() !=
-          syncer::SyncChange::ACTION_ADD
-      && change_list.begin()->change_type() !=
-          syncer::SyncChange::ACTION_UPDATE) {
-    sync_error_handler_->CreateAndUploadError(
-        FROM_HERE,
-        "Invalid theme change: " + change_list.begin()->ToString());
+    return syncer::ModelError(FROM_HERE, err_msg);
+  }
+  if (change_list.begin()->change_type() != syncer::SyncChange::ACTION_ADD &&
+      change_list.begin()->change_type() != syncer::SyncChange::ACTION_UPDATE) {
+    return syncer::ModelError(
+        FROM_HERE, "Invalid theme change: " + change_list.begin()->ToString());
   }
 
   sync_pb::ThemeSpecifics current_specifics;
@@ -399,11 +394,10 @@ absl::optional<syncer::ModelError> ThemeSyncableService::ProcessNewTheme(
   sync_pb::EntitySpecifics entity_specifics;
   entity_specifics.mutable_theme()->CopyFrom(theme_specifics);
 
-  changes.push_back(
-      syncer::SyncChange(FROM_HERE, change_type,
-                         syncer::SyncData::CreateLocalData(
-                             kCurrentThemeClientTag, kCurrentThemeNodeTitle,
-                             entity_specifics)));
+  changes.emplace_back(
+      FROM_HERE, change_type,
+      syncer::SyncData::CreateLocalData(kSyncEntityClientTag, kSyncEntityTitle,
+                                        entity_specifics));
 
   DVLOG(1) << "Update theme specifics from current theme: "
       << changes.back().ToString();

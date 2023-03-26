@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <set>
 #include <string>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "chrome/test/base/chrome_ash_test_base.h"
 #include "chromeos/services/assistant/public/shared/constants.h"
 #include "services/data_decoder/public/cpp/test_support/in_process_data_decoder.h"

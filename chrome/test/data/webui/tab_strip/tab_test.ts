@@ -1,11 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'chrome://tab-strip.top-chrome/tab.js';
 
 import {getFavicon} from 'chrome://resources/js/icon.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {TabElement} from 'chrome://tab-strip.top-chrome/tab.js';
 import {Tab, TabNetworkState} from 'chrome://tab-strip.top-chrome/tab_strip.mojom-webui.js';
 import {CloseTabAction, TabsApiProxyImpl} from 'chrome://tab-strip.top-chrome/tabs_api_proxy.js';
@@ -44,7 +44,7 @@ suite('Tab', function() {
   setup(() => {
     loadTimeData.overrideValues(strings);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
 
     // Set CSS variable for animations
     document.body.style.setProperty('--tabstrip-tab-height', '100px');
@@ -216,12 +216,12 @@ suite('Tab', function() {
     }
 
     tabElement.style.setProperty(
-        '--tabstrip-tab-loading-spinning-color', 'rgb(255, 0, 0)');
+        '--color-web-ui-tab-strip-tab-loading-spinning', 'rgb(255, 0, 0)');
     tabElement.tab = createTabData({networkState: TabNetworkState.kLoading});
     assertSpinnerVisible('rgb(255, 0, 0)');
 
     tabElement.style.setProperty(
-        '--tabstrip-tab-waiting-spinning-color', 'rgb(0, 255, 0)');
+        '--color-web-ui-tab-strip-tab-waiting-spinning', 'rgb(0, 255, 0)');
     tabElement.tab = createTabData({networkState: TabNetworkState.kWaiting});
     assertSpinnerVisible('rgb(0, 255, 0)');
   });

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,12 @@
 #include "third_party/blink/renderer/core/css/css_color.h"
 #include "third_party/blink/renderer/core/css/css_grid_integer_repeat_value.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
+#include "third_party/blink/renderer/core/css/css_image_set_value.h"
 #include "third_party/blink/renderer/core/css/css_value_list.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser.h"
 #include "third_party/blink/renderer/core/css/parser/css_tokenizer.h"
 #include "third_party/blink/renderer/core/css/style_sheet_contents.h"
+#include "third_party/blink/renderer/core/execution_context/security_context.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/html/html_html_element.h"
@@ -24,8 +26,9 @@ namespace blink {
 static int ComputeNumberOfTracks(const CSSValueList* value_list) {
   int number_of_tracks = 0;
   for (auto& value : *value_list) {
-    if (value->IsGridLineNamesValue())
+    if (value->IsGridLineNamesValue()) {
       continue;
+    }
     if (auto* repeat_value =
             DynamicTo<cssvalue::CSSGridIntegerRepeatValue>(*value)) {
       number_of_tracks +=
@@ -42,7 +45,7 @@ static bool IsValidPropertyValueForStyleRule(CSSPropertyID property_id,
   CSSTokenizer tokenizer(value);
   const auto tokens = tokenizer.TokenizeToEOF();
   const CSSParserTokenRange range(tokens);
-  HeapVector<CSSPropertyValue, 256> parsed_properties;
+  HeapVector<CSSPropertyValue, 64> parsed_properties;
   return CSSPropertyParser::ParseValue(
       property_id, false, range,
       StrictCSSParserContext(SecureContextMode::kSecureContext),
@@ -117,14 +120,14 @@ TEST(CSSPropertyParserTest, GridTrackLimit3) {
   const CSSValue* value = CSSParser::ParseSingleValue(
       CSSPropertyID::kGridTemplateColumns, "repeat(1000000, 10%)",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
-  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 100000);
+  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 1000000);
 }
 
 TEST(CSSPropertyParserTest, GridTrackLimit4) {
   const CSSValue* value = CSSParser::ParseSingleValue(
       CSSPropertyID::kGridTemplateRows, "repeat(1000000, 10%)",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
-  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 100000);
+  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 1000000);
 }
 
 TEST(CSSPropertyParserTest, GridTrackLimit5) {
@@ -132,7 +135,7 @@ TEST(CSSPropertyParserTest, GridTrackLimit5) {
       CSSPropertyID::kGridTemplateColumns,
       "repeat(1000000, [first] min-content [last])",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
-  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 100000);
+  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 1000000);
 }
 
 TEST(CSSPropertyParserTest, GridTrackLimit6) {
@@ -140,21 +143,21 @@ TEST(CSSPropertyParserTest, GridTrackLimit6) {
       CSSPropertyID::kGridTemplateRows,
       "repeat(1000000, [first] min-content [last])",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
-  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 100000);
+  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 1000000);
 }
 
 TEST(CSSPropertyParserTest, GridTrackLimit7) {
   const CSSValue* value = CSSParser::ParseSingleValue(
       CSSPropertyID::kGridTemplateColumns, "repeat(1000001, auto)",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
-  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 100000);
+  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 1000001);
 }
 
 TEST(CSSPropertyParserTest, GridTrackLimit8) {
   const CSSValue* value = CSSParser::ParseSingleValue(
       CSSPropertyID::kGridTemplateRows, "repeat(1000001, auto)",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
-  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 100000);
+  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 1000001);
 }
 
 TEST(CSSPropertyParserTest, GridTrackLimit9) {
@@ -162,7 +165,7 @@ TEST(CSSPropertyParserTest, GridTrackLimit9) {
       CSSPropertyID::kGridTemplateColumns,
       "repeat(400000, 2em minmax(10px, max-content) 0.5fr)",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
-  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 99999);
+  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 1200000);
 }
 
 TEST(CSSPropertyParserTest, GridTrackLimit10) {
@@ -170,7 +173,7 @@ TEST(CSSPropertyParserTest, GridTrackLimit10) {
       CSSPropertyID::kGridTemplateRows,
       "repeat(400000, 2em minmax(10px, max-content) 0.5fr)",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
-  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 99999);
+  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 1200000);
 }
 
 TEST(CSSPropertyParserTest, GridTrackLimit11) {
@@ -178,7 +181,7 @@ TEST(CSSPropertyParserTest, GridTrackLimit11) {
       CSSPropertyID::kGridTemplateColumns,
       "repeat(600000, [first] 3vh 10% 2fr [nav] 10px auto 1fr 6em [last])",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
-  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 99995);
+  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 4200000);
 }
 
 TEST(CSSPropertyParserTest, GridTrackLimit12) {
@@ -186,7 +189,7 @@ TEST(CSSPropertyParserTest, GridTrackLimit12) {
       CSSPropertyID::kGridTemplateRows,
       "repeat(600000, [first] 3vh 10% 2fr [nav] 10px auto 1fr 6em [last])",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
-  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 99995);
+  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 4200000);
 }
 
 TEST(CSSPropertyParserTest, GridTrackLimit13) {
@@ -194,7 +197,7 @@ TEST(CSSPropertyParserTest, GridTrackLimit13) {
       CSSPropertyID::kGridTemplateColumns,
       "repeat(100000000000000000000, 10% 1fr)",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
-  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 100000);
+  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 10000000);
 }
 
 TEST(CSSPropertyParserTest, GridTrackLimit14) {
@@ -202,7 +205,7 @@ TEST(CSSPropertyParserTest, GridTrackLimit14) {
       CSSPropertyID::kGridTemplateRows,
       "repeat(100000000000000000000, 10% 1fr)",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
-  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 100000);
+  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 10000000);
 }
 
 TEST(CSSPropertyParserTest, GridTrackLimit15) {
@@ -210,7 +213,7 @@ TEST(CSSPropertyParserTest, GridTrackLimit15) {
       CSSPropertyID::kGridTemplateColumns,
       "repeat(100000000000000000000, 10% 5em 1fr auto auto 15px min-content)",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
-  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 99995);
+  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 9999997);
 }
 
 TEST(CSSPropertyParserTest, GridTrackLimit16) {
@@ -218,7 +221,7 @@ TEST(CSSPropertyParserTest, GridTrackLimit16) {
       CSSPropertyID::kGridTemplateRows,
       "repeat(100000000000000000000, 10% 5em 1fr auto auto 15px min-content)",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
-  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 99995);
+  EXPECT_EQ(ComputeNumberOfTracks(To<CSSValueList>(value)), 9999997);
 }
 
 static int GetGridPositionInteger(const CSSValue& value) {
@@ -242,7 +245,7 @@ TEST(CSSPropertyParserTest, GridPositionLimit2) {
       CSSPropertyID::kGridColumnEnd, "1000000",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
   DCHECK(value);
-  EXPECT_EQ(GetGridPositionInteger(*value), 100000);
+  EXPECT_EQ(GetGridPositionInteger(*value), 1000000);
 }
 
 TEST(CSSPropertyParserTest, GridPositionLimit3) {
@@ -250,7 +253,7 @@ TEST(CSSPropertyParserTest, GridPositionLimit3) {
       CSSPropertyID::kGridRowStart, "1000001",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
   DCHECK(value);
-  EXPECT_EQ(GetGridPositionInteger(*value), 100000);
+  EXPECT_EQ(GetGridPositionInteger(*value), 1000001);
 }
 
 TEST(CSSPropertyParserTest, GridPositionLimit4) {
@@ -258,7 +261,7 @@ TEST(CSSPropertyParserTest, GridPositionLimit4) {
       CSSPropertyID::kGridRowEnd, "5000000000",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
   DCHECK(value);
-  EXPECT_EQ(GetGridPositionInteger(*value), 100000);
+  EXPECT_EQ(GetGridPositionInteger(*value), 10000000);
 }
 
 TEST(CSSPropertyParserTest, GridPositionLimit5) {
@@ -274,7 +277,7 @@ TEST(CSSPropertyParserTest, GridPositionLimit6) {
       CSSPropertyID::kGridColumnEnd, "-1000000",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
   DCHECK(value);
-  EXPECT_EQ(GetGridPositionInteger(*value), -100000);
+  EXPECT_EQ(GetGridPositionInteger(*value), -1000000);
 }
 
 TEST(CSSPropertyParserTest, GridPositionLimit7) {
@@ -282,7 +285,7 @@ TEST(CSSPropertyParserTest, GridPositionLimit7) {
       CSSPropertyID::kGridRowStart, "-1000001",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
   DCHECK(value);
-  EXPECT_EQ(GetGridPositionInteger(*value), -100000);
+  EXPECT_EQ(GetGridPositionInteger(*value), -1000001);
 }
 
 TEST(CSSPropertyParserTest, GridPositionLimit8) {
@@ -290,7 +293,7 @@ TEST(CSSPropertyParserTest, GridPositionLimit8) {
       CSSPropertyID::kGridRowEnd, "-5000000000",
       StrictCSSParserContext(SecureContextMode::kSecureContext));
   DCHECK(value);
-  EXPECT_EQ(GetGridPositionInteger(*value), -100000);
+  EXPECT_EQ(GetGridPositionInteger(*value), -10000000);
 }
 
 TEST(CSSPropertyParserTest, ColorFunction) {
@@ -511,15 +514,6 @@ TEST(CSSPropertyParserTest, OverflowSecondValueOverlayCount) {
   EXPECT_TRUE(document.IsUseCounted(feature2));
 }
 
-TEST(CSSPropertyParserTest, DropViewportDescriptor) {
-  EXPECT_FALSE(IsValidPropertyValueForStyleRule(CSSPropertyID::kOrientation,
-                                                "portrait"));
-  EXPECT_FALSE(
-      IsValidPropertyValueForStyleRule(CSSPropertyID::kOrientation, "inherit"));
-  EXPECT_FALSE(IsValidPropertyValueForStyleRule(CSSPropertyID::kOrientation,
-                                                "var(--dummy)"));
-}
-
 TEST(CSSPropertyParserTest, DropFontfaceDescriptor) {
   EXPECT_FALSE(
       IsValidPropertyValueForStyleRule(CSSPropertyID::kSrc, "url(blah)"));
@@ -638,20 +632,6 @@ TEST_F(CSSPropertyUseCounterTest, UnitlessPresentationAttributesNotCounted) {
   EXPECT_FALSE(IsCounted(feature));
 }
 
-TEST_F(CSSPropertyUseCounterTest, CSSPropertyDefaultAnimationNameUseCount) {
-  WebFeature feature = WebFeature::kDefaultInCustomIdent;
-  EXPECT_FALSE(IsCounted(feature));
-
-  ParseProperty(CSSPropertyID::kAnimationName, "initial");
-  EXPECT_FALSE(IsCounted(feature));
-
-  ParseProperty(CSSPropertyID::kAnimationName, "test");
-  EXPECT_FALSE(IsCounted(feature));
-
-  ParseProperty(CSSPropertyID::kAnimationName, "default");
-  EXPECT_TRUE(IsCounted(feature));
-}
-
 TEST_F(CSSPropertyUseCounterTest, CSSPropertyContainStyleUseCount) {
   WebFeature feature = WebFeature::kCSSValueContainStyle;
   EXPECT_FALSE(IsCounted(feature));
@@ -682,6 +662,113 @@ TEST_F(CSSPropertyUseCounterTest, CSSPropertyBackgroundImageWebkitImageSet) {
   ParseProperty(CSSPropertyID::kBackgroundImage,
                 "-webkit-image-set(url(foo) 2x)");
   EXPECT_TRUE(IsCounted(feature));
+}
+
+TEST_F(CSSPropertyUseCounterTest, CSSPropertyBackgroundImageImageSet) {
+  WebFeature feature = WebFeature::kImageSet;
+
+  ParseProperty(CSSPropertyID::kBackgroundImage, "none");
+  EXPECT_FALSE(IsCounted(feature));
+
+  ParseProperty(CSSPropertyID::kBackgroundImage, "image-set(url(foo) 2x)");
+  EXPECT_TRUE(IsCounted(feature));
+}
+
+TEST(CSSPropertyParserTest, ImageSetDefaultResolution) {
+  const CSSValue* value = CSSParser::ParseSingleValue(
+      CSSPropertyID::kBackgroundImage, "image-set(url(foo))",
+      StrictCSSParserContext(SecureContextMode::kSecureContext));
+  ASSERT_NE(value, nullptr);
+
+  const CSSValueList* val_list = To<CSSValueList>(value);
+  ASSERT_NE(val_list, nullptr);
+  ASSERT_EQ(val_list->length(), 1U);
+
+  const CSSImageSetValue& image_set_value =
+      To<CSSImageSetValue>(val_list->Last());
+  EXPECT_EQ("image-set(url(\"foo\") 1x)", image_set_value.CustomCSSText());
+}
+
+TEST(CSSPropertyParserTest, ImageSetUrlFunction) {
+  const CSSValue* value = CSSParser::ParseSingleValue(
+      CSSPropertyID::kBackgroundImage, "image-set(url('foo') 1x)",
+      StrictCSSParserContext(SecureContextMode::kSecureContext));
+  ASSERT_NE(value, nullptr);
+
+  const CSSValueList* val_list = To<CSSValueList>(value);
+  ASSERT_NE(val_list, nullptr);
+  ASSERT_EQ(val_list->length(), 1U);
+
+  const CSSImageSetValue& image_set_value =
+      To<CSSImageSetValue>(val_list->Last());
+  EXPECT_EQ("image-set(url(\"foo\") 1x)", image_set_value.CustomCSSText());
+}
+
+TEST(CSSPropertyParserTest, ImageSetUrlFunctionEmptyStrUrl) {
+  const CSSValue* value = CSSParser::ParseSingleValue(
+      CSSPropertyID::kBackgroundImage, "image-set(url('') 1x)",
+      StrictCSSParserContext(SecureContextMode::kSecureContext));
+  ASSERT_NE(value, nullptr);
+
+  const CSSValueList* val_list = To<CSSValueList>(value);
+  ASSERT_NE(val_list, nullptr);
+  ASSERT_EQ(val_list->length(), 1U);
+
+  const CSSImageSetValue& image_set_value =
+      To<CSSImageSetValue>(val_list->Last());
+  EXPECT_EQ("image-set(url(\"\") 1x)", image_set_value.CustomCSSText());
+}
+
+TEST(CSSPropertyParserTest, ImageSetUrlFunctionNoQuotationMarks) {
+  const CSSValue* value = CSSParser::ParseSingleValue(
+      CSSPropertyID::kBackgroundImage, "image-set(url(foo) 1x)",
+      StrictCSSParserContext(SecureContextMode::kSecureContext));
+  ASSERT_NE(value, nullptr);
+
+  const CSSValueList* val_list = To<CSSValueList>(value);
+  ASSERT_NE(val_list, nullptr);
+  ASSERT_EQ(val_list->length(), 1U);
+
+  const CSSImageSetValue& image_set_value =
+      To<CSSImageSetValue>(val_list->Last());
+  EXPECT_EQ("image-set(url(\"foo\") 1x)", image_set_value.CustomCSSText());
+}
+
+TEST(CSSPropertyParserTest, ImageSetNoUrlFunction) {
+  const CSSValue* value = CSSParser::ParseSingleValue(
+      CSSPropertyID::kBackgroundImage, "image-set('foo' 1x)",
+      StrictCSSParserContext(SecureContextMode::kSecureContext));
+  ASSERT_NE(value, nullptr);
+
+  const CSSValueList* val_list = To<CSSValueList>(value);
+  ASSERT_NE(val_list, nullptr);
+  ASSERT_EQ(val_list->length(), 1U);
+
+  const CSSImageSetValue& image_set_value =
+      To<CSSImageSetValue>(val_list->Last());
+  EXPECT_EQ("image-set(url(\"foo\") 1x)", image_set_value.CustomCSSText());
+}
+
+TEST(CSSPropertyParserTest, ImageSetEmptyStrUrl) {
+  const CSSValue* value = CSSParser::ParseSingleValue(
+      CSSPropertyID::kBackgroundImage, "image-set('' 1x)",
+      StrictCSSParserContext(SecureContextMode::kSecureContext));
+  ASSERT_NE(value, nullptr);
+
+  const CSSValueList* val_list = To<CSSValueList>(value);
+  ASSERT_NE(val_list, nullptr);
+  ASSERT_EQ(val_list->length(), 1U);
+
+  const CSSImageSetValue& image_set_value =
+      To<CSSImageSetValue>(val_list->Last());
+  EXPECT_EQ("image-set(url(\"\") 1x)", image_set_value.CustomCSSText());
+}
+
+TEST(CSSPropertyParserTest, ImageSetMissingUrl) {
+  const CSSValue* value = CSSParser::ParseSingleValue(
+      CSSPropertyID::kBackgroundImage, "image-set(1x)",
+      StrictCSSParserContext(SecureContextMode::kSecureContext));
+  ASSERT_EQ(value, nullptr);
 }
 
 TEST(CSSPropertyParserTest, InternalLightDarkAuthor) {
@@ -749,6 +836,7 @@ TEST(CSSPropertyParserTest, UAInternalLightDarkBackgroundImage) {
       {"-internal-light-dark(url(light.png), url(dark.png))", true},
       {"-internal-light-dark(url(light.png), none)", true},
       {"-internal-light-dark(none, -webkit-image-set(url(dark.png) 1x))", true},
+      {"-internal-light-dark(none, image-set(url(dark.png) 1x))", true},
       {"-internal-light-dark(  none  ,  none   )", true},
       {"-internal-light-dark(  url(light.png)  ,  url(dark.png)   )", true},
   };
@@ -769,7 +857,7 @@ bool ParseCSSValue(CSSPropertyID property_id,
   CSSTokenizer tokenizer(value);
   const auto tokens = tokenizer.TokenizeToEOF();
   const CSSParserTokenRange range(tokens);
-  HeapVector<CSSPropertyValue, 256> parsed_properties;
+  HeapVector<CSSPropertyValue, 64> parsed_properties;
   return CSSPropertyParser::ParseValue(property_id, false, range, context,
                                        parsed_properties,
                                        StyleRule::RuleType::kStyle);
@@ -792,6 +880,7 @@ TEST(CSSPropertyParserTest, UAInternalLightDarkBackgroundShorthand) {
       {"-internal-light-dark(url(light.png), url(dark.png))", true},
       {"-internal-light-dark(url(light.png), none)", true},
       {"-internal-light-dark(none, -webkit-image-set(url(dark.png) 1x))", true},
+      {"-internal-light-dark(none, image-set(url(dark.png) 1x))", true},
       {"-internal-light-dark(  none  ,  none   )", true},
       {"-internal-light-dark(  url(light.png)  ,  url(dark.png)   )", true},
   };
@@ -819,8 +908,6 @@ TEST(CSSPropertyParserTest, ParseRevert) {
 }
 
 TEST(CSSPropertyParserTest, ParseRevertLayer) {
-  ScopedCSSCascadeLayersForTest enabled(true);
-
   auto* context = MakeGarbageCollected<CSSParserContext>(
       kHTMLStandardMode, SecureContextMode::kInsecureContext);
 
@@ -834,19 +921,22 @@ TEST(CSSPropertyParserTest, ParseRevertLayer) {
   EXPECT_TRUE(value->IsRevertLayerValue());
 }
 
-TEST(CSSPropertyParserTest, ParseRevertLayerDisabled) {
-  ScopedCSSCascadeLayersForTest disabled(false);
+// anchor() and anchor-size() shouldn't parse when the feature is disabled.
+TEST(CSSPropertyParserTest, AnchorPositioningDisabled) {
+  ScopedHTMLSelectMenuElementForTest select_menu_disabled(false);
+  ScopedCSSAnchorPositioningForTest anchor_positioning_disabled(false);
 
   auto* context = MakeGarbageCollected<CSSParserContext>(
       kHTMLStandardMode, SecureContextMode::kInsecureContext);
 
-  String string = " revert-layer";
-  CSSTokenizer tokenizer(string);
-  const auto tokens = tokenizer.TokenizeToEOF();
-
-  const CSSValue* value = CSSPropertyParser::ParseSingleValue(
-      CSSPropertyID::kMarginLeft, CSSParserTokenRange(tokens), context);
-  EXPECT_FALSE(value);
+  EXPECT_FALSE(
+      ParseCSSValue(CSSPropertyID::kTop, "anchor(--foo top)", context));
+  EXPECT_FALSE(
+      ParseCSSValue(CSSPropertyID::kBottom, "anchor(--foo bottom)", context));
+  EXPECT_FALSE(ParseCSSValue(CSSPropertyID::kWidth, "anchor-size(--foo width)",
+                             context));
+  EXPECT_FALSE(ParseCSSValue(CSSPropertyID::kHeight,
+                             "anchor-size(--foo height)", context));
 }
 
 }  // namespace blink

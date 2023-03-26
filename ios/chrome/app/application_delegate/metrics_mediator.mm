@@ -1,53 +1,53 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/app/application_delegate/metrics_mediator.h"
 
-#include <sys/sysctl.h>
+#import <mach/mach.h>
+#import <sys/sysctl.h>
 
-#include "base/bind.h"
-#include "base/metrics/histogram_functions.h"
-#include "base/metrics/user_metrics_action.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/task/post_task.h"
-#include "base/task/thread_pool.h"
-#include "base/time/time.h"
-#include "build/branding_buildflags.h"
-#include "components/crash/core/common/crash_keys.h"
-#include "components/metrics/metrics_pref_names.h"
-#include "components/metrics/metrics_service.h"
-#include "components/prefs/pref_service.h"
+#import "base/functional/bind.h"
+#import "base/metrics/histogram_functions.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/metrics/user_metrics_action.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/task/thread_pool.h"
+#import "base/time/time.h"
+#import "build/branding_buildflags.h"
+#import "components/crash/core/common/crash_keys.h"
+#import "components/metrics/metrics_pref_names.h"
+#import "components/metrics/metrics_service.h"
+#import "components/prefs/pref_service.h"
 #import "components/previous_session_info/previous_session_info.h"
 #import "components/signin/public/identity_manager/tribool.h"
-#include "components/ukm/ios/ukm_reporting_ios_util.h"
+#import "components/ukm/ios/ukm_reporting_ios_util.h"
 #import "ios/chrome/app/application_delegate/metric_kit_subscriber.h"
 #import "ios/chrome/app/application_delegate/startup_information.h"
-#include "ios/chrome/app/startup/ios_enable_sandbox_dump_buildflags.h"
-#include "ios/chrome/browser/application_context.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
-#include "ios/chrome/browser/crash_report/crash_helper.h"
-#include "ios/chrome/browser/main/browser.h"
-#include "ios/chrome/browser/metrics/first_user_action_recorder.h"
-#include "ios/chrome/browser/pref_names.h"
+#import "ios/chrome/app/startup/ios_enable_sandbox_dump_buildflags.h"
+#import "ios/chrome/browser/application_context/application_context.h"
+#import "ios/chrome/browser/crash_report/crash_helper.h"
+#import "ios/chrome/browser/flags/system_flags.h"
+#import "ios/chrome/browser/main/browser.h"
+#import "ios/chrome/browser/metrics/first_user_action_recorder.h"
+#import "ios/chrome/browser/prefs/pref_names.h"
 #import "ios/chrome/browser/signin/signin_util.h"
-#include "ios/chrome/browser/system_flags.h"
-#import "ios/chrome/browser/ui/browser_view/browser_view_controller.h"
 #import "ios/chrome/browser/ui/default_promo/default_browser_utils.h"
 #import "ios/chrome/browser/ui/main/browser_interface_provider.h"
 #import "ios/chrome/browser/ui/main/connection_information.h"
 #import "ios/chrome/browser/ui/main/scene_state.h"
-#import "ios/chrome/browser/ui/ntp/ntp_util.h"
+#import "ios/chrome/browser/ui/ntp/new_tab_page_util.h"
+#import "ios/chrome/browser/url/chrome_url_constants.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
-#include "ios/chrome/browser/widget_kit/features.h"
-#include "ios/chrome/common/app_group/app_group_metrics.h"
-#include "ios/chrome/common/app_group/app_group_metrics_mainapp.h"
+#import "ios/chrome/browser/widget_kit/features.h"
+#import "ios/chrome/common/app_group/app_group_metrics.h"
+#import "ios/chrome/common/app_group/app_group_metrics_mainapp.h"
 #import "ios/chrome/common/credential_provider/constants.h"
-#include "ios/public/provider/chrome/browser/app_distribution/app_distribution_api.h"
-#include "ios/web/public/thread/web_task_traits.h"
-#include "ios/web/public/thread/web_thread.h"
+#import "ios/public/provider/chrome/browser/app_distribution/app_distribution_api.h"
+#import "ios/web/public/thread/web_task_traits.h"
+#import "ios/web/public/thread/web_thread.h"
 #import "ios/web/public/web_state.h"
-#include "url/gurl.h"
+#import "url/gurl.h"
 
 #if BUILDFLAG(ENABLE_WIDGET_KIT_EXTENSION)
 #import "ios/chrome/browser/widget_kit/widget_metrics_util.h"  // nogncheck
@@ -99,13 +99,26 @@ enum class ColdStartType : int {
   kMaxValue = kUnknownDeviceRestoreAndChromeUpgrade,
 };
 
+// Enum representing the existing set of all open tabs age scenarios. Current
+// values should not be renumbered. Please keep in sync with
+// "IOSAllOpenTabsAge" in src/tools/metrics/histograms/enums.xml.
+enum class TabsAgeGroup {
+  kLessThanOneDay = 0,
+  kOneToThreeDays = 1,
+  kThreeToSevenDays = 2,
+  kSevenToFourteenDays = 3,
+  kFourteenToThirtyDays = 4,
+  kMoreThanThirtyDays = 5,
+  kMaxValue = kMoreThanThirtyDays,
+};
+
 // Returns time delta since app launch as retrieved from kernel info about
 // the current process.
 base::TimeDelta TimeDeltaSinceAppLaunchFromProcess() {
   struct kinfo_proc info;
   size_t length = sizeof(struct kinfo_proc);
   int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, (int)getpid()};
-  const int kr = sysctl(mib, base::size(mib), &info, &length, nullptr, 0);
+  const int kr = sysctl(mib, std::size(mib), &info, &length, nullptr, 0);
   DCHECK_EQ(KERN_SUCCESS, kr);
 
   const struct timeval time = info.kp_proc.p_starttime;
@@ -236,6 +249,8 @@ void RecordWidgetUsage(base::span<const HistogramNameCountPair> histograms) {
         @"IOS.CredentialExtension.KeychainSavePasswordFailureCount",
     app_group::kCredentialExtensionSaveCredentialFailureCount :
         @"IOS.CredentialExtension.SaveCredentialFailureCount",
+    app_group::kCredentialExtensionConsentVerifiedCount :
+        @"IOS.CredentialExtension.ConsentVerifiedCount",
   };
 
   NSUserDefaults* shared_defaults = app_group::GetGroupUserDefaults();
@@ -298,17 +313,33 @@ using metrics_mediator::kAppDidFinishLaunchingConsecutiveCallsKey;
 // testing.
 + (void)recordNumLiveNTPTabAtResume:(int)numTabs;
 
+// Logs the number of old (inactive for more than 7 days) tabs with
+// UMAHistogramCount100 and allows testing.
++ (void)recordNumOldTabAtStartup:(int)numTabs;
+// Logs the number of duplicated tabs with UMAHistogramCount100 and allows
+// testing.
++ (void)recordNumDuplicatedTabAtStartup:(int)numTabs;
+// Logs the age (time elapsed since creation) of each tab  and allows testing.
++ (void)recordTabsAgeAtStartup:(const std::vector<base::TimeDelta>&)tabsAge;
+// Returns a corresponding TabAgeGroup for provided `timeSinceCreation` time.
++ (TabsAgeGroup)tabsAgeGroupFromTimeSinceCreation:
+    (base::TimeDelta)timeSinceCreation;
 @end
 
 @implementation MetricsMediator
 
 #pragma mark - Public methods.
 
++ (void)createStartupTrackingTask {
+  [MetricKitSubscriber createExtendedLaunchTask];
+}
+
 + (void)logStartupDuration:(id<StartupInformation>)startupInformation
      connectionInformation:(id<ConnectionInformation>)connectionInformation {
   if (![startupInformation isColdStart])
     return;
 
+  [MetricKitSubscriber endExtendedLaunchTask];
   base::TimeTicks now = base::TimeTicks::Now();
   const base::TimeDelta processStartToNowTime =
       TimeDeltaSinceAppLaunchFromProcess();
@@ -370,6 +401,12 @@ using metrics_mediator::kAppDidFinishLaunchingConsecutiveCallsKey;
   int numTabs = 0;
   int numNTPTabs = 0;
   int numLiveNTPTabs = 0;
+  int numOldTabs = 0;
+  int numDuplicatedTabs = 0;
+
+  NSMutableSet* uniqueURLs = [NSMutableSet set];
+  std::vector<base::TimeDelta> timesSinceCreation;
+
   for (SceneState* scene in scenes) {
     if (!scene.interfaceProvider) {
       // The scene might not yet be initiated.
@@ -378,21 +415,50 @@ using metrics_mediator::kAppDidFinishLaunchingConsecutiveCallsKey;
       continue;
     }
 
-    const WebStateList* web_state_list =
+    const WebStateList* webStateList =
         scene.interfaceProvider.mainInterface.browser->GetWebStateList();
-    numTabs += web_state_list->count();
-    for (int i = 0; i < web_state_list->count(); i++) {
-      if (IsURLNewTabPage(web_state_list->GetWebStateAt(i)->GetVisibleURL())) {
+    numTabs += webStateList->count();
+
+    const base::Time now = base::Time::Now();
+    const int webStateListCount = webStateList->count();
+
+    for (int i = 0; i < webStateListCount; i++) {
+      web::WebState* webState = webStateList->GetWebStateAt(i);
+      const bool wasWebStateRealized = webState->IsRealized();
+      const GURL& URL = webState->GetVisibleURL();
+
+      // Count NTPs.
+      if (IsURLNewTabPage(URL)) {
         numNTPTabs++;
       }
+
+      // Count duplicate URLs.
+      NSString* URLString = base::SysUTF8ToNSString(URL.GetWithoutRef().spec());
+      if ([uniqueURLs containsObject:URLString]) {
+        numDuplicatedTabs++;
+      } else {
+        [uniqueURLs addObject:URLString];
+      }
+
+      // Count old (e.g. more than 7 days inactive) tabs.
+      if (now - webState->GetLastActiveTime() > base::Days(7)) {
+        numOldTabs++;
+      }
+
+      // Calculate the age (time elapsed since creation) of WebState.
+      base::TimeDelta timeSinceCreation = now - webState->GetCreationTime();
+      timesSinceCreation.push_back(timeSinceCreation);
+
+      DCHECK_EQ(wasWebStateRealized, webState->IsRealized());
     }
-    BrowserViewController* bvc = scene.interfaceProvider.mainInterface.bvc;
-    numLiveNTPTabs += [bvc liveNTPCount];
   }
 
   if (startupInformation.isColdStart) {
     [self recordNumTabAtStartup:numTabs];
     [self recordNumNTPTabAtStartup:numNTPTabs];
+    [self recordNumOldTabAtStartup:numOldTabs];
+    [self recordNumDuplicatedTabAtStartup:numDuplicatedTabs];
+    [self recordTabsAgeAtStartup:timesSinceCreation];
   } else {
     [self recordNumTabAtResume:numTabs];
     [self recordNumNTPTabAtResume:numNTPTabs];
@@ -561,6 +627,8 @@ using metrics_mediator::kAppDidFinishLaunchingConsecutiveCallsKey;
     GetApplicationContext()->GetLocalState()->ClearPref(
         metrics::prefs::kMetricsClientID);
     GetApplicationContext()->GetLocalState()->ClearPref(
+        metrics::prefs::kMetricsProvisionalClientID);
+    GetApplicationContext()->GetLocalState()->ClearPref(
         metrics::prefs::kMetricsReportingEnabledTimestamp);
     crash_keys::ClearMetricsClientId();
   }
@@ -603,6 +671,47 @@ using metrics_mediator::kAppDidFinishLaunchingConsecutiveCallsKey;
 
 + (void)recordNumLiveNTPTabAtResume:(int)numTabs {
   base::UmaHistogramCounts100("Tabs.LiveNTPCountAtResume", numTabs);
+}
+
++ (void)recordNumOldTabAtStartup:(int)numTabs {
+  base::UmaHistogramCounts100("Tabs.UnusedCountAtStartup", numTabs);
+}
+
++ (void)recordNumDuplicatedTabAtStartup:(int)numTabs {
+  base::UmaHistogramCounts100("Tabs.DuplicatesCountAtStartup", numTabs);
+}
+
++ (void)recordTabsAgeAtStartup:(const std::vector<base::TimeDelta>&)tabsAge {
+  for (const auto timeSinceCreation : tabsAge) {
+    TabsAgeGroup tabsAgeGroup =
+        [self tabsAgeGroupFromTimeSinceCreation:timeSinceCreation];
+    UMA_HISTOGRAM_ENUMERATION("Tabs.TimeSinceCreationAtStartup", tabsAgeGroup);
+  }
+}
+
++ (TabsAgeGroup)tabsAgeGroupFromTimeSinceCreation:
+    (base::TimeDelta)timeSinceCreation {
+  if (timeSinceCreation < base::Days(1)) {
+    return TabsAgeGroup::kLessThanOneDay;
+  }
+
+  if (timeSinceCreation < base::Days(3)) {
+    return TabsAgeGroup::kOneToThreeDays;
+  }
+
+  if (timeSinceCreation < base::Days(7)) {
+    return TabsAgeGroup::kThreeToSevenDays;
+  }
+
+  if (timeSinceCreation < base::Days(14)) {
+    return TabsAgeGroup::kSevenToFourteenDays;
+  }
+
+  if (timeSinceCreation < base::Days(30)) {
+    return TabsAgeGroup::kFourteenToThirtyDays;
+  }
+
+  return TabsAgeGroup::kMoreThanThirtyDays;
 }
 
 @end

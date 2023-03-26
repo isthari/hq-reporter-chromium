@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -77,7 +77,7 @@ void AddressEditorController::UpdateEditorFields() {
               ? EditorField::LengthHint::HINT_LONG
               : EditorField::LengthHint::HINT_SHORT;
       autofill::ServerFieldType server_field_type =
-          autofill::AddressFieldToServerFieldType(component.field);
+          autofill::i18n::TypeForField(component.field);
       EditorField::ControlType control_type =
           server_field_type == autofill::ADDRESS_HOME_COUNTRY
               ? EditorField::ControlType::COMBOBOX
@@ -108,14 +108,12 @@ void AddressEditorController::SetProfileInfo(autofill::ServerFieldType type,
   // country codes.
   if (type == autofill::ADDRESS_HOME_COUNTRY) {
     profile_to_edit_.SetInfoWithVerificationStatus(
-        type, value, locale_,
-        autofill::structured_address::VerificationStatus::kUserVerified);
+        type, value, locale_, autofill::VerificationStatus::kUserVerified);
     return;
   }
 
   profile_to_edit_.SetRawInfoWithVerificationStatus(
-      type, value,
-      autofill::structured_address::VerificationStatus::kUserVerified);
+      type, value, autofill::VerificationStatus::kUserVerified);
 }
 
 std::u16string AddressEditorController::GetProfileInfo(

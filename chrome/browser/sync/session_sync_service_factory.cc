@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,6 @@
 #include "chrome/common/url_constants.h"
 #include "components/dom_distiller/core/url_constants.h"
 #include "components/history/core/browser/history_service.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/sync/model/model_type_store_service.h"
 #include "components/sync_device_info/device_info_sync_service.h"
 #include "components/sync_device_info/device_info_tracker.h"
@@ -65,7 +64,7 @@ class SyncSessionsClientImpl : public sync_sessions::SyncSessionsClient {
   SyncSessionsClientImpl(const SyncSessionsClientImpl&) = delete;
   SyncSessionsClientImpl& operator=(const SyncSessionsClientImpl&) = delete;
 
-  ~SyncSessionsClientImpl() override {}
+  ~SyncSessionsClientImpl() override = default;
 
   // SyncSessionsClient implementation.
   sync_sessions::SessionSyncPrefs* GetSessionSyncPrefs() override {
@@ -143,16 +142,15 @@ bool SessionSyncServiceFactory::ShouldSyncURLForTesting(const GURL& url) {
 }
 
 SessionSyncServiceFactory::SessionSyncServiceFactory()
-    : BrowserContextKeyedServiceFactory(
-          "SessionSyncService",
-          BrowserContextDependencyManager::GetInstance()) {
+    : ProfileKeyedServiceFactory("SessionSyncService") {
+  DependsOn(DeviceInfoSyncServiceFactory::GetInstance());
   DependsOn(FaviconServiceFactory::GetInstance());
   DependsOn(HistoryServiceFactory::GetInstance());
   DependsOn(ModelTypeStoreServiceFactory::GetInstance());
   DependsOn(sync_sessions::SyncSessionsWebContentsRouterFactory::GetInstance());
 }
 
-SessionSyncServiceFactory::~SessionSyncServiceFactory() {}
+SessionSyncServiceFactory::~SessionSyncServiceFactory() = default;
 
 KeyedService* SessionSyncServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {

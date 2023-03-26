@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -132,9 +132,7 @@ public class GoogleCloudMessagingV2 implements GoogleCloudMessagingSubscriber {
         if (Looper.getMainLooper() == Looper.myLooper()) {
             throw new IOException(ERROR_MAIN_THREAD);
         }
-        if (PackageUtils.getPackageVersion(
-                    ContextUtils.getApplicationContext(), GOOGLE_PLAY_SERVICES_PACKAGE)
-                < 0) {
+        if (!PackageUtils.isPackageInstalled(GOOGLE_PLAY_SERVICES_PACKAGE)) {
             throw new IOException("Google Play Services missing");
         }
         if (data == null) {

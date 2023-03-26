@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,6 +25,8 @@ class AudioDecoderSoftwareWrapper
   using DecoderDelegate = MediaPipelineBackend::Decoder::Delegate;
   using RenderingDelay = MediaPipelineBackend::AudioDecoder::RenderingDelay;
   using Statistics = MediaPipelineBackend::AudioDecoder::Statistics;
+  using AudioTrackTimestamp =
+      MediaPipelineBackend::AudioDecoder::AudioTrackTimestamp;
 
   AudioDecoderSoftwareWrapper(
       MediaPipelineBackend::AudioDecoder* backend_decoder);
@@ -41,6 +43,8 @@ class AudioDecoderSoftwareWrapper
   bool SetConfig(const AudioConfig& config);
   bool SetVolume(float multiplier);
   RenderingDelay GetRenderingDelay();
+  AudioTrackTimestamp GetAudioTrackTimestamp();
+  int GetStartThresholdInFrames();
   bool IsUsingSoftwareDecoder();
 
  private:

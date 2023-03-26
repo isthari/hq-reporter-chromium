@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -231,6 +231,40 @@ TEST(IPCMessageUtilsTest, StrongAlias) {
   EXPECT_TRUE(IPC::ReadParam(&pickle, &iter, &output));
 
   EXPECT_EQ(input, output);
+}
+
+TEST(IPCMessageUtilsTest, DictValueConversion) {
+  base::Value::Dict dict_value;
+  dict_value.Set("path1", 42);
+  dict_value.Set("path2", 84);
+  base::Value::List subvalue;
+  subvalue.Append(1234);
+  subvalue.Append(5678);
+  dict_value.Set("path3", std::move(subvalue));
+
+  IPC::Message message;
+  ParamTraits<base::Value::Dict>::Write(&message, dict_value);
+
+  base::PickleIterator iter(message);
+  base::Value::Dict read_value;
+  ASSERT_TRUE(
+      ParamTraits<base::Value::Dict>::Read(&message, &iter, &read_value));
+  EXPECT_EQ(dict_value, read_value);
+}
+
+TEST(IPCMessageUtilsTest, ListValueConversion) {
+  base::Value::List list_value;
+  list_value.Append(42);
+  list_value.Append(84);
+
+  IPC::Message message;
+  ParamTraits<base::Value::List>::Write(&message, list_value);
+
+  base::PickleIterator iter(message);
+  base::Value::List read_value;
+  ASSERT_TRUE(
+      ParamTraits<base::Value::List>::Read(&message, &iter, &read_value));
+  EXPECT_EQ(list_value, read_value);
 }
 
 #if BUILDFLAG(IS_WIN)

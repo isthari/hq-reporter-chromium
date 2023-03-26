@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,8 +15,7 @@
 #include "chrome/browser/ash/arc/test/test_arc_session_manager.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "components/user_manager/user_manager.h"
@@ -68,9 +67,8 @@ class ArcDataSnapshotdDelegateTest : public testing::Test {
         base::CommandLine::ForCurrentProcess());
     ArcSessionManager::EnableCheckAndroidManagementForTesting(false);
 
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
-    chromeos::SessionManagerClient::InitializeFakeInMemory();
+    ash::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
+    ash::SessionManagerClient::InitializeFakeInMemory();
 
     TestingProfile::Builder profile_builder;
     profile_builder.SetProfileName("user@gmail.com");
@@ -87,9 +85,8 @@ class ArcDataSnapshotdDelegateTest : public testing::Test {
       delete;
 
   ~ArcDataSnapshotdDelegateTest() override {
-    chromeos::SessionManagerClient::Shutdown();
-    chromeos::ConciergeClient::Shutdown();
-    chromeos::DBusThreadManager::Shutdown();
+    ash::SessionManagerClient::Shutdown();
+    ash::ConciergeClient::Shutdown();
   }
 
   void SetUp() override {

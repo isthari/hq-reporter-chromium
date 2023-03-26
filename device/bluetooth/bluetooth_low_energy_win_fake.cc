@@ -1,22 +1,19 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "device/bluetooth/bluetooth_low_energy_win_fake.h"
 
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "device/bluetooth/bluetooth_low_energy_defs_win.h"
 
-namespace {
-const char kPlatformNotSupported[] =
-    "Bluetooth Low energy is only supported on Windows 8 and later.";
-}  // namespace
-
-namespace device {
-namespace win {
+namespace device::win {
 
 BLEDevice::BLEDevice() {}
 BLEDevice::~BLEDevice() {}
@@ -37,18 +34,9 @@ BluetoothLowEnergyWrapperFake::BluetoothLowEnergyWrapperFake()
     : observer_(nullptr) {}
 BluetoothLowEnergyWrapperFake::~BluetoothLowEnergyWrapperFake() {}
 
-bool BluetoothLowEnergyWrapperFake::IsBluetoothLowEnergySupported() {
-  return true;
-}
-
 bool BluetoothLowEnergyWrapperFake::EnumerateKnownBluetoothLowEnergyDevices(
     std::vector<std::unique_ptr<BluetoothLowEnergyDeviceInfo>>* devices,
     std::string* error) {
-  if (!IsBluetoothLowEnergySupported()) {
-    *error = kPlatformNotSupported;
-    return false;
-  }
-
   for (auto& device : simulated_devices_) {
     if (device.second->marked_as_deleted)
       continue;
@@ -63,11 +51,6 @@ bool BluetoothLowEnergyWrapperFake::
     EnumerateKnownBluetoothLowEnergyGattServiceDevices(
         std::vector<std::unique_ptr<BluetoothLowEnergyDeviceInfo>>* devices,
         std::string* error) {
-  if (!IsBluetoothLowEnergySupported()) {
-    *error = kPlatformNotSupported;
-    return false;
-  }
-
   for (auto& device : simulated_devices_) {
     for (auto& service : device.second->primary_services) {
       auto device_info = std::make_unique<BluetoothLowEnergyDeviceInfo>();
@@ -86,11 +69,6 @@ bool BluetoothLowEnergyWrapperFake::EnumerateKnownBluetoothLowEnergyServices(
     const base::FilePath& device_path,
     std::vector<std::unique_ptr<BluetoothLowEnergyServiceInfo>>* services,
     std::string* error) {
-  if (!IsBluetoothLowEnergySupported()) {
-    *error = kPlatformNotSupported;
-    return false;
-  }
-
   std::wstring device_address =
       ExtractDeviceAddressFromDevicePath(device_path.value());
   std::vector<std::string> service_attribute_handles =
@@ -644,5 +622,4 @@ std::string BluetoothLowEnergyWrapperFake::BluetoothAddressToCanonicalString(
   return result;
 }
 
-}  // namespace win
-}  // namespace device
+}  // namespace device::win

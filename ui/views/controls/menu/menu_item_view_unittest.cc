@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,10 @@
 #include "base/test/bind.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/themed_vector_icon.h"
 #include "ui/compositor/canvas_painter.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/insets.h"
-#include "ui/native_theme/themed_vector_icon.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/menu/menu_runner.h"
@@ -214,7 +214,7 @@ class TouchableMenuItemViewTest : public ViewsTestBase {
     menu_delegate_ = std::make_unique<test::TestMenuDelegate>();
     menu_item_view_ = new TestMenuItemView(menu_delegate_.get());
     menu_runner_ = std::make_unique<MenuRunner>(
-        menu_item_view_, MenuRunner::USE_TOUCHABLE_LAYOUT);
+        menu_item_view_, MenuRunner::USE_ASH_SYS_UI_LAYOUT);
     menu_runner_->RunMenuAt(widget_.get(), nullptr, gfx::Rect(),
                             MenuAnchorPosition::kTopLeft,
                             ui::MENU_SOURCE_KEYBOARD);
@@ -303,7 +303,7 @@ TEST_F(MenuItemViewLayoutTest, ContainerLayoutRespectsMarginsAndPreferredSize) {
   // We want to check that MenuItemView::Layout() respects the child's preferred
   // size and margins.
   const gfx::Size child_size(200, 50);
-  const gfx::Insets child_margins(5, 10);
+  const auto child_margins = gfx::Insets::VH(5, 10);
   child_view->SetPreferredSize(child_size);
   child_view->SetProperty(kMarginsKey, child_margins);
 
@@ -350,7 +350,7 @@ class FakeView : public View {
 // the child view.
 TEST_F(MenuItemViewLayoutTest, ContainerLayoutPassesTrueWidth) {
   const gfx::Size child_size(2, 3);
-  const gfx::Insets child_margins(1, 1);
+  const gfx::Insets child_margins(1);
   FakeView* child_view =
       test_item()->AddChildView(std::make_unique<FakeView>(child_size.width()));
   child_view->SetPreferredSize(child_size);
@@ -539,6 +539,60 @@ TEST_F(MenuItemViewPaintUnitTest,
   submenu_child->SetSelected(false);
   EXPECT_FALSE(submenu_child->IsSelected());
   EXPECT_FALSE(submenu_child->last_paint_as_selected_for_testing());
+}
+
+TEST_F(MenuItemViewPaintUnitTest, SelectionBasedStateUpdatedWhenIconChanges) {
+  MenuItemView* child_menu_item =
+      menu_item_view()->AppendMenuItem(1, u"menu item");
+
+  menu_runner()->RunMenuAt(widget(), nullptr, gfx::Rect(),
+                           MenuAnchorPosition::kTopLeft,
+                           ui::MENU_SOURCE_KEYBOARD);
+
+  EXPECT_FALSE(child_menu_item->last_paint_as_selected_for_testing());
+  child_menu_item->SetSelected(true);
+  EXPECT_TRUE(child_menu_item->IsSelected());
+  EXPECT_TRUE(child_menu_item->last_paint_as_selected_for_testing());
+
+  child_menu_item->SetIconView(std::make_unique<ImageView>());
+  EXPECT_TRUE(child_menu_item->IsSelected());
+  EXPECT_TRUE(child_menu_item->last_paint_as_selected_for_testing());
+}
+
+TEST_F(MenuItemViewPaintUnitTest, SelectionBasedStateUpdatedDuringDragAndDrop) {
+  MenuItemView* submenu_item =
+      menu_item_view()->AppendSubMenu(1, u"submenu_item");
+  MenuItemView* submenu_child1 =
+      submenu_item->AppendMenuItem(1, u"submenu_child");
+  MenuItemView* submenu_child2 =
+      submenu_item->AppendMenuItem(1, u"submenu_child");
+
+  menu_runner()->RunMenuAt(widget(), nullptr, gfx::Rect(),
+                           MenuAnchorPosition::kTopLeft,
+                           ui::MENU_SOURCE_KEYBOARD);
+
+  // Show both the root and nested menus.
+  SubmenuView* submenu = submenu_item->GetSubmenu();
+  MenuHost::InitParams params;
+  params.parent = widget();
+  params.bounds = submenu_item->bounds();
+  submenu->ShowAt(params);
+
+  EXPECT_FALSE(submenu_child1->last_paint_as_selected_for_testing());
+  submenu_child1->SetSelected(true);
+  EXPECT_TRUE(submenu_child1->IsSelected());
+  EXPECT_TRUE(submenu_child1->last_paint_as_selected_for_testing());
+
+  // Setting the drop item to `submenu_child2` should force `submenu_child1` to
+  // no longer draw as selected.
+  submenu->SetDropMenuItem(submenu_child2, MenuDelegate::DropPosition::kOn);
+  EXPECT_FALSE(submenu_child1->last_paint_as_selected_for_testing());
+  EXPECT_FALSE(submenu_child2->last_paint_as_selected_for_testing());
+
+  // Clearing the drop item returns `submenu_child1` to drawing as selected.
+  submenu->SetDropMenuItem(nullptr, MenuDelegate::DropPosition::kOn);
+  EXPECT_TRUE(submenu_child1->last_paint_as_selected_for_testing());
+  EXPECT_FALSE(submenu_child2->last_paint_as_selected_for_testing());
 }
 
 // Sets up a custom MenuDelegate that expects functions aren't called. See

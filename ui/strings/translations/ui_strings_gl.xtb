@@ -6,6 +6,7 @@
 <translation id="1127811143501539442">{DAYS,plural, =1{Hai un día}other{Hai # días}}</translation>
 <translation id="1156623771253174079">{SECONDS,plural, =1{Hai un minuto}other{Hai # minutos}}</translation>
 <translation id="1169783199079129864">{MINUTES,plural, =1{1 m}other{# m}}</translation>
+<translation id="1181037720776840403">Eliminar</translation>
 <translation id="1243314992276662751">Cargar</translation>
 <translation id="1266864766717917324">Non se puido compartir este contido: <ph name="CONTENT_TYPE" /></translation>
 <translation id="1269641567813814718">Win</translation>
@@ -20,11 +21,12 @@
 <translation id="169515659049020177">Maiús</translation>
 <translation id="1710340000377843106">agora</translation>
 <translation id="1752946267035950200">{MINUTES,plural, =1{Un minuto}other{# minutos}}</translation>
-<translation id="1761785978543082658"><ph name="QUANTITY" /> B</translation>
+<translation id="1761785978543082658"><ph name="QUANTITY" /> B</translation>
 <translation id="1801827354178857021">Punto</translation>
 <translation id="1803208670097017349">{MONTHS,plural, =1{1 mes}other{# meses}}</translation>
 <translation id="1809410197924942083"><ph name="QUANTITY" /> MB/s</translation>
 <translation id="1830179671306812954">{HOURS,plural, =1{Unha hora e }other{# horas e }}</translation>
+<translation id="185013357618350178">&amp;Seleccionar</translation>
 <translation id="1859234291848436338">Dirección de escritura</translation>
 <translation id="1860796786778352021">Peche da notificación</translation>
 <translation id="186476001994626254">Contido da función de pegado intelixente da Web</translation>
@@ -62,7 +64,6 @@
 <translation id="2666092431469916601">Parte superior</translation>
 <translation id="2701330563083355633">Contido compartido desde <ph name="DEVICE_NAME" /></translation>
 <translation id="271033894570825754">Novo</translation>
-<translation id="2743387203779672305">Copiar no portapapeis</translation>
 <translation id="2824719307700604149">{YEARS,plural, =1{Hai un ano}other{Hai # anos}}</translation>
 <translation id="2878511608894704031">Eliminar todo</translation>
 <translation id="2907671656515444832">{DAYS,plural, =1{en 1 d}other{en # d}}</translation>
@@ -94,12 +95,14 @@
 <translation id="3889424535448813030">Frecha cara á dereita</translation>
 <translation id="3897092660631435901">Menú</translation>
 <translation id="3909791450649380159">Cor&amp;tar</translation>
+<translation id="3924145049010392604">Meta</translation>
 <translation id="3990502903496589789">Bordo dereito</translation>
 <translation id="3994749195054421561">A columna <ph name="COLUMN_NAME" /> está organizada por orde ascendente.</translation>
+<translation id="4031910098617850788">F5</translation>
 <translation id="40579289237549812">{UNREAD_NOTIFICATIONS,plural, =1{1 notificación sen ler}other{# notificacións sen ler}}</translation>
-<translation id="4250229828105606438">Captura de pantalla</translation>
 <translation id="4266252015790371705">{MONTHS,plural, =1{Hai un mes}other{Hai # meses}}</translation>
 <translation id="4289300219472526559">Comeza a falar</translation>
+<translation id="4289540628985791613">Visión xeral</translation>
 <translation id="4306392492252714209">Quitar do portapapeis.</translation>
 <translation id="4491109536499578614">Imaxe</translation>
 <translation id="4565377596337484307">Ocultar contrasinal</translation>
@@ -203,7 +206,6 @@
 <translation id="8730621377337864115">Feito</translation>
 <translation id="8772073294905169192">{HOURS,plural, =1{1 h}other{# h}}</translation>
 <translation id="8798099450830957504">Predeterminado</translation>
-<translation id="883911313571074303">Engadir notas á imaxe</translation>
 <translation id="8841375032071747811">Botón Atrás</translation>
 <translation id="8867568208303837180">Enviando…</translation>
 <translation id="8876215549894133151">Formato:</translation>

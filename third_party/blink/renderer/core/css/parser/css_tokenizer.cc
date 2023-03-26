@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,49 @@ namespace blink {
 #include "third_party/blink/renderer/platform/wtf/text/character_names.h"
 
 namespace blink {
+namespace {
+
+// To avoid resizing we err on the side of reserving too much space.
+// Most strings we tokenize have about 3.5 to 5 characters per token.
+constexpr wtf_size_t kEstimatedCharactersPerToken = 3;
+
+}  // namespace
+
+// static
+std::unique_ptr<CachedCSSTokenizer> CSSTokenizer::CreateCachedTokenizer(
+    const String& input) {
+  CSSTokenizer tokenizer(input);
+
+  Vector<CSSParserToken> tokens;
+
+  // This holds offsets into the source text for each token.
+  Vector<wtf_size_t> offsets;
+
+  wtf_size_t reserved_size = (tokenizer.input_.length() - tokenizer.Offset()) /
+                             kEstimatedCharactersPerToken;
+  tokens.ReserveInitialCapacity(reserved_size);
+  offsets.ReserveInitialCapacity(reserved_size);
+
+  offsets.push_back(0);
+  while (true) {
+    const CSSParserToken token = tokenizer.NextToken();
+    tokens.push_back(token);
+    offsets.push_back(tokenizer.Offset());
+    if (token.GetType() == kEOFToken) {
+      break;
+    }
+  }
+  return std::make_unique<CachedCSSTokenizer>(
+      input, std::move(tokens), std::move(offsets),
+      std::move(tokenizer.string_pool_));
+}
+
+std::unique_ptr<CachedCSSTokenizer> CachedCSSTokenizer::DuplicateForTesting()
+    const {
+  return std::make_unique<CachedCSSTokenizer>(
+      input_.RangeAt(0, input_.length()).ToString(), tokens_, offsets_,
+      string_pool_);
+}
 
 CSSTokenizer::CSSTokenizer(const String& string, wtf_size_t offset)
     : input_(string) {
@@ -29,10 +72,9 @@ CSSTokenizer::CSSTokenizer(const String& string, wtf_size_t offset)
 }
 
 Vector<CSSParserToken, 32> CSSTokenizer::TokenizeToEOF() {
-  // To avoid resizing we err on the side of reserving too much space.
-  // Most strings we tokenize have about 3.5 to 5 characters per token.
   Vector<CSSParserToken, 32> tokens;
-  tokens.ReserveInitialCapacity((input_.length() - Offset()) / 3);
+  tokens.ReserveInitialCapacity((input_.length() - Offset()) /
+                                kEstimatedCharactersPerToken);
 
   while (true) {
     const CSSParserToken token = NextToken();
@@ -57,8 +99,9 @@ CSSParserToken CSSTokenizer::TokenizeSingle() {
   while (true) {
     prev_offset_ = input_.Offset();
     const CSSParserToken token = NextToken();
-    if (token.GetType() == kCommentToken)
+    if (token.GetType() == kCommentToken) {
       continue;
+    }
     return token;
   }
 }
@@ -101,7 +144,7 @@ CSSParserToken CSSTokenizer::BlockStart(CSSParserTokenType block_type,
 
 CSSParserToken CSSTokenizer::BlockEnd(CSSParserTokenType type,
                                       CSSParserTokenType start_type) {
-  if (!block_stack_.IsEmpty() && block_stack_.back() == start_type) {
+  if (!block_stack_.empty() && block_stack_.back() == start_type) {
     block_stack_.pop_back();
     return CSSParserToken(type, CSSParserToken::kBlockEnd);
   }
@@ -142,8 +185,9 @@ CSSParserToken CSSTokenizer::PlusOrFullStop(UChar cc) {
 
 CSSParserToken CSSTokenizer::Asterisk(UChar cc) {
   DCHECK_EQ(cc, '*');
-  if (ConsumeIfNext('='))
+  if (ConsumeIfNext('=')) {
     return CSSParserToken(kSubstringMatchToken);
+  }
   return CSSParserToken(kDelimiterToken, '*');
 }
 
@@ -211,38 +255,44 @@ CSSParserToken CSSTokenizer::Hash(UChar cc) {
 
 CSSParserToken CSSTokenizer::CircumflexAccent(UChar cc) {
   DCHECK_EQ(cc, '^');
-  if (ConsumeIfNext('='))
+  if (ConsumeIfNext('=')) {
     return CSSParserToken(kPrefixMatchToken);
+  }
   return CSSParserToken(kDelimiterToken, '^');
 }
 
 CSSParserToken CSSTokenizer::DollarSign(UChar cc) {
   DCHECK_EQ(cc, '$');
-  if (ConsumeIfNext('='))
+  if (ConsumeIfNext('=')) {
     return CSSParserToken(kSuffixMatchToken);
+  }
   return CSSParserToken(kDelimiterToken, '$');
 }
 
 CSSParserToken CSSTokenizer::VerticalLine(UChar cc) {
   DCHECK_EQ(cc, '|');
-  if (ConsumeIfNext('='))
+  if (ConsumeIfNext('=')) {
     return CSSParserToken(kDashMatchToken);
-  if (ConsumeIfNext('|'))
+  }
+  if (ConsumeIfNext('|')) {
     return CSSParserToken(kColumnToken);
+  }
   return CSSParserToken(kDelimiterToken, '|');
 }
 
 CSSParserToken CSSTokenizer::Tilde(UChar cc) {
   DCHECK_EQ(cc, '~');
-  if (ConsumeIfNext('='))
+  if (ConsumeIfNext('=')) {
     return CSSParserToken(kIncludeMatchToken);
+  }
   return CSSParserToken(kDelimiterToken, '~');
 }
 
 CSSParserToken CSSTokenizer::CommercialAt(UChar cc) {
   DCHECK_EQ(cc, '@');
-  if (NextCharsAreIdentifier())
+  if (NextCharsAreIdentifier()) {
     return CSSParserToken(kAtKeywordToken, ConsumeName());
+  }
   return CSSParserToken(kDelimiterToken, '@');
 }
 
@@ -302,8 +352,9 @@ CSSParserToken CSSTokenizer::NextToken() {
   }
 
   ++token_count_;
-  if (code_point_func)
+  if (code_point_func) {
     return ((this)->*(code_point_func))(cc);
+  }
   return CSSParserToken(kDelimiterToken, cc);
 }
 
@@ -358,10 +409,11 @@ CSSParserToken CSSTokenizer::ConsumeNumber() {
 // http://www.w3.org/TR/css3-syntax/#consume-a-numeric-token
 CSSParserToken CSSTokenizer::ConsumeNumericToken() {
   CSSParserToken token = ConsumeNumber();
-  if (NextCharsAreIdentifier())
+  if (NextCharsAreIdentifier()) {
     token.ConvertToDimensionWithUnit(ConsumeName());
-  else if (ConsumeIfNext('%'))
+  } else if (ConsumeIfNext('%')) {
     token.ConvertToPercentage();
+  }
   return token;
 }
 
@@ -374,8 +426,9 @@ CSSParserToken CSSTokenizer::ConsumeIdentLikeToken() {
       // tokens, but they wouldn't be used and this is easier.
       input_.AdvanceUntilNonWhitespace();
       UChar next = input_.PeekWithoutReplacement(0);
-      if (next != '"' && next != '\'')
+      if (next != '"' && next != '\'') {
         return ConsumeUrlToken();
+      }
     }
     return BlockStart(kLeftParenthesisToken, kFunctionToken, name);
   }
@@ -396,8 +449,9 @@ CSSParserToken CSSTokenizer::ConsumeStringTokenUntil(UChar ending_code_point) {
       input_.Advance(size);
       return CSSParserToken(kBadStringToken);
     }
-    if (cc == '\0' || cc == '\\')
+    if (cc == '\0' || cc == '\\') {
       break;
+    }
   }
 
   StringBuilder output;
@@ -412,12 +466,14 @@ CSSParserToken CSSTokenizer::ConsumeStringTokenUntil(UChar ending_code_point) {
       return CSSParserToken(kBadStringToken);
     }
     if (cc == '\\') {
-      if (input_.NextInputChar() == kEndOfFileMarker)
+      if (input_.NextInputChar() == kEndOfFileMarker) {
         continue;
-      if (IsCSSNewLine(input_.PeekWithoutReplacement(0)))
+      }
+      if (IsCSSNewLine(input_.PeekWithoutReplacement(0))) {
         ConsumeSingleWhitespaceIfNext();  // This handles \r\n for us
-      else
+      } else {
         output.Append(ConsumeEscape());
+      }
     } else {
       output.Append(cc);
     }
@@ -477,15 +533,17 @@ CSSParserToken CSSTokenizer::ConsumeUrlToken() {
       return CSSParserToken(kUrlToken, input_.RangeAt(start_offset, size));
     }
     if (cc <= ' ' || cc == '\\' || cc == '"' || cc == '\'' || cc == '(' ||
-        cc == '\x7f')
+        cc == '\x7f') {
       break;
+    }
   }
 
   StringBuilder result;
   while (true) {
     UChar cc = Consume();
-    if (cc == ')' || cc == kEndOfFileMarker)
+    if (cc == ')' || cc == kEndOfFileMarker) {
       return CSSParserToken(kUrlToken, RegisterString(result.ReleaseString()));
+    }
 
     if (IsHTMLSpace(cc)) {
       input_.AdvanceUntilNonWhitespace();
@@ -496,8 +554,9 @@ CSSParserToken CSSTokenizer::ConsumeUrlToken() {
       break;
     }
 
-    if (cc == '"' || cc == '\'' || cc == '(' || IsNonPrintableCodePoint(cc))
+    if (cc == '"' || cc == '\'' || cc == '(' || IsNonPrintableCodePoint(cc)) {
       break;
+    }
 
     if (cc == '\\') {
       if (TwoCharsAreValidEscape(cc, input_.PeekWithoutReplacement(0))) {
@@ -518,10 +577,12 @@ CSSParserToken CSSTokenizer::ConsumeUrlToken() {
 void CSSTokenizer::ConsumeBadUrlRemnants() {
   while (true) {
     UChar cc = Consume();
-    if (cc == ')' || cc == kEndOfFileMarker)
+    if (cc == ')' || cc == kEndOfFileMarker) {
       return;
-    if (TwoCharsAreValidEscape(cc, input_.PeekWithoutReplacement(0)))
+    }
+    if (TwoCharsAreValidEscape(cc, input_.PeekWithoutReplacement(0))) {
       ConsumeEscape();
+    }
   }
 }
 
@@ -532,15 +593,17 @@ void CSSTokenizer::ConsumeSingleWhitespaceIfNext() {
 void CSSTokenizer::ConsumeUntilCommentEndFound() {
   UChar c = Consume();
   while (true) {
-    if (c == kEndOfFileMarker)
+    if (c == kEndOfFileMarker) {
       return;
+    }
     if (c != '*') {
       c = Consume();
       continue;
     }
     c = Consume();
-    if (c == '/')
+    if (c == '/') {
       return;
+    }
   }
 }
 
@@ -561,15 +624,18 @@ StringView CSSTokenizer::ConsumeName() {
   // Names without escapes get handled without allocations
   for (unsigned size = 0;; ++size) {
     UChar cc = input_.PeekWithoutReplacement(size);
-    if (IsNameCodePoint(cc))
+    if (IsNameCodePoint(cc)) {
       continue;
+    }
     // peekWithoutReplacement will return NUL when we hit the end of the
     // input. In that case we want to still use the rangeAt() fast path
     // below.
-    if (cc == '\0' && input_.Offset() + size < input_.length())
+    if (cc == '\0' && input_.Offset() + size < input_.length()) {
       break;
-    if (cc == '\\')
+    }
+    if (cc == '\\') {
       break;
+    }
     unsigned start_offset = input_.Offset();
     input_.Advance(size);
     return input_.RangeAt(start_offset, size);
@@ -591,13 +657,16 @@ bool CSSTokenizer::NextTwoCharsAreValidEscape() {
 // http://www.w3.org/TR/css3-syntax/#starts-with-a-number
 bool CSSTokenizer::NextCharsAreNumber(UChar first) {
   UChar second = input_.PeekWithoutReplacement(0);
-  if (IsASCIIDigit(first))
+  if (IsASCIIDigit(first)) {
     return true;
-  if (first == '+' || first == '-')
+  }
+  if (first == '+' || first == '-') {
     return ((IsASCIIDigit(second)) ||
             (second == '.' && IsASCIIDigit(input_.PeekWithoutReplacement(1))));
-  if (first == '.')
+  }
+  if (first == '.') {
     return (IsASCIIDigit(second));
+  }
   return false;
 }
 

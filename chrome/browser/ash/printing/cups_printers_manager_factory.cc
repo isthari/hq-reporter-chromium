@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,9 @@
 #include "chrome/browser/ash/printing/cups_printers_manager_proxy.h"
 #include "chrome/browser/ash/printing/synced_printers_manager_factory.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 
-namespace chromeos {
+namespace ash {
 
 // static
 CupsPrintersManagerFactory* CupsPrintersManagerFactory::GetInstance() {
@@ -28,11 +26,18 @@ CupsPrintersManager* CupsPrintersManagerFactory::GetForBrowserContext(
 }
 
 CupsPrintersManagerFactory::CupsPrintersManagerFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "CupsPrintersManagerFactory",
-          BrowserContextDependencyManager::GetInstance()),
+          // In Guest Mode, only use the OffTheRecord profile.
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kOwnInstance)
+              .WithGuest(ProfileSelection::kOffTheRecordOnly)
+              // We do not need an instance of CupsPrintersManager on the
+              // lockscreen.
+              .WithAshInternals(ProfileSelection::kNone)
+              .Build()),
       proxy_(CupsPrintersManagerProxy::Create()) {
-  DependsOn(ash::SyncedPrintersManagerFactory::GetInstance());
+  DependsOn(SyncedPrintersManagerFactory::GetInstance());
 }
 
 CupsPrintersManagerFactory::~CupsPrintersManagerFactory() = default;
@@ -43,12 +48,13 @@ CupsPrintersManagerProxy* CupsPrintersManagerFactory::GetProxy() {
 
 KeyedService* CupsPrintersManagerFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
-  // We do not need an instance of CupsPrintersManager on the lockscreen.
   auto* profile = Profile::FromBrowserContext(context);
-  if (!ProfileHelper::IsRegularProfile(profile)) {
-    return nullptr;
-  }
-
+  // This condition still needs to be explicitly stated here despite having
+  // ProfileKeyedService logic implemented because `IsGuestSession()` and
+  // `IsRegularProfile()` are not yet mutually exclusive in ASH and Lacros.
+  // TODO(crbug.com/1348572): remove this condition when `IsGuestSession() is
+  // fixed.
+  //
   // In Guest Mode, only use the OffTheRecord profile.
   if (profile->IsGuestSession() && !profile->IsOffTheRecord()) {
     return nullptr;
@@ -72,11 +78,6 @@ void CupsPrintersManagerFactory::BrowserContextShutdown(
   BrowserContextKeyedServiceFactory::BrowserContextShutdown(context);
 }
 
-content::BrowserContext* CupsPrintersManagerFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  return chrome::GetBrowserContextOwnInstanceInIncognito(context);
-}
-
 bool CupsPrintersManagerFactory::ServiceIsCreatedWithBrowserContext() const {
   return true;
 }
@@ -85,4 +86,4 @@ bool CupsPrintersManagerFactory::ServiceIsNULLWhileTesting() const {
   return true;
 }
 
-}  // namespace chromeos
+}  // namespace ash

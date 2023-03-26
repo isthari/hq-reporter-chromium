@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,10 @@ namespace gfx {
 class ImageSkia;
 class Vector2d;
 }  // namespace gfx
+
+namespace ui {
+class ColorProvider;
+}  // namespace ui
 
 namespace ash {
 
@@ -25,7 +29,8 @@ namespace holding_space_util {
 // to represent the presence of additional drag items if necessary.
 void CreateDragImage(const std::vector<const HoldingSpaceItemView*>& views,
                      gfx::ImageSkia* drag_image,
-                     gfx::Vector2d* drag_offset);
+                     gfx::Vector2d* drag_offset,
+                     const ui::ColorProvider* color_provider);
 
 }  // namespace holding_space_util
 }  // namespace ash

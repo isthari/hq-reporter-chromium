@@ -102,7 +102,7 @@ HTMLOptionElement* HTMLOptionElement::CreateForJSConstructor(
   HTMLOptionElement* element =
       MakeGarbageCollected<HTMLOptionElement>(document);
   element->EnsureUserAgentShadowRoot();
-  if (!data.IsEmpty()) {
+  if (!data.empty()) {
     element->AppendChild(Text::Create(document, data), exception_state);
     if (exception_state.HadException())
       return nullptr;
@@ -151,7 +151,7 @@ String HTMLOptionElement::DisplayLabel() const {
   // the empty string the same as an element with no label attribute at all.
   // Is that correct? If it is, then should the label function work the same
   // way?
-  if (text.IsEmpty())
+  if (text.empty())
     text = CollectOptionInnerText();
 
   return text.StripWhiteSpace(IsHTMLSpace<UChar>)
@@ -214,9 +214,11 @@ void HTMLOptionElement::ParseAttribute(
   if (name == html_names::kValueAttr) {
     if (HTMLDataListElement* data_list = OwnerDataListElement()) {
       data_list->OptionElementChildrenChanged();
-    } else if (HTMLSelectMenuElement* select_menu =
-                   HTMLSelectMenuElement::OwnerSelectMenu(this)) {
-      select_menu->OptionElementValueChanged(*this);
+    } else if (UNLIKELY(is_descendant_of_select_menu_)) {
+      if (HTMLSelectMenuElement* select_menu =
+              HTMLSelectMenuElement::OwnerSelectMenu(this)) {
+        select_menu->OptionElementValueChanged(*this);
+      }
     }
   } else if (name == html_names::kDisabledAttr) {
     if (params.old_value.IsNull() != params.new_value.IsNull()) {

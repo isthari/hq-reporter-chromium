@@ -1,11 +1,11 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/browsing_data/content/mock_indexed_db_helper.h"
 
-#include "base/callback.h"
 #include "base/containers/contains.h"
+#include "base/functional/callback.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/storage_usage_info.h"
@@ -42,11 +42,11 @@ void MockIndexedDBHelper::AddIndexedDBSamples() {
   const blink::StorageKey kStorageKey2 =
       blink::StorageKey::CreateFromStringForTesting("http://idbhost2:2/");
 
-  content::StorageUsageInfo info1(kStorageKey1.origin(), 1, base::Time());
+  content::StorageUsageInfo info1(kStorageKey1, 1, base::Time());
   response_.push_back(info1);
   storage_keys_[kStorageKey1] = true;
 
-  content::StorageUsageInfo info2(kStorageKey2.origin(), 2, base::Time());
+  content::StorageUsageInfo info2(kStorageKey2, 2, base::Time());
   response_.push_back(info2);
   storage_keys_[kStorageKey2] = true;
 }

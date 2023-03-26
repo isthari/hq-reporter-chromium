@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,13 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/task_environment.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "chrome/chrome_cleaner/engines/broker/engine_client_mock.h"
 #include "chrome/chrome_cleaner/engines/common/engine_result_codes.h"
 #include "chrome/chrome_cleaner/logging/logging_service_api.h"
@@ -68,7 +68,7 @@ struct ReportUwS {
   }
 
   void operator()(EngineClient::FoundUwSCallback found_uws_callback) {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(found_uws_callback, pup_id_, pup_));
   }
 
@@ -82,7 +82,7 @@ struct ReportDone {
   explicit ReportDone(uint32_t status) : status_(status) {}
 
   void operator()(EngineClient::DoneCallback* done_callback) {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(*done_callback), status_));
   }
 

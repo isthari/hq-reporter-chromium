@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,22 +7,24 @@
  * a security key PIN.
  */
 
-import 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
-import '../settings_shared_css.js';
+import 'chrome://resources/cr_elements/cr_input/cr_input.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import '../settings_shared.css.js';
 import '../i18n_setup.js';
 
-import {CrInputElement} from 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
-import {I18nMixin} from 'chrome://resources/js/i18n_mixin.js';
-import {IronA11yAnnouncer} from 'chrome://resources/polymer/v3_0/iron-a11y-announcer/iron-a11y-announcer.js';
-import {afterNextRender, html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {getInstance as getAnnouncerInstance} from 'chrome://resources/cr_elements/cr_a11y_announcer/cr_a11y_announcer.js';
+import {CrInputElement} from 'chrome://resources/cr_elements/cr_input/cr_input.js';
+import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {getTemplate} from './security_keys_pin_field.html.js';
 
 /**
  * A function that submits a PIN to a security key. It returns a Promise which
  * resolves with null if the PIN was correct, or with the number of retries
  * remaining otherwise.
  */
-type PINFieldSubmitFunc = (pin: string) => Promise<number|null>;
+type PinFieldSubmitFunc = (pin: string) => Promise<number|null>;
 
 export interface SettingsSecurityKeysPinFieldElement {
   $: {
@@ -39,7 +41,7 @@ export class SettingsSecurityKeysPinFieldElement extends
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -68,16 +70,8 @@ export class SettingsSecurityKeysPinFieldElement extends
   private value_: string;
   private inputVisible_: boolean;
 
-  connectedCallback() {
-    super.connectedCallback();
-
-    afterNextRender(this, function() {
-      IronA11yAnnouncer.requestAvailability();
-    });
-  }
-
   /** Focuses the PIN input field. */
-  focus() {
+  override focus() {
     this.$.pin.focus();
   }
 
@@ -86,7 +80,7 @@ export class SettingsSecurityKeysPinFieldElement extends
    * @return True iff the PIN is valid.
    */
   private validate_(): boolean {
-    const error = this.isValidPIN_(this.value_);
+    const error = this.isValidPin_(this.value_);
     if (error !== '') {
       this.error_ = error;
       return false;
@@ -99,14 +93,14 @@ export class SettingsSecurityKeysPinFieldElement extends
    * to show an error if the PIN was incorrect.
    * @return A Promise that resolves if the PIN was correct, else rejects.
    */
-  trySubmit(submitFunc: PINFieldSubmitFunc): Promise<void> {
+  trySubmit(submitFunc: PinFieldSubmitFunc): Promise<void> {
     if (!this.validate_()) {
       this.focus();
       return Promise.reject();
     }
     return submitFunc(this.value_).then(retries => {
       if (retries !== null) {
-        this.showIncorrectPINError_(retries);
+        this.showIncorrectPinError_(retries);
         this.focus();
         return Promise.reject();
       }
@@ -118,7 +112,7 @@ export class SettingsSecurityKeysPinFieldElement extends
    * Sets the validation error to indicate the PIN was incorrect.
    * @param retries The number of retries remaining.
    */
-  private showIncorrectPINError_(retries: number) {
+  private showIncorrectPinError_(retries: number) {
     // Warn the user if the number of retries is getting low.
     let error;
     if (1 < retries && retries <= 3) {
@@ -132,7 +126,7 @@ export class SettingsSecurityKeysPinFieldElement extends
     this.error_ = error;
   }
 
-  private onPINInput_() {
+  private onPinInput_() {
     // Typing in the PIN box after an error makes the error message
     // disappear.
     this.error_ = '';
@@ -179,7 +173,7 @@ export class SettingsSecurityKeysPinFieldElement extends
    * @param pin A candidate PIN.
    * @return An error string or else '' to indicate validity.
    */
-  private isValidPIN_(pin: string): string {
+  private isValidPin_(pin: string): string {
     // The UTF-8 encoding of the PIN must be between minPinLength
     // and 63 bytes, and the final byte cannot be zero.
     const utf8Encoded = new TextEncoder().encode(pin);
@@ -201,7 +195,7 @@ export class SettingsSecurityKeysPinFieldElement extends
     // code-point.) Therefore, iterate over the string (which does yield
     // codepoints) and check that four or more were seen.
     let length = 0;
-    for (const codepoint of pin) {
+    for (const _codepoint of pin) {
       length++;
     }
 
@@ -215,9 +209,7 @@ export class SettingsSecurityKeysPinFieldElement extends
   private errorChanged_() {
     // Make screen readers announce changes to the PIN validation error
     // label.
-    this.dispatchEvent(new CustomEvent(
-        'iron-announce',
-        {bubbles: true, composed: true, detail: {text: this.error_}}));
+    getAnnouncerInstance().announce(this.error_);
   }
 }
 

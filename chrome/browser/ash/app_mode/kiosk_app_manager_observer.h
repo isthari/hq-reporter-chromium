@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,11 +42,5 @@ class KioskAppManagerObserver {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when the //chrome/browser/chromeos
-// source code migration is finished.
-namespace chromeos {
-using ::ash::KioskAppManagerObserver;
-}
 
 #endif  // CHROME_BROWSER_ASH_APP_MODE_KIOSK_APP_MANAGER_OBSERVER_H_

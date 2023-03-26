@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,7 +67,6 @@ VrController::VrController(gvr::GvrApi* gvr_api)
 
   handedness_ = gvr_api_->GetUserPrefs().GetControllerHandedness();
 
-  gesture_detector_ = std::make_unique<GestureDetector>();
   last_timestamp_nanos_ =
       gvr::GvrApi::GetTimePointNow().monotonic_system_time_nanos;
 }
@@ -191,8 +190,7 @@ gfx::Point3F VrController::Position() const {
 
 void VrController::GetTransform(gfx::Transform* out) const {
   *out = gfx::Transform(Orientation());
-  const gfx::Point3F& position = Position();
-  out->matrix().postTranslate(position.x(), position.y(), position.z());
+  out->PostTranslate3d(Position().OffsetFromOrigin());
 }
 
 void VrController::GetRelativePointerTransform(gfx::Transform* out) const {
@@ -206,7 +204,7 @@ void VrController::GetPointerTransform(gfx::Transform* out) const {
   GetTransform(&controller);
 
   GetRelativePointerTransform(out);
-  out->ConcatTransform(controller);
+  out->PostConcat(controller);
 }
 
 float VrController::GetOpacity() const {
@@ -217,8 +215,7 @@ gfx::Point3F VrController::GetPointerStart() const {
   gfx::Transform pointer_transform;
   GetPointerTransform(&pointer_transform);
 
-  gfx::Point3F pointer_position;
-  pointer_transform.TransformPoint(&pointer_position);
+  gfx::Point3F pointer_position = pointer_transform.MapPoint(gfx::Point3F());
   return pointer_position;
 }
 
@@ -256,11 +253,8 @@ bool VrController::IsConnected() {
 
 void VrController::UpdateState(const gfx::Transform& head_pose) {
   gfx::Transform inv_pose;
-  if (head_pose.GetInverse(&inv_pose)) {
-    auto current_head_offset = gfx::Point3F();
-    inv_pose.TransformPoint(&current_head_offset);
-    head_offset_ = current_head_offset;
-  }
+  if (head_pose.GetInverse(&inv_pose))
+    head_offset_ = inv_pose.MapPoint(gfx::Point3F());
 
   gvr::Mat4f gvr_head_pose;
   TransformToGvrMat(head_pose, &gvr_head_pose);
@@ -291,14 +285,6 @@ void VrController::UpdateState(const gfx::Transform& head_pose) {
   UpdateTimestamps();
   last_timestamp_nanos_ =
       gvr::GvrApi::GetTimePointNow().monotonic_system_time_nanos;
-}
-
-InputEventList VrController::DetectGestures() {
-  if (controller_state_->GetConnectionState() != gvr::kControllerConnected) {
-    return {};
-  }
-
-  return gesture_detector_->DetectGestures(*this, base::TimeTicks::Now());
 }
 
 void VrController::UpdateTimestamps() {

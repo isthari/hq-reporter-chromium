@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,8 +19,7 @@
 using jingle_xmpp::QName;
 using jingle_xmpp::XmlElement;
 
-namespace remoting {
-namespace protocol {
+namespace remoting::protocol {
 
 const char ContentDescription::kChromotingContentName[] = "chromoting";
 
@@ -41,20 +40,21 @@ const char kVersionAttr[] = "version";
 const char kCodecAttr[] = "codec";
 
 const NameMapElement<ChannelConfig::TransportType> kTransports[] = {
-  { ChannelConfig::TRANSPORT_STREAM, "stream" },
-  { ChannelConfig::TRANSPORT_MUX_STREAM, "mux-stream" },
-  { ChannelConfig::TRANSPORT_DATAGRAM, "datagram" },
-  { ChannelConfig::TRANSPORT_NONE, "none" },
+    {ChannelConfig::TRANSPORT_STREAM, "stream"},
+    {ChannelConfig::TRANSPORT_MUX_STREAM, "mux-stream"},
+    {ChannelConfig::TRANSPORT_DATAGRAM, "datagram"},
+    {ChannelConfig::TRANSPORT_NONE, "none"},
 };
 
 const NameMapElement<ChannelConfig::Codec> kCodecs[] = {
-  { ChannelConfig::CODEC_VERBATIM, "verbatim" },
-  { ChannelConfig::CODEC_VP8, "vp8" },
-  { ChannelConfig::CODEC_VP9, "vp9" },
-  { ChannelConfig::CODEC_H264, "h264" },
-  { ChannelConfig::CODEC_ZIP, "zip" },
-  { ChannelConfig::CODEC_OPUS, "opus" },
-  { ChannelConfig::CODEC_SPEEX, "speex" },
+    {ChannelConfig::CODEC_VERBATIM, "verbatim"},
+    {ChannelConfig::CODEC_VP8, "vp8"},
+    {ChannelConfig::CODEC_VP9, "vp9"},
+    {ChannelConfig::CODEC_H264, "h264"},
+    {ChannelConfig::CODEC_ZIP, "zip"},
+    {ChannelConfig::CODEC_OPUS, "opus"},
+    {ChannelConfig::CODEC_SPEEX, "speex"},
+    {ChannelConfig::CODEC_AV1, "av1"},
 };
 
 // Format a channel configuration tag for chromotocol session description,
@@ -62,8 +62,7 @@ const NameMapElement<ChannelConfig::Codec> kCodecs[] = {
 //    <video transport="stream" version="1" codec="vp8" />
 XmlElement* FormatChannelConfig(const ChannelConfig& config,
                                 const std::string& tag_name) {
-  XmlElement* result = new XmlElement(
-      QName(kChromotingXmlNamespace, tag_name));
+  XmlElement* result = new XmlElement(QName(kChromotingXmlNamespace, tag_name));
 
   result->AddAttr(QName(kDefaultNs, kTransportAttr),
                   ValueToName(kTransports, config.transport));
@@ -82,11 +81,12 @@ XmlElement* FormatChannelConfig(const ChannelConfig& config,
 }
 
 // Returns false if the element is invalid.
-bool ParseChannelConfig(const XmlElement* element, bool codec_required,
+bool ParseChannelConfig(const XmlElement* element,
+                        bool codec_required,
                         ChannelConfig* config) {
-  if (!NameToValue(
-          kTransports, element->Attr(QName(kDefaultNs, kTransportAttr)),
-          &config->transport)) {
+  if (!NameToValue(kTransports,
+                   element->Attr(QName(kDefaultNs, kTransportAttr)),
+                   &config->transport)) {
     return false;
   }
 
@@ -138,12 +138,12 @@ ContentDescription::~ContentDescription() = default;
 //   </description>
 //
 XmlElement* ContentDescription::ToXml() const {
-  XmlElement* root = new XmlElement(
-      QName(kChromotingXmlNamespace, kDescriptionTag), true);
+  XmlElement* root =
+      new XmlElement(QName(kChromotingXmlNamespace, kDescriptionTag), true);
 
   if (config()->ice_supported()) {
-    root->AddElement(
-        new jingle_xmpp::XmlElement(QName(kChromotingXmlNamespace, kStandardIceTag)));
+    root->AddElement(new jingle_xmpp::XmlElement(
+        QName(kChromotingXmlNamespace, kStandardIceTag)));
 
     for (const auto& channel_config : config()->control_configs()) {
       root->AddElement(FormatChannelConfig(channel_config, kControlTag));
@@ -171,8 +171,8 @@ XmlElement* ContentDescription::ToXml() const {
 }
 
 // static
-// Adds the channel configs corresponding to |tag_name|,
-// found in |element|, to |configs|.
+// Adds the channel configs corresponding to |tag_name|, found in |element|, to
+// |configs|.
 bool ContentDescription::ParseChannelConfigs(
     const XmlElement* const element,
     const char tag_name[],
@@ -189,8 +189,8 @@ bool ContentDescription::ParseChannelConfigs(
     child = child->NextNamed(tag);
   }
   if (optional && configs->empty()) {
-      // If there's no mention of the tag, implicitly assume disabled channel.
-      configs->push_back(ChannelConfig::None());
+    // If there's no mention of the tag, implicitly assume disabled channel.
+    configs->push_back(ChannelConfig::None());
   }
   return true;
 }
@@ -225,12 +225,12 @@ std::unique_ptr<ContentDescription> ContentDescription::ParseXml(
 
   std::unique_ptr<XmlElement> authenticator_message;
   const XmlElement* child = Authenticator::FindAuthenticatorMessage(element);
-  if (child)
+  if (child) {
     authenticator_message = std::make_unique<XmlElement>(*child);
+  }
 
   return base::WrapUnique(new ContentDescription(
       std::move(config), std::move(authenticator_message)));
 }
 
-}  // namespace protocol
-}  // namespace remoting
+}  // namespace remoting::protocol

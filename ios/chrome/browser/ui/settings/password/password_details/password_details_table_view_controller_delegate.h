@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,13 @@
 // Called when user finished editing a password.
 - (void)passwordDetailsViewController:
             (PasswordDetailsTableViewController*)viewController
-               didEditPasswordDetails:(PasswordDetails*)password;
+               didEditPasswordDetails:(PasswordDetails*)password
+                      withOldUsername:(NSString*)oldUsername
+                       andOldPassword:(NSString*)oldPassword;
+
+// Called when we finish treating all the passwords changes in the password
+// details view.
+- (void)didFinishEditingPasswordDetails;
 
 // Called when user finished adding a new password credential.
 - (void)passwordDetailsViewController:
@@ -42,7 +48,7 @@
 - (BOOL)isTLDMissing;
 
 // Checks if the username is reused for the same domain.
-- (BOOL)isUsernameReused:(NSString*)newUsername;
+- (BOOL)isUsernameReused:(NSString*)newUsername forDomain:(NSString*)domain;
 
 @end
 

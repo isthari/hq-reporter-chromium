@@ -1,9 +1,11 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/memory/ref_counted.h"
+#include "base/ranges/algorithm.h"
 #include "base/run_loop.h"
+#include "base/test/bind.h"
 #include "build/build_config.h"
 #include "media/base/video_frame.h"
 #include "media/mojo/common/media_type_converters.h"
@@ -12,7 +14,6 @@
 #include "services/video_capture/device_media_to_mojo_adapter.h"
 #include "services/video_capture/public/cpp/mock_video_frame_handler.h"
 #include "services/video_capture/public/mojom/constants.mojom.h"
-#include "services/video_capture/public/mojom/device_factory.mojom.h"
 #include "services/video_capture/public/mojom/video_frame_handler.mojom.h"
 #include "services/video_capture/test/fake_device_test.h"
 
@@ -46,8 +47,21 @@ TEST_F(FakeVideoCaptureDeviceTest, FrameCallbacksArriveFromI420Device) {
         }
       }));
 
-  i420_fake_device_remote_->Start(requestable_settings_,
-                                  std::move(handler_remote));
+  mojo::Remote<video_capture::mojom::PushVideoStreamSubscription> subscription;
+
+  i420_fake_source_remote_->CreatePushSubscription(
+      std::move(handler_remote), requestable_settings_,
+      false /*force_reopen_with_new_settings*/,
+      subscription.BindNewPipeAndPassReceiver(),
+      base::BindLambdaForTesting(
+          [&subscription](
+              video_capture::mojom::CreatePushSubscriptionResultCodePtr
+                  result_code,
+              const media::VideoCaptureParams& params) {
+            EXPECT_TRUE(result_code->is_success_code());
+            subscription->Activate();
+          }));
+
   wait_loop.Run();
 }
 
@@ -73,8 +87,21 @@ TEST_F(FakeVideoCaptureDeviceTest, FrameCallbacksArriveFromMjpegDevice) {
       }));
   EXPECT_CALL(video_frame_handler, OnStartedUsingGpuDecode()).Times(0);
 
-  mjpeg_fake_device_remote_->Start(requestable_settings_,
-                                   std::move(handler_remote));
+  mojo::Remote<video_capture::mojom::PushVideoStreamSubscription> subscription;
+
+  mjpeg_fake_source_remote_->CreatePushSubscription(
+      std::move(handler_remote), requestable_settings_,
+      false /*force_reopen_with_new_settings*/,
+      subscription.BindNewPipeAndPassReceiver(),
+      base::BindLambdaForTesting(
+          [&subscription](
+              video_capture::mojom::CreatePushSubscriptionResultCodePtr
+                  result_code,
+              const media::VideoCaptureParams& params) {
+            EXPECT_TRUE(result_code->is_success_code());
+            subscription->Activate();
+          }));
+
   wait_loop.Run();
 }
 
@@ -103,8 +130,21 @@ TEST_F(FakeVideoCaptureDeviceTest, BuffersGetReused) {
         }
       }));
 
-  i420_fake_device_remote_->Start(requestable_settings_,
-                                  std::move(handler_remote));
+  mojo::Remote<video_capture::mojom::PushVideoStreamSubscription> subscription;
+
+  i420_fake_source_remote_->CreatePushSubscription(
+      std::move(handler_remote), requestable_settings_,
+      false /*force_reopen_with_new_settings*/,
+      subscription.BindNewPipeAndPassReceiver(),
+      base::BindLambdaForTesting(
+          [&subscription](
+              video_capture::mojom::CreatePushSubscriptionResultCodePtr
+                  result_code,
+              const media::VideoCaptureParams& params) {
+            EXPECT_TRUE(result_code->is_success_code());
+            subscription->Activate();
+          }));
+
   wait_loop.Run();
 
   ASSERT_LT(num_buffers_created, num_frames_arrived);
@@ -135,100 +175,39 @@ TEST_F(FakeVideoCaptureDeviceTest, BuffersGetRetiredWhenDeviceIsStopped) {
             }
           }));
 
-  i420_fake_device_remote_->Start(requestable_settings_,
-                                  std::move(handler_remote));
+  mojo::Remote<video_capture::mojom::PushVideoStreamSubscription> subscription;
+
+  i420_fake_source_remote_->CreatePushSubscription(
+      std::move(handler_remote), requestable_settings_,
+      false /*force_reopen_with_new_settings*/,
+      subscription.BindNewPipeAndPassReceiver(),
+      base::BindLambdaForTesting(
+          [&subscription](
+              video_capture::mojom::CreatePushSubscriptionResultCodePtr
+                  result_code,
+              const media::VideoCaptureParams& params) {
+            EXPECT_TRUE(result_code->is_success_code());
+            subscription->Activate();
+          }));
+
   wait_for_frames_loop.Run();
 
   base::RunLoop wait_for_on_stopped_loop;
   EXPECT_CALL(video_frame_handler, DoOnBufferRetired(_))
       .WillRepeatedly(Invoke([&known_buffer_ids](int32_t buffer_id) {
-        auto iter = std::find(known_buffer_ids.begin(), known_buffer_ids.end(),
-                              buffer_id);
+        auto iter = base::ranges::find(known_buffer_ids, buffer_id);
         ASSERT_TRUE(iter != known_buffer_ids.end());
         known_buffer_ids.erase(iter);
       }));
+
   EXPECT_CALL(video_frame_handler, OnStopped())
       .WillOnce(Invoke(
           [&wait_for_on_stopped_loop]() { wait_for_on_stopped_loop.Quit(); }));
 
   // Stop the device
-  i420_fake_device_remote_.reset();
+  subscription.reset();
   wait_for_on_stopped_loop.Run();
   ASSERT_TRUE(known_buffer_ids.empty());
 }
-
-// This requires the linux platform, where shared regions are backed by a file
-// descriptor.
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
-TEST_F(FakeVideoCaptureDeviceTest,
-       ReceiveFramesViaFileDescriptorHandlesForSharedMemory) {
-  base::RunLoop wait_loop;
-  static const int kNumFramesToWaitFor = 3;
-  int num_frames_arrived = 0;
-  std::map<int32_t, media::mojom::VideoBufferHandlePtr> buffers_by_id;
-  mojo::PendingRemote<mojom::VideoFrameHandler> handler_remote;
-  MockVideoFrameHandler video_frame_handler(
-      handler_remote.InitWithNewPipeAndPassReceiver());
-  EXPECT_CALL(video_frame_handler, DoOnNewBuffer(_, _))
-      .Times(AtLeast(1))
-      .WillRepeatedly(Invoke(
-          [&buffers_by_id](int32_t buffer_id,
-                           media::mojom::VideoBufferHandlePtr* buffer_handle) {
-            ASSERT_TRUE(
-                (*buffer_handle)->is_shared_memory_via_raw_file_descriptor());
-            // |buffer_handle| is a |VideoBufferHandlePtr*| only because gmock
-            // doesn't handle move-only types. Because |buffer_handle| is not
-            // used in the MockVideoFrameHandler implementation of
-            // |OnNewBuffer|, it is safe to move the reference.
-            BroadcastingReceiver::BufferContext context(
-                buffer_id, std::move(*buffer_handle));
-            // Use |context| to convert the raw file descriptor handle to a
-            // shared memory type that can be easily mapped in
-            // DoOnFrameReadyInBuffer, below.
-            buffers_by_id.insert(std::make_pair(
-                buffer_id, context.CloneBufferHandle(
-                               media::VideoCaptureBufferType::kSharedMemory)));
-          }));
-  bool found_unexpected_all_zero_frame = false;
-  EXPECT_CALL(video_frame_handler, DoOnFrameReadyInBuffer(_, _, _))
-      .WillRepeatedly(Invoke([&wait_loop, &num_frames_arrived, &buffers_by_id,
-                              &found_unexpected_all_zero_frame](
-                                 int32_t buffer_id, int32_t frame_feedback_id,
-                                 media::mojom::VideoFrameInfoPtr*) {
-        const mojo::ScopedSharedBufferHandle& handle =
-            buffers_by_id[buffer_id]->get_shared_buffer_handle();
-        mojo::ScopedSharedBufferMapping mapping =
-            handle->Map(handle->GetSize());
-        const uint8_t* data = static_cast<uint8_t*>(mapping.get());
-        // Check that there is at least one non-zero byte in the frame data.
-        bool found_non_zero_byte = false;
-        for (uint32_t i = 0; i < handle->GetSize(); i++) {
-          if (data[i] != 0u) {
-            found_non_zero_byte = true;
-            break;
-          }
-        }
-        if (!found_non_zero_byte) {
-          found_unexpected_all_zero_frame = true;
-          wait_loop.Quit();
-          return;
-        }
-        num_frames_arrived += 1;
-        if (num_frames_arrived >= kNumFramesToWaitFor) {
-          wait_loop.Quit();
-        }
-      }));
-
-  // Make a copy of |requestable_settings_| and change it to ask for
-  // |kSharedMemoryViaRawFileDescriptor|.
-  media::VideoCaptureParams settings_to_request = requestable_settings_;
-  settings_to_request.buffer_type =
-      media::VideoCaptureBufferType::kSharedMemoryViaRawFileDescriptor;
-  i420_fake_device_remote_->Start(settings_to_request,
-                                  std::move(handler_remote));
-  wait_loop.Run();
-  EXPECT_FALSE(found_unexpected_all_zero_frame);
-}
-#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 
 }  // namespace video_capture

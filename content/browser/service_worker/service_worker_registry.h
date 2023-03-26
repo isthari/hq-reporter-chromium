@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "base/containers/flat_set.h"
 #include "base/containers/unique_ptr_adapters.h"
+#include "base/feature_list.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
@@ -21,6 +22,7 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "storage/browser/quota/storage_policy_observer.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_ancestor_frame_type.mojom.h"
 
 namespace blink {
 class StorageKey;
@@ -38,6 +40,9 @@ class ServiceWorkerVersion;
 
 class ServiceWorkerRegistryTest;
 FORWARD_DECLARE_TEST(ServiceWorkerRegistryTest, StoragePolicyChange);
+
+CONTENT_EXPORT BASE_DECLARE_FEATURE(
+    kServiceWorkerMergeFindRegistrationForClientUrl);
 
 // Manages in-memory representation of service worker registrations
 // (i.e., ServiceWorkerRegistration) including installing and uninstalling
@@ -107,6 +112,7 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   void CreateNewRegistration(
       blink::mojom::ServiceWorkerRegistrationOptions options,
       const blink::StorageKey& key,
+      blink::mojom::AncestorFrameType ancestor_frame_type,
       NewRegistrationCallback callback);
 
   // Create a new instance of ServiceWorkerVersion which is associated with the
@@ -187,7 +193,6 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   //   ServiceWorkerStorage::PurgeResources() to delete their script resources.
   // If these aren't called, on the next profile session the cleanup occurs.
   void DeleteRegistration(scoped_refptr<ServiceWorkerRegistration> registration,
-                          const blink::StorageKey& key,
                           StatusCallback callback);
 
   // Intended for use only by ServiceWorkerRegisterJob and
@@ -217,6 +222,11 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
                                      const blink::StorageKey& key,
                                      const std::string& value,
                                      StatusCallback callback);
+  void UpdateFetchHandlerType(
+      int64_t registration_id,
+      const blink::StorageKey& key,
+      blink::mojom::ServiceWorkerFetchHandlerType fetch_handler_type,
+      StatusCallback callback);
   void StoreUncommittedResourceId(int64_t resource_id,
                                   const blink::StorageKey& key);
   void DoomUncommittedResource(int64_t resource_id);
@@ -302,6 +312,7 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   void CreateNewRegistrationWithBucketInfo(
       blink::mojom::ServiceWorkerRegistrationOptions options,
       const blink::StorageKey& key,
+      blink::mojom::AncestorFrameType ancestor_frame_type,
       NewRegistrationCallback callback,
       storage::QuotaErrorOr<storage::BucketInfo> result);
 
@@ -319,6 +330,11 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
       FindRegistrationCallback callback,
       storage::mojom::ServiceWorkerDatabaseStatus database_status,
       storage::mojom::ServiceWorkerFindRegistrationResultPtr result);
+  void RunFindRegistrationCallbacks(
+      const GURL& client_url,
+      const blink::StorageKey& key,
+      scoped_refptr<ServiceWorkerRegistration> registration,
+      blink::ServiceWorkerStatusCode status);
   void DidFindRegistrationForScope(
       FindRegistrationCallback callback,
       storage::mojom::ServiceWorkerDatabaseStatus database_status,
@@ -389,6 +405,7 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   void DidGetNewRegistrationId(
       blink::mojom::ServiceWorkerRegistrationOptions options,
       const blink::StorageKey& key,
+      blink::mojom::AncestorFrameType ancestor_frame_type,
       NewRegistrationCallback callback,
       int64_t registration_id);
 
@@ -488,6 +505,12 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
 
   // Indicates whether recovery process should be scheduled.
   bool should_schedule_delete_and_start_over_ = true;
+
+  // Stores in-flight FindRegistrationForClientUrl callbacks to merge duplicate
+  // requests.
+  base::flat_map<std::pair<GURL, blink::StorageKey>,
+                 std::vector<FindRegistrationCallback>>
+      find_registration_callbacks_;
 
   enum class ConnectionState {
     kNormal,

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,6 +29,8 @@ class IOSChromeTabRestoreServiceClient
  private:
   // TabRestoreServiceClient:
   sessions::LiveTabContext* CreateLiveTabContext(
+      sessions::LiveTabContext* existing_context,
+      sessions::SessionWindow::WindowType type,
       const std::string& app_name,
       const gfx::Rect& bounds,
       ui::WindowShowState show_state,

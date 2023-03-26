@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,9 +38,9 @@ public class ChromeFeedbackCollector
 
     public ChromeFeedbackCollector(Activity activity, @Nullable String categoryTag,
             @Nullable String description, @Nullable ScreenshotSource screenshotSource,
-            InitParams initParams, Callback<FeedbackCollector> callback) {
+            InitParams initParams, Callback<FeedbackCollector> callback, Profile profile) {
         super(categoryTag, description, callback);
-        init(activity, screenshotSource, initParams);
+        init(activity, screenshotSource, initParams, profile);
     }
 
     @VisibleForTesting
@@ -76,6 +76,17 @@ public class ChromeFeedbackCollector
         sources.add(new SystemInfoFeedbackSource());
         sources.add(new ProcessIdFeedbackSource());
 
+        // FamilyInfoFeedbackSource relies on IdentityManager which is not available for the
+        // incognito profile.
+        if (!initParams.profile.isOffTheRecord()) {
+            sources.add(new FamilyInfoFeedbackSource(initParams.profile));
+        }
+
         return sources;
+    }
+
+    @VisibleForTesting
+    List<AsyncFeedbackSource> getAsyncFeedbackSourcesForTesting() {
+        return mAsynchronousSources;
     }
 }

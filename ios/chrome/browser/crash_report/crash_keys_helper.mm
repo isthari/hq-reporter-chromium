@@ -1,13 +1,13 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/crash_report/crash_keys_helper.h"
 
-#include "base/check.h"
-#include "base/strings/string_number_conversions.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/crash/core/common/crash_key.h"
+#import "base/check.h"
+#import "base/strings/string_number_conversions.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/crash/core/common/crash_key.h"
 #import "components/previous_session_info/previous_session_info.h"
 #import "ios/chrome/browser/crash_report/crash_report_user_application_state.h"
 #import "ios/chrome/browser/crash_report/main_thread_freeze_detector.h"
@@ -28,6 +28,7 @@ const char kMemoryWarningCount[] = "memory_warning_count";
 const char kGridToVisibleTabAnimation[] = "grid_to_visible_tab_animation";
 static crash_reporter::CrashKeyString<1028> kRemoveGridToVisibleTabAnimationKey(
     kGridToVisibleTabAnimation);
+const char kCrashedAfterAppWillTerminate[] = "crashed_after_app_will_terminate";
 
 // Multiple state information are combined into one CrashReportMultiParameter
 // to save limited and finite number of ReportParameters.
@@ -73,6 +74,11 @@ void SetMemoryWarningInProgress(bool value) {
     key.Set("yes");
   else
     key.Clear();
+}
+
+void SetCrashedAfterAppWillTerminate() {
+  static crash_reporter::CrashKeyString<4> key(kCrashedAfterAppWillTerminate);
+  key.Set("yes");
 }
 
 void SetCurrentFreeMemoryInKB(int value) {

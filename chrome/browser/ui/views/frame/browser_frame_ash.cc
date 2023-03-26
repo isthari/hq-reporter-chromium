@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,10 +18,12 @@
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/views/frame/browser_frame.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chromeos/ui/base/window_properties.h"
 #include "chromeos/ui/base/window_state_type.h"
+#include "components/app_restore/app_restore_info.h"
 #include "components/app_restore/app_restore_utils.h"
-#include "components/app_restore/full_restore_info.h"
 #include "components/app_restore/full_restore_utils.h"
 #include "components/app_restore/window_properties.h"
 #include "ui/aura/client/aura_constants.h"
@@ -76,6 +78,8 @@ BrowserFrameAsh::BrowserFrameAsh(BrowserFrame* browser_frame,
   GetNativeWindow()->SetName("BrowserFrameAsh");
   Browser* browser = browser_view->browser();
 
+  created_from_drag_ = browser_frame->tab_drag_kind() != TabDragKind::kNone;
+
   // Turn on auto window management if we don't need an explicit bounds.
   // This way the requested bounds are honored.
   if (!browser->bounds_overridden() && !browser->is_session_restore())
@@ -98,8 +102,7 @@ void BrowserFrameAsh::OnWidgetInitDone() {
   window_state->SetCanConsumeSystemKeys(browser->is_type_app() ||
                                         browser->is_type_app_popup());
 
-  full_restore::FullRestoreInfo::GetInstance()->OnWidgetInitialized(
-      GetWidget());
+  app_restore::AppRestoreInfo::GetInstance()->OnWidgetInitialized(GetWidget());
 }
 
 void BrowserFrameAsh::OnWindowTargetVisibilityChanged(bool visible) {
@@ -189,6 +192,8 @@ views::Widget::InitParams BrowserFrameAsh::GetWidgetParams() {
 
   params.init_properties_container.SetProperty(app_restore::kBrowserAppNameKey,
                                                browser->app_name());
+  params.init_properties_container.SetProperty(
+      chromeos::kShouldHaveHighlightBorderOverlay, true);
 
   // This is only needed for ash. For lacros, Exo tags the associated
   // ShellSurface as being of AppType::LACROS.
@@ -222,7 +227,11 @@ bool BrowserFrameAsh::ShouldRestorePreviousBrowserWidgetState() const {
   // restore.
   const int32_t restore_id =
       browser_view_->browser()->create_params().restore_id;
-  return !full_restore::HasWindowInfo(restore_id);
+  return !app_restore::HasWindowInfo(restore_id);
+}
+
+bool BrowserFrameAsh::ShouldUseInitialVisibleOnAllWorkspaces() const {
+  return !created_from_drag_;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

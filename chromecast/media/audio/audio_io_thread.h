@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@ class SequencedTaskRunner;
 
 namespace chromecast {
 
-// Provides process-wide access to a single REALTIME_AUDIO priority IO thread.
+// Provides process-wide access to a single kRealtimeAudio type IO thread.
 class AudioIoThread {
  public:
   static AudioIoThread* Get();

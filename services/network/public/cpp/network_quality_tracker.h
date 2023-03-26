@@ -1,14 +1,15 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef SERVICES_NETWORK_PUBLIC_CPP_NETWORK_QUALITY_TRACKER_H_
 #define SERVICES_NETWORK_PUBLIC_CPP_NETWORK_QUALITY_TRACKER_H_
 
-#include "base/callback.h"
 #include "base/component_export.h"
+#include "base/functional/callback.h"
 #include "base/observer_list.h"
 #include "base/sequence_checker.h"
+#include "base/time/time.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "net/nqe/effective_connection_type.h"
 #include "services/network/public/mojom/network_quality_estimator_manager.mojom.h"

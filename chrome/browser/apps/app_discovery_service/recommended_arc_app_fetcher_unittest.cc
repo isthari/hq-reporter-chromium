@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -72,8 +72,9 @@ TEST_F(RecommendedArcAppFetcherTest, OnLoadSuccess) {
     "merchCurated": {
     }
   }]})json";
-  arc_app_fetcher()->SetCallbackForTesting(
-      base::BindLambdaForTesting([](std::vector<Result> results) {
+  arc_app_fetcher()->SetCallbackForTesting(base::BindLambdaForTesting(
+      [](const std::vector<Result>& results, DiscoveryError error) {
+        ASSERT_EQ(error, DiscoveryError::kSuccess);
         ASSERT_EQ(results.size(), 1u);
         EXPECT_EQ(results[0].GetAppSource(), AppSource::kPlay);
         EXPECT_EQ(results[0].GetAppId(), "com.game.name");
@@ -98,21 +99,26 @@ TEST_F(RecommendedArcAppFetcherTest, OnLoadSuccess) {
         EXPECT_EQ(play_extras->GetContainsAds(), true);
         EXPECT_EQ(play_extras->GetOptimizedForChrome(), true);
       }));
-  absl::optional<base::Value> output =
-      base::JSONReader::ReadAndReturnValueWithError(response).value;
+  auto output = base::JSONReader::ReadAndReturnValueWithError(response);
   ASSERT_TRUE(output.has_value());
   arc_app_fetcher()->OnLoadSuccess(std::move(output.value()));
 }
 
 TEST_F(RecommendedArcAppFetcherTest, OnLoadError) {
   arc_app_fetcher()->SetCallbackForTesting(base::BindLambdaForTesting(
-      [](std::vector<Result> results) { ASSERT_EQ(results.size(), 0); }));
+      [](const std::vector<Result>& results, DiscoveryError error) {
+        ASSERT_EQ(results.size(), 0u);
+        ASSERT_EQ(error, DiscoveryError::kErrorRequestFailed);
+      }));
   arc_app_fetcher()->OnLoadError();
 }
 
 TEST_F(RecommendedArcAppFetcherTest, OnParseResponseError) {
   arc_app_fetcher()->SetCallbackForTesting(base::BindLambdaForTesting(
-      [](std::vector<Result> results) { ASSERT_EQ(results.size(), 0); }));
+      [](const std::vector<Result>& results, DiscoveryError error) {
+        ASSERT_EQ(results.size(), 0u);
+        ASSERT_EQ(error, DiscoveryError::kErrorMalformedData);
+      }));
   arc_app_fetcher()->OnParseResponseError();
 }
 

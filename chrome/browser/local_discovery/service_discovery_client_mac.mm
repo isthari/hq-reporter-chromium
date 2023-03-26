@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,13 +12,13 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/mac/foundation_util.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/strings/sys_string_conversions.h"
+#import "base/task/single_thread_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
 
@@ -238,7 +238,7 @@ void ServiceWatcherImplMac::Start() {
                  callback:base::BindRepeating(
                               &ServiceWatcherImplMac::OnServicesUpdate,
                               weak_factory_.GetWeakPtr())
-           callbackRunner:base::ThreadTaskRunnerHandle::Get()]);
+           callbackRunner:base::SingleThreadTaskRunner::GetCurrentDefault()]);
   started_ = true;
 }
 
@@ -291,7 +291,7 @@ void ServiceResolverImplMac::StartResolving() {
          resolvedCallback:base::BindOnce(
                               &ServiceResolverImplMac::OnResolveComplete,
                               weak_factory_.GetWeakPtr())
-           callbackRunner:base::ThreadTaskRunnerHandle::Get()]);
+           callbackRunner:base::SingleThreadTaskRunner::GetCurrentDefault()]);
   // Provide an additional reference on the resolver_, in case |this|
   // gets deleted and releases its reference.
   service_discovery_runner_->PostTask(

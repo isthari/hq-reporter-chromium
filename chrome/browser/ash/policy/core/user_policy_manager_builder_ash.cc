@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,17 +8,16 @@
 
 #include "ash/components/arc/arc_features.h"
 #include "ash/constants/ash_switches.h"
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/path_service.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/policy/active_directory/active_directory_policy_manager.h"
 #include "chrome/browser/ash/policy/core/browser_policy_connector_ash.h"
@@ -31,26 +30,28 @@
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/policy/schema_registry_service.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_features.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/dbus/userdataauth/cryptohome_misc_client.h"
+#include "chromeos/ash/components/install_attributes/install_attributes.h"
 #include "chromeos/dbus/constants/dbus_paths.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
-#include "chromeos/dbus/userdataauth/cryptohome_misc_client.h"
-#include "chromeos/tpm/install_attributes.h"
-#include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/cloud/cloud_external_data_manager.h"
 #include "components/policy/core/common/cloud/device_management_service.h"
 #include "components/policy/core/common/configuration_policy_provider.h"
 #include "components/policy/policy_constants.h"
+#include "components/signin/public/identity_manager/account_managed_status_finder.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
-using user_manager::ProfileRequiresPolicy;
 namespace policy {
 
-using PolicyEnforcement = UserCloudPolicyManagerAsh::PolicyEnforcement;
 namespace {
+
+using ::user_manager::ProfileRequiresPolicy;
+using PolicyEnforcement = UserCloudPolicyManagerAsh::PolicyEnforcement;
 
 // Directory under the profile directory where policy-related resources are
 // stored, see the following constants for details.
@@ -92,7 +93,7 @@ void CreateConfigurationPolicyProvider(
   *active_directory_policy_manager_out = nullptr;
 
   // Don't initialize cloud policy for the signin and the lock screen profile.
-  if (!ash::ProfileHelper::IsRegularProfile(profile)) {
+  if (!ash::ProfileHelper::IsUserProfile(profile)) {
     return;
   }
 
@@ -104,6 +105,7 @@ void CreateConfigurationPolicyProvider(
       ash::ProfileHelper::Get()->GetUserByProfile(profile);
   CHECK(user);
 
+  user_manager::KnownUser known_user(g_browser_process->local_state());
   // User policy exists for enterprise accounts:
   // - For regular cloud-managed users (those who have a GAIA account), a
   //   |UserCloudPolicyManagerAsh| is created here.
@@ -116,15 +118,18 @@ void CreateConfigurationPolicyProvider(
   // All other user types do not have user policy.
   const AccountId& account_id = user->GetAccountId();
   if (user->GetType() != user_manager::USER_TYPE_CHILD &&
-      BrowserPolicyConnector::IsNonEnterpriseUser(account_id.GetUserEmail())) {
+      signin::AccountManagedStatusFinder::IsEnterpriseUserBasedOnEmail(
+          account_id.GetUserEmail()) ==
+          signin::AccountManagedStatusFinder::EmailEnterpriseStatus::
+              kKnownNonEnterprise) {
     DLOG(WARNING) << "No policy loaded for known non-enterprise user";
     // Mark this profile as not requiring policy.
-    user_manager::known_user::SetProfileRequiresPolicy(
+    known_user.SetProfileRequiresPolicy(
         account_id, ProfileRequiresPolicy::kNoPolicyRequired);
     return;
   }
 
-  policy::BrowserPolicyConnectorAsh* connector =
+  BrowserPolicyConnectorAsh* connector =
       g_browser_process->platform_part()->browser_policy_connector_ash();
   bool is_active_directory = false;
   switch (account_id.GetAccountType()) {
@@ -147,7 +152,7 @@ void CreateConfigurationPolicyProvider(
   }
 
   const ProfileRequiresPolicy requires_policy_user_property =
-      user_manager::known_user::GetProfileRequiresPolicy(account_id);
+      known_user.GetProfileRequiresPolicy(account_id);
   const base::CommandLine* command_line =
       base::CommandLine::ForCurrentProcess();
   const bool is_stub_user =
@@ -248,9 +253,9 @@ void CreateConfigurationPolicyProvider(
 
   std::unique_ptr<UserCloudPolicyStoreAsh> store =
       std::make_unique<UserCloudPolicyStoreAsh>(
-          chromeos::CryptohomeMiscClient::Get(),
-          chromeos::SessionManagerClient::Get(), background_task_runner,
-          account_id, policy_key_dir, is_active_directory);
+          ash::CryptohomeMiscClient::Get(), ash::SessionManagerClient::Get(),
+          background_task_runner, account_id, policy_key_dir,
+          is_active_directory);
 
   scoped_refptr<base::SequencedTaskRunner> backend_task_runner =
       base::ThreadPool::CreateSequencedTaskRunner(
@@ -275,22 +280,23 @@ void CreateConfigurationPolicyProvider(
         std::make_unique<UserCloudPolicyManagerAsh>(
             profile, std::move(store), std::move(external_data_manager),
             component_policy_cache_dir, enforcement_type,
-            policy_refresh_timeout,
+            g_browser_process->local_state(), policy_refresh_timeout,
             base::BindOnce(&OnUserPolicyFatalError, account_id), account_id,
-            base::ThreadTaskRunnerHandle::Get());
+            base::SingleThreadTaskRunner::GetCurrentDefault());
 
     bool wildcard_match = false;
     if (connector->IsDeviceEnterpriseManaged() &&
         ash::CrosSettings::Get()->IsUserAllowlisted(
             account_id.GetUserEmail(), &wildcard_match, user->GetType()) &&
         wildcard_match &&
-        !connector->IsNonEnterpriseUser(account_id.GetUserEmail())) {
+        signin::AccountManagedStatusFinder::IsEnterpriseUserBasedOnEmail(
+            account_id.GetUserEmail()) == signin::AccountManagedStatusFinder::
+                                              EmailEnterpriseStatus::kUnknown) {
       manager->EnableWildcardLoginCheck(account_id.GetUserEmail());
     }
 
     manager->Init(profile->GetPolicySchemaRegistryService()->registry());
-    manager->Connect(g_browser_process->local_state(),
-                     device_management_service,
+    manager->Connect(device_management_service,
                      g_browser_process->shared_url_loader_factory());
     *user_cloud_policy_manager_ash_out = std::move(manager);
   }

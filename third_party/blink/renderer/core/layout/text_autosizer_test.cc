@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,8 +21,8 @@ class TextAutosizerClient : public RenderingTestChromeClient {
   float WindowToViewportScalar(LocalFrame*, const float value) const override {
     return value * device_scale_factor_;
   }
-  gfx::Rect ViewportToScreen(const gfx::Rect& rect,
-                             const LocalFrameView*) const override {
+  gfx::Rect LocalRootToScreenDIPs(const gfx::Rect& rect,
+                                  const LocalFrameView*) const override {
     return gfx::ScaleToRoundedRect(rect, 1 / device_scale_factor_);
   }
 
@@ -950,6 +950,52 @@ TEST_F(TextAutosizerTest, MultiColumns) {
                   target->GetLayoutObject()->StyleRef().ComputedFontSize());
 }
 
+TEST_F(TextAutosizerTest, MultiColumns2) {
+  Element* html = GetDocument().body()->parentElement();
+  html->setInnerHTML(
+      "<head>"
+      "  <meta name='viewport' content='width=800'>"
+      "  <style>"
+      "    html { font-size:16px;}"
+      "    #mc {columns: 3; column-gap: 0;}"
+      "  </style>"
+      "</head>"
+      "<body>"
+      "  <div id='mc'>"
+      "    <div id='target1'>"
+      "      Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed "
+      "      do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+      "      Ut enim ad minim veniam, quis nostrud exercitation ullamco "
+      "      laboris nisi ut aliquip ex ea commodo consequat. Duis aute "
+      "      irure dolor in reprehenderit in voluptate velit esse cillum "
+      "      dolore eu fugiat nulla pariatur. Excepteur sint occaecat "
+      "      cupidatat non proident, sunt in culpa qui officia deserunt "
+      "    </div>"
+      "    <div id='target2'>"
+      "      Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed "
+      "      do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+      "      Ut enim ad minim veniam, quis nostrud exercitation ullamco "
+      "      laboris nisi ut aliquip ex ea commodo consequat. Duis aute "
+      "      irure dolor in reprehenderit in voluptate velit esse cillum "
+      "      dolore eu fugiat nulla pariatur. Excepteur sint occaecat "
+      "      cupidatat non proident, sunt in culpa qui officia deserunt "
+      "    </div>"
+      "  </div>"
+      "  <div> hello </div>"
+      "</body>",
+      ASSERT_NO_EXCEPTION);
+  UpdateAllLifecyclePhasesForTest();
+
+  Element* target1 = GetDocument().getElementById("target1");
+  Element* target2 = GetDocument().getElementById("target2");
+  // (specified font-size = 16px) * ( column width = 800px / 3) /
+  // (window width = 320px) < 16px.
+  EXPECT_FLOAT_EQ(16.f,
+                  target1->GetLayoutObject()->StyleRef().ComputedFontSize());
+  EXPECT_FLOAT_EQ(16.f,
+                  target2->GetLayoutObject()->StyleRef().ComputedFontSize());
+}
+
 TEST_F(TextAutosizerTest, ScaledbyDSF) {
   const float device_scale = 3;
   set_device_scale_factor(device_scale);
@@ -1064,6 +1110,24 @@ TEST_F(TextAutosizerTest, AfterPrint) {
   GetDocument().GetFrame()->EndPrinting();
   EXPECT_FLOAT_EQ(20.0f * device_scale,
                   target->GetLayoutObject()->StyleRef().ComputedFontSize());
+}
+
+TEST_F(TextAutosizerTest, FingerprintWidth) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      html { font-size: 8px; }
+      #target { width: calc(1px); }
+    </style>
+    <body>
+      <div id='target'>
+        Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed
+        do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+        Ut enim ad minim veniam, quis nostrud exercitation ullamco
+        laboris nisi ut aliquip ex ea commodo consequat.
+      </div>
+    </body>
+  )HTML");
+  // The test pass if it doesn't crash nor hit DCHECK.
 }
 
 class TextAutosizerSimTest : public SimTest {

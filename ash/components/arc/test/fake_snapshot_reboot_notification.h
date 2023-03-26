@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define ASH_COMPONENTS_ARC_TEST_FAKE_SNAPSHOT_REBOOT_NOTIFICATION_H_
 
 #include "ash/components/arc/enterprise/arc_snapshot_reboot_notification.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 
 namespace arc {
 namespace data_snapshotd {

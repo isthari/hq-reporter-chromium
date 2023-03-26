@@ -1,14 +1,14 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stddef.h>
+
 #include <cstdio>
 #include <iostream>
 #include <utility>
 
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/json/json_reader.h"
@@ -63,13 +63,13 @@ void PrintHelp() {
           "  onc_validator [OPTION]... [TYPE] onc_file\n"
           "\n"
           "Valid TYPEs are:\n");
-  for (size_t i = 0; i < base::size(kTypes); ++i)
+  for (size_t i = 0; i < std::size(kTypes); ++i)
     fprintf(stderr, "  %s\n", kTypes[i]);
 
   fprintf(stderr,
           "\n"
           "Valid OPTIONs are:\n");
-  for (size_t i = 0; i < base::size(kSwitches); ++i)
+  for (size_t i = 0; i < std::size(kSwitches); ++i)
     fprintf(stderr, "  --%s\n", kSwitches[i]);
 
   fprintf(stderr,
@@ -88,8 +88,7 @@ void PrintHelp() {
           kStatusArgumentError);
 }
 
-std::unique_ptr<base::DictionaryValue> ReadDictionary(
-    const std::string& filename) {
+base::Value::Dict ReadDictionary(const std::string& filename) {
   base::FilePath path(filename);
   JSONFileValueDeserializer deserializer(path,
                                          base::JSON_ALLOW_TRAILING_COMMAS);
@@ -103,15 +102,13 @@ std::unique_ptr<base::DictionaryValue> ReadDictionary(
     return nullptr;
   }
 
-  std::unique_ptr<base::DictionaryValue> dict =
-      base::DictionaryValue::From(std::move(value));
-  if (!dict) {
+  if (!value->is_dict()) {
     LOG(ERROR) << "File '" << filename
                << "' does not contain a dictionary as expected, but type "
-               << value->GetType();
+               << base::Value::GetTypeName(value->type());
   }
 
-  return dict;
+  return std::move(*value).TakeDict();
 }
 
 int main(int argc, const char* argv[]) {
@@ -125,7 +122,7 @@ int main(int argc, const char* argv[]) {
     return kStatusArgumentError;
   }
 
-  std::unique_ptr<base::DictionaryValue> onc_object = ReadDictionary(args[1]);
+  base::Value::Dict onc_object = ReadDictionary(args[1]);
 
   if (!onc_object)
     return kStatusJsonError;
@@ -157,7 +154,8 @@ int main(int argc, const char* argv[]) {
   }
 
   chromeos::onc::Validator::Result result;
-  validator.ValidateAndRepairObject(signature, *onc_object, &result);
+  validator.ValidateAndRepairObject(
+      signature, Base::Value(std::move(onc_object)), &result);
 
   switch (result) {
     case chromeos::onc::Validator::VALID:

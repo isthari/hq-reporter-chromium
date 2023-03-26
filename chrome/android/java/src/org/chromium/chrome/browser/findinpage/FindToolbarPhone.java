@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@ import android.util.AttributeSet;
 import android.view.View;
 
 import androidx.appcompat.content.res.AppCompatResources;
+import androidx.core.widget.ImageViewCompat;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.R;
 import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.components.browser_ui.styles.SemanticColorUtils;
@@ -46,9 +46,9 @@ public class FindToolbarPhone extends FindToolbar {
     protected void updateVisualsForTabModel(boolean isIncognito) {
         setBackgroundColor(ChromeColors.getDefaultThemeColor(getContext(), isIncognito));
         final ColorStateList color = ChromeColors.getPrimaryIconTint(getContext(), isIncognito);
-        ApiCompatibilityUtils.setImageTintList(mFindNextButton, color);
-        ApiCompatibilityUtils.setImageTintList(mFindPrevButton, color);
-        ApiCompatibilityUtils.setImageTintList(mCloseFindButton, color);
+        ImageViewCompat.setImageTintList(mFindNextButton, color);
+        ImageViewCompat.setImageTintList(mFindPrevButton, color);
+        ImageViewCompat.setImageTintList(mCloseFindButton, color);
 
         int queryTextColorId;
         int queryHintTextColorId;
@@ -63,15 +63,14 @@ public class FindToolbarPhone extends FindToolbar {
         }
         mFindQuery.setTextColor(
                 AppCompatResources.getColorStateList(getContext(), queryTextColorId));
-        mFindQuery.setHintTextColor(
-                ApiCompatibilityUtils.getColor(getContext().getResources(), queryHintTextColorId));
+        mFindQuery.setHintTextColor(getContext().getColor(queryHintTextColorId));
     }
 
     @Override
     protected int getStatusColor(boolean failed, boolean incognito) {
         if (incognito) {
             final int colorResourceId = failed ? R.color.default_red_light : R.color.white_alpha_50;
-            return ApiCompatibilityUtils.getColor(getContext().getResources(), colorResourceId);
+            return getContext().getColor(colorResourceId);
         }
         return super.getStatusColor(failed, incognito);
     }

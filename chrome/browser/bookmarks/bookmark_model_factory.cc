@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,17 +8,17 @@
 #include "base/memory/singleton.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/bookmarks/chrome_bookmark_client.h"
 #include "chrome/browser/bookmarks/managed_bookmark_service_factory.h"
-#include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_selections.h"
 #include "chrome/browser/sync/bookmark_sync_service_factory.h"
 #include "chrome/browser/ui/webui/bookmarks/bookmarks_ui.h"
 #include "chrome/browser/undo/bookmark_undo_service_factory.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync_bookmarks/bookmark_sync_service.h"
 #include "components/undo/bookmark_undo_service.h"
@@ -70,9 +70,20 @@ BookmarkModelFactory::GetDefaultFactory() {
 }
 
 BookmarkModelFactory::BookmarkModelFactory()
-    : BrowserContextKeyedServiceFactory(
-        "BookmarkModel",
-        BrowserContextDependencyManager::GetInstance()) {
+    : ProfileKeyedServiceFactory(
+          "BookmarkModel",
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kRedirectedToOriginal)
+              // Use OTR profile for Guest session.
+              // (Bookmarks can be enabled in Guest sessions under some
+              // enterprise policies.)
+              .WithGuest(ProfileSelection::kRedirectedToOriginal)
+              // No service for system profile.
+              .WithSystem(ProfileSelection::kNone)
+              // ChromeOS creates various profiles (login, lock screen...) that
+              // do not have/need access to bookmarks.
+              .WithAshInternals(ProfileSelection::kNone)
+              .Build()) {
   DependsOn(BookmarkUndoServiceFactory::GetInstance());
   DependsOn(ManagedBookmarkServiceFactory::GetInstance());
   DependsOn(BookmarkSyncServiceFactory::GetInstance());
@@ -89,11 +100,6 @@ KeyedService* BookmarkModelFactory::BuildServiceInstanceFor(
 void BookmarkModelFactory::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   bookmarks::RegisterProfilePrefs(registry);
-}
-
-content::BrowserContext* BookmarkModelFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  return chrome::GetBrowserContextRedirectedInIncognito(context);
 }
 
 bool BookmarkModelFactory::ServiceIsNULLWhileTesting() const {

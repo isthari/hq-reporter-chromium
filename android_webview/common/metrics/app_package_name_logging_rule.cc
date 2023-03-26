@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,7 +58,7 @@ AppPackageNameLoggingRule::FromDictionary(const base::Value& dict) {
     return absl::optional<AppPackageNameLoggingRule>();
   }
 
-  const base::Value* expiry_date_value = dict.FindKey(kExpiryDateKey);
+  const base::Value* expiry_date_value = dict.GetDict().Find(kExpiryDateKey);
   if (!expiry_date_value) {
     return AppPackageNameLoggingRule(version, base::Time::Min());
   }

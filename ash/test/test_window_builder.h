@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,6 +35,11 @@ class ASH_EXPORT TestWindowBuilder {
   TestWindowBuilder& SetWindowType(aura::client::WindowType type);
   TestWindowBuilder& SetWindowId(int id);
   TestWindowBuilder& SetBounds(const gfx::Rect& bounds);
+
+  // Having a non-empty title helps avoid accessibility paint check failures
+  // in tests. For instance, `WindowMiniView` gets its accessible name from
+  // the window title.
+  TestWindowBuilder& SetWindowTitle(const std::u16string& title);
 
   // Set a WindowDelegate used by a test window.
   TestWindowBuilder& SetDelegate(aura::WindowDelegate* delegate);
@@ -74,6 +79,7 @@ class ASH_EXPORT TestWindowBuilder {
   gfx::Rect bounds_;
   ui::PropertyHandler init_properties_;
   int window_id_ = aura::Window::kInitialId;
+  std::u16string window_title_ = std::u16string();
   bool show_ = true;
   bool built_ = false;
 };

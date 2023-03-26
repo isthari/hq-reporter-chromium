@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,6 +47,7 @@ class ArcNotificationContentView
  public:
   METADATA_HEADER(ArcNotificationContentView);
 
+  static int GetNotificationContentViewWidth();
 
   ArcNotificationContentView(ArcNotificationItem* item,
                              const message_center::Notification& notification,
@@ -122,7 +123,7 @@ class ArcNotificationContentView
   void OnWindowDestroying(aura::Window* window) override;
 
   // views::WidgetObserver:
-  void OnWidgetClosing(views::Widget* widget) override;
+  void OnWidgetDestroying(views::Widget* widget) override;
   void OnWidgetActivationChanged(views::Widget* widget, bool active) override;
 
   // ArcNotificationItem::Observer

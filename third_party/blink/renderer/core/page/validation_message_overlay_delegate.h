@@ -1,10 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_VALIDATION_MESSAGE_OVERLAY_DELEGATE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_VALIDATION_MESSAGE_OVERLAY_DELEGATE_H_
 
+#include "base/time/time.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/frame_overlay.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
@@ -71,6 +72,10 @@ class CORE_EXPORT ValidationMessageOverlayDelegate
   String sub_message_;
   TextDirection message_dir_;
   TextDirection sub_message_dir_;
+
+  // Used by CreatePage() to determine if this has been deleted in the middle of
+  // the function.
+  bool* destroyed_ptr_ = nullptr;
 };
 
 }  // namespace blink

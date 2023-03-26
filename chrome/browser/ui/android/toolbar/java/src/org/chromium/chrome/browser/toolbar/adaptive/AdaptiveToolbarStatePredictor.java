@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,11 +12,8 @@ import androidx.annotation.VisibleForTesting;
 import org.chromium.base.Callback;
 import org.chromium.chrome.browser.omnibox.voice.VoiceRecognitionUtil;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.segmentation_platform.SegmentationPlatformServiceFactory;
-import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarFeatures.AdaptiveToolbarButtonVariant;
-import org.chromium.components.optimization_guide.proto.ModelsProto.OptimizationTarget;
-import org.chromium.components.segmentation_platform.SegmentationPlatformService;
-import org.chromium.ui.base.AndroidPermissionDelegate;
+import org.chromium.components.segmentation_platform.proto.SegmentationProto.SegmentId;
+import org.chromium.ui.permissions.AndroidPermissionDelegate;
 
 /**
  * Central class that determines the state of the toolbar button based on finch configuration,
@@ -31,6 +28,7 @@ public class AdaptiveToolbarStatePredictor {
     private static final String ADAPTIVE_TOOLBAR_SEGMENTATION_KEY = "adaptive_toolbar";
 
     private static Pair<Boolean, Integer> sSegmentationResultsForTesting;
+    private static Integer sToolbarStateForTesting;
 
     @Nullable
     private final AndroidPermissionDelegate mAndroidPermissionDelegate;
@@ -87,14 +85,16 @@ public class AdaptiveToolbarStatePredictor {
      * @param callback The callback containing the result.
      */
     public void recomputeUiState(Callback<UiState> callback) {
+        if (sToolbarStateForTesting != null) {
+            UiState uiState = new UiState(isValidSegment(sToolbarStateForTesting),
+                    sToolbarStateForTesting, sToolbarStateForTesting, sToolbarStateForTesting);
+            callback.onResult(uiState);
+            return;
+        }
+
         // Early return if the feature isn't enabled.
         if (!AdaptiveToolbarFeatures.isCustomizationEnabled()) {
-            boolean canShowUi = AdaptiveToolbarFeatures.isSingleVariantModeEnabled();
-            @AdaptiveToolbarButtonVariant
-            int toolbarButtonState = AdaptiveToolbarFeatures.isSingleVariantModeEnabled()
-                    ? AdaptiveToolbarFeatures.getSingleVariantMode()
-                    : AdaptiveToolbarButtonVariant.UNKNOWN;
-            callback.onResult(new UiState(canShowUi, toolbarButtonState,
+            callback.onResult(new UiState(false, AdaptiveToolbarButtonVariant.UNKNOWN,
                     AdaptiveToolbarButtonVariant.UNKNOWN, AdaptiveToolbarButtonVariant.UNKNOWN));
             return;
         }
@@ -185,15 +185,8 @@ public class AdaptiveToolbarStatePredictor {
         }
 
         // TODO(shaktisahu): Try decoupling profile from this class.
-        SegmentationPlatformService segmentationPlatformService =
-                SegmentationPlatformServiceFactory.getForProfile(
-                        Profile.getLastUsedRegularProfile());
-        segmentationPlatformService.getSelectedSegment(
-                ADAPTIVE_TOOLBAR_SEGMENTATION_KEY, result -> {
-                    callback.onResult(new Pair<>(result.isReady,
-                            getAdaptiveToolbarButtonVariantFromOptimizationTarget(
-                                    result.selectedSegment)));
-                });
+        AdaptiveToolbarBridge.getSessionVariantButton(
+                Profile.getLastUsedRegularProfile(), result -> callback.onResult(result));
     }
 
     /**
@@ -218,19 +211,20 @@ public class AdaptiveToolbarStatePredictor {
     }
 
     /**
-     * Conversion method between {@link OptimizationTarget} and {@link
+     * Conversion method between {@link SegmentId} and {@link
      * AdaptiveToolbarButtonVariant}.
      */
-    @VisibleForTesting
-    static @AdaptiveToolbarButtonVariant int getAdaptiveToolbarButtonVariantFromOptimizationTarget(
-            OptimizationTarget optimizationTarget) {
-        switch (optimizationTarget) {
+    public static @AdaptiveToolbarButtonVariant int getAdaptiveToolbarButtonVariantFromSegmentId(
+            SegmentId segmentId) {
+        switch (segmentId) {
             case OPTIMIZATION_TARGET_SEGMENTATION_NEW_TAB:
                 return AdaptiveToolbarButtonVariant.NEW_TAB;
             case OPTIMIZATION_TARGET_SEGMENTATION_SHARE:
                 return AdaptiveToolbarButtonVariant.SHARE;
             case OPTIMIZATION_TARGET_SEGMENTATION_VOICE:
                 return AdaptiveToolbarButtonVariant.VOICE;
+            case OPTIMIZATION_TARGET_CONTEXTUAL_PAGE_ACTION_PRICE_TRACKING:
+                return AdaptiveToolbarButtonVariant.PRICE_TRACKING;
             default:
                 return AdaptiveToolbarButtonVariant.UNKNOWN;
         }
@@ -240,5 +234,11 @@ public class AdaptiveToolbarStatePredictor {
     @VisibleForTesting
     public static void setSegmentationResultsForTesting(Pair<Boolean, Integer> results) {
         sSegmentationResultsForTesting = results;
+    }
+
+    /** For testing only. */
+    @VisibleForTesting
+    public static void setToolbarStateForTesting(Integer toolbarState) {
+        sToolbarStateForTesting = toolbarState;
     }
 }

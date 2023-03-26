@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -105,7 +105,7 @@ struct StructTraits<arc::mojom::VideoEncodeAcceleratorConfigDataView,
 
   static uint32_t initial_bitrate_deprecated(
       const media::VideoEncodeAccelerator::Config& input) {
-    return input.bitrate.target();
+    return input.bitrate.target_bps();
   }
 
   static uint32_t initial_framerate(

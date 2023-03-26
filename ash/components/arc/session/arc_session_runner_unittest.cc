@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,14 @@
 #include "ash/components/arc/arc_util.h"
 #include "ash/components/arc/session/arc_session_runner.h"
 #include "ash/components/arc/test/fake_arc_session.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -61,7 +61,7 @@ class ArcSessionRunnerTest : public testing::Test,
   ArcSessionRunnerTest& operator=(const ArcSessionRunnerTest&) = delete;
 
   void SetUp() override {
-    chromeos::SessionManagerClient::InitializeFakeInMemory();
+    ash::SessionManagerClient::InitializeFakeInMemory();
 
     stop_reason_ = ArcStopReason::SHUTDOWN;
     restarting_ = false;
@@ -78,7 +78,7 @@ class ArcSessionRunnerTest : public testing::Test,
     arc_session_runner_->RemoveObserver(this);
     arc_session_runner_.reset();
 
-    chromeos::SessionManagerClient::Shutdown();
+    ash::SessionManagerClient::Shutdown();
   }
 
   ArcSessionRunner* arc_session_runner() { return arc_session_runner_.get(); }
@@ -111,14 +111,14 @@ class ArcSessionRunnerTest : public testing::Test,
   static std::unique_ptr<ArcSession> CreateSuspendedArcSession() {
     auto arc_session = std::make_unique<FakeArcSession>();
     arc_session->SuspendBoot();
-    return std::move(arc_session);
+    return arc_session;
   }
 
   static std::unique_ptr<ArcSession> CreateBootFailureArcSession(
       ArcStopReason reason) {
     auto arc_session = std::make_unique<FakeArcSession>();
     arc_session->EnableBootFailureEmulation(reason);
-    return std::move(arc_session);
+    return arc_session;
   }
 
  private:

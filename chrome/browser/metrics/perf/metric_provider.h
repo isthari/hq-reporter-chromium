@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,10 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/metrics/perf/metric_collector.h"
 
 namespace base {
@@ -80,7 +81,7 @@ class MetricProvider {
     kAppSyncEnabled = 4,
     kSyncServiceUnavailable = 5,
     kChromeSyncFeatureDisabled = 6,
-    kChromeAppSyncDisabled = 7,
+    // Deprecated: kChromeAppSyncDisabled = 7,
     // Deprecated: kOSSyncFeatureDisabled = 8,
     kOSAppSyncDisabled = 9,
     kMaxValue = kOSAppSyncDisabled,

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,6 @@
 #include <algorithm>
 
 #include "base/location.h"
-#include "chrome/browser/ui/browser_dialogs.h"
-#include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/grit/generated_resources.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -20,6 +18,7 @@
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/layout/layout_provider.h"
 #include "ui/views/widget/widget.h"
 
 namespace ash {
@@ -39,7 +38,7 @@ IdleActionWarningDialogView::IdleActionWarningDialogView(
       views::DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH));
 
   SetBorder(views::CreateEmptyBorder(
-      ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
+      views::LayoutProvider::Get()->GetDialogInsetsForContentType(
           views::DialogContentType::kText, views::DialogContentType::kText)));
   SetLayoutManager(std::make_unique<views::FillLayout>());
 
@@ -56,7 +55,6 @@ IdleActionWarningDialogView::IdleActionWarningDialogView(
 
   update_timer_.Start(FROM_HERE, base::Milliseconds(kCountdownUpdateIntervalMs),
                       this, &IdleActionWarningDialogView::UpdateTitle);
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::IDLE_ACTION_WARNING);
 }
 
 void IdleActionWarningDialogView::CloseDialog() {

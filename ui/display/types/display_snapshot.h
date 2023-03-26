@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,7 @@
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/hdr_static_metadata.h"
+#include "ui/gfx/range/range.h"
 
 namespace display {
 
@@ -58,7 +59,10 @@ class DISPLAY_TYPES_EXPORT DisplaySnapshot {
       const DisplayMode* native_mode,
       int64_t product_code,
       int32_t year_of_manufacture,
-      const gfx::Size& maximum_cursor_size);
+      const gfx::Size& maximum_cursor_size,
+      VariableRefreshRateState variable_refresh_rate_state,
+      const absl::optional<gfx::Range>& vertical_display_range_limits,
+      const DrmFormatsAndModifiers& drm_formats_and_modifiers_);
 
   DisplaySnapshot(const DisplaySnapshot&) = delete;
   DisplaySnapshot& operator=(const DisplaySnapshot&) = delete;
@@ -109,6 +113,15 @@ class DISPLAY_TYPES_EXPORT DisplaySnapshot {
   int64_t product_code() const { return product_code_; }
   int32_t year_of_manufacture() const { return year_of_manufacture_; }
   const gfx::Size& maximum_cursor_size() const { return maximum_cursor_size_; }
+  VariableRefreshRateState variable_refresh_rate_state() const {
+    return variable_refresh_rate_state_;
+  }
+  const absl::optional<gfx::Range>& vertical_display_range_limits() const {
+    return vertical_display_range_limits_;
+  }
+  const DrmFormatsAndModifiers& GetDRMFormatsAndModifiers() const {
+    return drm_formats_and_modifiers_;
+  }
 
   void add_mode(const DisplayMode* mode) { modes_.push_back(mode->Clone()); }
 
@@ -236,6 +249,16 @@ class DISPLAY_TYPES_EXPORT DisplaySnapshot {
 
   // Maximum supported cursor size on this display.
   const gfx::Size maximum_cursor_size_;
+
+  // Whether VRR is enabled, disabled, or not capable on this display.
+  const VariableRefreshRateState variable_refresh_rate_state_;
+  // The supported vrefresh frequency range for this display. Omitted if this
+  // display is not VRR capable.
+  const absl::optional<gfx::Range> vertical_display_range_limits_;
+
+  // A list of supported Linux DRM formats and corresponding lists of modifiers
+  // for each one.
+  const DrmFormatsAndModifiers drm_formats_and_modifiers_;
 };
 
 }  // namespace display

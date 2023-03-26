@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 
 #include "chrome/browser/ash/printing/cups_printers_manager.h"
 
-namespace chromeos {
+namespace ash {
 
 // A proxy for observers of CupsPrintersManager who do not have access to a
 // profile and always wish to observe the printers for the primary user profile.
@@ -39,6 +39,6 @@ class CupsPrintersManagerProxy {
   CupsPrintersManagerProxy() = default;
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_CUPS_PRINTERS_MANAGER_PROXY_H_

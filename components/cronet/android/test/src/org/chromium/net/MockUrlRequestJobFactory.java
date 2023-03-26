@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -96,8 +96,7 @@ public final class MockUrlRequestJobFactory {
 
     private static native String nativeGetMockUrlWithFailure(int phase, int netError);
 
-    private static native String nativeGetMockUrlForData(String data,
-            int dataRepeatCount);
+    private static native String nativeGetMockUrlForData(String data, int dataRepeatCount);
 
     private static native String nativeGetMockUrlForClientCertificateRequest();
 

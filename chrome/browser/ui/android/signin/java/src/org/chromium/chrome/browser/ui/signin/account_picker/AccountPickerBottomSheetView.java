@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,8 +18,10 @@ import androidx.annotation.StringRes;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.chrome.browser.signin.services.DisplayableProfileData;
 import org.chromium.chrome.browser.ui.signin.R;
+import org.chromium.chrome.browser.ui.signin.SigninUtils;
 import org.chromium.chrome.browser.ui.signin.account_picker.AccountPickerBottomSheetProperties.ViewState;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetContent;
 import org.chromium.ui.widget.ButtonCompat;
@@ -42,6 +44,15 @@ class AccountPickerBottomSheetView implements BottomSheetContent {
          * @return true if the listener handles the back press, false if not.
          */
         boolean onBackPressed();
+
+        /**
+         * @return A supplier that determines if back press will be handled by the sheet content.
+         */
+        default ObservableSupplierImpl<Boolean> getBackPressStateChangedSupplier() {
+            ObservableSupplierImpl<Boolean> supplier = new ObservableSupplierImpl<>();
+            supplier.set(false);
+            return supplier;
+        }
     }
 
     /**
@@ -150,9 +161,8 @@ class AccountPickerBottomSheetView implements BottomSheetContent {
         ExistingAccountRowViewBinder.bindAccountView(accountProfileData, mSelectedAccountView);
 
         ButtonCompat continueButton = view.findViewById(R.id.account_picker_continue_as_button);
-        String continueAsButtonText = mActivity.getString(R.string.signin_promo_continue_as,
-                accountProfileData.getGivenNameOrFullNameOrEmail());
-        continueButton.setText(continueAsButtonText);
+        continueButton.setText(
+                SigninUtils.getContinueAsButtonText(view.getContext(), accountProfileData));
     }
 
     /**
@@ -208,6 +218,16 @@ class AccountPickerBottomSheetView implements BottomSheetContent {
     @Override
     public boolean handleBackPress() {
         return mBackPressListener.onBackPressed();
+    }
+
+    @Override
+    public ObservableSupplierImpl<Boolean> getBackPressStateChangedSupplier() {
+        return mBackPressListener.getBackPressStateChangedSupplier();
+    }
+
+    @Override
+    public void onBackPressed() {
+        mBackPressListener.onBackPressed();
     }
 
     @Override

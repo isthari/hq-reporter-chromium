@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <tuple>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "third_party/abseil-cpp/absl/utility/utility.h"
 #include "ui/base/ime/ash/ime_bridge.h"
 #include "ui/base/ime/ash/ime_keymap.h"
 #include "ui/events/base_event_utils.h"
@@ -47,10 +47,9 @@ bool IsControlChar(const std::u16string& text) {
 }
 
 ui::TextInputClient* GetTextInputClient() {
-  ui::IMEBridge* bridge = ui::IMEBridge::Get();
+  ash::IMEBridge* bridge = ash::IMEBridge::Get();
   DCHECK(bridge);
-  ui::IMEInputContextHandlerInterface* handler =
-      bridge->GetInputContextHandler();
+  ash::TextInputTarget* handler = bridge->GetInputContextHandler();
   if (!handler)
     return nullptr;
   ui::TextInputClient* client = handler->GetInputMethod()->GetTextInputClient();
@@ -104,7 +103,7 @@ mojom::TextInputStatePtr InputConnectionImpl::GetTextInputState(
   std::u16string text;
 
   if (!client) {
-    return mojom::TextInputStatePtr(base::in_place, 0, text, text_range,
+    return mojom::TextInputStatePtr(absl::in_place, 0, text, text_range,
                                     selection_range, ui::TEXT_INPUT_TYPE_NONE,
                                     false, 0, is_input_state_update_requested,
                                     composition_text_range);
@@ -117,7 +116,7 @@ mojom::TextInputStatePtr InputConnectionImpl::GetTextInputState(
   client->GetTextFromRange(text_range, &text);
 
   return mojom::TextInputStatePtr(
-      base::in_place, selection_range.start(), text, text_range,
+      absl::in_place, selection_range.start(), text, text_range,
       selection_range, client->GetTextInputType(), client->ShouldDoLearning(),
       client->GetTextInputFlags(), is_input_state_update_requested,
       composition_text_range);
@@ -157,8 +156,8 @@ void InputConnectionImpl::DeleteSurroundingText(int before, int after) {
   // |before| is a number of characters is going to be deleted before the cursor
   // and |after| is a number of characters is going to be deleted after the
   // cursor.
-  if (!ime_engine_->DeleteSurroundingText(input_context_id_, -before,
-                                          before + after, &error)) {
+  if (!ime_engine_->DeleteSurroundingText(input_context_id_, before, after,
+                                          &error)) {
     LOG(ERROR) << "DeleteSurroundingText failed: before = " << before
                << ", after = " << after << ", error = \"" << error << "\"";
   }

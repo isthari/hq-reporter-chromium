@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include "ash/quick_pair/common/pair_failure.h"
 #include "ash/quick_pair/fast_pair_handshake/fast_pair_data_encryptor.h"
 #include "ash/quick_pair/fast_pair_handshake/fast_pair_gatt_service_client.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 
 namespace ash {
@@ -32,19 +32,10 @@ FakeFastPairHandshake::FakeFastPairHandshake(
 
 FakeFastPairHandshake::~FakeFastPairHandshake() = default;
 
-bool FakeFastPairHandshake::IsConnected() {
-  return is_connected_;
-}
-
-void FakeFastPairHandshake::SetConnected(bool is_connected) {
-  is_connected_ = is_connected;
-}
-
 void FakeFastPairHandshake::InvokeCallback(
     absl::optional<PairFailure> failure) {
-  bool has_failure = failure.has_value();
-  std::move(on_complete_callback_).Run(device_, std::move(failure));
-  completed_successfully_ = !has_failure;
+  completed_successfully_ = !failure.has_value();
+  std::move(on_complete_callback_).Run(device_, failure);
 }
 
 }  // namespace quick_pair

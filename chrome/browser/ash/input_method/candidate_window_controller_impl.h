@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,11 +64,12 @@ class CandidateWindowControllerImpl
   void OnWidgetClosing(views::Widget* widget) override;
 
   // IMECandidateWindowHandlerInterface implementation.
-  void SetCursorBounds(const gfx::Rect& cursor_bounds,
-                       const gfx::Rect& composition_head) override;
+  void SetCursorAndCompositionBounds(
+      const gfx::Rect& cursor_bounds,
+      const gfx::Rect& composition_bounds) override;
   gfx::Rect GetCursorBounds() const override;
-  void UpdateLookupTable(const ui::CandidateWindow& candidate_window,
-                         bool visible) override;
+  void HideLookupTable() override;
+  void UpdateLookupTable(const ui::CandidateWindow& candidate_window) override;
   void UpdatePreeditText(const std::u16string& text,
                          unsigned int cursor,
                          bool visible) override;
@@ -85,7 +86,7 @@ class CandidateWindowControllerImpl
   bool is_focused_ = false;
 
   gfx::Rect cursor_bounds_;
-  gfx::Rect composition_head_;
+  gfx::Rect composition_bounds_;
 
   // The infolist entries and its focused index which currently shown in
   // Infolist window.

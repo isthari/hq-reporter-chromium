@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,10 @@
 #include "android_webview/nonembedded/component_updater/aw_component_installer_policy_shim.h"
 #include "android_webview/nonembedded/component_updater/installer_policies/aw_package_names_allowlist_component_installer_policy.h"
 #include "base/barrier_closure.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
 #include "components/component_updater/component_installer.h"
@@ -46,16 +46,8 @@ void RegisterComponentsForUpdate(
     base::RepeatingCallback<bool(
         const component_updater::ComponentRegistration&)> register_callback,
     base::OnceClosure on_finished) {
-  // TODO(crbug.com/1174022): remove command line flag once launched.
-  bool package_names_allowlist_enabled =
-      !base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kWebViewDisableAppsPackageNamesAllowlistComponent);
-  int num_webview_components = package_names_allowlist_enabled
-                                   ? kNumWebViewComponents
-                                   : kNumWebViewComponents - 1;
-
-  base::RepeatingClosure barrier_closure = base::BarrierClosure(
-      num_webview_components, base::BindOnce(std::move(on_finished)));
+  base::RepeatingClosure barrier_closure =
+      base::BarrierClosure(kNumWebViewComponents, std::move(on_finished));
 
   RegisterComponentInstallerPolicyShim(
       std::make_unique<
@@ -86,10 +78,8 @@ void RegisterComponentsForUpdate(
           })),
       register_callback, barrier_closure);
 
-  if (package_names_allowlist_enabled) {
-    RegisterWebViewAppsPackageNamesAllowlistComponent(register_callback,
-                                                      barrier_closure);
-  }
+  RegisterWebViewAppsPackageNamesAllowlistComponent(register_callback,
+                                                    barrier_closure);
 }
 
 }  // namespace android_webview

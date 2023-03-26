@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,9 @@
 #include <utility>
 
 #include "base/base_paths.h"
-#include "base/bind.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/unsafe_shared_memory_region.h"
@@ -27,6 +26,8 @@
 #include "base/test/test_timeouts.h"
 #include "build/build_config.h"
 #include "mojo/core/core.h"
+#include "mojo/core/embedder/embedder.h"
+#include "mojo/core/ipcz_driver/shared_buffer.h"
 #include "mojo/core/shared_buffer_dispatcher.h"
 #include "mojo/core/test/mojo_test_base.h"
 #include "mojo/public/c/system/core.h"
@@ -42,6 +43,12 @@ namespace {
 
 template <typename T>
 MojoResult CreateSharedBufferFromRegion(T&& region, MojoHandle* handle) {
+  if (IsMojoIpczEnabled()) {
+    *handle = ipcz_driver::SharedBuffer::Box(
+        ipcz_driver::SharedBuffer::MakeForRegion(std::move(region)));
+    return MOJO_RESULT_OK;
+  }
+
   scoped_refptr<SharedBufferDispatcher> buffer;
   MojoResult result =
       SharedBufferDispatcher::CreateFromPlatformSharedMemoryRegion(
@@ -55,13 +62,21 @@ MojoResult CreateSharedBufferFromRegion(T&& region, MojoHandle* handle) {
 
 template <typename T>
 MojoResult ExtractRegionFromSharedBuffer(MojoHandle handle, T* region) {
-  scoped_refptr<Dispatcher> dispatcher =
-      Core::Get()->GetAndRemoveDispatcher(handle);
-  if (!dispatcher || dispatcher->GetType() != Dispatcher::Type::SHARED_BUFFER)
-    return MOJO_RESULT_INVALID_ARGUMENT;
+  base::subtle::PlatformSharedMemoryRegion platform_region;
+  if (IsMojoIpczEnabled()) {
+    platform_region =
+        std::move(ipcz_driver::SharedBuffer::Unbox(handle)->region());
+  } else {
+    scoped_refptr<Dispatcher> dispatcher =
+        Core::Get()->GetAndRemoveDispatcher(handle);
+    if (!dispatcher || dispatcher->GetType() != Dispatcher::Type::SHARED_BUFFER)
+      return MOJO_RESULT_INVALID_ARGUMENT;
 
-  auto* buffer = static_cast<SharedBufferDispatcher*>(dispatcher.get());
-  *region = T::Deserialize(buffer->PassPlatformSharedMemoryRegion());
+    auto* buffer = static_cast<SharedBufferDispatcher*>(dispatcher.get());
+    platform_region = buffer->PassPlatformSharedMemoryRegion();
+  }
+
+  *region = T::Deserialize(std::move(platform_region));
   return MOJO_RESULT_OK;
 }
 
@@ -264,6 +279,7 @@ DEFINE_TEST_CLIENT_TEST_WITH_PIPE(MultiprocessChannelsClient,
   ASSERT_FALSE(state.satisfiable_signals & MOJO_HANDLE_SIGNAL_READABLE);
   ASSERT_FALSE(state.satisfiable_signals & MOJO_HANDLE_SIGNAL_WRITABLE);
   ASSERT_EQ(MOJO_RESULT_OK, MojoClose(mp1));
+  ASSERT_EQ(MOJO_RESULT_OK, MojoClose(client_mp));
 }
 
 TEST_F(EmbedderTest, MultiprocessBaseSharedMemory) {
@@ -339,9 +355,7 @@ DEFINE_TEST_CLIENT_TEST_WITH_PIPE(MultiprocessSharedMemoryClient,
 
   EXPECT_EQ("bye", ReadMessage(client_mp));
 
-  // 6. Close |sb1|. Should fail because |ExtractRegionFromSharedBuffer()|
-  // should have closed the handle.
-  EXPECT_EQ(MOJO_RESULT_INVALID_ARGUMENT, MojoClose(sb1));
+  ASSERT_EQ(MOJO_RESULT_OK, MojoClose(client_mp));
 }
 
 #if BUILDFLAG(IS_MAC)
@@ -360,8 +374,8 @@ TEST_F(EmbedderTest, MultiprocessMixMachAndFds) {
   const size_t kShmSize = 1234;
   RunTestClient("MultiprocessMixMachAndFdsClient", [&](MojoHandle server_mp) {
     // 1. Create fds or Mach objects and mojo handles from them.
-    MojoHandle platform_handles[base::size(kTestHandleTypes)];
-    for (size_t i = 0; i < base::size(kTestHandleTypes); i++) {
+    MojoHandle platform_handles[std::size(kTestHandleTypes)];
+    for (size_t i = 0; i < std::size(kTestHandleTypes); i++) {
       const auto type = kTestHandleTypes[i];
       PlatformHandle scoped_handle;
       if (type == HandleType::POSIX) {
@@ -387,7 +401,7 @@ TEST_F(EmbedderTest, MultiprocessMixMachAndFds) {
 
     // 2. Send all the handles to the child.
     WriteMessageWithHandles(server_mp, "hello", platform_handles,
-                            base::size(kTestHandleTypes));
+                            std::size(kTestHandleTypes));
 
     // 3. Read a message from |server_mp|.
     EXPECT_EQ("bye", ReadMessage(server_mp));
@@ -397,7 +411,7 @@ TEST_F(EmbedderTest, MultiprocessMixMachAndFds) {
 DEFINE_TEST_CLIENT_TEST_WITH_PIPE(MultiprocessMixMachAndFdsClient,
                                   EmbedderTest,
                                   client_mp) {
-  const int kNumHandles = base::size(kTestHandleTypes);
+  const int kNumHandles = std::size(kTestHandleTypes);
   MojoHandle platform_handles[kNumHandles];
 
   // 1. Read from |client_mp|, which should have a message containing
@@ -419,6 +433,7 @@ DEFINE_TEST_CLIENT_TEST_WITH_PIPE(MultiprocessMixMachAndFdsClient,
 
   // 3. Say bye!
   WriteMessage(client_mp, "bye");
+  ASSERT_EQ(MOJO_RESULT_OK, MojoClose(client_mp));
 }
 
 #endif  // BUILDFLAG(IS_MAC)

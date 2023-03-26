@@ -1,16 +1,15 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "mojo/public/cpp/bindings/binder_map.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "mojo/public/cpp/bindings/generic_pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -78,9 +77,10 @@ TEST_F(BinderMapTest, BasicMatch) {
 
   TestInterface1Impl impl;
   BinderMap map;
-  map.Add(base::BindRepeating(&TestInterface1Impl::Bind,
-                              base::Unretained(&impl), nullptr),
-          base::SequencedTaskRunnerHandle::Get());
+  map.Add<mojom::TestInterface1>(
+      base::BindRepeating(&TestInterface1Impl::Bind, base::Unretained(&impl),
+                          nullptr),
+      base::SequencedTaskRunner::GetCurrentDefault());
   EXPECT_TRUE(map.TryBind(&receiver));
   remote.FlushForTesting();
   EXPECT_TRUE(remote.is_connected());
@@ -93,7 +93,7 @@ TEST_F(BinderMapTest, WithContext) {
   int context = 42;
   TestInterface1Impl impl;
   BinderMapWithContext<int*> map;
-  map.Add(base::BindRepeating(
+  map.Add<mojom::TestInterface1>(base::BindRepeating(
       [](TestInterface1Impl* impl, int* expected_context, int* context,
          mojo::PendingReceiver<mojom::TestInterface1> receiver) {
         EXPECT_EQ(context, expected_context);
@@ -112,7 +112,7 @@ TEST_F(BinderMapTest, CorrectSequence) {
   Remote<mojom::TestInterface2> remote2;
   GenericPendingReceiver receiver2(remote2.BindNewPipeAndPassReceiver());
 
-  auto task_runner1 = base::SequencedTaskRunnerHandle::Get();
+  auto task_runner1 = base::SequencedTaskRunner::GetCurrentDefault();
   auto task_runner2 = base::ThreadPool::CreateSequencedTaskRunner({});
 
   TestInterface1Impl impl1;
@@ -127,12 +127,14 @@ TEST_F(BinderMapTest, CorrectSequence) {
   create_impl2_loop.Run();
 
   BinderMap map;
-  map.Add(base::BindRepeating(&TestInterface1Impl::Bind,
-                              base::Unretained(&impl1), task_runner1),
-          task_runner1);
-  map.Add(base::BindRepeating(&TestInterface2Impl::Bind,
-                              base::Unretained(impl2.get()), task_runner2),
-          task_runner2);
+  map.Add<mojom::TestInterface1>(
+      base::BindRepeating(&TestInterface1Impl::Bind, base::Unretained(&impl1),
+                          task_runner1),
+      task_runner1);
+  map.Add<mojom::TestInterface2>(
+      base::BindRepeating(&TestInterface2Impl::Bind,
+                          base::Unretained(impl2.get()), task_runner2),
+      task_runner2);
   EXPECT_TRUE(map.TryBind(&receiver1));
   EXPECT_TRUE(map.TryBind(&receiver2));
   remote1.FlushForTesting();

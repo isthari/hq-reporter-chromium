@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,8 +31,9 @@ bool IsPromptEnabled() {
 
 }  // namespace.
 
-const base::Feature kSettingsResetPrompt{kSettingsResetPromptFeatureName,
-                                         base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kSettingsResetPrompt,
+             kSettingsResetPromptFeatureName,
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 // static
 std::unique_ptr<SettingsResetPromptConfig> SettingsResetPromptConfig::Create() {
@@ -145,8 +146,6 @@ bool SettingsResetPromptConfig::Init() {
       kSettingsResetPrompt, "domain_hashes");
   ConfigError error = ParseDomainHashes(domain_hashes_json);
   if (error != CONFIG_ERROR_OK) {
-    UMA_HISTOGRAM_ENUMERATION("SettingsResetPrompt.ConfigError", error,
-                              CONFIG_ERROR_MAX);
     return false;
   }
 
@@ -154,9 +153,6 @@ bool SettingsResetPromptConfig::Init() {
   int delay_before_prompt_seconds = base::GetFieldTrialParamByFeatureAsInt(
       kSettingsResetPrompt, "delay_before_prompt_seconds", -1);
   if (delay_before_prompt_seconds < 0) {
-    UMA_HISTOGRAM_ENUMERATION(
-        "SettingsResetPrompt.ConfigError",
-        CONFIG_ERROR_BAD_DELAY_BEFORE_PROMPT_SECONDS_PARAM, CONFIG_ERROR_MAX);
     return false;
   }
   delay_before_prompt_ = base::Seconds(delay_before_prompt_seconds);
@@ -165,9 +161,6 @@ bool SettingsResetPromptConfig::Init() {
   prompt_wave_ = base::GetFieldTrialParamByFeatureAsInt(kSettingsResetPrompt,
                                                         "prompt_wave", 0);
   if (prompt_wave_ <= 0) {
-    UMA_HISTOGRAM_ENUMERATION("SettingsResetPrompt.ConfigError",
-                              CONFIG_ERROR_BAD_PROMPT_WAVE_PARAM,
-                              CONFIG_ERROR_MAX);
     return false;
   }
 
@@ -175,15 +168,10 @@ bool SettingsResetPromptConfig::Init() {
   int time_between_prompts_seconds = base::GetFieldTrialParamByFeatureAsInt(
       kSettingsResetPrompt, "time_between_prompts_seconds", -1);
   if (time_between_prompts_seconds < 0) {
-    UMA_HISTOGRAM_ENUMERATION(
-        "SettingsResetPrompt.ConfigError",
-        CONFIG_ERROR_BAD_TIME_BETWEEN_PROMPTS_SECONDS_PARAM, CONFIG_ERROR_MAX);
     return false;
   }
   time_between_prompts_ = base::Seconds(time_between_prompts_seconds);
 
-  UMA_HISTOGRAM_ENUMERATION("SettingsResetPrompt.ConfigError", CONFIG_ERROR_OK,
-                            CONFIG_ERROR_MAX);
   return true;
 }
 
@@ -194,11 +182,12 @@ SettingsResetPromptConfig::ParseDomainHashes(
     return CONFIG_ERROR_MISSING_DOMAIN_HASHES_PARAM;
 
   // Is the input parseable JSON?
-  std::unique_ptr<base::DictionaryValue> domains_dict =
-      base::DictionaryValue::From(
-          base::JSONReader::ReadDeprecated(domain_hashes_json));
-  if (!domains_dict || domains_dict->DictEmpty())
+  absl::optional<base::Value> domains_dict =
+      base::JSONReader::Read(domain_hashes_json);
+  if (!domains_dict || !domains_dict->is_dict() ||
+      domains_dict->GetDict().empty()) {
     return CONFIG_ERROR_BAD_DOMAIN_HASHES_PARAM;
+  }
 
   // The input JSON should be a hash object with hex-encoded 32-byte
   // hashes as keys and integer IDs as values. For example,
@@ -208,9 +197,8 @@ SettingsResetPromptConfig::ParseDomainHashes(
   // Each key in the hash should be a 64-byte long string and each
   // integer ID should fit in an int.
   domain_hashes_.clear();
-  for (base::DictionaryValue::Iterator iter(*domains_dict); !iter.IsAtEnd();
-       iter.Advance()) {
-    const std::string& hash_string = iter.key();
+  for (const auto item : domains_dict->GetDict()) {
+    const std::string& hash_string = item.first;
     if (hash_string.size() != crypto::kSHA256Length * 2)
       return CONFIG_ERROR_BAD_DOMAIN_HASH;
 
@@ -221,7 +209,7 @@ SettingsResetPromptConfig::ParseDomainHashes(
       return CONFIG_ERROR_BAD_DOMAIN_HASH;
 
     // Convert the ID string to an integer.
-    const std::string* domain_id_string = iter.value().GetIfString();
+    const std::string* domain_id_string = item.second.GetIfString();
     int domain_id = -1;
     if (!domain_id_string ||
         !base::StringToInt(*domain_id_string, &domain_id) || domain_id < 0) {

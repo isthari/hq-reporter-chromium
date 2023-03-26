@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_tab_strip_model_delegate.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -56,7 +57,7 @@ class ClosedTabCacheBrowserTest : public InProcessBrowserTest {
 
   void CloseTabAt(int index) {
     browser()->tab_strip_model()->CloseWebContentsAt(
-        index, TabStripModel::CLOSE_CREATE_HISTORICAL_TAB);
+        index, TabCloseTypes::CLOSE_CREATE_HISTORICAL_TAB);
   }
 
   void RestoreMostRecentTab() {
@@ -141,7 +142,7 @@ IN_PROC_BROWSER_TEST_F(ClosedTabCacheBrowserTest,
   // Don't cache WebContents when beforeunload listeners are run.
   NavigateToURL(browser(), "a.com");
   content::WebContents* a = browser()->tab_strip_model()->GetWebContentsAt(1);
-  EXPECT_TRUE(ExecJs(a->GetMainFrame(),
+  EXPECT_TRUE(ExecJs(a->GetPrimaryMainFrame(),
                      "window.addEventListener('beforeunload', function (e) "
                      "{e.returnValue = '';});"));
   EXPECT_TRUE(a->NeedToFireBeforeUnloadOrUnloadEvents());
@@ -191,6 +192,9 @@ IN_PROC_BROWSER_TEST_F(ClosedTabCacheBrowserTest, RestoreEntryWhenNotFound) {
 
 // Restore an entry that is in the cache.
 IN_PROC_BROWSER_TEST_F(ClosedTabCacheBrowserTest, RestoreEntryWhenFound) {
+  base::HistogramTester histogram_tester;
+  const char kTabRestored[] = "Tab.RestoreClosedTab";
+
   ASSERT_TRUE(embedded_test_server()->Start());
 
   NavigateToURL(browser(), "a.com");
@@ -207,6 +211,12 @@ IN_PROC_BROWSER_TEST_F(ClosedTabCacheBrowserTest, RestoreEntryWhenFound) {
   EXPECT_EQ(closed_tab_cache().EntriesCount(), 0U);
   ASSERT_EQ(browser()->tab_strip_model()->count(), 2);
   EXPECT_EQ(browser()->tab_strip_model()->GetWebContentsAt(1), wc);
+
+  // We should store histogram kTabRestored when a tab is restored from
+  // ClosedTabCache with value 1.
+  EXPECT_EQ(histogram_tester.GetAllSamples(kTabRestored).size(), 1U);
+  EXPECT_THAT(histogram_tester.GetAllSamples(kTabRestored),
+              testing::ElementsAre(base::Bucket(1, 1)));
 }
 
 // Evict an entry after timeout.

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@
 #include "media/gpu/vaapi/vaapi_wrapper.h"
 #endif
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 #include "ui/ozone/public/ozone_platform.h"
 #endif
 
@@ -26,8 +26,8 @@ namespace test {
 VideoTestEnvironment::VideoTestEnvironment() : VideoTestEnvironment({}, {}) {}
 
 VideoTestEnvironment::VideoTestEnvironment(
-    const std::vector<base::Feature>& enabled_features,
-    const std::vector<base::Feature>& disabled_features) {
+    const std::vector<base::test::FeatureRef>& enabled_features,
+    const std::vector<base::test::FeatureRef>& disabled_features) {
   // Using shared memory requires mojo to be initialized (crbug.com/849207).
   mojo::core::Init();
 
@@ -50,20 +50,22 @@ VideoTestEnvironment::VideoTestEnvironment(
   scoped_feature_list_.InitWithFeatures(enabled_features, disabled_features);
 
   // Perform all static initialization that is required when running video
-  // decoders in a test environment.
-#if BUILDFLAG(USE_VAAPI)
-  media::VaapiWrapper::PreSandboxInitialization();
-#endif
-
-#if defined(USE_OZONE)
+  // codecs in a test environment.
+#if BUILDFLAG(IS_OZONE)
   // Initialize Ozone. This is necessary to gain access to the GPU for hardware
-  // video decode acceleration.
+  // video acceleration.
+  // TODO(b/230370976): we may no longer need to initialize Ozone since we don't
+  // use it for buffer allocation.
   LOG(WARNING) << "Initializing Ozone Platform...\n"
                   "If this hangs indefinitely please call 'stop ui' first!";
   ui::OzonePlatform::InitParams params;
   params.single_process = true;
   ui::OzonePlatform::InitializeForUI(params);
   ui::OzonePlatform::InitializeForGPU(params);
+#endif
+
+#if BUILDFLAG(USE_VAAPI)
+  media::VaapiWrapper::PreSandboxInitialization();
 #endif
 }
 

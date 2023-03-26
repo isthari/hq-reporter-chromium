@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,9 @@
 #include <utility>
 
 #include "ash/constants/ash_features.h"
-#include "ash/services/secure_channel/public/mojom/secure_channel_types.mojom.h"
-#include "base/bind.h"
 #include "base/containers/flat_map.h"
 #include "base/files/file.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/scoped_refptr.h"
@@ -23,30 +22,27 @@
 #include "base/time/time.h"
 #include "chrome/browser/ash/secure_channel/nearby_endpoint_finder.h"
 #include "chrome/browser/ash/secure_channel/util/histogram_util.h"
-#include "chromeos/components/multidevice/logging/logging.h"
+#include "chromeos/ash/components/multidevice/logging/logging.h"
+#include "chromeos/ash/services/secure_channel/public/mojom/secure_channel_types.mojom.h"
 #include "mojo/public/cpp/bindings/remote.h"
 
 namespace ash {
 namespace secure_channel {
 namespace {
 
-// TODO(https://crbug.com/1164001): remove after
-// ash/services/secure_channel is moved to namespace ash.
-namespace mojom = ::chromeos::secure_channel::mojom;
-
-using ::location::nearby::connections::mojom::BytesPayload;
-using ::location::nearby::connections::mojom::ConnectionInfoPtr;
-using ::location::nearby::connections::mojom::ConnectionOptions;
-using ::location::nearby::connections::mojom::DiscoveredEndpointInfoPtr;
-using ::location::nearby::connections::mojom::Medium;
-using ::location::nearby::connections::mojom::MediumSelection;
-using ::location::nearby::connections::mojom::NearbyConnections;
-using ::location::nearby::connections::mojom::Payload;
-using ::location::nearby::connections::mojom::PayloadContent;
-using ::location::nearby::connections::mojom::PayloadPtr;
-using ::location::nearby::connections::mojom::PayloadStatus;
-using ::location::nearby::connections::mojom::PayloadTransferUpdatePtr;
-using ::location::nearby::connections::mojom::Status;
+using ::nearby::connections::mojom::BytesPayload;
+using ::nearby::connections::mojom::ConnectionInfoPtr;
+using ::nearby::connections::mojom::ConnectionOptions;
+using ::nearby::connections::mojom::DiscoveredEndpointInfoPtr;
+using ::nearby::connections::mojom::Medium;
+using ::nearby::connections::mojom::MediumSelection;
+using ::nearby::connections::mojom::NearbyConnections;
+using ::nearby::connections::mojom::Payload;
+using ::nearby::connections::mojom::PayloadContent;
+using ::nearby::connections::mojom::PayloadPtr;
+using ::nearby::connections::mojom::PayloadStatus;
+using ::nearby::connections::mojom::PayloadTransferUpdatePtr;
+using ::nearby::connections::mojom::Status;
 
 NearbyConnectionBrokerImpl::Factory* g_test_factory = nullptr;
 
@@ -443,8 +439,8 @@ void NearbyConnectionBrokerImpl::OnPayloadFileRegistered(
     Status status) {
   bool success = status == Status::kSuccess;
   if (success) {
-    mojo::Remote<chromeos::secure_channel::mojom::FilePayloadListener>
-        listener_remote(std::move(listener));
+    mojo::Remote<mojom::FilePayloadListener> listener_remote(
+        std::move(listener));
     // Safe to use Unretained because the Remote and its disconnect handler does
     // not out live NearbyConnectionBrokerImpl.
     listener_remote.set_disconnect_handler(base::BindOnce(
@@ -637,7 +633,7 @@ mojom::FileTransferStatus ConvertFileTransferStatus(PayloadStatus status) {
 
 void NearbyConnectionBrokerImpl::OnPayloadTransferUpdate(
     const std::string& endpoint_id,
-    location::nearby::connections::mojom::PayloadTransferUpdatePtr update) {
+    ::nearby::connections::mojom::PayloadTransferUpdatePtr update) {
   if (!ash::features::IsPhoneHubCameraRollEnabled()) {
     return;
   }

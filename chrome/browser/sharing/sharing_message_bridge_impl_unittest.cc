@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/sharing/sharing_message_bridge_impl.h"
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_callback.h"
@@ -14,7 +14,7 @@
 #include "components/sync/model/metadata_batch.h"
 #include "components/sync/model/metadata_change_list.h"
 #include "components/sync/model/model_type_sync_bridge.h"
-#include "components/sync/test/model/mock_model_type_change_processor.h"
+#include "components/sync/test/mock_model_type_change_processor.h"
 #include "net/base/network_change_notifier.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -90,9 +90,7 @@ class SharingMessageBridgeTest : public testing::Test {
   }
 
   void FastForwardThroughTimeout() {
-    const base::TimeDelta time_delta =
-        base::Seconds(kSharingMessageBridgeTimeoutSeconds.Get());
-    task_environment_.FastForwardBy(time_delta);
+    task_environment_.FastForwardBy(SharingMessageBridgeImpl::kCommitTimeout);
   }
 
  private:

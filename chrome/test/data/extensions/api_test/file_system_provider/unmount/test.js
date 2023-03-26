@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,7 @@ var SECOND_FILE_SYSTEM_ID = 'ice-cream';
  * @param {function()} callback Success callback.
  */
 function setUp(callback) {
-  Promise.race([
+  Promise.all([
     new Promise(function(fulfill, reject) {
       chrome.fileSystemProvider.mount(
           {fileSystemId: FIRST_FILE_SYSTEM_ID, displayName: 'vanilla.zip'},
@@ -93,7 +93,9 @@ function runTests() {
 
       test_util.getVolumeInfo(SECOND_FILE_SYSTEM_ID, function(volumeInfo) {
         chrome.test.assertTrue(!!volumeInfo);
-        chrome.fileManagerPrivate.removeMount(volumeInfo.volumeId);
+        chrome.fileManagerPrivate.removeMount(volumeInfo.volumeId, () => {
+          chrome.test.assertNoLastError();
+        });
       });
     },
 
@@ -115,7 +117,7 @@ function runTests() {
 
       var onMountCompleted = chrome.test.callbackPass(function(event) {
         chrome.test.assertEq('unmount', event.eventType);
-        chrome.test.assertEq('error_unknown', event.status);
+        chrome.test.assertEq('unknown_error', event.status);
         // For extension based providers, provider id is the same as
         // extension id.
         chrome.test.assertEq(
@@ -125,7 +127,7 @@ function runTests() {
         chrome.test.assertTrue(unmountRequested);
 
         // Remove the handlers and mark the test as succeeded.
-        chrome.fileManagerPrivate.removeMount(SECOND_FILE_SYSTEM_ID);
+        chrome.fileManagerPrivate.removeMount(SECOND_FILE_SYSTEM_ID, () => {});
         chrome.fileManagerPrivate.onMountCompleted.removeListener(
             onMountCompleted);
       });
@@ -136,7 +138,9 @@ function runTests() {
 
       test_util.getVolumeInfo(SECOND_FILE_SYSTEM_ID, function(volumeInfo) {
         chrome.test.assertTrue(!!volumeInfo);
-        chrome.fileManagerPrivate.removeMount(volumeInfo.volumeId);
+        chrome.fileManagerPrivate.removeMount(volumeInfo.volumeId, () => {
+          chrome.test.assertNoLastError();
+        });
       });
     }
   ]);

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,14 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "base/bind.h"
+#include <array>
+#include <utility>
+
 #include "base/cpu.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
+#include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
@@ -20,15 +23,18 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/system/sys_info.h"
-#include "base/task/post_task.h"
-#include "base/task/task_runner_util.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread_restrictions.h"
+#include "base/time/time.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/ash/arc/tracing/arc_system_model.h"
 #include "chrome/browser/ash/arc/tracing/arc_value_event_trimmer.h"
+
+// Enable VLOG level 1.
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
 
 namespace arc {
 
@@ -197,7 +203,6 @@ struct OneValueReaderInfo {
   SystemReader reader = SystemReader::kTotal;
   int64_t* value = nullptr;
   int64_t default_value = 0;
-  bool error_reported = false;
 };
 
 struct ArcSystemStatCollector::SystemReadersContext {
@@ -360,9 +365,8 @@ void ArcSystemStatCollector::Start(const base::TimeDelta& max_interval) {
   background_task_runner_ = base::ThreadPool::CreateSequencedTaskRunner(
       {base::MayBlock(), base::TaskPriority::USER_VISIBLE});
 
-  base::PostTaskAndReplyWithResult(
-      background_task_runner_.get(), FROM_HERE,
-      base::BindOnce(&SystemReadersContext::InitOnBackgroundThread),
+  background_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&SystemReadersContext::InitOnBackgroundThread),
       base::BindOnce(&ArcSystemStatCollector::OnInitOnUiThread,
                      weak_ptr_factory_.GetWeakPtr()));
 }
@@ -458,46 +462,40 @@ void ArcSystemStatCollector::Flush(const base::TimeTicks& min_timestamp,
 // Serializes the model to |base::Value|, this can be passed to
 // javascript for rendering.
 std::unique_ptr<base::Value> ArcSystemStatCollector::Serialize() const {
-  std::unique_ptr<base::Value> root =
-      std::make_unique<base::Value>(base::Value::Type::DICTIONARY);
+  base::Value::Dict root;
 
-  root->SetKey(
-      kKeyMaxInterval,
-      base::Value(base::NumberToString(max_interval_.InMicroseconds())));
+  root.Set(kKeyMaxInterval,
+           base::NumberToString(max_interval_.InMicroseconds()));
 
   // Samples
-  base::ListValue sample_list;
-  for (auto& sample : samples_) {
-    base::Value sample_value(base::Value::Type::DICTIONARY);
+  base::Value::List sample_list;
+  for (const auto& sample : samples_) {
+    base::Value::Dict sample_value;
 
-    sample_value.SetKey(
+    sample_value.Set(
         kKeyTimestamp,
-        base::Value(base::NumberToString(
-            (sample.timestamp - base::TimeTicks()).InMicroseconds())));
-    sample_value.SetKey(kKeySwapSectorsRead,
-                        base::Value(sample.swap_sectors_read));
-    sample_value.SetKey(kKeySwapSectorsWrite,
-                        base::Value(sample.swap_sectors_write));
-    sample_value.SetKey(kKeySwapWaitingTimeMs,
-                        base::Value(sample.swap_waiting_time_ms));
-    sample_value.SetKey(kKeyMemTotalKb, base::Value(sample.mem_total_kb));
-    sample_value.SetKey(kKeyMemUsedKb, base::Value(sample.mem_used_kb));
-    sample_value.SetKey(kKeyGemObjects, base::Value(sample.gem_objects));
-    sample_value.SetKey(kKeyGemSizeKb, base::Value(sample.gem_size_kb));
-    sample_value.SetKey(kKeyCpuTemperature,
-                        base::Value(sample.cpu_temperature));
-    sample_value.SetKey(kKeyCpuFrequency, base::Value(sample.cpu_frequency));
-    sample_value.SetKey(kKeyCpuPower, base::Value(sample.cpu_power));
-    sample_value.SetKey(kKeyGpuPower, base::Value(sample.gpu_power));
-    sample_value.SetKey(kKeyMemoryPower, base::Value(sample.memory_power));
-    sample_value.SetKey(kKeyPackagePowerConstraint,
-                        base::Value(sample.package_power_constraint));
+        base::NumberToString(
+            (sample.timestamp - base::TimeTicks()).InMicroseconds()));
+    sample_value.Set(kKeySwapSectorsRead, sample.swap_sectors_read);
+    sample_value.Set(kKeySwapSectorsWrite, sample.swap_sectors_write);
+    sample_value.Set(kKeySwapWaitingTimeMs, sample.swap_waiting_time_ms);
+    sample_value.Set(kKeyMemTotalKb, sample.mem_total_kb);
+    sample_value.Set(kKeyMemUsedKb, sample.mem_used_kb);
+    sample_value.Set(kKeyGemObjects, sample.gem_objects);
+    sample_value.Set(kKeyGemSizeKb, sample.gem_size_kb);
+    sample_value.Set(kKeyCpuTemperature, sample.cpu_temperature);
+    sample_value.Set(kKeyCpuFrequency, sample.cpu_frequency);
+    sample_value.Set(kKeyCpuPower, sample.cpu_power);
+    sample_value.Set(kKeyGpuPower, sample.gpu_power);
+    sample_value.Set(kKeyMemoryPower, sample.memory_power);
+    sample_value.Set(kKeyPackagePowerConstraint,
+                     sample.package_power_constraint);
 
     sample_list.Append(std::move(sample_value));
   }
-  root->SetKey(kKeySamples, std::move(sample_list));
+  root.Set(kKeySamples, std::move(sample_list));
 
-  return root;
+  return std::make_unique<base::Value>(std::move(root));
 }
 
 std::string ArcSystemStatCollector::SerializeToJson() const {
@@ -586,8 +584,8 @@ void ArcSystemStatCollector::ScheduleSystemStatUpdate() {
       LOG(WARNING) << "Dropping update, already pending";
     return;
   }
-  base::PostTaskAndReplyWithResult(
-      background_task_runner_.get(), FROM_HERE,
+  background_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&ArcSystemStatCollector::ReadSystemStatOnBackgroundThread,
                      std::move(context_)),
       base::BindOnce(&ArcSystemStatCollector::UpdateSystemStatOnUiThread,
@@ -658,28 +656,29 @@ ArcSystemStatCollector::ReadSystemStatOnBackgroundThread(
 
   OneValueReaderInfo one_value_readers[] = {
       {SystemReader::kCpuTemperature, &context->current_frame.cpu_temperature,
-       std::numeric_limits<int>::min(), false},
-      {SystemReader::kCpuFrequency, &context->current_frame.cpu_frequency, 0,
-       false},
+       std::numeric_limits<int>::min()},
+      {SystemReader::kCpuFrequency, &context->current_frame.cpu_frequency, 0},
       {SystemReader::kPackagePowerConstraint,
-       &context->current_frame.package_power_constraint, 0, false},
-      {SystemReader::kCpuEnergy, &context->current_frame.cpu_energy, 0, false},
-      {SystemReader::kGpuEnergy, &context->current_frame.gpu_energy, 0, false},
-      {SystemReader::kMemoryEnergy, &context->current_frame.memory_energy, 0,
-       false},
+       &context->current_frame.package_power_constraint, 0},
+      {SystemReader::kCpuEnergy, &context->current_frame.cpu_energy, 0},
+      {SystemReader::kGpuEnergy, &context->current_frame.gpu_energy, 0},
+      {SystemReader::kMemoryEnergy, &context->current_frame.memory_energy, 0},
   };
 
-  for (size_t i = 0; i < base::size(one_value_readers); ++i) {
+  static bool one_value_readers_error_reported[std::size(one_value_readers)] = {
+      false};
+
+  for (size_t i = 0; i < std::size(one_value_readers); ++i) {
     if (!context->system_readers[one_value_readers[i].reader].is_valid() ||
         !ParseStatFile(
             context->system_readers[one_value_readers[i].reader].get(),
             kOneValueColumns, one_value_readers[i].value)) {
       *one_value_readers[i].value = one_value_readers[i].default_value;
-      if (one_value_readers[i].error_reported)
+      if (one_value_readers_error_reported[i])
         continue;
       LOG(ERROR) << "Failed to read one value system stat: "
                  << one_value_readers[i].reader;
-      one_value_readers[i].error_reported = true;
+      one_value_readers_error_reported[i] = true;
     }
   }
 

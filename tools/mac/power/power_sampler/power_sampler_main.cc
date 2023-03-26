@@ -1,22 +1,24 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <signal.h>
 #include <cstdio>
 #include <iostream>
+#include <memory>
 
 #include "base/command_line.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/power_monitor/iopm_power_source_sampling_event_source.h"
+#include "base/power_monitor/timer_sampling_event_source.h"
 #include "base/process/process_handle.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/task/single_thread_task_executor.h"
 #include "base/time/time.h"
-#include "components/power_metrics/iopm_power_source_sampling_event_source.h"
-#include "components/power_metrics/timer_sampling_event_source.h"
 #include "tools/mac/power/power_sampler/battery_sampler.h"
 #include "tools/mac/power/power_sampler/csv_exporter.h"
 #include "tools/mac/power/power_sampler/json_exporter.h"
@@ -27,6 +29,7 @@
 #include "tools/mac/power/power_sampler/sampler.h"
 #include "tools/mac/power/power_sampler/sampling_controller.h"
 #include "tools/mac/power/power_sampler/smc_sampler.h"
+#include "tools/mac/power/power_sampler/user_active_simulator.h"
 #include "tools/mac/power/power_sampler/user_idle_level_sampler.h"
 
 namespace {
@@ -44,12 +47,15 @@ void InitLogging() {
 
 constexpr char kSwitchHelp[] = "h";
 constexpr char kSwitchSamplers[] = "samplers";
+constexpr char kSwitchInitialSample[] = "initial-sample";
 constexpr char kSwitchSampleInterval[] = "sample-interval";
 constexpr char kSwitchSampleCount[] = "sample-count";
 constexpr char kSwitchTimeout[] = "timeout";
 constexpr char kSwitchJsonOutputFile[] = "json-output-file";
 constexpr char kSwitchSampleOnNotification[] = "sample-on-notification";
 constexpr char kSwitchResourceCoalitionPid[] = "resource-coalition-pid";
+constexpr char kSwitchSimulateUserActive[] = "simulate-user-active";
+constexpr char kSwitchNoSamplers[] = "no-samplers";
 constexpr char kUsageString[] = R"(Usage: power_sampler [options]
 
 A tool that samples power-related metrics and states. The tool outputs samples
@@ -57,15 +63,20 @@ in CSV or JSON format.
 
 Options:
   --samplers=<samplers>           Comma separated list of samplers.
+  --initial-sample                Sample on launch.
   --sample-interval=<num>         Sample on a <num> second interval.
-  --sample-on-notification        Sample on power manager notifications.
-      Note that interval and event notifications are mutually exclusive.
+  --sample-on-notification        Sample on power manager notification.
+      Sampling on interval or on notification are mutually exclusive.
   --sample-count=<num>            Collect <num> samples before exiting.
+  --no-samplers                   Use no samplers.
   --timeout=<num>                 Stops the sampler after <num> seconds.
   --json-output-file=<path>       Produce JSON output to <path> before exit.
       By default output is in CSV format on STDOUT.
   --resource-coalition-pid=<pid>  The pid of a process that is part of a
       resource coalition for which to sample resource usage.
+  --simulate-user-active          Simulate user activity periodically, to
+                                  perform measurements in the same context as
+                                  when the user is active.
 )";
 
 // Prints main usage text.
@@ -106,6 +117,11 @@ bool ConsumeSamplerName(const std::string& sampler_name,
     return true;
   }
   return false;
+}
+
+std::atomic<bool> should_quit_{false};
+void quit_signal_handler(int signal) {
+  should_quit_ = true;
 }
 
 int main(int argc, char** argv) {
@@ -163,7 +179,7 @@ int main(int argc, char** argv) {
 
     std::string sample_count_switch =
         command_line.GetSwitchValueASCII(kSwitchSampleCount);
-    if (!base::StringToInt64(sample_count_switch, &sample_count) &&
+    if (!base::StringToInt64(sample_count_switch, &sample_count) ||
         sample_count < 1) {
       PrintUsage("sample-count must be numeric and larger than 0.");
       return kStatusInvalidParam;
@@ -197,21 +213,40 @@ int main(int argc, char** argv) {
     }
   }
 
-  std::unique_ptr<power_metrics::SamplingEventSource> event_source;
+  std::unique_ptr<base::SamplingEventSource> event_source;
   if (command_line.HasSwitch(kSwitchSampleOnNotification)) {
-    event_source =
-        std::make_unique<power_metrics::IOPMPowerSourceSamplingEventSource>();
+    event_source = std::make_unique<base::IOPMPowerSourceSamplingEventSource>();
   } else {
-    event_source = std::make_unique<power_metrics::TimerSamplingEventSource>(
-        sampling_interval);
+    event_source =
+        std::make_unique<base::TimerSamplingEventSource>(sampling_interval);
   }
 
   base::SingleThreadTaskExecutor executor(base::MessagePumpType::NS_RUNLOOP);
+
   power_sampler::SamplingController controller;
+
+  std::unique_ptr<power_sampler::UserActiveSimulator> user_active_simulator;
+  if (command_line.HasSwitch(kSwitchSimulateUserActive)) {
+    user_active_simulator =
+        std::make_unique<power_sampler::UserActiveSimulator>();
+    user_active_simulator->Start();
+  }
 
   const base::TimeTicks start_time = base::TimeTicks::Now();
 
-  bool all_samplers = sampler_names.empty();
+  if (!sampler_names.empty() && command_line.HasSwitch(kSwitchNoSamplers)) {
+    PrintUsage("samplers and no-samplers are incompatible");
+    return kStatusInvalidParam;
+  }
+
+  if (command_line.HasSwitch(kSwitchNoSamplers) &&
+      !command_line.HasSwitch(kSwitchSimulateUserActive)) {
+    PrintUsage("no samplers and not simulating active user. Nothing to do!");
+    return kStatusInvalidParam;
+  }
+
+  bool all_samplers =
+      sampler_names.empty() && !command_line.HasSwitch(kSwitchNoSamplers);
   if (ConsumeSamplerName(power_sampler::MainDisplaySampler::kSamplerName,
                          sampler_names) ||
       all_samplers) {
@@ -303,20 +338,45 @@ int main(int argc, char** argv) {
                                             timeout);
   }
 
-  if (!event_source->Start(BindRepeating(
-          [](power_sampler::SamplingController* controller,
-             base::OnceClosure quit_closure) {
-            if (controller->OnSamplingEvent())
-              std::move(quit_closure).Run();
-          },
-          base::Unretained(&controller), run_loop.QuitClosure()))) {
+  // Install signal handler for on-demand quitting.
+  struct sigaction new_action;
+  new_action.sa_handler = quit_signal_handler;
+  sigemptyset(&new_action.sa_mask);
+  new_action.sa_flags = 0;
+  sigaction(SIGTERM, &new_action, NULL);
+  sigaction(SIGINT, &new_action, NULL);
+
+  base::RepeatingTimer quit_timer;
+  quit_timer.Start(FROM_HERE, base::Seconds(1),
+                   BindRepeating(
+                       [](base::OnceClosure quit_closure) {
+                         if (should_quit_.load())
+                           std::move(quit_closure).Run();
+                       },
+                       run_loop.QuitClosure()));
+
+  auto sample_closure = BindRepeating(
+      [](power_sampler::SamplingController* controller,
+         base::OnceClosure quit_closure) {
+        if (controller->OnSamplingEvent())
+          std::move(quit_closure).Run();
+      },
+      base::Unretained(&controller), run_loop.QuitClosure());
+
+  controller.StartSession();
+
+  if (!event_source->Start(sample_closure)) {
     PrintUsage("Could not start the sampling event source.");
     return kStatusRuntimeError;
   }
 
-  controller.StartSession();
+  if (command_line.HasSwitch(kSwitchInitialSample)) {
+    sample_closure.Run();
+  }
 
   run_loop.Run();
+
+  quit_timer.Stop();
 
   controller.EndSession();
 

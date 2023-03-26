@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
 #include "ash/quick_pair/common/quick_pair_browser_delegate.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "components/prefs/pref_service.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 
@@ -43,8 +43,8 @@ bool FastPairFeatureUsageMetricsLogger::IsEligible() const {
   // IsEligible reflects the hardware filtering support on the Chromebook.
   // Devices that do not have hardware filtering support are not eligible for
   // Fast Pair.
-  return bluetooth_adapter_.get() && bluetooth_adapter_->IsPresent() &&
-         (features::IsFastPairSoftwareScanningEnabled() ||
+  return features::IsFastPairSoftwareScanningEnabled() ||
+         (bluetooth_adapter_.get() && bluetooth_adapter_->IsPresent() &&
           bluetooth_adapter_
                   ->GetLowEnergyScanSessionHardwareOffloadingStatus() ==
               device::BluetoothAdapter::
@@ -52,6 +52,9 @@ bool FastPairFeatureUsageMetricsLogger::IsEligible() const {
 }
 
 absl::optional<bool> FastPairFeatureUsageMetricsLogger::IsAccessible() const {
+  if (!IsEligible())
+    return false;
+
   PrefService* pref_service =
       QuickPairBrowserDelegate::Get()->GetActivePrefService();
 
@@ -72,7 +75,8 @@ absl::optional<bool> FastPairFeatureUsageMetricsLogger::IsAccessible() const {
 bool FastPairFeatureUsageMetricsLogger::IsEnabled() const {
   PrefService* pref_service =
       QuickPairBrowserDelegate::Get()->GetActivePrefService();
-  return pref_service && pref_service->GetBoolean(ash::prefs::kFastPairEnabled);
+  return IsEligible() && pref_service &&
+         pref_service->GetBoolean(ash::prefs::kFastPairEnabled);
 }
 
 }  // namespace quick_pair

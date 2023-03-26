@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 
 #include "base/memory/ref_counted.h"
 #include "chrome/browser/resource_coordinator/tab_lifecycle_observer.h"
-#include "chromeos/dbus/metrics_event/metrics_event.pb.h"
-#include "chromeos/dbus/services/cros_dbus_service.h"
+#include "chromeos/ash/components/dbus/metrics_event/metrics_event.pb.h"
+#include "chromeos/ash/components/dbus/services/cros_dbus_service.h"
 #include "dbus/exported_object.h"
 
 namespace ash {
@@ -45,10 +45,5 @@ class MetricsEventServiceProvider
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when ChromeOS code migration is done.
-namespace chromeos {
-using ::ash::MetricsEventServiceProvider;
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_DBUS_METRICS_EVENT_SERVICE_PROVIDER_H_

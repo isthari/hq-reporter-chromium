@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,11 +59,12 @@ class ASH_EXPORT ImeMenuTray : public TrayBackgroundView,
   void HandleLocaleChange() override;
   void HideBubbleWithView(const TrayBubbleView* bubble_view) override;
   void ClickedOutsideBubble() override;
-  bool PerformAction(const ui::Event& event) override;
+  void OnTrayActivated(const ui::Event& event) override;
   void CloseBubble() override;
   void ShowBubble() override;
   TrayBubbleView* GetBubbleView() override;
   views::Widget* GetBubbleWidget() const override;
+  void AddedToWidget() override;
 
   // IMEObserver:
   void OnIMERefresh() override;

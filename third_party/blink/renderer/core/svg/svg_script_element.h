@@ -62,7 +62,6 @@ class SVGScriptElement final : public SVGElement,
   InsertionNotificationRequest InsertedInto(ContainerNode&) override;
   void DidNotifySubtreeInsertionsToDocument() override;
   void ChildrenChanged(const ChildrenChange&) override;
-  void DidMoveToNewDocument(Document& old_document) override;
 
   void SvgAttributeChanged(const SvgAttributeChangedParams&) override;
   bool IsURLAttribute(const Attribute&) const override;
@@ -80,7 +79,7 @@ class SVGScriptElement final : public SVGElement,
   String ForAttributeValue() const override { return String(); }
   String IntegrityAttributeValue() const override { return String(); }
   String ReferrerPolicyAttributeValue() const override { return String(); }
-  String ImportanceAttributeValue() const override { return String(); }
+  String FetchPriorityAttributeValue() const override { return String(); }
   String LanguageAttributeValue() const override { return String(); }
   bool NomoduleAttributeValue() const override { return false; }
   String SourceAttributeValue() const override;
@@ -88,12 +87,14 @@ class SVGScriptElement final : public SVGElement,
   String ChildTextContent() override;
   String ScriptTextInternalSlot() const override;
   bool HasSourceAttribute() const override;
+  bool HasAttributionsrcAttribute() const override { return false; }
   bool IsConnected() const override;
   bool HasChildren() const override;
   const AtomicString& GetNonceForElement() const override;
   bool ElementHasDuplicateAttributes() const override {
     return HasDuplicateAttribute();
   }
+  bool IsPotentiallyRenderBlocking() const override { return false; }
   bool AllowInlineScriptForCSP(const AtomicString& nonce,
                                const WTF::OrdinalNumber&,
                                const String& script_content) override;
@@ -105,7 +106,7 @@ class SVGScriptElement final : public SVGElement,
   Type GetScriptElementType() override;
 
   Element& CloneWithoutAttributesAndChildren(Document&) const override;
-  bool LayoutObjectIsNeeded(const ComputedStyle&) const override {
+  bool LayoutObjectIsNeeded(const DisplayStyle&) const override {
     return false;
   }
 

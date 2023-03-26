@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "base/component_export.h"
 #include "base/containers/span.h"
+#include "base/notreached.h"
 #include "ui/gfx/color_space.h"
 #include "ui/gfx/mojom/color_space.mojom-shared.h"
 
@@ -167,6 +168,8 @@ struct EnumTraits<gfx::mojom::ColorSpaceTransferID,
         return gfx::mojom::ColorSpaceTransferID::CUSTOM_HDR;
       case gfx::ColorSpace::TransferID::PIECEWISE_HDR:
         return gfx::mojom::ColorSpaceTransferID::PIECEWISE_HDR;
+      case gfx::ColorSpace::TransferID::SCRGB_LINEAR_80_NITS:
+        return gfx::mojom::ColorSpaceTransferID::SCRGB_LINEAR_80_NITS;
     }
     NOTREACHED();
     return gfx::mojom::ColorSpaceTransferID::INVALID;
@@ -249,6 +252,9 @@ struct EnumTraits<gfx::mojom::ColorSpaceTransferID,
         return true;
       case gfx::mojom::ColorSpaceTransferID::PIECEWISE_HDR:
         *out = gfx::ColorSpace::TransferID::PIECEWISE_HDR;
+        return true;
+      case gfx::mojom::ColorSpaceTransferID::SCRGB_LINEAR_80_NITS:
+        *out = gfx::ColorSpace::TransferID::SCRGB_LINEAR_80_NITS;
         return true;
     }
     NOTREACHED();

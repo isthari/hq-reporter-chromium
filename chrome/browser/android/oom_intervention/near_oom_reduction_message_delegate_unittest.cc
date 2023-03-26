@@ -1,9 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/android/oom_intervention/near_oom_reduction_message_delegate.h"
 
+#include "base/android/jni_android.h"
 #include "chrome/browser/android/android_theme_resources.h"
 #include "chrome/browser/android/resource_mapper.h"
 #include "chrome/grit/generated_resources.h"
@@ -84,9 +85,8 @@ TEST_F(NearOomReductionMessageDelegateTest, MessagePropertyValues) {
       GetMessageWrapper()->GetDescription());
   EXPECT_EQ(l10n_util::GetStringUTF16(IDS_SHOW_CONTENT),
             GetMessageWrapper()->GetPrimaryButtonText());
-  EXPECT_EQ(
-      ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_INFOBAR_MOBILE_FRIENDLY),
-      GetMessageWrapper()->GetIconResourceId());
+  EXPECT_EQ(ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_IC_MOBILE_FRIENDLY),
+            GetMessageWrapper()->GetIconResourceId());
 
   DismissMessage();
 }  // namespace oom_intervention

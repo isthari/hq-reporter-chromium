@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,14 +32,6 @@ Polymer({
       type: Boolean,
       value: false,
     },
-  },
-
-  /**
-   * On element creation, set the files-ng attribute to enable files-ng
-   * specific CSS styling.
-   */
-  created: function() {
-    this.setAttribute('files-ng', '');
   },
 
   /**

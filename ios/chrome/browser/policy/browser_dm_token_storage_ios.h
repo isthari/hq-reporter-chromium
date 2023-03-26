@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,6 +34,8 @@ class BrowserDMTokenStorageIOS : public BrowserDMTokenStorage::Delegate {
   BrowserDMTokenStorage::StoreTask SaveDMTokenTask(
       const std::string& token,
       const std::string& client_id) override;
+  BrowserDMTokenStorage::StoreTask DeleteDMTokenTask(
+      const std::string& client_id) override;
   scoped_refptr<base::TaskRunner> SaveDMTokenTaskRunner() override;
 
   scoped_refptr<base::TaskRunner> task_runner_;
@@ -41,6 +43,8 @@ class BrowserDMTokenStorageIOS : public BrowserDMTokenStorage::Delegate {
   FRIEND_TEST_ALL_PREFIXES(BrowserDMTokenStorageIOSTest, InitClientId);
   FRIEND_TEST_ALL_PREFIXES(BrowserDMTokenStorageIOSTest, InitEnrollmentToken);
   FRIEND_TEST_ALL_PREFIXES(BrowserDMTokenStorageIOSTest, StoreAndLoadDMToken);
+  FRIEND_TEST_ALL_PREFIXES(BrowserDMTokenStorageIOSTest, DeleteDMToken);
+  FRIEND_TEST_ALL_PREFIXES(BrowserDMTokenStorageIOSTest, DeleteEmptyDMToken);
   FRIEND_TEST_ALL_PREFIXES(BrowserDMTokenStorageIOSTest,
                            InitDMTokenWithoutDirectory);
 };

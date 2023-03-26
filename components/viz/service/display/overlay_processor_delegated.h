@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,7 +47,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorDelegated
   void ProcessForOverlays(
       DisplayResourceProvider* resource_provider,
       AggregatedRenderPassList* render_passes,
-      const skia::Matrix44& output_color_matrix,
+      const SkM44& output_color_matrix,
       const FilterOperationsMap& render_pass_filters,
       const FilterOperationsMap& render_pass_backdrop_filters,
       SurfaceDamageRectList surface_damage_rect_list,
@@ -76,7 +76,13 @@ class VIZ_SERVICE_EXPORT OverlayProcessorDelegated
     kCompositedNotAxisAligned = 2,
     kCompositedCheckOverlayFail = 3,
     kCompositedNotOverlay = 4,
-    kMaxValue = kCompositedNotOverlay
+    kCompositedTooManyQuads = 5,
+    kCompositedBackdropFilter = 6,
+    kCompositedCopyRequest = 7,
+    kCompositedHas3dTransform = 8,
+    kCompositedHas2dShear = 9,
+    kCompositedHas2dRotation = 10,
+    kMaxValue = kCompositedHas2dRotation
   };
 
   gfx::RectF GetPrimaryPlaneDisplayRect(
@@ -90,7 +96,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorDelegated
   // through as a const member because the underlay strategy changes the
   // |primary_plane|'s blending setting.
   bool AttemptWithStrategies(
-      const skia::Matrix44& output_color_matrix,
+      const SkM44& output_color_matrix,
       const OverlayProcessorInterface::FilterOperationsMap&
           render_pass_backdrop_filters,
       DisplayResourceProvider* resource_provider,
@@ -101,6 +107,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorDelegated
       std::vector<gfx::Rect>* content_bounds);
 
   DelegationStatus delegated_status_ = DelegationStatus::kCompositedOther;
+  bool supports_clip_rect_ = false;
 };
 }  // namespace viz
 

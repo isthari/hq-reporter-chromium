@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include "base/no_destructor.h"
 #include "base/task/current_thread.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "chromeos/components/sensors/buildflags.h"
 #if BUILDFLAG(USE_IIOSERVICE)
 #include "ash/accelerometer/accelerometer_provider_mojo.h"
@@ -126,7 +125,7 @@ void AccelerometerProviderInterface::SetECLidAngleDriverStatusForTesting(
 }
 
 AccelerometerProviderInterface::AccelerometerProviderInterface()
-    : ui_task_runner_(base::SequencedTaskRunnerHandle::Get()) {
+    : ui_task_runner_(base::SequencedTaskRunner::GetCurrentDefault()) {
   DCHECK(base::CurrentUIThread::IsSet());
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,7 @@
 // An image source which draws from a WebAppInstallInfo icons list.
 class WebAppInfoImageSource : public gfx::ImageSkiaSource {
  public:
-  WebAppInfoImageSource(int dip_size,
-                        const std::map<SquareSizePx, SkBitmap>& icons);
+  WebAppInfoImageSource(int dip_size, std::map<SquareSizePx, SkBitmap> icons);
 
   WebAppInfoImageSource(const WebAppInfoImageSource&) = delete;
   WebAppInfoImageSource& operator=(const WebAppInfoImageSource&) = delete;

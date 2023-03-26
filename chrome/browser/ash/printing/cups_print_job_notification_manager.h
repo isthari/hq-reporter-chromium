@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 
 class Profile;
 
-namespace chromeos {
+namespace ash {
 
 class CupsPrintJob;
 class CupsPrintJobNotification;
@@ -45,6 +45,10 @@ class CupsPrintJobNotificationManager : public CupsPrintJobManager::Observer {
 
   void OnPrintJobNotificationRemoved(CupsPrintJobNotification* notification);
 
+  // Return the notification for the given print job, or nullptr if not found.
+  absl::optional<CupsPrintJobNotification*> GetNotificationForTesting(
+      CupsPrintJob* job);
+
  private:
   void UpdateNotification(base::WeakPtr<CupsPrintJob> job);
 
@@ -53,6 +57,6 @@ class CupsPrintJobNotificationManager : public CupsPrintJobManager::Observer {
   Profile* profile_;
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_CUPS_PRINT_JOB_NOTIFICATION_MANAGER_H_

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "components/browsing_data/core/pref_names.h"
 #include "components/content_settings/core/browser/content_settings_registry.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
+#include "components/custom_handlers/protocol_handler.h"
 #include "components/custom_handlers/protocol_handler_registry.h"
 
 #if !BUILDFLAG(IS_ANDROID)
@@ -35,7 +36,7 @@ SiteSettingsCounter::SiteSettingsCounter(
   DCHECK(pref_service_);
 }
 
-SiteSettingsCounter::~SiteSettingsCounter() {}
+SiteSettingsCounter::~SiteSettingsCounter() = default;
 
 void SiteSettingsCounter::OnInitialized() {}
 
@@ -58,9 +59,7 @@ void SiteSettingsCounter::Count() {
           if (content_setting.source == "preference" ||
               content_setting.source == "notification_android" ||
               content_setting.source == "ephemeral") {
-            base::Time last_modified = map_->GetSettingLastModifiedDate(
-                content_setting.primary_pattern,
-                content_setting.secondary_pattern, content_type);
+            base::Time last_modified = content_setting.metadata.last_modified;
             if (last_modified >= period_start && last_modified < period_end) {
               if (content_setting.primary_pattern.GetHost().empty())
                 empty_host_pattern++;
@@ -99,7 +98,7 @@ void SiteSettingsCounter::Count() {
 
   auto handlers =
       handler_registry_->GetUserDefinedHandlers(period_start, period_end);
-  for (const ProtocolHandler& handler : handlers)
+  for (const custom_handlers::ProtocolHandler& handler : handlers)
     hosts.insert(handler.url().host());
 
   std::vector<std::string> never_prompt_sites =

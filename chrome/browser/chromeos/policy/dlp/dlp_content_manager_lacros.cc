@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@
 #include "content/public/browser/web_contents.h"
 #include "ui/aura/window.h"
 #include "ui/platform_window/platform_window.h"
-#include "ui/views/widget/desktop_aura/desktop_window_tree_host_linux.h"
 
 namespace policy {
 
@@ -67,12 +66,10 @@ crosapi::mojom::ScreenShareAreaPtr ConvertToScreenShareArea(
   }
   DCHECK_EQ(media_id.type, content::DesktopMediaID::Type::TYPE_WINDOW);
   aura::Window* window = content::DesktopMediaID::GetNativeWindowById(media_id);
-  // TODO(crbug.com/1293023): Should not normally happen when |window_id| will
-  // be correctly set.
-  if (media_id.window_id == 0 || !window) {
-    return nullptr;
+  if (window) {
+    result->window_id = lacros_window_utility::GetRootWindowUniqueId(window);
   }
-  result->window_id = lacros_window_utility::GetRootWindowUniqueId(window);
+  result->snapshot_source_id = media_id.id;
   return result;
 }
 
@@ -91,7 +88,7 @@ void DlpContentManagerLacros::CheckScreenShareRestriction(
     ProcessScreenShareRestriction(
         application_title,
         GetScreenShareConfidentialContentsInfoForWebContents(
-            media_id.web_contents_id),
+            GetWebContentsFromMediaId(media_id)),
         std::move(callback));
     return;
   }
@@ -112,41 +109,29 @@ void DlpContentManagerLacros::CheckScreenShareRestriction(
     return;
   }
 
-  crosapi::mojom::ScreenShareAreaPtr area = ConvertToScreenShareArea(media_id);
-  if (!area) {
-    LOG(WARNING) << "DLP can't identify screen shared area";
-    std::move(callback).Run(true);
-    return;
-  }
-
   lacros_service->GetRemote<crosapi::mojom::Dlp>()->CheckScreenShareRestriction(
-      std::move(area), application_title, std::move(callback));
+      ConvertToScreenShareArea(media_id), application_title,
+      std::move(callback));
 }
 
-void DlpContentManagerLacros::OnScreenCaptureStarted(
+void DlpContentManagerLacros::OnScreenShareStarted(
     const std::string& label,
-    std::vector<content::DesktopMediaID> screen_capture_ids,
+    std::vector<content::DesktopMediaID> screen_share_ids,
     const std::u16string& application_title,
     base::RepeatingClosure stop_callback,
-    content::MediaStreamUI::StateChangeCallback state_change_callback) {
-  for (const content::DesktopMediaID& media_id : screen_capture_ids) {
+    content::MediaStreamUI::StateChangeCallback state_change_callback,
+    content::MediaStreamUI::SourceCallback source_callback) {
+  for (const content::DesktopMediaID& media_id : screen_share_ids) {
     if (media_id.type == content::DesktopMediaID::Type::TYPE_WEB_CONTENTS) {
-      AddScreenShare(label, media_id, application_title, stop_callback,
-                     state_change_callback);
+      AddOrUpdateScreenShare(label, media_id, application_title, stop_callback,
+                             state_change_callback, source_callback);
     } else {
-      crosapi::mojom::ScreenShareAreaPtr area =
-          ConvertToScreenShareArea(media_id);
-      if (!area) {
-        LOG(WARNING) << "DLP can't identify screen shared area";
-        continue;
-      }
-
       chromeos::LacrosService* lacros_service = chromeos::LacrosService::Get();
       auto delegate = std::make_unique<ScreenShareStateChangeDelegate>(
           label, media_id, state_change_callback, stop_callback);
       if (lacros_service->IsAvailable<crosapi::mojom::Dlp>()) {
         lacros_service->GetRemote<crosapi::mojom::Dlp>()->OnScreenShareStarted(
-            label, std::move(area), application_title,
+            label, ConvertToScreenShareArea(media_id), application_title,
             delegate->BindDelegate());
         running_remote_screen_shares_.push_back(std::move(delegate));
       }
@@ -155,23 +140,16 @@ void DlpContentManagerLacros::OnScreenCaptureStarted(
   CheckRunningScreenShares();
 }
 
-void DlpContentManagerLacros::OnScreenCaptureStopped(
+void DlpContentManagerLacros::OnScreenShareStopped(
     const std::string& label,
     const content::DesktopMediaID& media_id) {
   if (media_id.type == content::DesktopMediaID::Type::TYPE_WEB_CONTENTS) {
     RemoveScreenShare(label, media_id);
   } else {
-    crosapi::mojom::ScreenShareAreaPtr area =
-        ConvertToScreenShareArea(media_id);
-    if (!area) {
-      LOG(WARNING) << "DLP can't identify screen shared area";
-      return;
-    }
     chromeos::LacrosService* lacros_service = chromeos::LacrosService::Get();
-
     if (lacros_service->IsAvailable<crosapi::mojom::Dlp>()) {
       lacros_service->GetRemote<crosapi::mojom::Dlp>()->OnScreenShareStopped(
-          label, std::move(area));
+          label, ConvertToScreenShareArea(media_id));
     }
     base::EraseIf(
         running_remote_screen_shares_,
@@ -181,6 +159,11 @@ void DlpContentManagerLacros::OnScreenCaptureStopped(
           return delegate->label() == label && delegate->media_id() == media_id;
         });
   }
+}
+
+void DlpContentManagerLacros::TabLocationMaybeChanged(
+    content::WebContents* web_contents) {
+  UpdateRestrictions(web_contents->GetNativeView());
 }
 
 DlpContentManagerLacros::ScreenShareStateChangeDelegate::
@@ -251,6 +234,7 @@ void DlpContentManagerLacros::OnConfidentialityChanged(
   }
   window_webcontents_[window].insert(web_contents);
   UpdateRestrictions(window);
+  CheckRunningScreenShares();
 }
 
 void DlpContentManagerLacros::OnWebContentsDestroyed(
@@ -278,7 +262,7 @@ void DlpContentManagerLacros::OnWindowDestroying(aura::Window* window) {
 void DlpContentManagerLacros::UpdateRestrictions(aura::Window* window) {
   DlpContentRestrictionSet new_restrictions;
   for (auto* web_contents : window_webcontents_[window]) {
-    if (web_contents->GetVisibility() == content::Visibility::VISIBLE) {
+    if (web_contents->GetNativeView()->IsVisible()) {
       new_restrictions.UnionWith(confidential_web_contents_[web_contents]);
     }
   }
@@ -295,10 +279,10 @@ void DlpContentManagerLacros::UpdateRestrictions(aura::Window* window) {
 
 DlpContentManager::ConfidentialContentsInfo
 DlpContentManagerLacros::GetScreenShareConfidentialContentsInfo(
-    const content::DesktopMediaID& media_id) const {
+    const content::DesktopMediaID& media_id,
+    content::WebContents* web_contents) const {
   if (media_id.type == content::DesktopMediaID::Type::TYPE_WEB_CONTENTS) {
-    return GetScreenShareConfidentialContentsInfoForWebContents(
-        media_id.web_contents_id);
+    return GetScreenShareConfidentialContentsInfoForWebContents(web_contents);
   }
   NOTREACHED();
   return ConfidentialContentsInfo();

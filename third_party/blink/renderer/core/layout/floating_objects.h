@@ -32,7 +32,6 @@
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_linked_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/linked_hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/pod_free_list_arena.h"
 #include "third_party/blink/renderer/platform/wtf/pod_interval_tree.h"
@@ -180,29 +179,24 @@ class FloatingObject : public GarbageCollected<FloatingObject> {
 #endif
 };
 
-struct FloatingObjectHashFunctions {
-  STATIC_ONLY(FloatingObjectHashFunctions);
-  static unsigned GetHash(FloatingObject* key) {
-    return DefaultHash<LayoutBox*>::Hash::GetHash(key->GetLayoutObject());
-  }
+struct FloatingObjectHashTraits : HashTraits<Member<FloatingObject>> {
   static unsigned GetHash(const Member<FloatingObject>& key) {
-    return GetHash(key.Get());
+    return WTF::GetHash(key->GetLayoutObject());
   }
   static bool Equal(const Member<FloatingObject>& a, FloatingObject* b) {
     return a->GetLayoutObject() == b->GetLayoutObject();
   }
   static bool Equal(const Member<FloatingObject>& a,
                     const Member<FloatingObject>& b) {
-    return Equal(a, b.Get());
+    return a->GetLayoutObject() == b->GetLayoutObject();
   }
 
-  static const bool safe_to_compare_to_empty_or_deleted = false;
+  static constexpr bool kSafeToCompareToEmptyOrDeleted = false;
 };
+
 struct FloatingObjectHashTranslator {
   STATIC_ONLY(FloatingObjectHashTranslator);
-  static unsigned GetHash(LayoutBox* key) {
-    return DefaultHash<LayoutBox*>::Hash::GetHash(key);
-  }
+  static unsigned GetHash(LayoutBox* key) { return WTF::GetHash(key); }
   static bool Equal(FloatingObject* a, LayoutBox* b) {
     return a->GetLayoutObject() == b;
   }
@@ -211,9 +205,7 @@ struct FloatingObjectHashTranslator {
   }
 };
 
-typedef HeapLinkedHashSet<Member<FloatingObject>,
-                          HashTraits<Member<FloatingObject>>,
-                          FloatingObjectHashFunctions>
+typedef HeapLinkedHashSet<Member<FloatingObject>, FloatingObjectHashTraits>
     FloatingObjectSet;
 typedef FloatingObjectSet::const_iterator FloatingObjectSetIterator;
 typedef WTF::PODInterval<LayoutUnit, FloatingObject*> FloatingObjectInterval;

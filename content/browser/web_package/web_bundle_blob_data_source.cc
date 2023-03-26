@@ -1,11 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/browser/web_package/web_bundle_blob_data_source.h"
 
 #include "base/bit_cast.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ref_counted.h"
 #include "base/numerics/checked_math.h"
 #include "base/numerics/safe_conversions.h"
@@ -56,8 +56,8 @@ void OnReadComplete(web_package::mojom::BundleDataSource::ReadCallback callback,
     return;
   }
   std::vector<uint8_t> vec;
-  vec.assign(bit_cast<uint8_t*>(io_buf->data()),
-             bit_cast<uint8_t*>(io_buf->data()) + bytes_read);
+  vec.assign(base::bit_cast<uint8_t*>(io_buf->data()),
+             base::bit_cast<uint8_t*>(io_buf->data()) + bytes_read);
   std::move(callback).Run(std::move(vec));
 }
 
@@ -306,6 +306,16 @@ void WebBundleBlobDataSource::BlobDataSourceCore::Read(uint64_t offset,
   WaitForBlob(base::BindOnce(
       &WebBundleBlobDataSource::BlobDataSourceCore::OnBlobReadyForRead,
       base::Unretained(this), offset, length, std::move(callback)));
+}
+
+void WebBundleBlobDataSource::BlobDataSourceCore::Length(
+    LengthCallback callback) {
+  std::move(callback).Run(-1);
+}
+
+void WebBundleBlobDataSource::BlobDataSourceCore::IsRandomAccessContext(
+    IsRandomAccessContextCallback callback) {
+  std::move(callback).Run(false);
 }
 
 void WebBundleBlobDataSource::BlobDataSourceCore::StreamingBlobDone(

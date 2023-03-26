@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright 2006-2008 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@ namespace sandbox {
 struct NtExports {
   bool                                   Initialized;
   NtAllocateVirtualMemoryFunction        AllocateVirtualMemory;
-  NtCreateDirectoryObjectFunction        CreateDirectoryObject;
   NtCreateFileFunction                   CreateFile;
   NtCreateSectionFunction                CreateSection;
   NtCloseFunction                        Close;

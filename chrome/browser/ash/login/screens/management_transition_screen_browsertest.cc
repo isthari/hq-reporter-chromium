@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,14 +18,17 @@
 #include "chrome/browser/ash/arc/session/arc_service_launcher.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/ash/arc/test/test_arc_session_manager.h"
+#include "chrome/browser/ash/login/screens/management_transition_screen.h"
+#include "chrome/browser/ash/login/test/device_state_mixin.h"
 #include "chrome/browser/ash/login/test/js_checker.h"
 #include "chrome/browser/ash/login/test/logged_in_user_mixin.h"
 #include "chrome/browser/ash/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/ash/login/ui/login_display_host.h"
+#include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/ui/webui/chromeos/login/management_transition_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
+#include "chrome/browser/ui/webui/ash/login/management_transition_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/oobe_ui.h"
 #include "chrome/test/base/mixin_based_in_process_browser_test.h"
 #include "components/policy/policy_constants.h"
 #include "components/prefs/pref_service.h"
@@ -66,6 +69,11 @@ class ManagementTransitionScreenTest
   ManagementTransitionScreenTest() {
     feature_list_.InitAndEnableFeature(
         arc::kEnableUnmanagedToManagedTransitionFeature);
+  }
+
+  ManagementTransitionScreen* GetScreen() {
+    return WizardController::default_controller()
+        ->GetScreen<ManagementTransitionScreen>();
   }
 
   ~ManagementTransitionScreenTest() override = default;
@@ -130,6 +138,9 @@ class ManagementTransitionScreenTest
   LoggedInUserMixin& logged_in_user_mixin() { return logged_in_user_mixin_; }
 
  private:
+  DeviceStateMixin device_state_{
+      &mixin_host_,
+      DeviceStateMixin::State::OOBE_COMPLETED_PERMANENTLY_UNOWNED};
   LoggedInUserMixin logged_in_user_mixin_{&mixin_host_,
                                           GetTargetUserType(),
                                           embedded_test_server(),
@@ -185,11 +196,7 @@ IN_PROC_BROWSER_TEST_P(ManagementTransitionScreenTest,
   EXPECT_FALSE(LoginScreenTestApi::IsGuestButtonShown());
   EXPECT_FALSE(LoginScreenTestApi::IsAddUserButtonShown());
 
-  base::OneShotTimer* timer =
-      LoginDisplayHost::default_host()
-          ->GetOobeUI()
-          ->GetHandler<ManagementTransitionScreenHandler>()
-          ->GetTimerForTesting();
+  base::OneShotTimer* timer = GetScreen()->GetTimerForTesting();
   ASSERT_TRUE(timer->IsRunning());
   timer->FireNow();
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/weak_ptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "components/translate/content/common/translate.mojom.h"
 #include "components/translate/core/common/translate_errors.h"
@@ -50,6 +51,11 @@ class TranslateAgent : public content::RenderFrameObserver,
   // the specified URL. If there is anything that can or should be done before
   // this URL loads, this is the time to prepare for it.
   void PrepareForUrl(const GURL& url);
+
+  // Under kRetryLanguageDetection, this is true if a previous call to
+  // PageCaptured has been made with captured page content and language
+  // detection was run.
+  bool WasPageContentCapturedForUrl() { return page_contents_length_; }
 
   // mojom::TranslateAgent implementation.
   void GetWebLanguageDetectionDetails(
@@ -155,7 +161,7 @@ class TranslateAgent : public content::RenderFrameObserver,
 
   // Sends a message to the browser to notify it that the translation failed
   // with |error|.
-  void NotifyBrowserTranslationFailed(TranslateErrors::Type error);
+  void NotifyBrowserTranslationFailed(TranslateErrors error);
 
   // Convenience method to access the main frame.  Can return nullptr, typically
   // if the page is being closed.

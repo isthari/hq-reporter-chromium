@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,13 +16,14 @@ import android.os.IBinder;
 
 import androidx.core.app.NotificationCompat;
 
-import org.chromium.base.Function;
 import org.chromium.base.Log;
 import org.chromium.chromecast.base.Controller;
 import org.chromium.chromecast.base.Observable;
 import org.chromium.chromecast.base.Observers;
 import org.chromium.content.browser.MediaSessionImpl;
 import org.chromium.content_public.browser.WebContents;
+
+import java.util.function.Function;
 
 /**
  * Service for "displaying" a WebContents in CastShell.

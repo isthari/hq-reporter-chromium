@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,13 @@ import android.view.LayoutInflater;
 import android.view.View;
 
 import androidx.annotation.IntDef;
+import androidx.annotation.Nullable;
 
 import org.chromium.base.Callback;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.feed.FeedServiceBridge;
 import org.chromium.chrome.browser.feed.R;
+import org.chromium.chrome.browser.feed.StreamKind;
 import org.chromium.chrome.browser.feed.v2.FeedUserActionType;
 import org.chromium.chrome.browser.feed.webfeed.WebFeedSnackbarController.FeedLauncher;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
@@ -59,14 +61,46 @@ class WebFeedDialogCoordinator {
      *
      * @param context The {@link Context}.
      * @param feedLauncher {@link FeedLauncher} for launching the NTP.
-     * @param title The title of the site that was just followed.
+     * @param title The title of the Web Feed that was just followed.
      * @param isActive Whether the followed site is active (has content available).
      */
     void initialize(Context context, FeedLauncher feedLauncher, String title, boolean isActive) {
+        Runnable positiveAction = () -> {
+            FeedServiceBridge.reportOtherUserAction(StreamKind.UNKNOWN,
+                    FeedUserActionType.TAPPED_GO_TO_FEED_POST_FOLLOW_ACTIVE_HELP);
+            feedLauncher.openFollowingFeed();
+        };
+        initializeInternal(context, positiveAction,
+                R.string.web_feed_post_follow_dialog_go_to_following, title, isActive,
+                /*hasCloseAction=*/true);
+    }
+
+    /**
+     * Initializes the {@link WebFeedDialogCoordinator}.
+     *
+     * @param context The {@link Context}.
+     * @param activeAction {@link Runnable} to execute for the primary when-active action.
+     * @param title The title of the Web Feed that was just followed.
+     * @param isActive Whether the followed site is active (has content available).
+     */
+    void initializeForInFollowingFollow(
+            Context context, @Nullable Runnable activeAction, String title, boolean isActive) {
+        Runnable positiveAction = () -> {
+            FeedServiceBridge.reportOtherUserAction(StreamKind.UNKNOWN,
+                    FeedUserActionType.TAPPED_GOT_IT_FEED_POST_FOLLOW_ACTIVE_HELP);
+            if (activeAction != null) activeAction.run();
+        };
+        initializeInternal(context, positiveAction, R.string.web_feed_post_follow_dialog_got_it,
+                title, isActive, /*hasCloseAction=*/false);
+    }
+
+    private void initializeInternal(Context context, Runnable positiveAction,
+            int positiveActionLabelId, String title, boolean isActive, boolean hasCloseAction) {
         mContext = context;
         View webFeedDialogView =
                 LayoutInflater.from(context).inflate(R.layout.web_feed_dialog, null);
-        WebFeedDialogContents dialogContents = buildDialogContents(feedLauncher, isActive, title);
+        WebFeedDialogContents dialogContents = buildDialogContents(
+                positiveAction, positiveActionLabelId, title, isActive, hasCloseAction);
         PropertyModel model = buildModel(dialogContents);
         mMediator.initialize(webFeedDialogView, dialogContents);
         PropertyModelChangeProcessor.create(
@@ -77,8 +111,8 @@ class WebFeedDialogCoordinator {
         mMediator.showDialog();
     }
 
-    private WebFeedDialogContents buildDialogContents(
-            FeedLauncher feedLauncher, boolean isActive, String title) {
+    private WebFeedDialogContents buildDialogContents(Runnable positiveAction,
+            int positiveActionLabelId, String title, boolean isActive, boolean hasCloseAction) {
         RecordHistogram.recordEnumeratedHistogram(
                 "ContentSuggestions.Feed.WebFeed.PostFollowDialog.Show",
                 isActive ? WebFeedPostFollowDialogPresentation.AVAILABLE
@@ -92,16 +126,14 @@ class WebFeedDialogCoordinator {
         if (isActive) {
             description = mContext.getString(
                     R.string.web_feed_post_follow_dialog_stories_ready_description, title);
-            primaryButtonText =
-                    mContext.getString(R.string.web_feed_post_follow_dialog_open_a_new_tab);
-            secondaryButtonText = mContext.getString(R.string.close);
+            primaryButtonText = mContext.getString(positiveActionLabelId);
+            secondaryButtonText = hasCloseAction ? mContext.getString(R.string.close) : null;
             buttonClickCallback = dismissalCause -> {
                 if (dismissalCause.equals(DialogDismissalCause.POSITIVE_BUTTON_CLICKED)) {
-                    FeedServiceBridge.reportOtherUserAction(
-                            FeedUserActionType.TAPPED_GO_TO_FEED_POST_FOLLOW_ACTIVE_HELP);
-                    feedLauncher.openFollowingFeed();
+                    positiveAction.run();
                 } else {
-                    FeedServiceBridge.reportOtherUserAction(
+                    assert hasCloseAction : "Secondary close action must be enabled";
+                    FeedServiceBridge.reportOtherUserAction(StreamKind.UNKNOWN,
                             FeedUserActionType.TAPPED_DISMISS_POST_FOLLOW_ACTIVE_HELP);
                 }
             };

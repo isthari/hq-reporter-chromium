@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/guid.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -66,7 +66,10 @@ void EventAckData::IncrementInflightEvent(
   bool start_ok = true;
 
   content::ServiceWorkerExternalRequestResult result =
-      context->StartingExternalRequest(version_id, request_uuid);
+      context->StartingExternalRequest(
+          version_id,
+          content::ServiceWorkerExternalRequestTimeoutType::kDefault,
+          request_uuid);
   if (result != content::ServiceWorkerExternalRequestResult::kOk) {
     LOG(ERROR) << "StartExternalRequest failed: " << static_cast<int>(result);
     start_ok = false;

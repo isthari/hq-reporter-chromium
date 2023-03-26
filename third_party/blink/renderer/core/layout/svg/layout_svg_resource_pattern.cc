@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2006 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) Research In Motion Limited 2010. All rights reserved.
- * Copyright 2014 The Chromium Authors. All rights reserved.
+ * Copyright 2014 The Chromium Authors
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -170,7 +170,7 @@ std::unique_ptr<PatternData> LayoutSVGResourcePattern::BuildPatternData(
 
   // Compute pattern space transformation.
   pattern_data->transform.Translate(tile_bounds.x(), tile_bounds.y());
-  pattern_data->transform.PreMultiply(attributes.PatternTransform());
+  pattern_data->transform.PostConcat(attributes.PatternTransform());
 
   return pattern_data;
 }
@@ -201,7 +201,7 @@ bool LayoutSVGResourcePattern::ApplyShader(
   return true;
 }
 
-sk_sp<PaintRecord> LayoutSVGResourcePattern::AsPaintRecord(
+PaintRecord LayoutSVGResourcePattern::AsPaintRecord(
     const gfx::SizeF& size,
     const AffineTransform& tile_transform) const {
   NOT_DESTROYED();
@@ -214,8 +214,7 @@ sk_sp<PaintRecord> LayoutSVGResourcePattern::AsPaintRecord(
 
   gfx::RectF bounds(size);
   PaintRecorder paint_recorder;
-  cc::PaintCanvas* canvas =
-      paint_recorder.beginRecording(gfx::RectFToSkRect(bounds));
+  cc::PaintCanvas* canvas = paint_recorder.beginRecording();
 
   auto* pattern_content_element = Attributes().PatternContentElement();
   DCHECK(pattern_content_element);
@@ -238,7 +237,7 @@ sk_sp<PaintRecord> LayoutSVGResourcePattern::AsPaintRecord(
        child = child->NextSibling())
     SVGObjectPainter(*child).PaintResourceSubtree(builder->Context());
   canvas->save();
-  canvas->concat(AffineTransformToSkMatrix(tile_transform));
+  canvas->concat(AffineTransformToSkM44(tile_transform));
   builder->EndRecording(*canvas);
   canvas->restore();
   return paint_recorder.finishRecordingAsPicture();

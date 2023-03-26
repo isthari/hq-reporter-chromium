@@ -1,17 +1,15 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.android_webview.test;
 
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -416,7 +414,6 @@ public class AwTestContainerView extends FrameLayout {
     }
 
     @Override
-    @TargetApi(Build.VERSION_CODES.N)
     public boolean onDragEvent(DragEvent event) {
         return mAwContents.onDragEvent(event);
     }

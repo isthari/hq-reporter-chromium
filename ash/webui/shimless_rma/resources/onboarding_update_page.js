@@ -1,25 +1,28 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/icons.m.js';
+import 'chrome://resources/cr_elements/icons.html.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
 import 'chrome://resources/polymer/v3_0/paper-spinner/paper-spinner-lite.js';
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
 import './shimless_rma_shared_css.js';
 import './base_page.js';
 import './icons.js';
 
-import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/js/i18n_behavior.m.js';
+import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/ash/common/i18n_behavior.js';
+import {loadTimeData} from 'chrome://resources/ash/common/load_time_data.m.js';
+import {assert} from 'chrome://resources/ash/common/assert.js';
 import {html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {getShimlessRmaService} from './mojo_interface_provider.js';
-import {HardwareVerificationStatusObserverInterface, HardwareVerificationStatusObserverReceiver, OsUpdateObserverInterface, OsUpdateObserverReceiver, OsUpdateOperation, ShimlessRmaServiceInterface, StateResult} from './shimless_rma_types.js';
+import {HardwareVerificationStatusObserverInterface, HardwareVerificationStatusObserverReceiver, OsUpdateObserverInterface, OsUpdateObserverReceiver, OsUpdateOperation, ShimlessRmaServiceInterface, StateResult, UpdateErrorCode} from './shimless_rma_types.js';
+import {disableAllButtons, enableAllButtons, enableNextButton, focusPageTitle} from './shimless_rma_util.js';
 
 /**
  * @fileoverview
- * 'onboarding-update-page' is the page that checks to see if the version is up
- * to date before starting the rma process.
+ * 'onboarding-update-page' is the page shown when there is an Chrome OS update
+ * available on the device for the user to install before the RMA process.
  */
 
 const operationNameKeys = {
@@ -33,7 +36,7 @@ const operationNameKeys = {
   [OsUpdateOperation.kReportingErrorEvent]: 'onboardingUpdateError',
   [OsUpdateOperation.kAttemptingRollback]: 'onboardingUpdateRollback',
   [OsUpdateOperation.kDisabled]: 'onboardingUpdateDisabled',
-  [OsUpdateOperation.kNeedPermissionToUpdate]: 'onboardingUpdatePermission'
+  [OsUpdateOperation.kNeedPermissionToUpdate]: 'onboardingUpdatePermission',
 };
 
 /**
@@ -69,48 +72,18 @@ export class OnboardingUpdatePageElement extends
         value: '',
       },
 
-      updateVersionText_: {
+      /** @protected */
+      updateVersionButtonLabel_: {
         type: String,
         value: '',
-      },
-
-      /** @protected */
-      updateNoticeMessage_: {
-        type: String,
-        computed: 'computeUpdateNoticeMessage_(updateAvailable_)',
-      },
-
-      /** @protected */
-      updateProgressMessage_: {
-        type: String,
-        value: '',
-      },
-
-      /**
-       * TODO(joonbug): populate this and make private.
-       */
-      networkAvailable: {
-        type: Boolean,
-        value: true,
       },
 
       /** @protected */
       updateInProgress_: {
         type: Boolean,
         value: false,
-        observer: 'onUpdateInProgressChange_',
-      },
-
-      /** @protected */
-      updateAvailable_: {
-        type: Boolean,
-        value: false,
-      },
-
-      /** @protected */
-      updateVersion_: {
-        type: String,
-        value: '',
+        observer:
+            OnboardingUpdatePageElement.prototype.onUpdateInProgressChange_,
       },
 
       /** @protected */
@@ -128,11 +101,22 @@ export class OnboardingUpdatePageElement extends
         type: String,
         value: '',
       },
+
+
+      /** @protected */
+      osUpdateEncounteredError_: {
+        type: Boolean,
+        value: false,
+      },
     };
   }
 
   constructor() {
     super();
+    if (!loadTimeData.getBoolean('osUpdateEnabled')) {
+      return;
+    }
+
     /** @private {ShimlessRmaServiceInterface} */
     this.shimlessRmaService_ = getShimlessRmaService();
     /** @protected {string} */
@@ -164,68 +148,78 @@ export class OnboardingUpdatePageElement extends
   /** @override */
   ready() {
     super.ready();
+    if (!loadTimeData.getBoolean('osUpdateEnabled')) {
+      return;
+    }
     this.getCurrentVersionText_();
-    this.checkForUdpates_();
-    this.dispatchEvent(new CustomEvent(
-        'disable-next-button',
-        {bubbles: true, composed: true, detail: false},
-        ));
+    this.getUpdateVersionNumber_();
+    enableNextButton(this);
+
+    focusPageTitle(this);
   }
 
   /**
    * @private
    */
   getCurrentVersionText_() {
+    if (!loadTimeData.getBoolean('osUpdateEnabled')) {
+      return;
+    }
     this.shimlessRmaService_.getCurrentOsVersion().then((res) => {
-      this.currentVersion_ = res.version;
+      if (res.version != null) {
+        this.currentVersion_ = res.version;
+      } else {
+        this.currentVersion_ = '0.0.0.0';
+      }
       this.currentVersionText_ =
-          this.i18n('currentVersionText', this.currentVersion_);
+          this.i18n('currentVersionOutOfDateText', this.currentVersion_);
     });
   }
 
   /** @private */
-  checkForUdpates_() {
+  getUpdateVersionNumber_() {
+    if (!loadTimeData.getBoolean('osUpdateEnabled')) {
+      return;
+    }
     this.shimlessRmaService_.checkForOsUpdates().then((res) => {
-      if (res && res.updateAvailable) {
-        this.updateVersion_ = res.version;
-        this.updateVersionText_ =
-            this.i18n('updateVersionRestartLabel', this.updateVersion_);
-        this.updateAvailable_ = true;
-      }
-
-      this.currentVersionText_ = this.i18n(
-          this.updateAvailable_ ? 'currentVersionOutOfDateText' :
-                                  'currentVersionUpToDateText',
-          this.currentVersion_);
-      this.setNextButtonLabel_();
+      assert(res.updateAvailable);
+      this.updateVersionButtonLabel_ =
+          this.i18n('updateVersionRestartLabel', res.version);
     });
   }
 
-  /** @protected */
-  onUpdateButtonClicked_() {
+  /** @private */
+  updateOs_() {
     this.updateInProgress_ = true;
     this.shimlessRmaService_.updateOs().then((res) => {
       if (!res.updateStarted) {
-        this.updateProgressMessage_ = this.i18n('osUpdateFailedToStartText');
         this.updateInProgress_ = false;
       }
     });
   }
 
-  /**
-   * @protected
-   * @return {string}
-   */
-  getUpdateNoticeIcon_() {
-    return this.updateAvailable_ ? 'shimless-icon:info' : 'shimless-icon:check';
+  /** @protected */
+  onUpdateButtonClicked_() {
+    if (!loadTimeData.getBoolean('osUpdateEnabled')) {
+      return;
+    }
+
+    this.updateOs_();
   }
 
   /** @protected */
-  updateCheckButtonHidden_() {
-    return !this.networkAvailable || this.updateAvailable_;
+  onRetryUpdateButtonClicked_() {
+    if (!loadTimeData.getBoolean('osUpdateEnabled')) {
+      return;
+    }
+
+    assert(this.osUpdateEncounteredError_);
+    this.osUpdateEncounteredError_ = false;
+
+    this.updateOs_();
   }
 
-  /** @return {!Promise<StateResult>} */
+  /** @return {!Promise<{stateResult: !StateResult}>} */
   onNextButtonClick() {
     return this.shimlessRmaService_.updateOsSkipped();
   }
@@ -234,21 +228,27 @@ export class OnboardingUpdatePageElement extends
    * Implements OsUpdateObserver.onOsUpdateProgressUpdated()
    * @param {!OsUpdateOperation} operation
    * @param {number} progress
+   * @param {UpdateErrorCode} error
    */
-  onOsUpdateProgressUpdated(operation, progress) {
+  onOsUpdateProgressUpdated(operation, progress, error) {
+    if (!loadTimeData.getBoolean('osUpdateEnabled')) {
+      return;
+    }
     // Ignore progress when not updating, it is just the update available check.
     if (!this.updateInProgress_) {
       return;
     }
+
     if (operation === OsUpdateOperation.kIdle ||
         operation === OsUpdateOperation.kReportingErrorEvent ||
         operation === OsUpdateOperation.kNeedPermissionToUpdate ||
         operation === OsUpdateOperation.kDisabled) {
       this.updateInProgress_ = false;
+
+      if (error !== UpdateErrorCode.kSuccess) {
+        this.osUpdateEncounteredError_ = true;
+      }
     }
-    this.updateProgressMessage_ = this.i18n(
-        'onboardingUpdateProgress', this.i18n(operationNameKeys[operation]),
-        Math.round(progress * 100));
   }
 
   /**
@@ -258,6 +258,9 @@ export class OnboardingUpdatePageElement extends
    * @param {string} errorMessage
    */
   onHardwareVerificationResult(isCompliant, errorMessage) {
+    if (!loadTimeData.getBoolean('osUpdateEnabled')) {
+      return;
+    }
     this.isCompliant_ = isCompliant;
 
     if (!this.isCompliant_) {
@@ -266,29 +269,11 @@ export class OnboardingUpdatePageElement extends
     }
   }
 
-  /** @protected */
-  setNextButtonLabel_() {
-    this.dispatchEvent(new CustomEvent(
-        'set-next-button-label',
-        {
-          bubbles: true,
-          composed: true,
-          detail: this.updateAvailable_ ? 'skipButtonLabel' : 'nextButtonLabel'
-        },
-        ));
-  }
-
-  /** @protected */
-  computeUpdateNoticeMessage_() {
-    // |updateAvailable_| is not expected to be false in this state but if there
-    // was ever an update that did not require a reboot this would be reached.
-    return this.updateAvailable_ ?
-        this.i18n('osUpdateOutOfDateDescriptionText') :
-        '';
-  }
-
   /** @private */
   setVerificationFailedMessage_() {
+    if (!loadTimeData.getBoolean('osUpdateEnabled')) {
+      return;
+    }
     this.verificationFailedMessage_ = this.i18nAdvanced(
         'osUpdateUnqualifiedComponentsTopText', {attrs: ['id']});
 
@@ -306,16 +291,30 @@ export class OnboardingUpdatePageElement extends
 
   /** @private */
   closeDialog_() {
+    if (!loadTimeData.getBoolean('osUpdateEnabled')) {
+      return;
+    }
     this.shadowRoot.querySelector('#unqualifiedComponentsDialog').close();
   }
 
   /** @private */
   onUpdateInProgressChange_() {
-    const shouldDisableAllButtons = this.updateInProgress_;
-    this.dispatchEvent(new CustomEvent(
-        'disable-all-buttons',
-        {bubbles: true, composed: true, detail: shouldDisableAllButtons},
-        ));
+    if (!loadTimeData.getBoolean('osUpdateEnabled')) {
+      return;
+    }
+    if (this.updateInProgress_) {
+      disableAllButtons(this, /*showBusyStateOverlay=*/ false);
+    } else {
+      enableAllButtons(this);
+    }
+  }
+
+  /**
+   * @return {boolean}
+   * @protected
+   */
+  shouldShowUpdateInstructions_() {
+    return !this.updateInProgress_ && !this.osUpdateEncounteredError_;
   }
 }
 

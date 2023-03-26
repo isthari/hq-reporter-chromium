@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/base_jni_headers/JavaExceptionReporter_jni.h"
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/debug/dump_without_crashing.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/lazy_instance.h"
 
 using base::android::JavaParamRef;
@@ -26,7 +26,8 @@ void (*g_java_exception_callback)(const char*);
 using JavaExceptionFilter =
     base::RepeatingCallback<bool(const JavaRef<jthrowable>&)>;
 
-LazyInstance<JavaExceptionFilter>::Leaky g_java_exception_filter;
+LazyInstance<JavaExceptionFilter>::Leaky g_java_exception_filter =
+    LAZY_INSTANCE_INITIALIZER;
 
 }  // namespace
 

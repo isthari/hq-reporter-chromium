@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2013 The Chromium Authors. All rights reserved.
+# Copyright 2013 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -44,6 +44,8 @@ from mojom.generate import template_expander
 from mojom.generate.generator import AddComputedData
 from mojom.parse.parser import Parse
 # pylint: enable=wrong-import-position
+
+# pylint: disable=useless-object-inheritance
 
 
 _BUILTIN_GENERATORS = {

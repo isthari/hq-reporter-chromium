@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,7 +31,7 @@ struct SolidColorQuadParms {
 };
 
 struct SurfaceQuadParams {
-  SkColor default_background_color = SK_ColorWHITE;
+  SkColor4f default_background_color = SkColors::kWhite;
   bool stretch_content_to_fill_bounds = false;
   bool is_reflection = false;
   bool allow_merge = true;
@@ -46,7 +46,7 @@ struct RenderPassQuadParams {
 struct TextureQuadParams {
   bool needs_blending = false;
   bool premultiplied_alpha = false;
-  SkColor background_color = SK_ColorGREEN;
+  SkColor4f background_color = SkColors::kGreen;
   float vertex_opacity[4] = {1.0f, 1.0f, 1.0f, 1.0f};
   bool flipped = false;
   bool nearest_neighbor = false;
@@ -100,12 +100,15 @@ class RenderPassBuilder {
   // important attributes are stored in an optional struct parameter. The
   // optional params struct is POD so that designated initializers can be used
   // to construct a new object with specified parameters overridden.
+  RenderPassBuilder& AddSharedElementQuad(
+      const gfx::Rect& rect,
+      const ViewTransitionElementResourceId& id);
   RenderPassBuilder& AddSolidColorQuad(const gfx::Rect& rect,
-                                       SkColor color,
+                                       SkColor4f color,
                                        SolidColorQuadParms params = {});
   RenderPassBuilder& AddSolidColorQuad(const gfx::Rect& rect,
                                        const gfx::Rect& visible_rect,
-                                       SkColor color,
+                                       SkColor4f color,
                                        SolidColorQuadParms params = {});
 
   RenderPassBuilder& AddSurfaceQuad(const gfx::Rect& rect,
@@ -149,6 +152,10 @@ class RenderPassBuilder {
 
   // Sets SharedQuadState::clip_rect for the last quad.
   RenderPassBuilder& SetQuadClipRect(absl::optional<gfx::Rect> clip_rect);
+
+  // Sets the damage_rect for the last quad. This is only valid to call if the
+  // last quad has a `damage_rect` member.
+  RenderPassBuilder& SetQuadDamageRect(const gfx::Rect& damage_rect);
 
   // Sets SharedQuadState::blend_mode for the last quad.
   RenderPassBuilder& SetBlendMode(SkBlendMode blend_mode);

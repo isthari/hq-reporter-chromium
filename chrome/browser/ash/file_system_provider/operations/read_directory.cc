@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -51,11 +51,11 @@ bool ConvertRequestValueToEntryList(std::unique_ptr<RequestValue> value,
 }  // namespace
 
 ReadDirectory::ReadDirectory(
-    extensions::EventRouter* event_router,
+    RequestDispatcher* dispatcher,
     const ProvidedFileSystemInfo& file_system_info,
     const base::FilePath& directory_path,
     storage::AsyncFileUtil::ReadDirectoryCallback callback)
-    : Operation(event_router, file_system_info),
+    : Operation(dispatcher, file_system_info),
       directory_path_(directory_path),
       callback_(std::move(callback)) {}
 

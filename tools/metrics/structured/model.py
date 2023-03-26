@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
-
 """Model of a structured metrics description xml file.
 
 This marshals an XML string into a Model, and validates that the XML is
@@ -13,6 +12,15 @@ formatted version XML.
 import xml.etree.ElementTree as ET
 import textwrap as tw
 import model_util as util
+
+# Default key rotation period if not explicitly specified in the XML.
+DEFAULT_KEY_ROTATION_PERIOD = 90
+
+# Project name for event sequencing.
+#
+# This project name should be consistent with the name in structured.xml as well
+# as the server.
+EVENT_SEQUENCE_PROJECT_NAME = 'CrOSEvents'
 
 
 def wrap(text, indent):
@@ -72,9 +80,10 @@ class Model:
 
   OWNER_REGEX = r'^.+@(chromium\.org|google\.com)$'
   NAME_REGEX = r'^[A-Za-z0-9_.]+$'
-  TYPE_REGEX = r'^(hmac-string|raw-string|int)$'
+  TYPE_REGEX = r'^(hmac-string|raw-string|int|double)$'
   ID_REGEX = r'^(none|per-project|uma)$'
   SCOPE_REGEX = r'^(profile|device)$'
+  KEY_REGEX = r'^[0-9]+$'
 
   def __init__(self, xml_string):
     elem = ET.fromstring(xml_string)
@@ -106,6 +115,7 @@ class Project:
       <owner>owner@chromium.org</owner>
       <id>none</id>
       <scope>project</scope>
+      <key-rotation>60</key-rotation>
       <summary> My project. </summary>
 
       <event name="MyEvent">
@@ -130,6 +140,15 @@ class Project:
     self.summary = util.get_text_child(elem, 'summary')
     self.owners = util.get_text_children(elem, 'owner', Model.OWNER_REGEX)
 
+    self.key_rotation_period = DEFAULT_KEY_ROTATION_PERIOD
+    self.is_event_sequence_project = self.name == EVENT_SEQUENCE_PROJECT_NAME
+
+    # Check if key-rotation is specified. If so, then change the
+    # key_rotation_period.
+    if elem.find('key-rotation') is not None:
+      self.key_rotation_period = util.get_text_child(elem, 'key-rotation',
+                                                     Model.KEY_REGEX)
+
     self.events = [
         Event(e, self) for e in util.get_compound_children(elem, 'event')
     ]
@@ -145,6 +164,7 @@ class Project:
                {owners}
                  <id>{id}</id>
                  <scope>{scope}</scope>
+                 <key-rotation>{key_rotation}</key-rotation>
                  <summary>
                {summary}
                  </summary>
@@ -156,6 +176,7 @@ class Project:
                          id=self.id,
                          scope=self.scope,
                          summary=summary,
+                         key_rotation=self.key_rotation_period,
                          events=events)
 
 
@@ -176,13 +197,21 @@ class Event:
 
   def __init__(self, elem, project):
     util.check_attributes(elem, {'name'})
-    util.check_children(elem, {'summary', 'metric'})
+
+    if project.is_event_sequence_project:
+      expected_children = {'summary'}
+    else:
+      expected_children = {'summary', 'metric'}
+
+    util.check_children(elem, expected_children)
+
     util.check_child_names_unique(elem, 'metric')
 
     self.name = util.get_attr(elem, 'name', Model.NAME_REGEX)
     self.summary = util.get_text_child(elem, 'summary')
     self.metrics = [
-        Metric(m, project) for m in util.get_compound_children(elem, 'metric')
+        Metric(m, project) for m in util.get_compound_children(
+            elem, 'metric', project.is_event_sequence_project)
     ]
 
   def __repr__(self):
@@ -221,7 +250,7 @@ class Metric:
 
     if self.type == 'raw-string' and project.id != 'none':
       util.error(
-          elem, "raw-string metrics must be in a project with id type "
+          elem, 'raw-string metrics must be in a project with id type '
           "'none', but {} has id type '{}'".format(project.name, project.id))
 
   def __repr__(self):

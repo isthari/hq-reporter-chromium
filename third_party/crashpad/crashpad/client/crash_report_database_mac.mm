@@ -1,4 +1,4 @@
-// Copyright 2015 The Crashpad Authors. All rights reserved.
+// Copyright 2015 The Crashpad Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,9 +14,9 @@
 
 #include "client/crash_report_database.h"
 
+#import <Foundation/Foundation.h>
 #include <errno.h>
 #include <fcntl.h>
-#import <Foundation/Foundation.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <sys/stat.h>
@@ -25,9 +25,11 @@
 #include <unistd.h>
 #include <uuid/uuid.h>
 
+#include <array>
+#include <iterator>
+#include <mutex>
 #include <tuple>
 
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/mac/scoped_nsautorelease_pool.h"
 #include "base/posix/eintr_wrapper.h"
@@ -43,6 +45,10 @@
 #include "util/misc/initialization_state_dcheck.h"
 #include "util/misc/metrics.h"
 
+#if BUILDFLAG(IS_IOS)
+#include "util/ios/scoped_background_task.h"
+#endif  // BUILDFLAG(IS_IOS)
+
 namespace crashpad {
 
 namespace {
@@ -53,7 +59,7 @@ constexpr char kCompletedDirectory[] = "completed";
 
 constexpr char kSettings[] = "settings.dat";
 
-constexpr const char* kReportDirectories[] = {
+constexpr std::array<const char*, 3> kReportDirectories = {
     kWriteDirectory,
     kUploadPendingDirectory,
     kCompletedDirectory,
@@ -65,6 +71,9 @@ constexpr char kXattrUUID[] = "uuid";
 constexpr char kXattrCollectorID[] = "id";
 constexpr char kXattrCreationTime[] = "creation_time";
 constexpr char kXattrIsUploaded[] = "uploaded";
+#if BUILDFLAG(IS_IOS)
+constexpr char kXattrUploadStartTime[] = "upload_start_time";
+#endif
 constexpr char kXattrLastUploadTime[] = "last_upload_time";
 constexpr char kXattrUploadAttemptCount[] = "upload_count";
 constexpr char kXattrIsUploadExplicitlyRequested[] =
@@ -179,9 +188,15 @@ class CrashReportDatabaseMac : public CrashReportDatabase {
   //! \brief A private extension of the Report class that maintains bookkeeping
   //!    information of the database.
   struct UploadReportMac : public UploadReport {
+#if BUILDFLAG(IS_IOS)
+    //! \brief Obtain a background task assertion while a flock is in use.
+    //!     Ensure this is defined first so it is destroyed last.
+    internal::ScopedBackgroundTask ios_background_task{"UploadReportMac"};
+#else
     //! \brief Stores the flock of the file for the duration of
     //!     GetReportForUploading() and RecordUploadAttempt().
     base::ScopedFD lock_fd;
+#endif  // BUILDFLAG(IS_IOS)
   };
 
   //! \brief Locates a crash report in the database by UUID.
@@ -252,20 +267,27 @@ class CrashReportDatabaseMac : public CrashReportDatabase {
   // Cleans any attachments that have no associated report in any state.
   void CleanOrphanedAttachments();
 
+  Settings& SettingsInternal() {
+    std::call_once(settings_init_, [this]() {
+      settings_.Initialize(base_dir_.Append(kSettings));
+    });
+    return settings_;
+  }
+
   base::FilePath base_dir_;
   Settings settings_;
+  std::once_flag settings_init_;
   bool xattr_new_names_;
   InitializationStateDcheck initialized_;
 };
-
 
 CrashReportDatabaseMac::CrashReportDatabaseMac(const base::FilePath& path)
     : CrashReportDatabase(),
       base_dir_(path),
       settings_(),
+      settings_init_(),
       xattr_new_names_(false),
-      initialized_() {
-}
+      initialized_() {}
 
 CrashReportDatabaseMac::~CrashReportDatabaseMac() {}
 
@@ -282,17 +304,14 @@ bool CrashReportDatabaseMac::Initialize(bool may_create) {
   }
 
   // Create the three processing directories for the database.
-  for (size_t i = 0; i < base::size(kReportDirectories); ++i) {
-    if (!CreateOrEnsureDirectoryExists(base_dir_.Append(kReportDirectories[i])))
+  for (const auto& dir : kReportDirectories) {
+    if (!CreateOrEnsureDirectoryExists(base_dir_.Append(dir)))
       return false;
   }
 
   if (!CreateOrEnsureDirectoryExists(AttachmentsRootPath())) {
     return false;
   }
-
-  if (!settings_.Initialize(base_dir_.Append(kSettings)))
-    return false;
 
   // Do an xattr operation as the last step, to ensure the filesystem has
   // support for them. This xattr also serves as a marker for whether the
@@ -324,7 +343,7 @@ base::FilePath CrashReportDatabaseMac::DatabasePath() {
 
 Settings* CrashReportDatabaseMac::GetSettings() {
   INITIALIZATION_STATE_DCHECK_VALID(initialized_);
-  return &settings_;
+  return &SettingsInternal();
 }
 
 CrashReportDatabase::OperationStatus
@@ -459,12 +478,50 @@ CrashReportDatabaseMac::GetReportForUploading(
   if (!ReadReportMetadataLocked(upload_report->file_path, upload_report.get()))
     return kDatabaseError;
 
+#if BUILDFLAG(IS_IOS)
+  time_t upload_start_time = 0;
+  if (ReadXattrTimeT(upload_report->file_path,
+                     XattrName(kXattrUploadStartTime),
+                     &upload_start_time) == XattrStatus::kOtherError) {
+    return kDatabaseError;
+  }
+
+  time_t now = time(nullptr);
+  if (upload_start_time) {
+    // If we were able to ObtainReportLock but kXattrUploadStartTime is set,
+    // either another client is uploading this report or a client was terminated
+    // during an upload. CrashReportUploadThread sets the timeout to 20 seconds
+    // for iOS. If kXattrUploadStartTime is less than  5 minutes ago, consider
+    // the report locked and return kBusyError. Otherwise, consider the upload a
+    // failure and skip the report.
+    if (upload_start_time > now - 15 * internal::kUploadReportTimeoutSeconds) {
+      return kBusyError;
+    } else {
+      // SkipReportUpload expects an unlocked report.
+      lock.reset();
+      CrashReportDatabase::OperationStatus os = SkipReportUpload(
+          upload_report->uuid, Metrics::CrashSkippedReason::kUploadFailed);
+      if (os != kNoError) {
+        return kDatabaseError;
+      }
+      return kReportNotFound;
+    }
+  }
+
+  if (!WriteXattrTimeT(
+          upload_report->file_path, XattrName(kXattrUploadStartTime), now)) {
+    return kDatabaseError;
+  }
+#endif
+
   if (!upload_report->Initialize(upload_report->file_path, this)) {
     return kFileSystemError;
   }
 
   upload_report->database_ = this;
+#if !BUILDFLAG(IS_IOS)
   upload_report->lock_fd.reset(lock.release());
+#endif
   upload_report->report_metrics_ = report_metrics;
   report->reset(upload_report.release());
   return kNoError;
@@ -495,6 +552,13 @@ CrashReportDatabaseMac::RecordUploadAttempt(UploadReport* report,
       return os;
   }
 
+#if BUILDFLAG(IS_IOS)
+  if (RemoveXattr(report_path, XattrName(kXattrUploadStartTime)) ==
+      XattrStatus::kOtherError) {
+    return kDatabaseError;
+  }
+#endif
+
   if (!WriteXattrBool(report_path, XattrName(kXattrIsUploaded), successful)) {
     return kDatabaseError;
   }
@@ -517,7 +581,7 @@ CrashReportDatabaseMac::RecordUploadAttempt(UploadReport* report,
     return kDatabaseError;
   }
 
-  if (!settings_.SetLastUploadAttemptTime(now)) {
+  if (!SettingsInternal().SetLastUploadAttemptTime(now)) {
     return kDatabaseError;
   }
 
@@ -538,6 +602,13 @@ CrashReportDatabase::OperationStatus CrashReportDatabaseMac::SkipReportUpload(
   base::ScopedFD lock(ObtainReportLock(report_path));
   if (!lock.is_valid())
     return kBusyError;
+
+#if BUILDFLAG(IS_IOS)
+  if (RemoveXattr(report_path, XattrName(kXattrUploadStartTime)) ==
+      XattrStatus::kOtherError) {
+    return kDatabaseError;
+  }
+#endif
 
   return MarkReportCompletedLocked(report_path, nullptr);
 }

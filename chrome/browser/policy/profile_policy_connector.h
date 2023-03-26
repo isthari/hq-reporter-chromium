@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,12 @@
 
 #include "base/containers/flat_set.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "components/policy/core/common/policy_namespace.h"
+#include "components/policy/core/common/policy_service.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace user_manager {
 class User;
@@ -29,7 +32,6 @@ class ProxiedPoliciesPropagatedWatcher;
 class CloudPolicyStore;
 class ConfigurationPolicyProvider;
 class PolicyMigrator;
-class PolicyService;
 class PolicyServiceImpl;
 class SchemaRegistry;
 class ChromeBrowserPolicyConnector;
@@ -38,12 +40,12 @@ class ChromeBrowserPolicyConnector;
 // components. Since the ProfilePolicyConnector instance is accessed from
 // Profile, not from a KeyedServiceFactory anymore, the ProfilePolicyConnector
 // no longer needs to be a KeyedService.
-class ProfilePolicyConnector final {
+class ProfilePolicyConnector final : public PolicyService::Observer {
  public:
   ProfilePolicyConnector();
   ProfilePolicyConnector(const ProfilePolicyConnector&) = delete;
   ProfilePolicyConnector& operator=(const ProfilePolicyConnector&) = delete;
-  ~ProfilePolicyConnector();
+  ~ProfilePolicyConnector() override;
 
   // |user| is only used in Chrome OS builds and should be set to nullptr
   // otherwise.  |configuration_policy_provider| and |policy_store| are nullptr
@@ -84,7 +86,13 @@ class ProfilePolicyConnector final {
   // profile.
   base::flat_set<std::string> user_affiliation_ids() const;
 
+  // PolicyService::Observer:
+  void OnPolicyServiceInitialized(PolicyDomain domain) override;
+
  private:
+  void DoPostInit();
+  void ReportChromePolicyInitialized();
+
   // Returns the policy store which is actually used.
   const CloudPolicyStore* GetActualPolicyStore() const;
 
@@ -97,6 +105,8 @@ class ProfilePolicyConnector final {
   void AppendPolicyProviderWithSchemaTracking(
       ConfigurationPolicyProvider* policy_provider,
       SchemaRegistry* schema_registry);
+
+  std::string GetTimeToFirstPolicyLoadMetricSuffix() const;
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // On Chrome OS, primary Profile user policies are forwarded to the
@@ -127,12 +137,16 @@ class ProfilePolicyConnector final {
   // a PolicyService for testability.
   void OnProxiedPoliciesPropagated(PolicyServiceImpl* policy_service);
 
+  raw_ptr<const user_manager::User> user_ = nullptr;
+
   // Some of the user policy configuration affects browser global state, and
   // can only come from one Profile. |is_primary_user_| is true if this
   // connector belongs to the first signed-in Profile, and in that case that
   // Profile's policy is the one that affects global policy settings in
   // local state.
   bool is_primary_user_ = false;
+  // Whether the user was freshly created in this session.
+  bool is_user_new_ = false;
 
   std::unique_ptr<ConfigurationPolicyProvider> special_user_policy_provider_;
 
@@ -154,6 +168,10 @@ class ProfilePolicyConnector final {
       nullptr;
   raw_ptr<const CloudPolicyStore> policy_store_ = nullptr;
 
+#if BUILDFLAG(IS_CHROMEOS)
+  std::unique_ptr<ConfigurationPolicyProvider> restricted_mgs_policy_provider;
+#endif
+
   // |policy_providers_| contains a list of the policy providers available for
   // the PolicyService of this connector, in decreasing order of priority.
   //
@@ -165,6 +183,9 @@ class ProfilePolicyConnector final {
   std::vector<ConfigurationPolicyProvider*> policy_providers_;
 
   std::unique_ptr<PolicyService> policy_service_;
+
+  absl::optional<base::TimeTicks> creation_time_for_metrics_;
+
   std::unique_ptr<bool> is_managed_override_;
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
@@ -174,7 +195,7 @@ class ProfilePolicyConnector final {
   // The |browser_policy_connector_| is owned by the |BrowserProcess| whereas
   // the |ProfilePolicyConnector| is owned by the Profile - which gets deleted
   // first - so the lifetime of the pointer is guaranteed.
-  ChromeBrowserPolicyConnector* browser_policy_connector_ = nullptr;
+  raw_ptr<ChromeBrowserPolicyConnector> browser_policy_connector_ = nullptr;
 #endif
 };
 

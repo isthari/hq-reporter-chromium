@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,19 +7,18 @@
 #include <utility>
 
 #include "base/base64.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/string_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "components/os_crypt/os_crypt_mocker.h"
 #include "components/sync/base/time.h"
 #include "components/sync/engine/nigori/key_derivation_params.h"
-#include "components/sync/engine/sync_engine_switches.h"
 #include "components/sync/nigori/keystore_keys_cryptographer.h"
 #include "components/sync/nigori/nigori_state.h"
 #include "components/sync/nigori/nigori_storage.h"
-#include "components/sync/nigori/nigori_test_utils.h"
 #include "components/sync/protocol/entity_data.h"
+#include "components/sync/test/nigori_test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -96,7 +95,7 @@ MATCHER_P(CanDecryptWith, key_params, "") {
   const std::string unencrypted = "test";
   sync_pb::EncryptedData encrypted;
   encrypted.set_key_name(nigori_name);
-  EXPECT_TRUE(nigori->Encrypt(unencrypted, encrypted.mutable_blob()));
+  encrypted.set_blob(nigori->Encrypt(unencrypted));
 
   if (!cryptographer.CanDecrypt(encrypted)) {
     return false;
@@ -162,6 +161,10 @@ NigoriMetadataBatch CreateDummyNigoriMetadataBatch(
 std::unique_ptr<Nigori> MakeNigoriKey(const KeyParamsForTesting& key_params) {
   return Nigori::CreateByDerivation(key_params.derivation_params,
                                     key_params.password);
+}
+
+KeyDerivationParams MakeCustomPassphraseKeyDerivationParams() {
+  return KeyDerivationParams::CreateForScrypt("salt");
 }
 
 class MockNigoriLocalChangeProcessor : public NigoriLocalChangeProcessor {
@@ -277,13 +280,15 @@ class NigoriSyncBridgeImplPersistenceTest : public testing::Test {
 
   void SetUp() override { OSCryptMocker::SetUp(); }
   void TearDown() override { OSCryptMocker::TearDown(); }
+
+  const std::vector<uint8_t> kTrustedVaultKey = {2, 3, 4, 5, 6};
 };
 
 // During initialization bridge should expose encrypted types via observers
 // notification.
 TEST_F(NigoriSyncBridgeImplTest, ShouldNotifyObserversOnInit) {
-  // TODO(crbug.com/922900): once persistence is supported for Nigori, this
-  // test should be extended to verify whole encryption state.
+  // TODO(crbug.com/1000024): Add a variant of this test, that loads Nigori from
+  // storage and exposes more complete encryption state.
   EXPECT_CALL(*observer(),
               OnEncryptedTypesChanged(AlwaysEncryptedUserTypes(),
                                       /*encrypt_everything=*/false));
@@ -612,6 +617,33 @@ TEST_F(NigoriSyncBridgeImplTest,
   EXPECT_FALSE(bridge()->NeedKeystoreKey());
 }
 
+// Tests that bridge is able to decrypt keystore nigori, when
+// |keystore_decryptor_token| is corrupted, but |encryption_keybag| is
+// decryptable using keystore keys.
+TEST_F(NigoriSyncBridgeImplTest,
+       ShouldDecryptKeystoreNigoriWithCorruptedKeystoreDecryptor) {
+  const KeyParamsForTesting kKeystoreKeyParams =
+      KeystoreKeyParamsForTesting(kRawKeystoreKey);
+
+  EntityData entity_data;
+  // |keystore_decryptor_token| will be undecryptable.
+  *entity_data.specifics.mutable_nigori() = BuildKeystoreNigoriSpecifics(
+      /*keybag_keys_params=*/{kKeystoreKeyParams},
+      /*keystore_decryptor_params=*/kKeystoreKeyParams,
+      /*keystore_key_params=*/Pbkdf2PassphraseKeyParamsForTesting("wrong_key"));
+
+  ASSERT_THAT(bridge()->MergeSyncData(std::move(entity_data)),
+              Eq(absl::nullopt));
+
+  EXPECT_CALL(*observer(), OnCryptographerStateChanged(
+                               NotNull(), /*has_pending_keys=*/false));
+  EXPECT_CALL(*observer(), OnPassphraseAccepted());
+  bridge()->SetKeystoreKeys({kRawKeystoreKey});
+
+  EXPECT_THAT(*cryptographer(), CanDecryptWith(kKeystoreKeyParams));
+  EXPECT_FALSE(bridge()->NeedKeystoreKey());
+}
+
 // Tests that unsuccessful attempt of |pending_keys| decryption ends up in
 // additional OnPassphraseRequired() call. This is allowed because of possible
 // change of |pending_keys| in keystore mode or due to transition from keystore
@@ -660,12 +692,10 @@ TEST_F(NigoriSyncBridgeImplTest,
 
   ASSERT_THAT(bridge()->MergeSyncData(std::move(entity_data)),
               Eq(absl::nullopt));
-  bridge()->SetEncryptionPassphrase("passphrase");
+  bridge()->SetEncryptionPassphrase("passphrase",
+                                    MakeCustomPassphraseKeyDerivationParams());
   bridge()->SetKeystoreKeys({kRawKeystoreKey});
 
-  // TODO(crbug.com/922900): revisit expectations once conflict resolution is
-  // implemented. They might be not properly working with deferred state
-  // change.
   EXPECT_THAT(bridge()->GetData(), HasKeystoreNigori());
   EXPECT_THAT(*cryptographer(), CanDecryptWith(kKeystoreKeyParams));
   EXPECT_THAT(*cryptographer(), HasDefaultKeyDerivedFrom(kKeystoreKeyParams));
@@ -805,7 +835,7 @@ TEST_F(NigoriSyncBridgeImplTest, ShouldFailOnInvalidKeystoreDecryption) {
       KeystoreKeyParamsForTesting(kRawKeystoreKey);
 
   // Don't populate |kKeystoreKeyParams| in |keybag_keys_params|, so encryption
-  // keybag isn't valid. Put fake key params in |keybage_keys_params|, because
+  // keybag isn't valid. Put fake key params in |keybag_keys_params|, because
   // they must be non-empty.
   EntityData entity_data;
   *entity_data.specifics.mutable_nigori() = BuildKeystoreNigoriSpecifics(
@@ -905,7 +935,8 @@ TEST_F(NigoriSyncBridgeImplTest,
   // Calling SetEncryptionPassphrase() triggers a commit cycle but doesn't
   // immediately expose the new state, until the commit completes.
   EXPECT_CALL(*processor(), Put(HasCustomPassphraseNigori()));
-  bridge()->SetEncryptionPassphrase(kCustomPassphrase);
+  bridge()->SetEncryptionPassphrase(kCustomPassphrase,
+                                    MakeCustomPassphraseKeyDerivationParams());
   EXPECT_THAT(bridge()->GetData(), HasCustomPassphraseNigori());
 
   // Mimic commit completion.
@@ -950,7 +981,8 @@ TEST_F(NigoriSyncBridgeImplTest,
 
   // Set up custom passphrase locally, but don't emulate commit completion.
   const std::string kCustomPassphrase = "custom_passphrase";
-  bridge()->SetEncryptionPassphrase(kCustomPassphrase);
+  bridge()->SetEncryptionPassphrase(kCustomPassphrase,
+                                    MakeCustomPassphraseKeyDerivationParams());
 
   // Emulate conflict with rotated keystore Nigori.
   const std::vector<uint8_t> kRawKeystoreKey2 = {5, 6, 7, 8};
@@ -1008,7 +1040,8 @@ TEST_F(NigoriSyncBridgeImplTest, ShouldNotAllowCustomPassphraseChange) {
               Eq(absl::nullopt));
 
   EXPECT_CALL(*observer(), OnPassphraseAccepted()).Times(0);
-  bridge()->SetEncryptionPassphrase("new_passphrase");
+  bridge()->SetEncryptionPassphrase("new_passphrase",
+                                    MakeCustomPassphraseKeyDerivationParams());
 }
 
 TEST_F(NigoriSyncBridgeImplPersistenceTest, ShouldRestoreKeystoreNigori) {
@@ -1268,7 +1301,8 @@ TEST_F(NigoriSyncBridgeImplTest,
   // Calling SetEncryptionPassphrase() triggers a commit cycle but doesn't
   // immediately expose the new state, until the commit completes.
   EXPECT_CALL(*processor(), Put(HasCustomPassphraseNigori()));
-  bridge()->SetEncryptionPassphrase(kCustomPassphrase);
+  bridge()->SetEncryptionPassphrase(kCustomPassphrase,
+                                    MakeCustomPassphraseKeyDerivationParams());
   EXPECT_THAT(bridge()->GetData(), HasCustomPassphraseNigori());
 
   // Mimic commit completion.
@@ -1663,6 +1697,112 @@ TEST_F(NigoriSyncBridgeImplPersistenceTest,
               CanDecryptWith(kPassphraseKeyParams));
   EXPECT_THAT(*bridge2->GetCryptographer(),
               HasDefaultKeyDerivedFrom(kPassphraseKeyParams));
+}
+
+TEST_F(NigoriSyncBridgeImplPersistenceTest, ShouldRestoreTrustedVaultNigori) {
+  // Emulate storing on disc.
+  auto storage1 = std::make_unique<testing::NiceMock<MockNigoriStorage>>();
+  sync_pb::NigoriLocalData nigori_local_data;
+  ON_CALL(*storage1, StoreData)
+      .WillByDefault(testing::SaveArg<0>(&nigori_local_data));
+
+  auto bridge1 = std::make_unique<NigoriSyncBridgeImpl>(
+      std::make_unique<testing::NiceMock<MockNigoriLocalChangeProcessor>>(),
+      std::move(storage1));
+
+  // Perform initial sync with TrustedVault Nigori.
+  EntityData entity_data;
+  *entity_data.specifics.mutable_nigori() =
+      BuildTrustedVaultNigoriSpecifics({kTrustedVaultKey});
+  ASSERT_THAT(bridge1->MergeSyncData(std::move(entity_data)),
+              Eq(absl::nullopt));
+  // Ensure data is decryptable, this should be reflected in persisted state
+  // (e.g. key shouldn't be required again after restart).
+  bridge1->AddTrustedVaultDecryptionKeys({kTrustedVaultKey});
+  ASSERT_FALSE(bridge1->HasPendingKeysForTesting());
+
+  // Mimic the browser restart.
+  auto storage2 = std::make_unique<testing::NiceMock<MockNigoriStorage>>();
+  ON_CALL(*storage2, RestoreData()).WillByDefault(Return(nigori_local_data));
+
+  auto bridge2 = std::make_unique<NigoriSyncBridgeImpl>(
+      std::make_unique<testing::NiceMock<MockNigoriLocalChangeProcessor>>(),
+      std::move(storage2));
+
+  testing::NiceMock<MockObserver> observer;
+  bridge2->AddObserver(&observer);
+  // Verify that |bridge2| notifies observer about restored state.
+  EXPECT_CALL(observer, OnEncryptedTypesChanged(AlwaysEncryptedUserTypes(),
+                                                /*encrypt_everything=*/false));
+  EXPECT_CALL(observer,
+              OnCryptographerStateChanged(
+                  /*cryptographer=*/NotNull(), /*has_pending_keys=*/false));
+  EXPECT_CALL(observer, OnPassphraseTypeChanged(
+                            PassphraseType::kTrustedVaultPassphrase, _));
+  EXPECT_CALL(observer, OnTrustedVaultKeyRequired).Times(0);
+  bridge2->NotifyInitialStateToObservers();
+  EXPECT_FALSE(bridge2->HasPendingKeysForTesting());
+
+  // Verify that debug info was restored.
+  EXPECT_TRUE(bridge2->GetTrustedVaultDebugInfo().has_migration_time());
+  EXPECT_TRUE(bridge2->GetTrustedVaultDebugInfo().has_key_version());
+
+  bridge2->RemoveObserver(&observer);
+}
+
+TEST_F(NigoriSyncBridgeImplPersistenceTest,
+       ShouldRestoreTrustedVaultNigoriWithPendingKeys) {
+  // Emulate storing on disc.
+  auto storage1 = std::make_unique<testing::NiceMock<MockNigoriStorage>>();
+  sync_pb::NigoriLocalData nigori_local_data;
+  ON_CALL(*storage1, StoreData)
+      .WillByDefault(testing::SaveArg<0>(&nigori_local_data));
+
+  auto bridge1 = std::make_unique<NigoriSyncBridgeImpl>(
+      std::make_unique<testing::NiceMock<MockNigoriLocalChangeProcessor>>(),
+      std::move(storage1));
+
+  // Perform initial sync with TrustedVault Nigori.
+  EntityData entity_data;
+  *entity_data.specifics.mutable_nigori() =
+      BuildTrustedVaultNigoriSpecifics({kTrustedVaultKey});
+  ASSERT_THAT(bridge1->MergeSyncData(std::move(entity_data)),
+              Eq(absl::nullopt));
+
+  // Mimic the browser restart.
+  auto storage2 = std::make_unique<testing::NiceMock<MockNigoriStorage>>();
+  ON_CALL(*storage2, RestoreData()).WillByDefault(Return(nigori_local_data));
+
+  auto bridge2 = std::make_unique<NigoriSyncBridgeImpl>(
+      std::make_unique<testing::NiceMock<MockNigoriLocalChangeProcessor>>(),
+      std::move(storage2));
+
+  testing::NiceMock<MockObserver> observer;
+  bridge2->AddObserver(&observer);
+  // Verify that |bridge2| notifies observer about restored state.
+  EXPECT_CALL(observer, OnEncryptedTypesChanged(AlwaysEncryptedUserTypes(),
+                                                /*encrypt_everything=*/false));
+  EXPECT_CALL(observer, OnCryptographerStateChanged(/*cryptographer=*/NotNull(),
+                                                    /*has_pending_keys=*/true));
+  EXPECT_CALL(observer, OnPassphraseTypeChanged(
+                            PassphraseType::kTrustedVaultPassphrase, _));
+  EXPECT_CALL(observer, OnTrustedVaultKeyRequired);
+  bridge2->NotifyInitialStateToObservers();
+  testing::Mock::VerifyAndClearExpectations(&observer);
+
+  // Verify that |bridge2| accepts kTrustedVaultKey.
+  EXPECT_CALL(observer, OnTrustedVaultKeyAccepted);
+  EXPECT_CALL(observer,
+              OnCryptographerStateChanged(
+                  /*cryptographer=*/NotNull(), /*has_pending_keys=*/false));
+  bridge2->AddTrustedVaultDecryptionKeys({kTrustedVaultKey});
+  EXPECT_FALSE(bridge2->HasPendingKeysForTesting());
+
+  // Verify that debug info was restored.
+  EXPECT_TRUE(bridge2->GetTrustedVaultDebugInfo().has_migration_time());
+  EXPECT_TRUE(bridge2->GetTrustedVaultDebugInfo().has_key_version());
+
+  bridge2->RemoveObserver(&observer);
 }
 
 }  // namespace

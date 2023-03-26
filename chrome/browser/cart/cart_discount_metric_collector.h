@@ -1,9 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_CART_CART_DISCOUNT_METRIC_COLLECTOR_H_
 #define CHROME_BROWSER_CART_CART_DISCOUNT_METRIC_COLLECTOR_H_
+
+#include "components/commerce/core/commerce_feature_list.h"
 
 // This is used to collect metric related to the Cart Discount.
 // These values are persisted to logs. Entries should not be renumbered and
@@ -42,6 +44,26 @@ class CartDiscountMetricCollector {
   // Gets called when cart module shows to record histogram for discount consent
   // status.
   static void RecordDiscountConsentStatus(DiscountConsentStatus status);
+  // The following get called when cart module shows to record histogram for
+  // detail discount consent status.
+  static void RecordDiscountConsentStatusAcceptedIn(
+      commerce::DiscountConsentNtpVariation variation);
+  static void RecordDiscountConsentStatusRejectedIn(
+      commerce::DiscountConsentNtpVariation variation);
+  static void RecordDiscountConsentStatusNoShowAfterDecidedIn(
+      commerce::DiscountConsentNtpVariation variation);
+  static void RecordDiscountConsentStatusDismissedIn(
+      commerce::DiscountConsentNtpVariation variation);
+  static void RecordDiscountConsentStatusShowInterestIn(
+      commerce::DiscountConsentNtpVariation variation);
+  static void RecordDiscountConsentStatusNeverShowIn(
+      commerce::DiscountConsentNtpVariation variation);
+  static void RecordDiscountConsentStatusNoShowIn(
+      commerce::DiscountConsentNtpVariation variation);
+  static void RecordDiscountConsentStatusIgnoredIn(
+      commerce::DiscountConsentNtpVariation variation);
+  static void RecordDiscountConsentStatusShownIn(
+      commerce::DiscountConsentNtpVariation variation);
 };
 
 #endif  // CHROME_BROWSER_CART_CART_DISCOUNT_METRIC_COLLECTOR_H_

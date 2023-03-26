@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include "components/viz/common/hit_test/hit_test_region_list.h"
 #include "components/viz/service/hit_test/hit_test_aggregator_delegate.h"
 #include "components/viz/service/surfaces/latest_local_surface_id_lookup_delegate.h"
-#include "skia/ext/skia_matrix_44.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 
 namespace viz {
@@ -154,7 +153,7 @@ size_t HitTestAggregator::AppendRegion(size_t region_index,
       // element we can simplify the tree by merging the flags and transform
       // into the kHitTestChildSurface element.
       if (!hit_test_region_list->transform.IsIdentity())
-        transform.PreconcatTransform(hit_test_region_list->transform);
+        transform.PreConcat(hit_test_region_list->transform);
 
       flags |= hit_test_region_list->flags;
       reasons |= hit_test_region_list->async_hit_test_reasons;

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -74,9 +74,7 @@ void ContentLayer::SetProperties(int id,
   if (live_layer_draws)
     static_opacity = static_to_view_blend;
 
-  const cc::LayerList& layer_children = layer_->children();
-  for (unsigned i = 0; i < layer_children.size(); i++)
-    layer_children[i]->RemoveFromParent();
+  layer_->RemoveAllChildren();
 
   if (live_layer.get()) {
     live_layer->SetMasksToBounds(should_clip);

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,10 +14,12 @@
 #include "mojo/public/cpp/bindings/receiver_set.h"
 
 namespace ash {
-class ExtendedAuthenticator;
+class AuthenticationError;
 }  // namespace ash
 
 namespace extensions {
+class QuickUnlockPrivateGetAuthTokenHelper;
+
 namespace api {
 namespace quick_unlock_private {
 struct TokenInfo;
@@ -49,14 +51,15 @@ class AuthenticationAsh : public mojom::Authentication {
       IsOsReauthAllowedForActiveUserProfileCallback callback) override;
 
  private:
-  // Continuation of CreateQuickUnlockPrivateTokenInfo(). Last 3 params match
-  // extensions::QuickUnlockPrivateGetAuthTokenHelper::ResultCallback.
+  // Continuation of CreateQuickUnlockPrivateTokenInfo(). The last 2 params
+  // match extensions::QuickUnlockPrivateGetAuthTokenHelper::ResultCallback.
+  // The first argument is ignored; it is only there so that we can keep the
+  // token helper alive.
   void OnCreateQuickUnlockPrivateTokenInfoResults(
+      std::unique_ptr<extensions::QuickUnlockPrivateGetAuthTokenHelper>,
       CreateQuickUnlockPrivateTokenInfoCallback callback,
-      scoped_refptr<ash::ExtendedAuthenticator> extended_authenticator,
-      bool success,
-      std::unique_ptr<TokenInfo> token_info,
-      const std::string& error_message);
+      absl::optional<TokenInfo>,
+      absl::optional<ash::AuthenticationError>);
 
   mojo::ReceiverSet<mojom::Authentication> receivers_;
 

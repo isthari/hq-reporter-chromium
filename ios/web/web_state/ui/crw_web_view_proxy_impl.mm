@@ -1,10 +1,10 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/web/web_state/ui/crw_web_view_proxy_impl.h"
 
-#include "base/check.h"
+#import "base/check.h"
 #import "ios/web/common/crw_content_view.h"
 #import "ios/web/public/ui/crw_web_view_scroll_view_proxy.h"
 #import "ios/web/web_state/ui/crw_web_controller.h"
@@ -15,7 +15,7 @@
 
 namespace {
 
-// Returns the first responder in the subviews of |view|, or nil if no view in
+// Returns the first responder in the subviews of `view`, or nil if no view in
 // the subtree is the first responder.
 UIView* GetFirstResponderSubview(UIView* view) {
   if ([view isFirstResponder])
@@ -166,9 +166,21 @@ UIView* GetFirstResponderSubview(UIView* view) {
   [_registeredInsets removeObjectForKey:callerValue];
 }
 
-- (void)setContentView:(CRWContentView*)contentView {
+// Do not use with a `nil` `contentView`. Instead, use
+// `clearContentViewAndAddPlaceholder` whenever `contentView` needs to be set to
+// `nil`. This allows us to evaluate the need of setting up the placeholder
+// scroll view when clearing the content view.
+- (void)setContentView:(nonnull CRWContentView*)contentView {
+  DCHECK(contentView);
   _contentView = contentView;
   [_contentViewScrollViewProxy setScrollView:contentView.scrollView];
+}
+
+- (void)clearContentViewAndAddPlaceholder:(BOOL)addPlaceholder {
+  _contentView = nil;
+  if (addPlaceholder) {
+    [_contentViewScrollViewProxy setScrollView:nil];
+  }
 }
 
 - (void)addSubview:(UIView*)view {
@@ -188,6 +200,15 @@ UIView* GetFirstResponderSubview(UIView* view) {
 
 - (void)surfaceSizeChanged {
   [_webController surfaceSizeChanged];
+}
+
+- (void)showMenuWithItems:(NSArray<CRWContextMenuItem*>*)items
+                     rect:(CGRect)rect {
+  [_webController showMenuWithItems:items rect:rect];
+}
+
+- (BOOL)isWebPageInFullscreenMode {
+  return [_webController isWebPageInFullscreenMode];
 }
 
 @end

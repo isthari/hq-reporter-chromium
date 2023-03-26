@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
+#include "ash/wm/work_area_insets.h"
 #include "ash/wm/workspace/workspace_window_resizer.h"
 #include "base/strings/string_number_conversions.h"
 #include "ui/aura/client/aura_constants.h"
@@ -27,10 +28,13 @@
 #include "ui/aura/window.h"
 #include "ui/base/hit_test.h"
 #include "ui/compositor/layer.h"
+#include "ui/compositor/layer_animator.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/display/screen.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/test/event_generator.h"
+#include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/window_util.h"
 
@@ -282,13 +286,13 @@ TEST_F(WorkspaceControllerTest, MinimizeSingleWindow) {
   w1->Show();
 
   w1->SetProperty(aura::client::kShowStateKey, ui::SHOW_STATE_MINIMIZED);
-  EXPECT_FALSE(w1->layer()->IsDrawn());
+  EXPECT_FALSE(w1->layer()->IsVisible());
   EXPECT_TRUE(w1->layer()->GetTargetTransform().IsIdentity());
 
   // Show the window.
   w1->Show();
   EXPECT_TRUE(WindowState::Get(w1.get())->IsNormalStateType());
-  EXPECT_TRUE(w1->layer()->IsDrawn());
+  EXPECT_TRUE(w1->layer()->IsVisible());
 }
 
 // Assertions around minimizing a fullscreen window.
@@ -307,22 +311,22 @@ TEST_F(WorkspaceControllerTest, MinimizeFullscreenWindow) {
 
   // Minimize w2.
   w2->SetProperty(aura::client::kShowStateKey, ui::SHOW_STATE_MINIMIZED);
-  EXPECT_TRUE(w1->layer()->IsDrawn());
-  EXPECT_FALSE(w2->layer()->IsDrawn());
+  EXPECT_TRUE(w1->layer()->IsVisible());
+  EXPECT_FALSE(w2->layer()->IsVisible());
 
   // Show the window, which should trigger unminimizing.
   w2->Show();
   w2_state->Activate();
 
   EXPECT_TRUE(w2_state->IsFullscreen());
-  EXPECT_TRUE(w1->layer()->IsDrawn());
-  EXPECT_TRUE(w2->layer()->IsDrawn());
+  EXPECT_TRUE(w1->layer()->IsVisible());
+  EXPECT_TRUE(w2->layer()->IsVisible());
 
   // Minimize the window, which should hide the window.
   EXPECT_TRUE(w2_state->IsActive());
   w2_state->Minimize();
   EXPECT_FALSE(w2_state->IsActive());
-  EXPECT_FALSE(w2->layer()->IsDrawn());
+  EXPECT_FALSE(w2->layer()->IsVisible());
   EXPECT_TRUE(w1_state->IsActive());
   EXPECT_EQ(w2.get(), GetDesktop()->children()[0]);
   EXPECT_EQ(w1.get(), GetDesktop()->children()[1]);
@@ -334,7 +338,7 @@ TEST_F(WorkspaceControllerTest, MinimizeFullscreenWindow) {
   EXPECT_TRUE(w1_state->IsActive());
   EXPECT_EQ(w2.get(), GetDesktop()->children()[0]);
   EXPECT_EQ(w1.get(), GetDesktop()->children()[1]);
-  EXPECT_TRUE(w2->layer()->IsDrawn());
+  EXPECT_TRUE(w2->layer()->IsVisible());
 }
 
 // Verifies ShelfLayoutManager's visibility/auto-hide state is correctly
@@ -546,8 +550,8 @@ TEST_F(WorkspaceControllerTest, DontMoveOnSwitch) {
 // Verifies that windows that are completely offscreen move when switching
 // workspaces.
 TEST_F(WorkspaceControllerTest, MoveOnSwitch) {
-  ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow(),
-                                     gfx::Point());
+  aura::Window* root = Shell::GetPrimaryRootWindow();
+  ui::test::EventGenerator generator(root, gfx::Point());
   generator.MoveMouseTo(0, 0);
 
   std::unique_ptr<Window> w1(CreateTestWindow());
@@ -568,10 +572,11 @@ TEST_F(WorkspaceControllerTest, MoveOnSwitch) {
 
   // Increase the size of the WorkAreaInsets. This would make |w1| fall
   // completely out of the display work area.
-  gfx::Insets insets =
-      display::Screen::GetScreen()->GetPrimaryDisplay().GetWorkAreaInsets();
-  insets.Set(0, 0, insets.bottom() + 30, 0);
-  Shell::Get()->SetDisplayWorkAreaInsets(w1.get(), insets);
+  WorkAreaInsets* work_area_insets = WorkAreaInsets::ForWindow(root);
+  gfx::Insets insets = work_area_insets->in_session_user_work_area_insets();
+  insets = gfx::Insets::TLBR(0, 0, insets.bottom() + 30, 0);
+  work_area_insets->UpdateWorkAreaInsetsForTest(root, gfx::Rect(), insets,
+                                                insets);
 
   // Switch to w1. The window should have moved.
   wm::ActivateWindow(w1.get());
@@ -690,11 +695,11 @@ TEST_F(WorkspaceControllerTest, BasicAutoPlacingOnCreate) {
   {  // With the window shown - but more on the right side then on the left
     // side (and partially out of the screen), it should default to the other
     // side and inside the screen.
-    gfx::Rect source_browser_bounds(gfx::Rect(1000, 600, 640, 320));
-    browser_window->SetBounds(source_browser_bounds);
+    gfx::Rect new_bounds(gfx::Rect(1000, 600, 640, 320));
+    browser_window->SetBounds(new_bounds);
 
     std::unique_ptr<aura::Window> new_browser_window(
-        CreateBrowserLikeWindow(source_browser_bounds));
+        CreateBrowserLikeWindow(new_bounds));
     // The position should be left & bottom flush.
     EXPECT_EQ("0,600 640x320", new_browser_window->bounds().ToString());
 

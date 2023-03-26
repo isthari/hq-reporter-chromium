@@ -1,8 +1,9 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/public/common/origin_trials/trial_token.h"
+#include <memory>
 
 #include "base/base64.h"
 #include "base/big_endian.h"
@@ -82,12 +83,12 @@ std::unique_ptr<TrialToken> TrialToken::From(
   if (token) {
     token->signature_ = token_signature;
     *out_status = OriginTrialTokenStatus::kSuccess;
+    DVLOG(2) << "Well-formed origin trial token found for feature "
+             << token->feature_name();
   } else {
     DVLOG(2) << "Malformed origin trial token found (unable to parse)";
     *out_status = OriginTrialTokenStatus::kMalformed;
   }
-  DVLOG(2) << "Valid origin trial token found for feature "
-           << token->feature_name();
   return token;
 }
 
@@ -205,7 +206,7 @@ std::unique_ptr<TrialToken> TrialToken::Parse(const std::string& token_payload,
 
   // The |isSubdomain| flag is optional. If found, ensure it is a valid boolean.
   bool is_subdomain = false;
-  base::Value* is_subdomain_value = datadict->FindKey("isSubdomain");
+  base::Value* is_subdomain_value = datadict->GetDict().Find("isSubdomain");
   if (is_subdomain_value) {
     if (!is_subdomain_value->is_bool()) {
       return nullptr;
@@ -232,7 +233,8 @@ std::unique_ptr<TrialToken> TrialToken::Parse(const std::string& token_payload,
   if (version == kVersion3) {
     // The |isThirdParty| flag is optional. If found, ensure it is a valid
     // boolean.
-    base::Value* is_third_party_value = datadict->FindKey("isThirdParty");
+    base::Value* is_third_party_value =
+        datadict->GetDict().Find("isThirdParty");
     if (is_third_party_value) {
       if (!is_third_party_value->is_bool()) {
         return nullptr;
@@ -310,10 +312,13 @@ std::unique_ptr<TrialToken> TrialToken::CreateTrialTokenForTesting(
     const std::string& feature_name,
     base::Time expiry_time,
     bool is_third_party,
-    UsageRestriction usage_restriction) {
-  return base::WrapUnique(new TrialToken(origin, match_subdomains, feature_name,
-                                         expiry_time, is_third_party,
-                                         usage_restriction));
+    UsageRestriction usage_restriction,
+    const std::string& signature) {
+  std::unique_ptr<TrialToken> token = base::WrapUnique(
+      new TrialToken(origin, match_subdomains, feature_name, expiry_time,
+                     is_third_party, usage_restriction));
+  token->signature_ = signature;
+  return token;
 }
 
 }  // namespace blink

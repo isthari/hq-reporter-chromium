@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define ASH_QUICK_PAIR_REPOSITORY_FAST_PAIR_FOOTPRINTS_FETCHER_H_
 
 #include "ash/quick_pair/proto/fastpair.pb.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "services/data_decoder/public/cpp/data_decoder.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -20,9 +20,6 @@ class UserReadDevicesResponse;
 namespace ash {
 namespace quick_pair {
 
-class HttpFetcher;
-class FastPairHttpResult;
-
 using UserReadDevicesCallback = base::OnceCallback<void(
     absl::optional<nearby::fastpair::UserReadDevicesResponse>)>;
 using AddDeviceCallback = base::OnceCallback<void(bool)>;
@@ -30,35 +27,17 @@ using DeleteDeviceCallback = base::OnceCallback<void(bool)>;
 
 class FootprintsFetcher {
  public:
-  FootprintsFetcher();
+  FootprintsFetcher() = default;
 
   FootprintsFetcher(const FootprintsFetcher&) = delete;
   FootprintsFetcher& operator=(const FootprintsFetcher&) = delete;
-  virtual ~FootprintsFetcher();
+  virtual ~FootprintsFetcher() = default;
 
-  void GetUserDevices(UserReadDevicesCallback callback);
-  void AddUserDevice(nearby::fastpair::FastPairInfo info,
-                     AddDeviceCallback callback);
-  void DeleteUserDevice(const std::string& hex_account_key,
-                        DeleteDeviceCallback callback);
-
- private:
-  void OnGetComplete(UserReadDevicesCallback callback,
-                     std::unique_ptr<HttpFetcher> http_fetcher,
-                     std::unique_ptr<std::string> response_body,
-                     std::unique_ptr<FastPairHttpResult> http_result);
-
-  void OnPostComplete(AddDeviceCallback callback,
-                      std::unique_ptr<HttpFetcher> http_fetcher,
-                      std::unique_ptr<std::string> response_body,
-                      std::unique_ptr<FastPairHttpResult> http_result);
-
-  void OnDeleteComplete(DeleteDeviceCallback callback,
-                        std::unique_ptr<HttpFetcher> http_fetcher,
-                        std::unique_ptr<std::string> response_body,
-                        std::unique_ptr<FastPairHttpResult> http_result);
-
-  base::WeakPtrFactory<FootprintsFetcher> weak_ptr_factory_{this};
+  virtual void GetUserDevices(UserReadDevicesCallback callback) = 0;
+  virtual void AddUserFastPairInfo(nearby::fastpair::FastPairInfo info,
+                                   AddDeviceCallback callback) = 0;
+  virtual void DeleteUserDevice(const std::string& hex_account_key,
+                                DeleteDeviceCallback callback) = 0;
 };
 
 }  // namespace quick_pair

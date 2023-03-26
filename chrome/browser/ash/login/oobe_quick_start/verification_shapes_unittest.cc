@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,19 +17,19 @@ TEST(Verification, ShapesCompatibility) {
 
   EXPECT_EQ(shapes[0].shape, Shape::kDiamond);
   EXPECT_EQ(shapes[0].color, Color::kGreen);
-  EXPECT_EQ(shapes[0].digit, 0u);
+  EXPECT_EQ(shapes[0].digit, 0);
 
   EXPECT_EQ(shapes[1].shape, Shape::kTriangle);
   EXPECT_EQ(shapes[1].color, Color::kBlue);
-  EXPECT_EQ(shapes[1].digit, 2u);
+  EXPECT_EQ(shapes[1].digit, 2);
 
   EXPECT_EQ(shapes[2].shape, Shape::kSquare);
   EXPECT_EQ(shapes[2].color, Color::kRed);
-  EXPECT_EQ(shapes[2].digit, 3u);
+  EXPECT_EQ(shapes[2].digit, 3);
 
   EXPECT_EQ(shapes[3].shape, Shape::kTriangle);
   EXPECT_EQ(shapes[3].color, Color::kBlue);
-  EXPECT_EQ(shapes[3].digit, 0u);
+  EXPECT_EQ(shapes[3].digit, 0);
 }
 
 }  // namespace quick_start

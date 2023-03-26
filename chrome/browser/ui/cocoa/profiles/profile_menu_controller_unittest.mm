@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,11 +65,13 @@ class ProfileMenuControllerTest : public BrowserWithTestWindowTest {
   void VerifyProfileNamedIsActive(NSString* title, int line) {
     for (NSMenuItem* item in [[controller() menu] itemArray]) {
       if ([[item title] isEqualToString:title]) {
-        EXPECT_EQ(NSOnState, [item state]) << [[item title] UTF8String]
-          << " (from line " << line << ")";
+        EXPECT_EQ(NSControlStateValueOn, [item state])
+            << base::SysNSStringToUTF8(item.title) << " (from line " << line
+            << ")";
       } else {
-        EXPECT_EQ(NSOffState, [item state]) << [[item title] UTF8String]
-          << " (from line " << line << ")";
+        EXPECT_EQ(NSControlStateValueOff, [item state])
+            << base::SysNSStringToUTF8(item.title) << " (from line " << line
+            << ")";
       }
     }
   }
@@ -275,13 +277,13 @@ TEST_F(ProfileMenuControllerTest, DeleteActiveProfile) {
   // get created by disallowing IO operations temporarily.
   base::ScopedDisallowBlocking scoped_disallow_blocking;
   [controller() activeBrowserChangedTo:NULL];
-  // Check that validateMenuItem does not load a profile, and edit/new are
-  // disabled.
+  // Check that validateMenuItem does not load a profile, and edit is disabled.
+  // Adding a new profile is still possible since this happens through the
+  // profile picker.
   NSMenu* menu = [controller() menu];
   for (NSMenuItem* item in [menu itemArray]) {
-    bool is_edit_new = [item action] == @selector(editProfile:) ||
-                       [item action] == @selector(newProfile:);
-    EXPECT_EQ([controller() validateMenuItem:item], !is_edit_new);
+    bool is_edit = [item action] == @selector(editProfile:);
+    EXPECT_EQ([controller() validateMenuItem:item], !is_edit);
   }
 }
 

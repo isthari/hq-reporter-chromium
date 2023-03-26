@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,44 +29,50 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 import org.chromium.base.Callback;
 import org.chromium.base.test.BaseActivityTestRule;
-import org.chromium.base.test.util.DisabledTest;
+import org.chromium.base.test.util.Batch;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.share.ChromeShareExtras.DetailedContentType;
 import org.chromium.chrome.browser.share.share_sheet.ShareSheetPropertyModelBuilder.ContentType;
-import org.chromium.chrome.test.ChromeBrowserTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.browser_ui.share.ShareParams;
 import org.chromium.components.favicon.IconType;
 import org.chromium.components.favicon.LargeIconBridge;
 import org.chromium.components.feature_engagement.FeatureConstants;
 import org.chromium.components.feature_engagement.Tracker;
-import org.chromium.components.feature_engagement.TriggerDetails;
 import org.chromium.components.url_formatter.UrlFormatter;
+import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
-import org.chromium.ui.test.util.DummyUiActivity;
+import org.chromium.ui.test.util.BlankUiTestActivity;
 import org.chromium.url.GURL;
 
 import java.util.ArrayList;
 
 /**
- * Tests {@link ShareSheetBottomSheetContent}.
+ * Unit tests {@link ShareSheetBottomSheetContent}.
  */
+@Batch(Batch.UNIT_TESTS)
 @RunWith(ChromeJUnit4ClassRunner.class)
 public final class ShareSheetBottomSheetContentTest {
     @Rule
-    public final ChromeBrowserTestRule mBrowserTestRule = new ChromeBrowserTestRule();
+    public BaseActivityTestRule<BlankUiTestActivity> mActivityTestRule =
+            new BaseActivityTestRule<>(BlankUiTestActivity.class);
 
     @Rule
-    public BaseActivityTestRule<DummyUiActivity> mActivityTestRule =
-            new BaseActivityTestRule<>(DummyUiActivity.class);
+    public TestRule mFeaturesProcessor = new Features.JUnitProcessor();
 
+    @Mock
+    private Profile mProfile;
     @Mock
     private ShareSheetLinkToggleCoordinator mShareSheetLinkToggleCoordinator;
     @Mock
@@ -86,6 +92,7 @@ public final class ShareSheetBottomSheetContentTest {
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
+        NativeLibraryTestUtils.loadNativeLibraryNoBrowserProcess();
         mActivityTestRule.launchActivity(null);
         mActivity = mActivityTestRule.getActivity();
 
@@ -104,6 +111,7 @@ public final class ShareSheetBottomSheetContentTest {
                 .when(mFeatureEngagementTracker)
                 .addOnInitializedCallback(any());
         TrackerFactory.setTrackerForTests(mFeatureEngagementTracker);
+        Profile.setLastUsedProfileForTesting(mProfile);
 
         mShareSheetBottomSheetContent = new ShareSheetBottomSheetContent(mActivity,
                 new MockLargeIconBridge(), null, mShareParams, mFeatureEngagementTracker);
@@ -272,7 +280,7 @@ public final class ShareSheetBottomSheetContentTest {
 
     @Test
     @MediumTest
-    @DisabledTest(message = "Fails on official builders: https://crbug.com/1281875")
+    @Features.DisableFeatures({ChromeFeatureList.ANDROID_SCROLL_OPTIMIZATIONS})
     public void createRecyclerViews_toggleOff_showsIph() {
         String fileContentType = "image/gif";
         ShareSheetBottomSheetContent shareSheetBottomSheetContent =
@@ -284,8 +292,6 @@ public final class ShareSheetBottomSheetContentTest {
                         mFeatureEngagementTracker);
         when(mShareSheetLinkToggleCoordinator.shouldShowToggle()).thenReturn(true);
         when(mShareSheetLinkToggleCoordinator.shouldEnableToggleByDefault()).thenReturn(false);
-        when(mFeatureEngagementTracker.shouldTriggerHelpUIWithSnooze(any()))
-                .thenReturn(new TriggerDetails(true, false));
 
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
@@ -298,8 +304,7 @@ public final class ShareSheetBottomSheetContentTest {
                 shareSheetBottomSheetContent.getContentView().findViewById(R.id.link_toggle_view);
         assertEquals(View.VISIBLE, toggleView.getVisibility());
         verify(mFeatureEngagementTracker)
-                .shouldTriggerHelpUIWithSnooze(
-                        FeatureConstants.IPH_SHARING_HUB_LINK_TOGGLE_FEATURE);
+                .shouldTriggerHelpUI(FeatureConstants.IPH_SHARING_HUB_LINK_TOGGLE_FEATURE);
     }
 
     @Test

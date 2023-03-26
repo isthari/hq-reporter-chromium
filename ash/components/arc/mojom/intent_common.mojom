@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@ enum ActionType {
   SEND,           // Can handle only one URL.
   SEND_MULTIPLE,  // Can handle multiple URLs.
   CREATE_NOTE,    // Can handle only one URL.
+  EDIT,           // Can handle only one URL.
 };
 
 // Describes an activity.

@@ -1,4 +1,4 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """Definitions of builders in the chromium.android builder group."""
@@ -7,16 +7,19 @@ load("//lib/builders.star", "os")
 load("//lib/branches.star", "branches")
 load("//lib/try.star", "try_")
 load("//lib/consoles.star", "consoles")
-load("//project.star", "branch_type")
+load("//project.star", "PLATFORMS", "platform")
 load("../fallback-cq.star", "fallback_cq")
 
 try_.defaults.set(
-    cores = 8,
-    execution_timeout = 15 * time.minute,
-    list_view = "presubmit",
-    main_list_view = "try",
-    os = os.LINUX_BIONIC_SWITCH_TO_DEFAULT,
     pool = try_.DEFAULT_POOL,
+    cores = 8,
+    os = os.LINUX_DEFAULT,
+    list_view = "presubmit",
+    execution_timeout = 15 * time.minute,
+    main_list_view = "try",
+
+    # TODO(crbug.com/1362440): remove this.
+    omit_python2 = False,
     # Default priority for buildbucket is 30, see
     # https://chromium.googlesource.com/infra/infra/+/bb68e62b4380ede486f65cd32d9ff3f1bbe288e4/appengine/cr-buildbucket/creation.py#42
     # This will improve our turnaround time for landing infra/config changes
@@ -27,7 +30,7 @@ try_.defaults.set(
 
 consoles.list_view(
     name = "presubmit",
-    branch_selector = branches.ALL_BRANCHES,
+    branch_selector = branches.selector.ALL_BRANCHES,
     title = "presubmit builders",
 )
 
@@ -42,7 +45,7 @@ def presubmit_builder(*, name, tryjob, **kwargs):
     if tryjob:
         tryjob_args = {a: getattr(tryjob, a) for a in dir(tryjob)}
         tryjob_args["disable_reuse"] = True
-        tryjob_args["add_default_excludes"] = False
+        tryjob_args["add_default_filters"] = False
         tryjob = try_.job(**tryjob_args)
     return try_.builder(name = name, tryjob = tryjob, **kwargs)
 
@@ -51,33 +54,37 @@ def presubmit_builder(*, name, tryjob, **kwargs):
 # long after the change has been made, so make it a presubmit builder to ensure
 # it's checked with current code. The builder runs in a few minutes and only for
 # infra/config changes, so it won't impose a heavy burden on our capacity.
+def branch_configs():
+    """Get the branch configs to be tested.
+
+    Returns:
+      A list of objects that can be used as the value of the "branch_configs"
+      property for the branch_configuration/tester recipe. See
+      https://chromium.googlesource.com/chromium/tools/build/+/refs/heads/main/recipes/recipes/branch_configuration/tester.proto
+      The returned configs will cover the common branch configurations and each
+      platform individually.
+    """
+    return [{
+        "name": "standard branch",
+        "platforms": [p for p in PLATFORMS if p != platform.CROS_LTS],
+    }, {
+        "name": "desktop extended stable branch",
+        "platforms": [platform.MAC, platform.WINDOWS],
+    }] + [{
+        "name": p,
+        "platforms": [p],
+    } for p in PLATFORMS]
+
 presubmit_builder(
     name = "branch-config-verifier",
     executable = "recipe:branch_configuration/tester",
     properties = {
         "branch_script": "infra/config/scripts/branch.py",
-        "branch_configs": [
-            {
-                "name": branch_type.STANDARD,
-                "branch_types": [branch_type.STANDARD],
-            },
-            {
-                "name": branch_type.DESKTOP_EXTENDED_STABLE,
-                "branch_types": [branch_type.DESKTOP_EXTENDED_STABLE],
-            },
-            {
-                "name": branch_type.CROS_LTS,
-                "branch_types": [branch_type.CROS_LTS],
-            },
-            {
-                "name": "{} + {}".format(branch_type.DESKTOP_EXTENDED_STABLE, branch_type.CROS_LTS),
-                "branch_types": [branch_type.DESKTOP_EXTENDED_STABLE, branch_type.CROS_LTS],
-            },
-        ],
+        "branch_configs": branch_configs(),
         "starlark_entry_points": ["infra/config/main.star", "infra/config/dev.star"],
     },
     tryjob = try_.job(
-        location_regexp = [r".+/[+]/infra/config/.+"],
+        location_filters = ["infra/config/.+"],
     ),
 )
 
@@ -99,7 +106,10 @@ presubmit_builder(
         ],
     },
     tryjob = try_.job(
-        location_regexp = [r".+/[+]/tools/clang/scripts/update.py"],
+        location_filters = [
+            "tools/clang/scripts/update.py",
+            "DEPS",
+        ],
     ),
 )
 
@@ -108,20 +118,16 @@ presubmit_builder(
     description_html = "checks that builder configs in properties files match the recipe-side configs",
     executable = "recipe:chromium/builder_config_verifier",
     properties = {
-        "properties_file_globs": [
-            "infra/config/generated/builders/*/*/properties.textpb",
-        ],
+        "builder_config_directory": "infra/config/generated/builders",
     },
-    # TODO(crbug.com/1288604) Add to the CQ once the recipe is ready
-    tryjob = None,
-    # tryjob = try_.job(
-    #     location_regexp = [r".+/[+]infra/config/generated/builders"],
-    # ),
+    tryjob = try_.job(
+        location_filters = ["infra/config/generated/builders/.*"],
+    ),
 )
 
 presubmit_builder(
     name = "chromium_presubmit",
-    branch_selector = branches.ALL_BRANCHES,
+    branch_selector = branches.selector.ALL_BRANCHES,
     executable = "recipe:presubmit",
     execution_timeout = 40 * time.minute,
     properties = {
@@ -136,8 +142,8 @@ presubmit_builder(
 
 presubmit_builder(
     name = "requires-testing-checker",
-    cq_group = fallback_cq.GROUP,
     description_html = "prevents CLs that requires testing from landing on branches with no CQ",
     executable = "recipe:requires_testing_checker",
+    cq_group = fallback_cq.GROUP,
     tryjob = try_.job(),
 )

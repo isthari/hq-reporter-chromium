@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,21 +24,6 @@ namespace ash {
 class ASH_EXPORT AppsGridContextMenu : public ui::SimpleMenuModel::Delegate,
                                        public views::ContextMenuController {
  public:
-  // List of command id used in apps grid context menu.
-  enum AppsGridCommandId {
-    // Command Id that contains a submenu with app name reorder options.
-    kReorderByName,
-
-    // Command that will sort the name in alphabetical order.
-    kReorderByNameAlphabetical,
-
-    // Command that will sort the name in reverse alphabetical order.
-    kReorderByNameReverseAlphabetical,
-
-    // Command that will sort by icon color in rainbow order.
-    kReorderByColor
-  };
-
   AppsGridContextMenu();
   AppsGridContextMenu(const AppsGridContextMenu&) = delete;
   AppsGridContextMenu& operator=(const AppsGridContextMenu&) = delete;
@@ -47,8 +32,15 @@ class ASH_EXPORT AppsGridContextMenu : public ui::SimpleMenuModel::Delegate,
   // Returns true if the apps grid context menu is showing.
   bool IsMenuShowing() const;
 
+  // Closes the context menu if it's showning.
+  void Cancel();
+
   // ui::SimpleMenuModel::Delegate:
   void ExecuteCommand(int command_id, int event_flags) override;
+
+  void set_owner_touch_dragging(bool touch_dragging) {
+    owner_touch_dragging_ = touch_dragging;
+  }
 
   views::MenuItemView* root_menu_item_view() const {
     return root_menu_item_view_;
@@ -76,6 +68,11 @@ class ASH_EXPORT AppsGridContextMenu : public ui::SimpleMenuModel::Delegate,
 
   // The root menu item view of `context_menu_model_`. Cached for testing.
   views::MenuItemView* root_menu_item_view_ = nullptr;
+
+  // Whether the owner view is currently touch dragging, in which case touch
+  // events will be forwarded from the context menu to the owner view (so the
+  // view can transition from showing a context menu to item drag).
+  bool owner_touch_dragging_ = false;
 };
 
 }  // namespace ash

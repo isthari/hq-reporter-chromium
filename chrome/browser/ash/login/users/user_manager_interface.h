@@ -1,21 +1,21 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_LOGIN_USERS_USER_MANAGER_INTERFACE_H_
 #define CHROME_BROWSER_ASH_LOGIN_USERS_USER_MANAGER_INTERFACE_H_
 
-// TODO(https://crbug.com/1164001): move to forward declaration when fixed.
-#include "chrome/browser/ash/login/user_flow.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_type.h"
 
 class AccountId;
 
 namespace ash {
+
 class MultiProfileUserController;
 class SupervisedUserManager;
 class UserImageManager;
+class UserFlow;
 
 // ChromeOS specific add-ons interface for the UserManager.
 class UserManagerInterface {

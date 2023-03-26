@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Copyright 2016 The Chromium Authors. All rights reserved.
-
-     Use of this source code is governed by a BSD-style license that can be
-     found in the LICENSE file.
+<!--
+Copyright 2016 The Chromium Authors
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
 -->
 <resources>
     <!-- Dimens for legacy UI
@@ -39,6 +39,7 @@
     <dimen name="pref_autofill_field_large_top_margin">16dp</dimen>
     <dimen name="pref_autofill_field_extra_large_top_margin">24dp</dimen>
     <dimen name="pref_autofill_field_bottom_margin">8dp</dimen>
+    <dimen name="pref_autofill_field_horizontal_margin">8dp</dimen>
 
     <!-- The dropdown element has no embedded bottom padding like the TextView has so the margin
       is doubled. -->

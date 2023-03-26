@@ -25,12 +25,14 @@
 
 #include "third_party/blink/public/web/web_local_frame_client.h"
 #include "third_party/blink/renderer/core/css/css_image_value.h"
+#include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_content.h"
-#include "third_party/blink/renderer/core/paint/image_element_timing.h"
+#include "third_party/blink/renderer/core/paint/timing/image_element_timing.h"
+#include "third_party/blink/renderer/core/paint/timing/paint_timing.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image_for_container.h"
@@ -52,6 +54,10 @@ StyleFetchedImage::StyleFetchedImage(ImageResourceContent* image,
   is_image_resource_ = true;
   is_lazyload_possibly_deferred_ = is_lazyload_possibly_deferred;
 
+  const PaintTiming* paint_timing = PaintTiming::From(document);
+  is_loaded_after_mouseover_ =
+      paint_timing && paint_timing->IsLCPMouseoverDispatchedRecently();
+
   image_ = image;
   image_->AddObserver(this);
   // ResourceFetcher is not determined from StyleFetchedImage and it is
@@ -67,11 +73,13 @@ void StyleFetchedImage::Prefinalize() {
 }
 
 bool StyleFetchedImage::IsEqual(const StyleImage& other) const {
-  if (!other.IsImageResource())
+  if (!other.IsImageResource()) {
     return false;
+  }
   const auto& other_image = To<StyleFetchedImage>(other);
-  if (image_ != other_image.image_)
+  if (image_ != other_image.image_) {
     return false;
+  }
   return url_ == other_image.url_;
 }
 
@@ -109,8 +117,9 @@ bool StyleFetchedImage::ErrorOccurred() const {
 
 bool StyleFetchedImage::IsAccessAllowed(String& failing_url) const {
   DCHECK(image_->IsLoaded());
-  if (image_->IsAccessAllowed())
+  if (image_->IsAccessAllowed()) {
     return true;
+  }
   failing_url = image_->Url().ElidedString();
   return false;
 }
@@ -124,7 +133,7 @@ gfx::SizeF StyleFetchedImage::ImageSize(
     multiplier /= image_->DevicePixelRatioHeaderValue();
   }
   if (auto* svg_image = DynamicTo<SVGImage>(image)) {
-    return ImageSizeForSVGImage(svg_image, multiplier, default_object_size);
+    return ImageSizeForSVGImage(*svg_image, multiplier, default_object_size);
   }
   respect_orientation = ForceOrientationIfNecessary(respect_orientation);
   gfx::SizeF size(image->Size(respect_orientation));
@@ -132,7 +141,11 @@ gfx::SizeF StyleFetchedImage::ImageSize(
 }
 
 bool StyleFetchedImage::HasIntrinsicSize() const {
-  return image_->GetImage()->HasIntrinsicSize();
+  const Image& image = *image_->GetImage();
+  if (auto* svg_image = DynamicTo<SVGImage>(image)) {
+    return HasIntrinsicDimensionsForSVGImage(*svg_image);
+  }
+  return image.HasIntrinsicSize();
 }
 
 void StyleFetchedImage::AddClient(ImageResourceObserver* observer) {
@@ -144,8 +157,9 @@ void StyleFetchedImage::RemoveClient(ImageResourceObserver* observer) {
 }
 
 void StyleFetchedImage::ImageNotifyFinished(ImageResourceContent*) {
-  if (!document_)
+  if (!document_) {
     return;
+  }
 
   if (image_ && image_->HasImage()) {
     Image& image = *image_->GetImage();
@@ -162,8 +176,9 @@ void StyleFetchedImage::ImageNotifyFinished(ImageResourceContent*) {
     image_->RecordDecodedImageType(document_->GetExecutionContext());
   }
 
-  if (LocalDOMWindow* window = document_->domWindow())
+  if (LocalDOMWindow* window = document_->domWindow()) {
     ImageElementTiming::From(*window).NotifyBackgroundImageFinished(this);
+  }
 
   // Oilpan: do not prolong the Document's lifetime.
   document_.Clear();
@@ -171,7 +186,7 @@ void StyleFetchedImage::ImageNotifyFinished(ImageResourceContent*) {
 
 scoped_refptr<Image> StyleFetchedImage::GetImage(
     const ImageResourceObserver&,
-    const Document&,
+    const Document& document,
     const ComputedStyle& style,
     const gfx::SizeF& target_size) const {
   Image* image = image_->GetImage();
@@ -181,10 +196,12 @@ scoped_refptr<Image> StyleFetchedImage::GetImage(
   }
 
   auto* svg_image = DynamicTo<SVGImage>(image);
-  if (!svg_image)
+  if (!svg_image) {
     return image;
-  return SVGImageForContainer::Create(svg_image, target_size,
-                                      style.EffectiveZoom(), url_);
+  }
+  return SVGImageForContainer::Create(
+      svg_image, target_size, style.EffectiveZoom(), url_,
+      document.GetStyleEngine().ResolveColorSchemeForEmbedding(&style));
 }
 
 bool StyleFetchedImage::KnownToBeOpaque(const Document&,
@@ -196,10 +213,6 @@ void StyleFetchedImage::LoadDeferredImage(const Document& document) {
   DCHECK(is_lazyload_possibly_deferred_);
   is_lazyload_possibly_deferred_ = false;
   document_ = &document;
-  if (document.GetFrame() && document.GetFrame()->Client()) {
-    document.GetFrame()->Client()->DidObserveLazyLoadBehavior(
-        WebLocalFrameClient::LazyLoadBehavior::kLazyLoadedImage);
-  }
   image_->LoadDeferredImage(document_->Fetcher());
 }
 
@@ -207,12 +220,14 @@ RespectImageOrientationEnum StyleFetchedImage::ForceOrientationIfNecessary(
     RespectImageOrientationEnum default_orientation) const {
   // SVG Images don't have orientation and assert on loading when
   // IsAccessAllowed is called.
-  if (image_->GetImage()->IsSVGImage())
+  if (image_->GetImage()->IsSVGImage()) {
     return default_orientation;
+  }
   // Cross-origin images must always respect orientation to prevent
   // potentially private data leakage.
-  if (!image_->IsAccessAllowed())
+  if (!image_->IsAccessAllowed()) {
     return kRespectImageOrientation;
+  }
   return default_orientation;
 }
 

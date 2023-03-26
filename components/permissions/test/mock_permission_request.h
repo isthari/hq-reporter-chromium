@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,9 @@ class MockPermissionRequest : public PermissionRequest {
 
   ~MockPermissionRequest() override;
 
-  void PermissionDecided(ContentSetting result, bool is_one_time);
+  void PermissionDecided(ContentSetting result,
+                         bool is_one_time,
+                         bool is_final_decision);
   void MarkFinished();
 
   bool granted();

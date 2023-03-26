@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,27 +11,26 @@
 #include <tuple>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
-#include "base/task/single_thread_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/feature_list.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "base/types/pass_key.h"
-#include "net/base/escape.h"
-#include "net/url_request/url_request.h"
-#include "storage/browser/blob/shareable_file_reference.h"
 #include "storage/browser/file_system/async_file_util.h"
+#include "storage/browser/file_system/copy_or_move_hook_delegate.h"
 #include "storage/browser/file_system/copy_or_move_operation_delegate.h"
 #include "storage/browser/file_system/file_observers.h"
 #include "storage/browser/file_system/file_system_backend.h"
 #include "storage/browser/file_system/file_system_context.h"
+#include "storage/browser/file_system/file_system_features.h"
 #include "storage/browser/file_system/file_system_file_util.h"
 #include "storage/browser/file_system/file_system_util.h"
 #include "storage/browser/file_system/remove_operation_delegate.h"
-#include "storage/browser/file_system/sandbox_file_system_backend.h"
+#include "storage/browser/file_system/sandbox_file_system_backend_delegate.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
 #include "storage/common/file_system/file_system_types.h"
-#include "storage/common/file_system/file_system_util.h"
 #include "third_party/blink/public/common/storage_key/storage_key.h"
 
 namespace storage {
@@ -103,15 +102,16 @@ void FileSystemOperationImpl::Copy(
     const FileSystemURL& dest_url,
     CopyOrMoveOptionSet options,
     ErrorBehavior error_behavior,
-    const CopyOrMoveProgressCallback& progress_callback,
+    std::unique_ptr<CopyOrMoveHookDelegate> copy_or_move_hook_delegate,
     StatusCallback callback) {
+  DCHECK(copy_or_move_hook_delegate);
   DCHECK(SetPendingOperationType(kOperationCopy));
   DCHECK(!recursive_operation_delegate_);
 
   recursive_operation_delegate_ = std::make_unique<CopyOrMoveOperationDelegate>(
       file_system_context(), src_url, dest_url,
       CopyOrMoveOperationDelegate::OPERATION_COPY, options, error_behavior,
-      progress_callback,
+      std::move(copy_or_move_hook_delegate),
       base::BindOnce(&FileSystemOperationImpl::DidFinishOperation,
                      weak_factory_.GetWeakPtr(), std::move(callback)));
   recursive_operation_delegate_->RunRecursively();
@@ -122,14 +122,15 @@ void FileSystemOperationImpl::Move(
     const FileSystemURL& dest_url,
     CopyOrMoveOptionSet options,
     ErrorBehavior error_behavior,
-    const CopyOrMoveProgressCallback& progress_callback,
+    std::unique_ptr<CopyOrMoveHookDelegate> copy_or_move_hook_delegate,
     StatusCallback callback) {
+  DCHECK(copy_or_move_hook_delegate);
   DCHECK(SetPendingOperationType(kOperationMove));
   DCHECK(!recursive_operation_delegate_);
   recursive_operation_delegate_ = std::make_unique<CopyOrMoveOperationDelegate>(
       file_system_context(), src_url, dest_url,
       CopyOrMoveOperationDelegate::OPERATION_MOVE, options, error_behavior,
-      progress_callback,
+      std::move(copy_or_move_hook_delegate),
       base::BindOnce(&FileSystemOperationImpl::DidFinishOperation,
                      weak_factory_.GetWeakPtr(), std::move(callback)));
   recursive_operation_delegate_->RunRecursively();
@@ -246,7 +247,7 @@ void FileSystemOperationImpl::TouchFile(const FileSystemURL& url,
 }
 
 void FileSystemOperationImpl::OpenFile(const FileSystemURL& url,
-                                       int file_flags,
+                                       uint32_t file_flags,
                                        OpenFileCallback callback) {
   DCHECK(SetPendingOperationType(kOperationOpenFile));
 
@@ -340,8 +341,14 @@ void FileSystemOperationImpl::CopyFileLocal(
   // Don't just DCHECK src_url.IsInSameFileSystem(dest_url). We don't care if
   // the two URLs are mounted in two different isolated file systems. As long
   // as their origin and type are the same, they are part of the same file
-  // system, and local operations are allowed.
-  DCHECK_EQ(src_url.origin(), dest_url.origin());
+  // system, and local operations are allowed. See https://crbug.com/1396116.
+  if (base::FeatureList::IsEnabled(
+          features::kFileSystemURLComparatorsTreatOpaqueOriginAsNoOrigin)) {
+    DCHECK(src_url.origin() == dest_url.origin() ||
+           (src_url.origin().opaque() && dest_url.origin().opaque()));
+  } else {
+    DCHECK_EQ(src_url.origin(), dest_url.origin());
+  }
   DCHECK_EQ(src_url.type(), dest_url.type());
 
   auto split_callback = base::SplitOnceCallback(std::move(callback));
@@ -362,8 +369,14 @@ void FileSystemOperationImpl::MoveFileLocal(const FileSystemURL& src_url,
   // Don't just DCHECK src_url.IsInSameFileSystem(dest_url). We don't care if
   // the two URLs are mounted in two different isolated file systems. As long
   // as their origin and type are the same, they are part of the same file
-  // system, and local operations are allowed.
-  DCHECK_EQ(src_url.origin(), dest_url.origin());
+  // system, and local operations are allowed. See https://crbug.com/1396116.
+  if (base::FeatureList::IsEnabled(
+          features::kFileSystemURLComparatorsTreatOpaqueOriginAsNoOrigin)) {
+    DCHECK(src_url.origin() == dest_url.origin() ||
+           (src_url.origin().opaque() && dest_url.origin().opaque()));
+  } else {
+    DCHECK_EQ(src_url.origin(), dest_url.origin());
+  }
   DCHECK_EQ(src_url.type(), dest_url.type());
 
   auto split_callback = base::SplitOnceCallback(std::move(callback));
@@ -409,7 +422,7 @@ void FileSystemOperationImpl::GetUsageAndQuotaThenRunTask(
     const FileSystemURL& url,
     base::OnceClosure task,
     base::OnceClosure error_callback) {
-  QuotaManagerProxy* quota_manager_proxy =
+  const scoped_refptr<QuotaManagerProxy>& quota_manager_proxy =
       file_system_context()->quota_manager_proxy();
   if (!quota_manager_proxy ||
       !file_system_context()->GetQuotaUtil(url.type())) {
@@ -425,7 +438,7 @@ void FileSystemOperationImpl::GetUsageAndQuotaThenRunTask(
   quota_manager_proxy->GetUsageAndQuota(
       blink::StorageKey(url.origin()),
       FileSystemTypeToQuotaStorageType(url.type()),
-      base::SequencedTaskRunnerHandle::Get(),
+      base::SequencedTaskRunner::GetCurrentDefault(),
       base::BindOnce(&FileSystemOperationImpl::DidGetUsageAndQuotaAndRunTask,
                      weak_ptr_, std::move(task), std::move(error_callback)));
 }
@@ -511,7 +524,7 @@ void FileSystemOperationImpl::DoTruncate(const FileSystemURL& url,
 
 void FileSystemOperationImpl::DoOpenFile(const FileSystemURL& url,
                                          OpenFileCallback callback,
-                                         int file_flags) {
+                                         uint32_t file_flags) {
   async_file_util_->CreateOrOpen(
       std::move(operation_context_), url, file_flags,
       base::BindOnce(&DidOpenFile, file_system_context_, weak_ptr_,

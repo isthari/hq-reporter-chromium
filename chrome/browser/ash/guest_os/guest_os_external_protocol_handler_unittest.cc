@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@
 #include "chrome/browser/ash/crostini/fake_crostini_features.h"
 #include "chrome/browser/ash/guest_os/guest_os_registry_service.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/dbus/vm_applications/apps.pb.h"
+#include "chromeos/ash/components/dbus/vm_applications/apps.pb.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -26,7 +26,7 @@ class GuestOsExternalProtocolHandlerTest : public testing::Test {
   void SetUp() override {
     fake_crostini_features_.set_enabled(true);
 
-    app_list_.set_vm_type(vm_tools::apps::ApplicationList::TERMINA);
+    app_list_.set_vm_type(vm_tools::apps::VmType::TERMINA);
     app_list_.set_vm_name("vm_name");
     app_list_.set_container_name("container_name");
   }
@@ -93,38 +93,35 @@ class GuestOsExternalProtocolHandlerBorealisTest
   void SetUp() override {
     GuestOsExternalProtocolHandlerTest::SetUp();
 
-    borealis::AllowAndEnableBorealis(
-        profile(), scoped_feature_list_,
-        *profile()->ScopedCrosSettingsTestHelper());
-    SetupBorealisApp(&borealis_scheme_, &borealis_url_);
+    allow_borealis_ = std::make_unique<borealis::ScopedAllowBorealis>(
+        profile(), /*also_enable=*/true);
+    SetupBorealisApp();
   }
 
  protected:
-  void SetupBorealisApp(std::string* borealis_scheme_output,
-                        std::string* borealis_url_output) {
-    app_list().set_vm_type(vm_tools::apps::ApplicationList::BOREALIS);
-    CHECK(base::Base64Decode(borealis::kAllowedScheme, borealis_scheme_output));
-    CHECK(base::Base64Decode(borealis::kURLAllowlist[0], borealis_url_output));
-    AddApp("id", "x-scheme-handler/" + *borealis_scheme_output);
+  void SetupBorealisApp() {
+    app_list().set_vm_type(vm_tools::apps::VmType::BOREALIS);
+    AddApp("id", std::string("x-scheme-handler/") + borealis::kAllowedScheme);
     GuestOsRegistryService(profile()).UpdateApplicationList(app_list());
   }
 
-  std::string borealis_scheme_;
-  std::string borealis_url_;
-
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
+  std::unique_ptr<borealis::ScopedAllowBorealis> allow_borealis_;
 };
 
 TEST_F(GuestOsExternalProtocolHandlerBorealisTest, AllowedURL) {
   EXPECT_TRUE(guest_os::GetHandler(
-      profile(), GURL(borealis_scheme_ + ":" + borealis_url_ + "9001")));
+      profile(),
+      GURL(borealis::kAllowedScheme + std::string(":") +
+           std::string(borealis::kURLAllowlist[0]) + std::string("9001"))));
 }
 
 TEST_F(GuestOsExternalProtocolHandlerBorealisTest, DisallowedURL) {
   EXPECT_FALSE(guest_os::GetHandler(
-      profile(), GURL("notborealisscheme:" + borealis_url_)));
+      profile(), GURL(std::string("notborealisscheme:") +
+                      std::string(borealis::kURLAllowlist[0]))));
   EXPECT_FALSE(guest_os::GetHandler(
-      profile(), GURL(borealis_scheme_ + ":notborealis/url")));
+      profile(),
+      GURL(borealis::kAllowedScheme + std::string(":notborealis/url"))));
 }
 }  // namespace guest_os

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/share/android/jni_headers/QRCodeGenerationRequest_jni.h"
 #include "chrome/services/qrcode_generator/public/cpp/qrcode_generator_service.h"
@@ -33,7 +33,7 @@ QRCodeGenerationRequest::QRCodeGenerationRequest(
       qrcode_generator::mojom::GenerateQRCodeRequest::New();
   request->data = url_string;
   request->should_render = true;
-  request->render_dino = true;
+  request->center_image = qrcode_generator::mojom::CenterImage::CHROME_DINO;
   request->render_module_style = qrcode_generator::mojom::ModuleStyle::CIRCLES;
   request->render_locator_style =
       qrcode_generator::mojom::LocatorStyle::ROUNDED;

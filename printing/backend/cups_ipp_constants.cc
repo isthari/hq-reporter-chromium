@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,6 +34,13 @@ constexpr char kPinEncryptionNone[] = "none";
 
 constexpr char kOptionFalse[] = "false";
 constexpr char kOptionTrue[] = "true";
+
+constexpr char kIppClientInfo[] = "client-info";
+constexpr char kIppClientName[] = "client-name";
+constexpr char kIppClientPatches[] = "client-patches";
+constexpr char kIppClientStringVersion[] = "client-string-version";
+constexpr char kIppClientType[] = "client-type";
+constexpr char kIppClientVersion[] = "client-version";
 
 #endif  // BUILDFLAG(IS_CHROMEOS)
 

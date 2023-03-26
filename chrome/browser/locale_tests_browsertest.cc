@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <memory>
 
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/environment.h"
 #include "build/build_config.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -36,7 +35,7 @@ class ScopedLocale {
       { "zh-TW", "zh_TW.UTF-8" }
     };
     bool found_locale = false;
-    for (size_t i = 0; i < base::size(kLocales); ++i) {
+    for (size_t i = 0; i < std::size(kLocales); ++i) {
       if (kLocales[i].chrome_locale == locale) {
         found_locale = true;
         setenv("LC_ALL", kLocales[i].system_locale, 1);

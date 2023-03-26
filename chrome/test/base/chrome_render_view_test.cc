@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,14 +13,12 @@
 #include "chrome/renderer/chrome_content_renderer_client.h"
 #include "chrome/test/base/chrome_unit_test_suite.h"
 #include "components/autofill/content/renderer/autofill_agent.h"
-#include "components/autofill/content/renderer/autofill_assistant_agent.h"
 #include "components/autofill/content/renderer/password_autofill_agent.h"
 #include "components/autofill/content/renderer/password_generation_agent.h"
 #include "components/autofill/content/renderer/test_password_autofill_agent.h"
 #include "components/spellcheck/renderer/spellcheck.h"
 #include "components/spellcheck/spellcheck_buildflags.h"
 #include "content/public/browser/native_web_keyboard_event.h"
-#include "content/public/renderer/render_view.h"
 #include "extensions/buildflags/buildflags.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
@@ -40,7 +38,6 @@
 #endif
 
 using autofill::AutofillAgent;
-using autofill::AutofillAssistantAgent;
 using autofill::PasswordAutofillAgent;
 using autofill::PasswordGenerationAgent;
 using blink::WebFrame;
@@ -63,12 +60,10 @@ class MockAutofillAgent : public AutofillAgent {
   MockAutofillAgent(RenderFrame* render_frame,
                     PasswordAutofillAgent* password_autofill_agent,
                     PasswordGenerationAgent* password_generation_agent,
-                    AutofillAssistantAgent* autofill_assistant_agent,
                     blink::AssociatedInterfaceRegistry* registry)
       : AutofillAgent(render_frame,
                       password_autofill_agent,
                       password_generation_agent,
-                      autofill_assistant_agent,
                       registry) {}
 
   MockAutofillAgent(const MockAutofillAgent&) = delete;
@@ -117,11 +112,9 @@ void ChromeRenderViewTest::SetUp() {
       GetMainRenderFrame(), &associated_interfaces_);
   password_generation_ = new autofill::PasswordGenerationAgent(
       GetMainRenderFrame(), password_autofill_agent_, &associated_interfaces_);
-  autofill_assistant_agent_ =
-      new autofill::AutofillAssistantAgent(GetMainRenderFrame());
   autofill_agent_ = new NiceMock<MockAutofillAgent>(
       GetMainRenderFrame(), password_autofill_agent_, password_generation_,
-      autofill_assistant_agent_, &associated_interfaces_);
+      &associated_interfaces_);
 }
 
 void ChromeRenderViewTest::TearDown() {

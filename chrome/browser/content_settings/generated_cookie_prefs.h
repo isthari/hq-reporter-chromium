@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@ namespace content_settings {
 
 extern const char kCookieSessionOnly[];
 extern const char kCookiePrimarySetting[];
+extern const char kCookieDefaultContentSetting[];
 
 // Must be kept in sync with the enum of the same name located in
 // chrome/browser/resources/settings/privacy_page/cookies_page.js
@@ -74,6 +75,20 @@ class GeneratedCookiePrimarySettingPref : public GeneratedCookiePrefBase {
 class GeneratedCookieSessionOnlyPref : public GeneratedCookiePrefBase {
  public:
   explicit GeneratedCookieSessionOnlyPref(Profile* profile);
+
+  // Generated Preference Interface.
+  extensions::settings_private::SetPrefResult SetPref(
+      const base::Value* value) override;
+  std::unique_ptr<extensions::api::settings_private::PrefObject> GetPrefObject()
+      const override;
+};
+
+// A generated preference that represents cookies content setting and supports
+// three states: allow, session only and block.
+class GeneratedCookieDefaultContentSettingPref
+    : public GeneratedCookiePrefBase {
+ public:
+  explicit GeneratedCookieDefaultContentSettingPref(Profile* profile);
 
   // Generated Preference Interface.
   extensions::settings_private::SetPrefResult SetPref(

@@ -1,14 +1,18 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/prefetch/prefetch_prefs.h"
+#include "chrome/browser/battery/battery_saver.h"
+#include "chrome/browser/data_saver/data_saver.h"
 #include "chrome/browser/prefetch/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
+#include "content/public/browser/devtools_agent_host.h"
+#include "content/public/browser/preloading.h"
+#include "content/public/common/content_features.h"
 
 namespace prefetch {
-
 void RegisterPredictionOptionsProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterIntegerPref(
@@ -55,8 +59,32 @@ void SetPreloadPagesState(PrefService* prefs, PreloadPagesState state) {
   prefs->SetInteger(prefs::kNetworkPredictionOptions, static_cast<int>(value));
 }
 
-bool IsSomePreloadingEnabled(const PrefService& prefs) {
-  return GetPreloadPagesState(prefs) != PreloadPagesState::kNoPreloading;
+content::PreloadingEligibility IsSomePreloadingEnabled(
+    const PrefService& prefs,
+    content::WebContents* web_contents) {
+  // Override kPreloadingHoldback when DevTools is opened to mitigate the cases
+  // in which developers are affected by kPreloadingHoldback.
+  if (!(web_contents && content::DevToolsAgentHost::HasFor(web_contents)) &&
+      base::FeatureList::IsEnabled(features::kPreloadingHoldback)) {
+    return content::PreloadingEligibility::kPreloadingDisabled;
+  }
+  return IsSomePreloadingEnabledIgnoringFinch(prefs);
+}
+
+content::PreloadingEligibility IsSomePreloadingEnabledIgnoringFinch(
+    const PrefService& prefs) {
+  // Arrange the results roughly in order of decreasing transience.
+  if (GetPreloadPagesState(prefs) == PreloadPagesState::kNoPreloading) {
+    return content::PreloadingEligibility::kPreloadingDisabled;
+  }
+  if (data_saver::IsDataSaverEnabled()) {
+    return content::PreloadingEligibility::kDataSaverEnabled;
+  }
+  if (battery::IsBatterySaverEnabled()) {
+    return content::PreloadingEligibility::kBatterySaverEnabled;
+  }
+
+  return content::PreloadingEligibility::kEligible;
 }
 
 }  // namespace prefetch

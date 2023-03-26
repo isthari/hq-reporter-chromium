@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,7 +43,9 @@ class TestEventProcessor : public EventProcessor {
   EventTargeter* GetDefaultEventTargeter() override;
   EventDispatchDetails OnEventFromSource(Event* event) override;
   void OnEventProcessingStarted(Event* event) override;
-  void OnEventProcessingFinished(Event* event) override;
+  void OnEventProcessingFinished(Event* event,
+                                 EventTarget* target,
+                                 const EventDispatchDetails& details) override;
 
  private:
   std::unique_ptr<EventTarget> root_;

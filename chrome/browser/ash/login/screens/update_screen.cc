@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,10 @@
 #include <algorithm>
 
 #include "ash/constants/ash_features.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/i18n/number_formatting.h"
 #include "base/logging.h"
+#include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/time/default_tick_clock.h"
 #include "base/time/time.h"
@@ -18,14 +19,23 @@
 #include "chrome/browser/ash/login/error_screens_histogram_helper.h"
 #include "chrome/browser/ash/login/screens/network_error.h"
 #include "chrome/browser/ash/login/wizard_context.h"
-#include "chrome/browser/ui/webui/chromeos/login/update_screen_handler.h"
+#include "chrome/browser/ash/system/timezone_util.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/ui/webui/ash/login/update_screen_handler.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/network/network_state.h"
+#include "chromeos/ash/components/network/network_state.h"
+#include "components/prefs/pref_service.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/strings/grit/ui_strings.h"
 
+// Enable VLOG level 1.
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
+
 namespace ash {
+
 namespace {
 
 constexpr const char kUserActionAcceptUpdateOverCellular[] =
@@ -35,15 +45,12 @@ constexpr const char kUserActionRejectUpdateOverCellular[] =
 
 constexpr const char kUserActionCancelUpdateShortcut[] = "cancel-update";
 
+constexpr const char kUserActionOptOutInfoNext[] = "opt-out-info-next";
+
 // Time in seconds after which we initiate reboot.
 constexpr const base::TimeDelta kWaitBeforeRebootTime = base::Seconds(2);
 
-// Delay before showing error message if captive portal is detected.
-// We wait for this delay to let captive portal to perform redirect and show
-// its login page before error message appears.
-constexpr const base::TimeDelta kDelayErrorMessage = base::Seconds(10);
-
-constexpr const base::TimeDelta kShowDelay = base::Microseconds(400);
+constexpr const base::TimeDelta kDefaultShowDelay = base::Microseconds(400);
 
 // When battery percent is lower and DISCHARGING warn user about it.
 const double kInsufficientBatteryPercent = 50;
@@ -79,7 +86,7 @@ void RecordUpdateStages(const base::TimeDelta check_time,
   RecordFinalizeTime(finalize_time);
 }
 
-}  // anonymous namespace
+}  // namespace
 
 // static
 std::string UpdateScreen::GetResultString(Result result) {
@@ -90,48 +97,43 @@ std::string UpdateScreen::GetResultString(Result result) {
       return "UpdateError";
     case Result::UPDATE_SKIPPED:
       return BaseScreen::kNotApplicable;
+    case Result::UPDATE_OPT_OUT_INFO_SHOWN:
+      return "UpdateNotRequired_OptOutInfo";
   }
 }
 
-UpdateScreen::UpdateScreen(UpdateView* view,
+UpdateScreen::UpdateScreen(base::WeakPtr<UpdateView> view,
                            ErrorScreen* error_screen,
                            const ScreenExitCallback& exit_callback)
     : BaseScreen(UpdateView::kScreenId, OobeScreenPriority::DEFAULT),
-      view_(view),
+      view_(std::move(view)),
       error_screen_(error_screen),
       exit_callback_(exit_callback),
-      histogram_helper_(
-          std::make_unique<ErrorScreensHistogramHelper>("Update")),
+      histogram_helper_(std::make_unique<ErrorScreensHistogramHelper>(
+          ErrorScreensHistogramHelper::ErrorParentScreen::kUpdate)),
       version_updater_(std::make_unique<VersionUpdater>(this)),
       wait_before_reboot_time_(kWaitBeforeRebootTime),
-      tick_clock_(base::DefaultTickClock::GetInstance()) {
-  if (view_)
-    view_->Bind(this);
-}
+      show_delay_(kDefaultShowDelay),
+      tick_clock_(base::DefaultTickClock::GetInstance()) {}
 
-UpdateScreen::~UpdateScreen() {
-  if (view_)
-    view_->Unbind();
-}
+UpdateScreen::~UpdateScreen() = default;
 
-void UpdateScreen::OnViewDestroyed(UpdateView* view) {
-  if (view_ == view)
-    view_ = nullptr;
-}
-
-bool UpdateScreen::MaybeSkip(WizardContext* context) {
-  if (context->enrollment_triggered_early) {
+bool UpdateScreen::MaybeSkip(WizardContext& context) {
+  if (context.enrollment_triggered_early) {
     LOG(WARNING) << "Skip OOBE Update because of enrollment request.";
     exit_callback_.Run(VersionUpdater::Result::UPDATE_SKIPPED);
     return true;
   }
 
-  const auto* skip_screen_key = context->configuration.FindKeyOfType(
-      configuration::kUpdateSkipUpdate, base::Value::Type::BOOLEAN);
-  const bool skip_screen = skip_screen_key && skip_screen_key->GetBool();
+  if (IsRollbackFlow(context)) {
+    LOG(WARNING)
+        << "Skip OOBE Update because enterprise rollback just happened.";
+    exit_callback_.Run(VersionUpdater::Result::UPDATE_SKIPPED);
+    return true;
+  }
 
-  if (skip_screen) {
-    LOG(WARNING) << "Skip OOBE Update because of configuration.";
+  if (!context.is_branded_build) {
+    LOG(WARNING) << "Skip OOBE Update because of not branded build.";
     exit_callback_.Run(VersionUpdater::Result::UPDATE_SKIPPED);
     return true;
   }
@@ -139,6 +141,7 @@ bool UpdateScreen::MaybeSkip(WizardContext* context) {
 }
 
 void UpdateScreen::ShowImpl() {
+  is_opt_out_enabled_ = CheckIfOptOutIsEnabled();
   // AccessibilityManager::Get() can be nullptr in unittests.
   if (AccessibilityManager::Get()) {
     AccessibilityManager* accessibility_manager = AccessibilityManager::Get();
@@ -147,9 +150,9 @@ void UpdateScreen::ShowImpl() {
                             weak_factory_.GetWeakPtr()));
   }
   if (!power_manager_subscription_.IsObserving()) {
-    power_manager_subscription_.Observe(PowerManagerClient::Get());
+    power_manager_subscription_.Observe(chromeos::PowerManagerClient::Get());
   }
-  PowerManagerClient::Get()->RequestStatusUpdate();
+  chromeos::PowerManagerClient::Get()->RequestStatusUpdate();
 #if !BUILDFLAG(GOOGLE_CHROME_BRANDING)
   if (view_) {
     view_->SetCancelUpdateShortcutEnabled(true);
@@ -159,10 +162,15 @@ void UpdateScreen::ShowImpl() {
       view_) {
     view_->SetUpdateState(UpdateView::UIState::kCellularPermission);
   }
-  show_timer_.Start(FROM_HERE, kShowDelay,
-                    base::BindOnce(&UpdateScreen::MakeSureScreenIsShown,
-                                   weak_factory_.GetWeakPtr()));
-
+  // If opt out is enabled for the region don't try to skip the screen
+  // without showing it, as we will need to show additional step to user anyway.
+  if (is_opt_out_enabled_) {
+    MakeSureScreenIsShown();
+  } else {
+    show_timer_.Start(FROM_HERE, show_delay_,
+                      base::BindOnce(&UpdateScreen::MakeSureScreenIsShown,
+                                     weak_factory_.GetWeakPtr()));
+  }
   version_updater_->StartNetworkCheck();
 }
 
@@ -170,19 +178,21 @@ void UpdateScreen::HideImpl() {
   accessibility_subscription_ = {};
   power_manager_subscription_.Reset();
   show_timer_.Stop();
-  if (view_)
-    view_->Hide();
   is_shown_ = false;
 }
 
-void UpdateScreen::OnUserAction(const std::string& action_id) {
+void UpdateScreen::OnUserAction(const base::Value::List& args) {
+  const std::string& action_id = args[0].GetString();
   bool is_chrome_branded_build = false;
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   is_chrome_branded_build = true;
 #endif
 
-  if (!is_chrome_branded_build &&
-      action_id == kUserActionCancelUpdateShortcut) {
+  if (action_id == kUserActionCancelUpdateShortcut) {
+    if (is_chrome_branded_build) {
+      VLOG(1) << "Ignore update cancel in branded build";
+      return;
+    }
     // Skip update UI, usually used only in debug builds/tests.
     VLOG(1) << "Forced update cancel";
     ExitUpdate(Result::UPDATE_NOT_REQUIRED);
@@ -191,8 +201,10 @@ void UpdateScreen::OnUserAction(const std::string& action_id) {
   } else if (action_id == kUserActionRejectUpdateOverCellular) {
     version_updater_->RejectUpdateOverCellular();
     ExitUpdate(Result::UPDATE_ERROR);
+  } else if (action_id == kUserActionOptOutInfoNext) {
+    FinishExitUpdate(Result::UPDATE_OPT_OUT_INFO_SHOWN);
   } else {
-    BaseScreen::OnUserAction(action_id);
+    BaseScreen::OnUserAction(args);
   }
 }
 
@@ -249,12 +261,12 @@ void UpdateScreen::ShowErrorMessage() {
   histogram_helper_->OnErrorShow(error_screen_->GetErrorState());
 }
 
-void UpdateScreen::UpdateErrorMessage(
-    const NetworkPortalDetector::CaptivePortalStatus status,
-    const NetworkError::ErrorState& error_state,
-    const std::string& network_name) {
+void UpdateScreen::UpdateErrorMessage(NetworkState::PortalState state,
+                                      NetworkError::ErrorState error_state,
+                                      const std::string& network_name) {
   error_screen_->SetErrorState(error_state, network_name);
-  if (status == NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_PORTAL) {
+  if (state == NetworkState::PortalState::kPortal ||
+      state == NetworkState::PortalState::kPortalSuspected) {
     if (is_first_portal_notification_) {
       is_first_portal_notification_ = false;
       error_screen_->FixCaptivePortal();
@@ -266,7 +278,7 @@ void UpdateScreen::DelayErrorMessage() {
   if (error_message_timer_.IsRunning())
     return;
 
-  error_message_timer_.Start(FROM_HERE, kDelayErrorMessage, this,
+  error_message_timer_.Start(FROM_HERE, delay_error_message_, this,
                              &UpdateScreen::ShowErrorMessage);
 }
 
@@ -291,8 +303,10 @@ void UpdateScreen::UpdateInfoChanged(
       // Do nothing in these cases, we don't want to notify the user of the
       // check unless there is an update.
     case update_engine::Operation::ATTEMPTING_ROLLBACK:
+    case update_engine::Operation::CLEANUP_PREVIOUS_UPDATE:
     case update_engine::Operation::DISABLED:
     case update_engine::Operation::IDLE:
+    case update_engine::Operation::UPDATED_BUT_DEFERRED:
       break;
     case update_engine::Operation::UPDATE_AVAILABLE:
       if (view_)
@@ -391,13 +405,16 @@ void UpdateScreen::UpdateInfoChanged(
 }
 
 void UpdateScreen::FinishExitUpdate(Result result) {
-  if (!start_update_stage_.is_null()) {
-    check_time_ = (check_time_.is_zero())
-                      ? tick_clock_->NowTicks() - start_update_stage_
-                      : check_time_;
+  if (!start_update_stage_.is_null() && check_time_.is_zero()) {
+    check_time_ = tick_clock_->NowTicks() - start_update_stage_;
     RecordCheckTime(check_time_);
   }
   show_timer_.Stop();
+  if (is_opt_out_enabled_ && result == Result::UPDATE_NOT_REQUIRED) {
+    if (view_)
+      view_->SetUpdateState(UpdateView::UIState::kOptOutInfo);
+    return;
+  }
   exit_callback_.Run(result);
 }
 
@@ -439,7 +456,7 @@ void UpdateScreen::UpdateBatteryWarningVisibility() {
   if (!view_)
     return;
   const absl::optional<power_manager::PowerSupplyProperties>& proto =
-      PowerManagerClient::Get()->GetLastStatus();
+      chromeos::PowerManagerClient::Get()->GetLastStatus();
   if (!proto.has_value())
     return;
   view_->ShowLowBatteryWarningMessage(
@@ -467,7 +484,9 @@ void UpdateScreen::MakeSureScreenIsShown() {
     view_->SetAutoTransition(
         !AccessibilityManager::Get()->IsSpokenFeedbackEnabled());
   }
-  view_->Show();
+  // `is_opt_out_enabled_` can be true only if the feature is enabled.
+  DCHECK(!is_opt_out_enabled_ || features::IsConsumerAutoUpdateToggleAllowed());
+  view_->Show(is_opt_out_enabled_);
 }
 
 void UpdateScreen::HideErrorMessage() {
@@ -499,8 +518,21 @@ void UpdateScreen::OnAccessibilityStatusChanged(
 }
 
 void UpdateScreen::OnErrorScreenHidden() {
-  error_screen_->SetParentScreen(OobeScreen::SCREEN_UNKNOWN);
+  error_screen_->SetParentScreen(OOBE_SCREEN_UNKNOWN);
   Show(context());
+}
+
+// static
+bool UpdateScreen::CheckIfOptOutIsEnabled() {
+  if (!features::IsConsumerAutoUpdateToggleAllowed())
+    return false;
+  auto country = system::GetCountryCodeFromTimezoneIfAvailable(
+      g_browser_process->local_state()->GetString(
+          prefs::kSigninScreenTimezone));
+  if (!country.has_value()) {
+    return false;
+  }
+  return base::Contains(kEUCountriesSet, country.value());
 }
 
 }  // namespace ash

@@ -1,19 +1,22 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/accessibility/accessibility_controller_impl.h"
 #include "ash/accessibility/ui/accessibility_confirmation_dialog.h"
 #include "ash/shell.h"
+#include "base/files/file_util.h"
+#include "base/files/scoped_temp_dir.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/threading/thread_restrictions.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/ash/accessibility/dictation_bubble_test_helper.h"
+#include "chrome/browser/ash/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/webui_url_constants.h"
 #include "content/public/test/browser_test.h"
@@ -30,10 +33,7 @@ class AccessibilityPrivateApiTest
     : public extensions::ExtensionApiTest,
       public testing::WithParamInterface<ContextType> {
  public:
-  AccessibilityPrivateApiTest() : ExtensionApiTest(GetParam()) {
-    dictation_bubble_test_helper_ =
-        std::make_unique<DictationBubbleTestHelper>();
-  }
+  AccessibilityPrivateApiTest() : ExtensionApiTest(GetParam()) {}
   ~AccessibilityPrivateApiTest() override = default;
   AccessibilityPrivateApiTest& operator=(const AccessibilityPrivateApiTest&) =
       delete;
@@ -44,7 +44,13 @@ class AccessibilityPrivateApiTest
   void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
     scoped_feature_list_.InitAndEnableFeature(
-        ::features::kExperimentalAccessibilityDictationCommands);
+        ::features::kExperimentalAccessibilityDictationWithPumpkin);
+  }
+
+  void SetUpOnMainThread() override {
+    ExtensionApiTest::SetUpOnMainThread();
+    dictation_bubble_test_helper_ =
+        std::make_unique<DictationBubbleTestHelper>();
   }
 
   [[nodiscard]] bool RunSubtest(const char* subtest) {
@@ -73,9 +79,7 @@ IN_PROC_BROWSER_TEST_P(AccessibilityPrivateApiTest, OpenSettingsSubpage) {
   Profile* profile = AccessibilityManager::Get()->profile();
 
   // Install the Settings App.
-  web_app::WebAppProvider::GetForTest(profile)
-      ->system_web_app_manager()
-      .InstallSystemAppsForTesting();
+  SystemWebAppManager::GetForTest(profile)->InstallSystemAppsForTesting();
 
   ASSERT_TRUE(RunSubtest("testOpenSettingsSubpage")) << message_;
 
@@ -99,9 +103,7 @@ IN_PROC_BROWSER_TEST_P(AccessibilityPrivateApiTest,
   Profile* profile = AccessibilityManager::Get()->profile();
 
   // Install the Settings App.
-  web_app::WebAppProvider::GetForTest(profile)
-      ->system_web_app_manager()
-      .InstallSystemAppsForTesting();
+  SystemWebAppManager::GetForTest(profile)->InstallSystemAppsForTesting();
 
   ASSERT_TRUE(RunSubtest("testOpenSettingsSubpageInvalidSubpage")) << message_;
 
@@ -128,10 +130,10 @@ class AccessibilityPrivateApiFeatureTest : public AccessibilityPrivateApiTest {
     AccessibilityPrivateApiTest::SetUpCommandLine(command_line);
     if (enabled) {
       scoped_feature_list_.InitAndEnableFeature(
-          ::features::kEnhancedNetworkVoices);
+          ::features::kExperimentalAccessibilityDictationMoreCommands);
     } else {
       scoped_feature_list_.InitAndDisableFeature(
-          ::features::kEnhancedNetworkVoices);
+          ::features::kExperimentalAccessibilityDictationMoreCommands);
     }
   }
 
@@ -215,13 +217,15 @@ IN_PROC_BROWSER_TEST_P(AccessibilityPrivateApiTest, UpdateDictationBubble) {
 
   // This test requires some back and forth communication between C++ and JS.
   // Use message listeners to force the synchronicity of this test.
-  ExtensionTestMessageListener standby_listener("Standby", /*will_reply=*/true);
+  ExtensionTestMessageListener standby_listener("Standby",
+                                                ReplyBehavior::kWillReply);
   ExtensionTestMessageListener show_text_listener("Show text",
-                                                  /*will_reply=*/true);
-  ExtensionTestMessageListener macro_success_listener("Show macro success",
-                                                      /*will_reply=*/true);
-  ExtensionTestMessageListener reset_listener("Reset", /*will_reply=*/true);
-  ExtensionTestMessageListener hide_listener("Hide", /*will_reply=*/false);
+                                                  ReplyBehavior::kWillReply);
+  ExtensionTestMessageListener macro_success_listener(
+      "Show macro success", ReplyBehavior::kWillReply);
+  ExtensionTestMessageListener reset_listener("Reset",
+                                              ReplyBehavior::kWillReply);
+  ExtensionTestMessageListener hide_listener("Hide");
 
   extensions::ResultCatcher result_catcher;
   ASSERT_TRUE(RunSubtest("testUpdateDictationBubble")) << message_;
@@ -266,9 +270,9 @@ IN_PROC_BROWSER_TEST_P(AccessibilityPrivateApiTest, UpdateDictationBubble) {
 IN_PROC_BROWSER_TEST_P(AccessibilityPrivateApiTest,
                        UpdateDictationBubbleWithHints) {
   Shell::Get()->accessibility_controller()->dictation().SetEnabled(true);
-  ExtensionTestMessageListener show_listener("Some hints", /*will_reply=*/true);
-  ExtensionTestMessageListener no_hints_listener("No hints",
-                                                 /*will_reply=*/false);
+  ExtensionTestMessageListener show_listener("Some hints",
+                                             ReplyBehavior::kWillReply);
+  ExtensionTestMessageListener no_hints_listener("No hints");
   extensions::ResultCatcher result_catcher;
   ASSERT_TRUE(RunSubtest("testUpdateDictationBubbleWithHints")) << message_;
 
@@ -285,6 +289,73 @@ IN_PROC_BROWSER_TEST_P(AccessibilityPrivateApiTest,
       std::vector<std::u16string>()));
 
   ASSERT_TRUE(result_catcher.GetNextResult()) << result_catcher.message();
+}
+
+IN_PROC_BROWSER_TEST_P(AccessibilityPrivateApiTest,
+                       InstallPumpkinForDictationFail) {
+  // Enable Dictation to allow the API to work.
+  Shell::Get()->accessibility_controller()->dictation().SetEnabled(true);
+  ASSERT_TRUE(RunSubtest("testInstallPumpkinForDictationFail")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_P(AccessibilityPrivateApiTest,
+                       InstallPumpkinForDictationSuccess) {
+  // Enable Dictation to allow the API to work.
+  Shell::Get()->accessibility_controller()->dictation().SetEnabled(true);
+
+  // Initialize Pumpkin DLC directory.
+  base::ScopedAllowBlockingForTesting allow_blocking;
+  base::ScopedTempDir pumpkin_root_dir;
+  ASSERT_TRUE(pumpkin_root_dir.CreateUniqueTempDir());
+  // Create subdirectories for each locale supported by Pumpkin.
+  std::vector<std::string> locales{"en_us", "fr_fr", "it_it", "de_de", "es_es"};
+  std::vector<base::ScopedTempDir> sub_dirs(locales.size());
+  for (size_t i = 0; i < locales.size(); ++i) {
+    ASSERT_TRUE(sub_dirs[i].Set(pumpkin_root_dir.GetPath().Append(locales[i])));
+  }
+
+  // Create fake DLC files.
+  AccessibilityManager::Get()->SetDlcPathForTest(pumpkin_root_dir.GetPath());
+  ASSERT_TRUE(base::WriteFile(
+      pumpkin_root_dir.GetPath().Append("js_pumpkin_tagger_bin.js"),
+      "Fake js pumpkin tagger"));
+  ASSERT_TRUE(
+      base::WriteFile(pumpkin_root_dir.GetPath().Append("tagger_wasm_main.js"),
+                      "Fake tagger wasm js"));
+  ASSERT_TRUE(base::WriteFile(
+      pumpkin_root_dir.GetPath().Append("tagger_wasm_main.wasm"),
+      "Fake tagger wasm wasm"));
+  for (size_t j = 0; j < locales.size(); ++j) {
+    std::string locale = locales[j];
+    ASSERT_TRUE(
+        base::WriteFile(sub_dirs[j].GetPath().Append("action_config.binarypb"),
+                        "Fake " + locale + " action config"));
+    ASSERT_TRUE(
+        base::WriteFile(sub_dirs[j].GetPath().Append("pumpkin_config.binarypb"),
+                        "Fake " + locale + " pumpkin config"));
+  }
+
+  ASSERT_TRUE(RunSubtest("testInstallPumpkinForDictationSuccess")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_P(AccessibilityPrivateApiTest,
+                       GetDlcContentsDlcNotOnDevice) {
+  ASSERT_TRUE(RunSubtest("testGetDlcContentsDlcNotOnDevice")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_P(AccessibilityPrivateApiTest, GetDlcContentsSuccess) {
+  // Create a fake DLC file. We need to put this in a ScopedTempDir because this
+  // test doesn't have write access to the actual DLC directory
+  // (/run/imageloader/).
+  base::ScopedAllowBlockingForTesting allow_blocking;
+  base::ScopedTempDir dlc_dir;
+  ASSERT_TRUE(dlc_dir.CreateUniqueTempDir());
+  AccessibilityManager::Get()->SetDlcPathForTest(dlc_dir.GetPath());
+  std::string content = "Fake DLC file content";
+  ASSERT_TRUE(
+      base::WriteFile(dlc_dir.GetPath().Append("voice.zvoice"), content));
+
+  ASSERT_TRUE(RunSubtest("testGetDlcContentsSuccess")) << message_;
 }
 
 INSTANTIATE_TEST_SUITE_P(PersistentBackground,

@@ -1,11 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_CHROMEOS_POLICY_DLP_DLP_DRAG_DROP_NOTIFIER_H_
 #define CHROME_BROWSER_CHROMEOS_POLICY_DLP_DLP_DRAG_DROP_NOTIFIER_H_
 
-#include "base/callback.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_data_transfer_notifier.h"
 
 namespace policy {
@@ -33,13 +32,6 @@ class DlpDragDropNotifier : public DlpDataTransferNotifier {
   void ProceedPressed(views::Widget* widget);
 
   void CancelPressed(views::Widget* widget);
-
-  // views::WidgetObserver
-  void OnWidgetClosing(views::Widget* widget) override;
-
- private:
-  // Drop callback.
-  base::OnceClosure drop_cb_;
 };
 
 }  // namespace policy

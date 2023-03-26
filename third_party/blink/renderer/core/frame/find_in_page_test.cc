@@ -1,10 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/frame/find_in_page.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/mojom/frame/find_in_page.mojom-blink.h"
 #include "third_party/blink/renderer/core/editing/finder/text_finder.h"
@@ -81,6 +81,7 @@ class FindInPageCallbackReceiver {
   bool is_called;
 };
 
+#if BUILDFLAG(IS_ANDROID)
 TEST_F(FindInPageTest, FindMatchRectsReturnsCorrectRects) {
   GetDocument().body()->setInnerHTML("aAaAbBaBbAaAaA");
   GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
@@ -105,6 +106,7 @@ TEST_F(FindInPageTest, FindMatchRectsReturnsCorrectRects) {
                      GetTextFinder().ActiveFindMatchRect()));
   EXPECT_TRUE(callback_receiver.IsCalled());
 }
+#endif
 
 TEST_F(FindInPageTest, FindAllAs) {
   std::ostringstream str;

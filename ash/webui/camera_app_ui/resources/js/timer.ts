@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@ import {assert} from './assert.js';
  */
 export class OneShotTimer {
   private timeoutId = 0;
+
   /**
    * The parameters are same as the parameters of setTimeout().
    */

@@ -1,8 +1,9 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/json/json_reader.h"
+#include "base/strings/escape.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/policy/chrome_browser_policy_connector.h"
@@ -38,14 +39,14 @@ class ManagementUITest : public InProcessBrowserTest {
     policy::BrowserPolicyConnector::SetPolicyProviderForTesting(&provider_);
   }
 
-  void VerifyTexts(base::Value* actual_values,
-                   std::map<std::string, std::u16string>& expected_values) {
-    base::DictionaryValue* values_as_dict = NULL;
-    actual_values->GetAsDictionary(&values_as_dict);
+  void VerifyTexts(
+      base::Value* actual_values,
+      const std::map<std::string, std::u16string>& expected_values) {
+    base::Value::Dict& values_as_dict = actual_values->GetDict();
     for (const auto& val : expected_values) {
-      std::u16string actual_value;
-      values_as_dict->GetString(val.first, &actual_value);
-      ASSERT_EQ(actual_value, val.second);
+      const std::string* actual_value = values_as_dict.FindString(val.first);
+      ASSERT_TRUE(actual_value);
+      ASSERT_EQ(base::UTF8ToUTF16(*actual_value), val.second);
     }
   }
   policy::MockConfigurationPolicyProvider* provider() { return &provider_; }
@@ -84,7 +85,9 @@ IN_PROC_BROWSER_TEST_F(ManagementUITest, ManagementStateChange) {
       {"browserManagementNotice",
        l10n_util::GetStringFUTF16(
            IDS_MANAGEMENT_NOT_MANAGED_NOTICE,
-           base::UTF8ToUTF16(chrome::kManagedUiLearnMoreUrl))},
+           base::UTF8ToUTF16(chrome::kManagedUiLearnMoreUrl),
+           base::EscapeForHTML(l10n_util::GetStringUTF16(
+               IDS_MANAGEMENT_LEARN_MORE_ACCCESSIBILITY_TEXT)))},
       {"extensionReportingTitle",
        l10n_util::GetStringUTF16(IDS_MANAGEMENT_EXTENSIONS_INSTALLED)},
       {"pageSubtitle",
@@ -117,7 +120,9 @@ IN_PROC_BROWSER_TEST_F(ManagementUITest, ManagementStateChange) {
       {"browserManagementNotice",
        l10n_util::GetStringFUTF16(
            IDS_MANAGEMENT_BROWSER_NOTICE,
-           base::UTF8ToUTF16(chrome::kManagedUiLearnMoreUrl))},
+           base::UTF8ToUTF16(chrome::kManagedUiLearnMoreUrl),
+           base::EscapeForHTML(l10n_util::GetStringUTF16(
+               IDS_MANAGEMENT_LEARN_MORE_ACCCESSIBILITY_TEXT)))},
       {"extensionReportingTitle",
        l10n_util::GetStringUTF16(IDS_MANAGEMENT_EXTENSIONS_INSTALLED)},
       {"pageSubtitle", l10n_util::GetStringUTF16(IDS_MANAGEMENT_SUBTITLE)},

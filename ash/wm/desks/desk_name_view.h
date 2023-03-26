@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,10 +25,6 @@ class ASH_EXPORT DeskNameView : public DesksTextfield {
   DeskNameView(const DeskNameView&) = delete;
   DeskNameView& operator=(const DeskNameView&) = delete;
   ~DeskNameView() override;
-
-  // Commits an on-going desk name change (if any) by bluring the focus away
-  // from any view on |widget|, where |widget| should be the desks bar widget.
-  static void CommitChanges(views::Widget* widget);
 
   // DesksTextfield:
   void OnViewHighlighted() override;

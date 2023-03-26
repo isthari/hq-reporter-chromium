@@ -1,11 +1,11 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/numerics/math_constants.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
@@ -228,9 +228,7 @@ class SinusoidalLinearChirpSource {
   }
 
  private:
-  enum {
-    kMinFrequency = 5
-  };
+  static constexpr int kMinFrequency = 5;
 
   double sample_rate_;
   int total_samples_;

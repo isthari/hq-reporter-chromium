@@ -40,8 +40,7 @@ struct SameSizeAsQualifiedNameImpl
 
 ASSERT_SIZE(QualifiedName::QualifiedNameImpl, SameSizeAsQualifiedNameImpl);
 
-using QualifiedNameCache =
-    HashSet<QualifiedName::QualifiedNameImpl*, QualifiedNameHash>;
+using QualifiedNameCache = HashSet<QualifiedName::QualifiedNameImpl*>;
 
 static QualifiedNameCache& GetQualifiedNameCache() {
   // This code is lockless and thus assumes it all runs on one thread!
@@ -76,7 +75,7 @@ QualifiedName::QualifiedName(const AtomicString& p,
                              const AtomicString& l,
                              const AtomicString& n) {
   QualifiedNameData data = {
-      {p.Impl(), l.Impl(), n.IsEmpty() ? g_null_atom.Impl() : n.Impl()}, false};
+      {p.Impl(), l.Impl(), n.empty() ? g_null_atom.Impl() : n.Impl()}, false};
   QualifiedNameCache::AddResult add_result =
       GetQualifiedNameCache().AddWithTranslator<QNameComponentsTranslator>(
           data);

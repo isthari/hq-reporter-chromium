@@ -1,18 +1,18 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import 'chrome://resources/cr_elements/cr_input/cr_input.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
 
-import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import {CrInputElement} from 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
+import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import {CrInputElement} from 'chrome://resources/cr_elements/cr_input/cr_input.js';
 import {Url} from 'chrome://resources/mojo/url/mojom/url.mojom-webui.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {I18nMixin} from './i18n_setup.js';
+import {getTemplate} from './doodle_share_dialog.html.js';
 import {DoodleShareChannel} from './new_tab_page.mojom-webui.js';
 import {WindowProxy} from './window_proxy.js';
 
@@ -21,18 +21,25 @@ import {WindowProxy} from './window_proxy.js';
  */
 const FACEBOOK_APP_ID: number = 738026486351791;
 
-interface DoodleShareDialogElement {
+export interface DoodleShareDialogElement {
   $: {
     dialog: CrDialogElement,
+    copyButton: HTMLElement,
+    doneButton: HTMLElement,
+    emailButton: HTMLElement,
+    title: HTMLElement,
     url: CrInputElement,
   };
 }
 
 /** Dialog that lets the user share the doodle. */
-class DoodleShareDialogElement extends I18nMixin
-(PolymerElement) {
+export class DoodleShareDialogElement extends PolymerElement {
   static get is() {
     return 'ntp-doodle-share-dialog';
+  }
+
+  static get template() {
+    return getTemplate();
   }
 
   static get properties() {
@@ -45,7 +52,7 @@ class DoodleShareDialogElement extends I18nMixin
     };
   }
 
-  title: string;
+  override title: string;
   url: Url;
 
   private onFacebookClick_() {
@@ -84,9 +91,11 @@ class DoodleShareDialogElement extends I18nMixin
   private notifyShare_(channel: DoodleShareChannel) {
     this.dispatchEvent(new CustomEvent('share', {detail: channel}));
   }
+}
 
-  static get template() {
-    return html`{__html_template__}`;
+declare global {
+  interface HTMLElementTagNameMap {
+    'ntp-doodle-share-dialog': DoodleShareDialogElement;
   }
 }
 

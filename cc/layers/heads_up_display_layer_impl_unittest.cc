@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,7 +44,12 @@ void CheckDrawLayer(HeadsUpDisplayLayerImpl* layer,
 }
 
 class HeadsUpDisplayLayerImplTest : public LayerTreeImplTestBase,
-                                    public ::testing::Test {};
+                                    public ::testing::Test {
+ public:
+  HeadsUpDisplayLayerImplTest()
+      : LayerTreeImplTestBase(
+            FakeLayerTreeFrameSink::Create3dForGpuRasterization()) {}
+};
 
 TEST_F(HeadsUpDisplayLayerImplTest, ResourcelessSoftwareDrawAfterResourceLoss) {
   host_impl()->CreatePendingTree();

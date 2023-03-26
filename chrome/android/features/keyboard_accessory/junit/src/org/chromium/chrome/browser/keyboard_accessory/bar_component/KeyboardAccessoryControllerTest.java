@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@ import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.junit.Assert.assertThat;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -18,9 +19,12 @@ import static org.mockito.Mockito.when;
 
 import static org.chromium.chrome.browser.keyboard_accessory.AccessoryAction.AUTOFILL_SUGGESTION;
 import static org.chromium.chrome.browser.keyboard_accessory.AccessoryAction.GENERATE_PASSWORD_AUTOMATIC;
+import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.ANIMATION_LISTENER;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.BAR_ITEMS;
+import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.HAS_SUGGESTIONS;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.OBFUSCATED_CHILD_AT_CALLBACK;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SHEET_TITLE;
+import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SHOW_KEYBOARD_CALLBACK;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SHOW_SWIPING_IPH;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SKIP_CLOSING_ANIMATION;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.VISIBLE;
@@ -28,7 +32,6 @@ import static org.chromium.chrome.browser.keyboard_accessory.bar_component.Keybo
 import com.google.android.material.tabs.TabLayout;
 
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
@@ -38,11 +41,9 @@ import org.robolectric.annotation.Config;
 import org.chromium.base.Callback;
 import org.chromium.base.FeatureList;
 import org.chromium.base.metrics.RecordHistogram;
-import org.chromium.base.metrics.RecordHistogramJni;
-import org.chromium.base.metrics.test.ShadowRecordHistogram;
+import org.chromium.base.metrics.UmaRecorderHolder;
 import org.chromium.base.task.test.CustomShadowAsyncTask;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.keyboard_accessory.AccessoryAction;
 import org.chromium.chrome.browser.keyboard_accessory.AccessoryBarContents;
@@ -69,12 +70,8 @@ import java.util.HashMap;
  * Controller tests for the keyboard accessory component.
  */
 @RunWith(BaseRobolectricTestRunner.class)
-@Config(manifest = Config.NONE,
-        shadows = {CustomShadowAsyncTask.class, ShadowRecordHistogram.class})
+@Config(manifest = Config.NONE, shadows = {CustomShadowAsyncTask.class})
 public class KeyboardAccessoryControllerTest {
-    @Rule
-    public JniMocker mocker = new JniMocker();
-
     @Mock
     private PropertyObserver<PropertyKey> mMockPropertyObserver;
     @Mock
@@ -89,8 +86,6 @@ public class KeyboardAccessoryControllerTest {
     private KeyboardAccessoryCoordinator.TabSwitchingDelegate mMockTabSwitchingDelegate;
     @Mock
     private AutofillDelegate mMockAutofillDelegate;
-    @Mock
-    private RecordHistogram.Natives mMockRecordHistogram;
 
     private final KeyboardAccessoryData.Tab mTestTab =
             new KeyboardAccessoryData.Tab("Passwords", null, null, 0, 0, null);
@@ -101,10 +96,9 @@ public class KeyboardAccessoryControllerTest {
 
     @Before
     public void setUp() {
-        ShadowRecordHistogram.reset();
+        UmaRecorderHolder.resetForTesting();
         MockitoAnnotations.initMocks(this);
         setAutofillFeature(false);
-        mocker.mock(RecordHistogramJni.TEST_HOOKS, mMockRecordHistogram);
         when(mMockView.getTabLayout()).thenReturn(mock(TabLayout.class));
         when(mMockTabLayout.getTabSwitchingDelegate()).thenReturn(mMockTabSwitchingDelegate);
         mCoordinator = new KeyboardAccessoryCoordinator(
@@ -576,6 +570,44 @@ public class KeyboardAccessoryControllerTest {
                                 new Action("Dos", GENERATE_PASSWORD_AUTOMATIC, null))});
         assertThat(getShownMetricsCount(AccessoryBarContents.WITH_ACTIONS), is(1));
         assertThat(getGenerationImpressionCount(), is(2));
+    }
+
+    @Test
+    public void testModelChangesUpdatesTheContentDescriptionInModernView() {
+        setAutofillFeature(true);
+        PropertyProvider<AutofillSuggestion[]> autofillSuggestionProvider =
+                new PropertyProvider<>(AUTOFILL_SUGGESTION);
+
+        mCoordinator.registerAutofillProvider(autofillSuggestionProvider, mMockAutofillDelegate);
+        autofillSuggestionProvider.notifyObservers(
+                new AutofillSuggestion[] {mock(AutofillSuggestion.class)});
+
+        assertThat(mModel.get(HAS_SUGGESTIONS), is(true));
+
+        autofillSuggestionProvider.notifyObservers(new AutofillSuggestion[] {});
+        assertThat(mModel.get(HAS_SUGGESTIONS), is(false));
+    }
+
+    @Test
+    public void testFowardsAnimationEventsToVisibilityDelegate() {
+        mModel.get(ANIMATION_LISTENER).onFadeInEnd();
+        verify(mMockVisibilityDelegate).onBarFadeInAnimationEnd();
+    }
+
+    @Test
+    public void testDoubleTappingCloseButtonHasNoEffect() {
+        setTabs(new KeyboardAccessoryData.Tab[] {mTestTab});
+        setActiveTab(mTestTab);
+
+        // First click should dismiss.
+        mModel.get(SHOW_KEYBOARD_CALLBACK).run();
+        setActiveTab(null); // Simulate the tab was reset by the click.
+        verify(mMockVisibilityDelegate, atLeast(1)).onChangeAccessorySheet(0);
+        verify(mMockVisibilityDelegate).onCloseAccessorySheet();
+
+        // Second click should not crash but be noop.
+        verifyNoMoreInteractions(mMockVisibilityDelegate);
+        mModel.get(SHOW_KEYBOARD_CALLBACK).run();
     }
 
     private int getGenerationImpressionCount() {

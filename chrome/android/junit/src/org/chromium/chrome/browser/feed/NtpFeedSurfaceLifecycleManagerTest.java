@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,6 +56,8 @@ public class NtpFeedSurfaceLifecycleManagerTest {
     private PrefService mPrefService;
     @Mock
     private FeedSurfaceCoordinator mCoordinator;
+    @Mock
+    private FeedReliabilityLogger mFeedReliabilityLogger;
 
     private NtpFeedSurfaceLifecycleManager mNtpStreamLifecycleManager;
 
@@ -67,6 +69,7 @@ public class NtpFeedSurfaceLifecycleManagerTest {
         when(mPrefService.getBoolean(anyString())).thenReturn(true);
         doNothing().when(mPrefService).setBoolean(anyString(), anyBoolean());
         NtpFeedSurfaceLifecycleManager.setPrefServiceForTesting(mPrefService);
+        when(mCoordinator.getFeedReliabilityLogger()).thenReturn(mFeedReliabilityLogger);
 
         ApplicationStatus.onStateChangeForTesting(mActivity, ActivityState.CREATED);
         mNtpStreamLifecycleManager =

@@ -1,10 +1,9 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.page_info;
 
-import android.content.Intent;
 import android.graphics.drawable.Drawable;
 import android.view.ViewGroup;
 
@@ -14,7 +13,6 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentManager;
 
 import org.chromium.base.Callback;
-import org.chromium.base.Consumer;
 import org.chromium.components.browser_ui.site_settings.SiteSettingsDelegate;
 import org.chromium.components.content_settings.CookieControlsBridge;
 import org.chromium.components.content_settings.CookieControlsObserver;
@@ -26,6 +24,7 @@ import org.chromium.url.GURL;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.Collection;
+import java.util.function.Consumer;
 
 /**
  *  Provides embedder-level information to PageInfoController.
@@ -41,7 +40,6 @@ public abstract class PageInfoControllerDelegate {
     }
 
     private final AutocompleteSchemeClassifier mAutocompleteSchemeClassifier;
-    private final VrHandler mVrHandler;
     private final boolean mIsSiteSettingsAvailable;
     private final boolean mCookieControlsShown;
     protected @OfflinePageState int mOfflinePageState;
@@ -49,9 +47,8 @@ public abstract class PageInfoControllerDelegate {
     protected String mOfflinePageUrl;
 
     public PageInfoControllerDelegate(AutocompleteSchemeClassifier autocompleteSchemeClassifier,
-            VrHandler vrHandler, boolean isSiteSettingsAvailable, boolean cookieControlsShown) {
+            boolean isSiteSettingsAvailable, boolean cookieControlsShown) {
         mAutocompleteSchemeClassifier = autocompleteSchemeClassifier;
-        mVrHandler = vrHandler;
         mIsSiteSettingsAvailable = isSiteSettingsAvailable;
         mCookieControlsShown = cookieControlsShown;
         mIsHttpsImageCompressionApplied = false;
@@ -80,31 +77,10 @@ public abstract class PageInfoControllerDelegate {
     public abstract ModalDialogManager getModalDialogManager();
 
     /**
-     * Returns whether or not an instant app is available for |url|.
-     */
-    public boolean isInstantAppAvailable(String url) {
-        return false;
-    }
-
-    /**
      * Returns whether LiteMode https image compression was applied on this page
      */
     public boolean isHttpsImageCompressionApplied() {
         return mIsHttpsImageCompressionApplied;
-    }
-
-    /**
-     * Gets the instant app intent for the given URL if one exists.
-     */
-    public Intent getInstantAppIntentForUrl(String url) {
-        return null;
-    }
-
-    /**
-     * Returns a VrHandler for Page Info UI.
-     */
-    public VrHandler getVrHandler() {
-        return mVrHandler;
     }
 
     /**
@@ -170,6 +146,11 @@ public abstract class PageInfoControllerDelegate {
     public abstract void showCookieSettings();
 
     /**
+     * Show ad personalization settings.
+     */
+    public abstract void showAdPersonalizationSettings();
+
+    /**
      * Creates Cookie Controls Bridge.
      * @param observer The CookieControlsObserver to create the bridge with.
      * @return the object that facilitates interfacing with native code.
@@ -182,7 +163,7 @@ public abstract class PageInfoControllerDelegate {
      * Allows the delegate to insert additional {@link PageInfoRowView} views.
      * @return a collection of controllers corresponding to these views.
      */
-    @Nullable
+    @NonNull
     public abstract Collection<PageInfoSubpageController> createAdditionalRowViews(
             PageInfoMainController mainController, ViewGroup rowWrapper);
 

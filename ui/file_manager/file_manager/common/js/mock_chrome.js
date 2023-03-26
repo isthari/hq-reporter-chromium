@@ -1,14 +1,19 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 /**
  * Installs a mock object to replace window.chrome in a unit test.
- * @param {Object} mockChrome
+ * @param {!Object} mockChrome
  */
 export function installMockChrome(mockChrome) {
   /** @suppress {const|checkTypes} */
-  chrome = mockChrome;
+  window.chrome = window.chrome || {};
+  const chrome = window.chrome;
+  for (const [key, value] of Object.entries(mockChrome)) {
+    const target = chrome[key] || {};
+    Object.assign(target, value);
+  }
 }
 
 /**
@@ -115,6 +120,12 @@ export class MockChromeFileManagerPrivateDirectoryChanged {
      */
     this.sizeStats_ = {};
 
+    /**
+     * Mocked out drive quota metadata to return when testing.
+     * @private {!chrome.fileManagerPrivate.DriveQuotaMetadata|undefined}
+     */
+    this.driveQuotaMetadata_ = undefined;
+
     /** @suppress {const} */
     window.chrome = window.chrome || {};
 
@@ -136,6 +147,10 @@ export class MockChromeFileManagerPrivateDirectoryChanged {
     /** @suppress {const} */
     window.chrome.fileManagerPrivate.getSizeStats =
         this.getSizeStats_.bind(this);
+
+    /** @suppress {const} */
+    window.chrome.fileManagerPrivate.getDriveQuotaMetadata =
+        this.getDriveQuotaMetadata_.bind(this);
 
     this.dispatchOnDirectoryChanged =
         this.dispatchOnDirectoryChanged.bind(this);
@@ -197,6 +212,33 @@ export class MockChromeFileManagerPrivateDirectoryChanged {
    */
   unsetVolumeSizeStats(volumeId) {
     delete this.sizeStats_[volumeId];
+  }
+
+  /**
+   * Returns the stubbed out drive quota metadata for a directory change.
+   * @param {!function((!chrome.fileManagerPrivate.DriveQuotaMetadata|undefined))}
+   *     callback
+   * @private
+   */
+  getDriveQuotaMetadata_(callback) {
+    callback(this.driveQuotaMetadata_);
+  }
+
+  /**
+   * Sets the drive quota metadata to be returned when testing.
+   * @param {(!chrome.fileManagerPrivate.DriveQuotaMetadata|undefined)}
+   *     driveQuotaMetadata
+   */
+  setDriveQuotaMetadata(driveQuotaMetadata) {
+    this.driveQuotaMetadata_ = driveQuotaMetadata;
+  }
+
+  /**
+   * Set the drive quota metadata to undefined to emulate getDriveQuotaMetadata_
+   * returning back undefined.
+   */
+  unsetDriveQuotaMetadata() {
+    this.driveQuotaMetadata_ = undefined;
   }
 
   /**

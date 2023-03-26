@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,12 +22,10 @@ enum class PermissionStatus;
 
 namespace content {
 class RenderFrameHost;
-class PermissionControllerImpl;
 
 class GeolocationServiceImplContext {
  public:
-  explicit GeolocationServiceImplContext(
-      PermissionControllerImpl* permission_controller);
+  GeolocationServiceImplContext();
 
   GeolocationServiceImplContext(const GeolocationServiceImplContext&) = delete;
   GeolocationServiceImplContext& operator=(
@@ -41,7 +39,6 @@ class GeolocationServiceImplContext {
                          PermissionCallback callback);
 
  private:
-  raw_ptr<PermissionControllerImpl> permission_controller_;
   bool has_pending_permission_request_ = false;
 
   void HandlePermissionStatus(PermissionCallback callback,
@@ -80,8 +77,8 @@ class CONTENT_EXPORT GeolocationServiceImpl
       blink::mojom::PermissionStatus permission_status);
 
   raw_ptr<device::mojom::GeolocationContext> geolocation_context_;
-  raw_ptr<PermissionControllerImpl> permission_controller_;
-  raw_ptr<RenderFrameHost> render_frame_host_;
+  // Note: |render_frame_host_| owns |this| instance.
+  const raw_ptr<RenderFrameHost> render_frame_host_;
 
   // Along with each GeolocationService, we store a
   // GeolocationServiceImplContext which primarily exists to manage a

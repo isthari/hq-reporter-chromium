@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,7 +58,7 @@ void SharingServiceProxyAndroid::SendSharedClipboardMessage(
 
   if (!device) {
     std::move(callback).Run(
-        static_cast<int>(SharingSendMessageResult::kDeviceNotFound));
+        static_cast<int32_t>(SharingSendMessageResult::kDeviceNotFound));
     return;
   }
 
@@ -90,7 +90,7 @@ void SharingServiceProxyAndroid::GetDeviceCandidates(
         env, j_device_info,
         base::android::ConvertUTF8ToJavaString(env, device_info->guid()),
         base::android::ConvertUTF8ToJavaString(env, device_info->client_name()),
-        device_info->device_type(),
+        static_cast<int>(device_info->form_factor()),
         device_info->last_updated_timestamp().ToJavaTime());
   }
 }

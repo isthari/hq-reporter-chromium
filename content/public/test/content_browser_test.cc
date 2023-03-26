@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,7 +34,7 @@
 #include "ui/base/ime/init/input_method_initializer.h"
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "content/public/test/network_connection_change_simulator.h"
 #endif
 
@@ -83,7 +83,7 @@ void ContentBrowserTest::SetUp() {
                                  subprocess_path);
 #endif
 
-#if defined(USE_AURA) && defined(TOOLKIT_VIEWS) && !BUILDFLAG(IS_CHROMECAST)
+#if defined(USE_AURA) && defined(TOOLKIT_VIEWS) && !BUILDFLAG(IS_CASTOS)
   // https://crbug.com/695054: Ignore window activation/deactivation to make
   // the Chrome-internal focus unaffected by OS events caused by running tests
   // in parallel.
@@ -114,7 +114,7 @@ void ContentBrowserTest::TearDown() {
 }
 
 void ContentBrowserTest::PreRunTestOnMainThread() {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   NetworkConnectionChangeSimulator network_change_simulator;
   network_change_simulator.InitializeChromeosConnectionType();
 #endif

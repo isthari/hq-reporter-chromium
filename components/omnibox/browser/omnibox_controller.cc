@@ -1,16 +1,15 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/omnibox/browser/omnibox_controller.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
+#include "components/omnibox/browser/autocomplete_controller_emitter.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/omnibox_client.h"
-#include "components/omnibox/browser/omnibox_controller_emitter.h"
-#include "components/omnibox/browser/omnibox_edit_controller.h"
 #include "components/omnibox/browser/omnibox_edit_model.h"
 #include "components/omnibox/browser/omnibox_popup_selection.h"
 #include "components/omnibox/browser/omnibox_popup_view.h"
@@ -25,7 +24,8 @@ OmniboxController::OmniboxController(OmniboxEditModel* omnibox_edit_model,
           AutocompleteClassifier::DefaultOmniboxProviders())) {
   autocomplete_controller_->AddObserver(this);
 
-  OmniboxControllerEmitter* emitter = client_->GetOmniboxControllerEmitter();
+  AutocompleteControllerEmitter* emitter =
+      client_->GetAutocompleteControllerEmitter();
   if (emitter)
     autocomplete_controller_->AddObserver(emitter);
 }
@@ -58,7 +58,7 @@ void OmniboxController::OnResultChanged(AutocompleteController* controller,
       omnibox_edit_model_->OnPopupResultChanged();
       omnibox_edit_model_->OnPopupDataChanged(
           std::u16string(),
-          /*is_temporary_text=*/false, std::u16string(), std::u16string(), {},
+          /*is_temporary_text=*/false, std::u16string(), std::u16string(),
           std::u16string(), false, std::u16string());
     }
   } else {

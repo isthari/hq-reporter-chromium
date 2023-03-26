@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,8 +27,9 @@ class BrowserCloudManagementStatusProvider final
   BrowserCloudManagementStatusProvider();
   ~BrowserCloudManagementStatusProvider() final;
 
+ protected:
   // ManagementStatusProvider impl
-  EnterpriseManagementAuthority GetAuthority() final;
+  EnterpriseManagementAuthority FetchAuthority() final;
 };
 
 class LocalBrowserManagementStatusProvider final
@@ -37,8 +38,20 @@ class LocalBrowserManagementStatusProvider final
   LocalBrowserManagementStatusProvider();
   ~LocalBrowserManagementStatusProvider() final;
 
+ protected:
   // ManagementStatusProvider impl
-  EnterpriseManagementAuthority GetAuthority() final;
+  EnterpriseManagementAuthority FetchAuthority() final;
+};
+
+class LocalDomainBrowserManagementStatusProvider final
+    : public policy::ManagementStatusProvider {
+ public:
+  LocalDomainBrowserManagementStatusProvider();
+  ~LocalDomainBrowserManagementStatusProvider() final;
+
+ protected:
+  // ManagementStatusProvider impl
+  EnterpriseManagementAuthority FetchAuthority() final;
 };
 
 class ProfileCloudManagementStatusProvider final
@@ -47,26 +60,25 @@ class ProfileCloudManagementStatusProvider final
   explicit ProfileCloudManagementStatusProvider(Profile* profile);
   ~ProfileCloudManagementStatusProvider() final;
 
+ protected:
   // ManagementStatusProvider impl
-  EnterpriseManagementAuthority GetAuthority() final;
+  EnterpriseManagementAuthority FetchAuthority() final;
 
  private:
   raw_ptr<Profile> profile_;
 };
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+// This is both a device and browser management status provider for ChromeOS.
 class DeviceManagementStatusProvider final
     : public policy::ManagementStatusProvider {
  public:
-  explicit DeviceManagementStatusProvider(
-      policy::BrowserPolicyConnectorAsh* browser_policy_connector);
+  DeviceManagementStatusProvider();
   ~DeviceManagementStatusProvider() final;
 
+ protected:
   // ManagementStatusProvider impl
-  EnterpriseManagementAuthority GetAuthority() final;
-
- private:
-  policy::BrowserPolicyConnectorAsh* browser_policy_connector_;
+  EnterpriseManagementAuthority FetchAuthority() final;
 };
 #endif
 

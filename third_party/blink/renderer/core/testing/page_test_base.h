@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,9 +21,11 @@ class TickClock;
 
 namespace blink {
 
+class AnimationClock;
 class BrowserInterfaceBrokerProxy;
 class Document;
 class FrameSelection;
+class LayoutObject;
 class LocalFrame;
 class PendingAnimations;
 class StyleEngine;
@@ -65,7 +67,8 @@ class PageTestBase : public testing::Test, public ScopedMockOverlayScrollbars {
   void SetUp(gfx::Size);
   void SetupPageWithClients(ChromeClient* = nullptr,
                             LocalFrameClient* = nullptr,
-                            FrameSettingOverrideFunction = nullptr);
+                            FrameSettingOverrideFunction = nullptr,
+                            gfx::Size size = gfx::Size(800, 600));
   // TODO(shanmuga.m@samsung.com): These two function to be unified.
   void SetBodyContent(const std::string&);
   void SetBodyInnerHTML(const String&);

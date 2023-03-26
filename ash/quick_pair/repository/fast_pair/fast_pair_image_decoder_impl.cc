@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include "ash/quick_pair/common/logging.h"
 #include "ash/quick_pair/common/quick_pair_browser_delegate.h"
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "components/image_fetcher/core/image_fetcher.h"
 #include "components/image_fetcher/core/image_fetcher_impl.h"
 #include "components/image_fetcher/core/request_metadata.h"
@@ -15,6 +15,7 @@
 #include "services/data_decoder/public/cpp/decode_image.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_operations.h"
+#include "ui/gfx/image/image_skia_rep_default.h"
 
 namespace {
 
@@ -46,7 +47,7 @@ constexpr net::NetworkTrafficAnnotationTag kTrafficAnnotation =
             "feature is enabled by default. "
           chrome_policy {
             FastPairEnabled {
-                FastPairEnabled: true
+                FastPairEnabled: false
             }
           }
         })");
@@ -63,7 +64,16 @@ void ToImage(DecodeImageCallback on_image_decoded_callback,
     std::move(on_image_decoded_callback).Run(gfx::Image());
     return;
   }
-  gfx::ImageSkia image = gfx::ImageSkia::CreateFrom1xBitmap(bitmap);
+
+  // Because the implicit resize when showing device images on display for the
+  // notifications by using Skia's `DrawPicture` creates pixelated artifacts for
+  // small images, we need to explicitly do the resize to avoid `DrawPicture`
+  // doing the scaling. We do this by resizing `bitmap` to 5x to increase the
+  // quality on the notification images.
+  SkBitmap bitmap5x =
+      skia::ImageOperations::Resize(bitmap, skia::ImageOperations::RESIZE_BEST,
+                                    5 * bitmap.width(), 5 * bitmap.height());
+  gfx::ImageSkia image = gfx::ImageSkia::CreateFromBitmap(bitmap5x, 5.0);
 
   if (resize_to_notification_size && image.height() > kMaxNotificationHeight) {
     image = gfx::ImageSkiaOperations::CreateResizedImage(

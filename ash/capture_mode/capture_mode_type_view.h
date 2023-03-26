@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,8 @@
 
 namespace ash {
 
-class CaptureModeToggleButton;
+class IconButton;
+class IconSwitch;
 
 // A view that is part of the CaptureBarView, from which the user can toggle
 // between the two available capture types (image, and video).
@@ -28,12 +29,8 @@ class ASH_EXPORT CaptureModeTypeView : public views::View {
   CaptureModeTypeView& operator=(const CaptureModeTypeView&) = delete;
   ~CaptureModeTypeView() override;
 
-  CaptureModeToggleButton* image_toggle_button() const {
-    return image_toggle_button_;
-  }
-  CaptureModeToggleButton* video_toggle_button() const {
-    return video_toggle_button_;
-  }
+  IconButton* image_toggle_button() const { return image_toggle_button_; }
+  IconButton* video_toggle_button() const { return video_toggle_button_; }
 
   // Called when the capture type changes.
   void OnCaptureTypeChanged(CaptureModeType new_type);
@@ -42,10 +39,15 @@ class ASH_EXPORT CaptureModeTypeView : public views::View {
   void OnImageToggle();
   void OnVideoToggle();
 
-  // Owned by the views hierarchy. Initialize `image_toggle_button_` to nullptr
-  // as it is never created in projector mode.
-  CaptureModeToggleButton* image_toggle_button_ = nullptr;
-  CaptureModeToggleButton* video_toggle_button_;
+  // Owned by the views hierarchy. The capture type switch contains image and
+  // video capture type toggle buttons.
+  IconSwitch* capture_type_switch_;
+
+  // In the projector-initiated sessions, only `video_toggle_button_` is
+  // created. Otherwise, both toggle buttons are created. Image and video toggle
+  // buttons are owned by `capture_type_switch_`.
+  IconButton* image_toggle_button_ = nullptr;
+  IconButton* video_toggle_button_;
 };
 
 }  // namespace ash

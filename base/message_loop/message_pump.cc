@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright 2010 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -70,14 +70,6 @@ std::unique_ptr<MessagePump> MessagePump::Create(MessagePumpType type) {
     case MessagePumpType::NS_RUNLOOP:
       return std::make_unique<MessagePumpNSRunLoop>();
 #endif
-
-#if BUILDFLAG(IS_WIN)
-    case MessagePumpType::UI_WITH_WM_QUIT_SUPPORT: {
-      auto pump = std::make_unique<MessagePumpForUI>();
-      pump->EnableWmQuit();
-      return pump;
-    }
-#endif  // BUILDFLAG(IS_WIN)
 
     case MessagePumpType::CUSTOM:
       NOTREACHED();

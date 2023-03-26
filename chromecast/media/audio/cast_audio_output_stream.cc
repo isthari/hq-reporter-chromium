@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,17 +7,18 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/bits.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/bind_post_task.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "chromecast/base/bind_to_task_runner.h"
 #include "chromecast/base/metrics/cast_metrics_helper.h"
 #include "chromecast/common/mojom/constants.mojom.h"
@@ -148,7 +149,7 @@ CastAudioOutputStream::MixerServiceWrapper::MixerServiceWrapper(
 
   base::Thread::Options options;
   options.message_pump_type = base::MessagePumpType::IO;
-  options.priority = base::ThreadPriority::REALTIME_AUDIO;
+  options.thread_type = base::ThreadType::kRealtimeAudio;
   CHECK(io_thread_.StartWithOptions(std::move(options)));
   io_task_runner_ = io_thread_.task_runner();
   DCHECK(io_task_runner_);
@@ -291,7 +292,7 @@ void CastAudioOutputStream::MixerServiceWrapper::FillNextBuffer(
       base::TimeTicks() + base::Microseconds(playout_timestamp);
 
   int frames_filled = source_callback_->OnMoreData(
-      reported_delay, reported_delay_timestamp, 0, audio_bus_.get());
+      reported_delay, reported_delay_timestamp, {}, audio_bus_.get());
   DCHECK_EQ(frames_filled, frames);
   mixer_connection_->SendNextBuffer(frames);
 }

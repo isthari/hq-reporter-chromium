@@ -1,26 +1,21 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/callback_list.h"
-#include "base/feature_list.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/test/integration/secondary_account_helper.h"
-#include "chrome/browser/sync/test/integration/single_client_status_change_checker.h"
 #include "chrome/browser/sync/test/integration/sync_service_impl_harness.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/common/chrome_paths.h"
-#include "components/send_tab_to_self/features.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/driver/glue/sync_transport_data_prefs.h"
-#include "components/sync/driver/sync_driver_switches.h"
 #include "components/sync/driver/sync_service_impl.h"
 #include "content/public/test/browser_test.h"
 
@@ -34,10 +29,7 @@ syncer::ModelTypeSet AllowedTypesInStandaloneTransportMode() {
       syncer::DEVICE_INFO, syncer::USER_CONSENTS, syncer::SECURITY_EVENTS,
       syncer::AUTOFILL_WALLET_DATA, syncer::SHARING_MESSAGE);
   allowed_types.PutAll(syncer::ControlTypes());
-  if (base::FeatureList::IsEnabled(
-          send_tab_to_self::kSendTabToSelfWhenSignedIn)) {
-    allowed_types.Put(syncer::SEND_TAB_TO_SELF);
-  }
+  allowed_types.Put(syncer::SEND_TAB_TO_SELF);
   return allowed_types;
 }
 
@@ -57,9 +49,11 @@ class SingleClientSecondaryAccountSyncTest : public SyncTest {
   SingleClientSecondaryAccountSyncTest& operator=(
       const SingleClientSecondaryAccountSyncTest&) = delete;
 
-  ~SingleClientSecondaryAccountSyncTest() override {}
+  ~SingleClientSecondaryAccountSyncTest() override = default;
 
   void SetUpInProcessBrowserTestFixture() override {
+    SyncTest::SetUpInProcessBrowserTestFixture();
+
     test_signin_client_subscription_ =
         secondary_account_helper::SetUpSigninClient(&test_url_loader_factory_);
   }
@@ -74,8 +68,6 @@ class SingleClientSecondaryAccountSyncTest : public SyncTest {
   Profile* profile() { return GetProfile(0); }
 
  private:
-  base::test::ScopedFeatureList features_;
-
   base::CallbackListSubscription test_signin_client_subscription_;
 };
 

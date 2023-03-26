@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -66,16 +66,16 @@ message ScheduledTask {
 
   // Extras for the BackgroundTask, stored for an ExactTask. OneOffTask and
   // PeriodicTask objects store their extras through their scheduling backend
-  // (JobScheduler and GcmNetworkManager).
+  // JobScheduler.
   repeated ExtraItem extras = 3;
 
   // Required network type, stored for an ExactTask. OneOffTask and PeriodicTask
   // objects store their required network type through their scheduling backend
-  // (JobScheduler and GCMNetworkManager).
+  // JobScheduler.
   RequiredNetworkType required_network_type = 4;
 
   // Bool representing whether the task requires charging. Stored for an
   // ExactTask. OneOffTask and PeriodicTask objects store this info through
-  // their scheduling backend (JobScheduler and GCMNetworkManager).
+  // their scheduling backend JobScheduler.
   bool requires_charging = 5;
 }

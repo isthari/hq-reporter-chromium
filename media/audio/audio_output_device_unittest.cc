@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,9 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/shared_memory_mapping.h"
@@ -20,7 +20,6 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/task_runner.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -56,7 +55,7 @@ class MockRenderCallback : public AudioRendererSink::RenderCallback {
   MOCK_METHOD4(Render,
                int(base::TimeDelta delay,
                    base::TimeTicks timestamp,
-                   int prior_frames_skipped,
+                   const AudioGlitchInfo& glitch_info,
                    AudioBus* dest));
   MOCK_METHOD0(OnRenderError, void());
 };
@@ -70,11 +69,9 @@ class MockAudioOutputIPC : public AudioOutputIPC {
                void(AudioOutputIPCDelegate* delegate,
                     const base::UnguessableToken& session_id,
                     const std::string& device_id));
-  MOCK_METHOD3(
-      CreateStream,
-      void(AudioOutputIPCDelegate* delegate,
-           const AudioParameters& params,
-           const absl::optional<base::UnguessableToken>& processing_id));
+  MOCK_METHOD2(CreateStream,
+               void(AudioOutputIPCDelegate* delegate,
+                    const AudioParameters& params));
   MOCK_METHOD0(PlayStream, void());
   MOCK_METHOD0(PauseStream, void());
   MOCK_METHOD0(FlushStream, void());
@@ -125,7 +122,7 @@ class AudioOutputDeviceTest : public testing::Test {
 AudioOutputDeviceTest::AudioOutputDeviceTest()
     : device_status_(OUTPUT_DEVICE_STATUS_ERROR_INTERNAL) {
   default_audio_parameters_.Reset(AudioParameters::AUDIO_PCM_LINEAR,
-                                  CHANNEL_LAYOUT_STEREO, 48000, 1024);
+                                  ChannelLayoutConfig::Stereo(), 48000, 1024);
   SetDevice(kDefaultDeviceId);
 }
 
@@ -177,7 +174,7 @@ void AudioOutputDeviceTest::ReceiveAuthorization(OutputDeviceStatus status) {
 
 void AudioOutputDeviceTest::StartAudioDevice() {
   if (device_status_ == OUTPUT_DEVICE_STATUS_OK)
-    EXPECT_CALL(*audio_output_ipc_, CreateStream(audio_device_.get(), _, _));
+    EXPECT_CALL(*audio_output_ipc_, CreateStream(audio_device_.get(), _));
   else
     EXPECT_CALL(callback_, OnRenderError());
 

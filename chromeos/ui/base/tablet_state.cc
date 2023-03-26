@@ -1,14 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chromeos/ui/base/tablet_state.h"
 
 #include "base/check_op.h"
-#include "build/chromeos_buildflags.h"
+#include "ui/display/screen.h"
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chromeos/startup/browser_params_proxy.h"
 #include "ui/base/pointer/touch_ui_controller.h"
+#include "ui/display/screen.h"
 #endif
 
 namespace chromeos {
@@ -32,12 +34,15 @@ TabletState::~TabletState() {
 }
 
 bool TabletState::InTabletMode() const {
-  return state_ == display::TabletState::kInTabletMode ||
-         state_ == display::TabletState::kEnteringTabletMode;
+  return state() == display::TabletState::kInTabletMode ||
+         state() == display::TabletState::kEnteringTabletMode;
+}
+
+display::TabletState TabletState::state() const {
+  return display::Screen::GetScreen()->GetTabletState();
 }
 
 void TabletState::OnDisplayTabletStateChanged(display::TabletState state) {
-  state_ = state;
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
   // TouchUIController is used by Chrome and other apps to determine whether
   // the device is in either a primarily touch-input or primarily keyboard
@@ -55,5 +60,17 @@ void TabletState::OnDisplayTabletStateChanged(display::TabletState state) {
   ui::TouchUiController::Get()->OnTabletModeToggled(InTabletMode());
 #endif
 }
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+void TabletState::EnableTabletModeForTesting(bool enable) {
+  // Do not use this method in case where crosapi is enabled since it implies
+  // Ash server is available.
+  DCHECK(chromeos::BrowserParamsProxy::Get()
+             ->DisableCrosapiForTesting());                     // IN-TEST
+  display::Screen::GetScreen()->OverrideTabletStateForTesting(  // IN-TEST
+      enable ? display::TabletState::kInTabletMode
+             : display::TabletState::kInClamshellMode);
+}
+#endif
 
 }  // namespace chromeos

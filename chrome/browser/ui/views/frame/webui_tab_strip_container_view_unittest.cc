@@ -1,11 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/frame/webui_tab_strip_container_view.h"
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/feature_engagement/tracker_factory.h"
@@ -51,13 +51,11 @@ TEST_F(WebUITabStripContainerViewTest, TouchModeTransition) {
   EXPECT_FALSE(browser_view()->GetTabStripVisible());
 
   ui::TouchUiController::TouchUiScoperForTesting disable_touch_mode(false);
-  browser_view()->Layout();
   EXPECT_FALSE(WebUITabStripContainerView::UseTouchableTabStrip(
       browser_view()->browser()));
   EXPECT_TRUE(browser_view()->GetTabStripVisible());
 
   ui::TouchUiController::TouchUiScoperForTesting reenable_touch_mode(true);
-  browser_view()->Layout();
   EXPECT_TRUE(WebUITabStripContainerView::UseTouchableTabStrip(
       browser_view()->browser()));
   EXPECT_FALSE(browser_view()->GetTabStripVisible());

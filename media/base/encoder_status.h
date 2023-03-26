@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,9 +21,11 @@ struct EncoderStatusTraits {
     kEncoderInitializationError = 7,
     kEncoderFailedFlush = 8,
     kEncoderMojoConnectionError = 9,
+    kUnsupportedFrameFormat = 10,
+    kScalingError = 11,
+    kFormatConversionError = 12,
   };
-  static constexpr StatusGroupType Group() { return "EncoderStatusCodes"; }
-  static constexpr Codes DefaultEnumValue() { return Codes::kOk; }
+  static constexpr StatusGroupType Group() { return "EncoderStatus"; }
 };
 
 using EncoderStatus = TypedStatus<EncoderStatusTraits>;

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -83,13 +83,20 @@ std::string GetStringValue(const base::Value& network, const std::string& key) {
   return *value;
 }
 
+bool GetBoolValue(const base::Value& network, const std::string& key) {
+  absl::optional<bool> value = network.FindBoolKey(key);
+  DCHECK(value);
+  return *value;
+}
+
 void ManagedOncCollapseToActive(base::Value* network) {
   DCHECK(network);
   if (!network->is_dict()) {
     return;
   }
 
-  base::Value* active = network->FindKey(onc::kAugmentationActiveSetting);
+  base::Value* active =
+      network->GetDict().Find(onc::kAugmentationActiveSetting);
   if (active) {
     *network = active->Clone();
     return;
@@ -114,7 +121,8 @@ void ManagedOncCollapseToUiData(base::Value* network) {
   DCHECK(network);
   DCHECK(network->is_dict());
 
-  base::Value* shared = network->FindKey(onc::kAugmentationSharedSetting);
+  base::Value* shared =
+      network->GetDict().Find(onc::kAugmentationSharedSetting);
   if (shared) {
     *network = shared->Clone();
     return;
@@ -226,6 +234,11 @@ std::string OncGetEapInner(const base::Value& network) {
 std::string OncGetEapOuter(const base::Value& network) {
   const base::Value* eap = OncGetEap(network);
   return GetStringValue(*eap, onc::eap::kOuter);
+}
+
+bool OncGetEapSaveCredentials(const base::Value& network) {
+  const base::Value* eap = OncGetEap(network);
+  return GetBoolValue(*eap, onc::eap::kSaveCredentials);
 }
 
 std::string OncGetEapPassword(const base::Value& network) {

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/android/jni_utils.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/json/json_writer.h"
 #include "chrome/android/test_support_jni_headers/OfflineTestUtil_jni.h"
 #include "chrome/browser/android/profile_key_util.h"
@@ -80,7 +80,7 @@ void OnGetVisualsDoneExtractThumbnail(
 void OnDeletePageDone(const ScopedJavaGlobalRef<jobject>& j_callback_obj,
                       OfflinePageModel::DeletePageResult result) {
   base::android::RunIntCallbackAndroid(j_callback_obj,
-                                       static_cast<int>(result));
+                                       static_cast<int32_t>(result));
 }
 
 std::string RequestListToString(

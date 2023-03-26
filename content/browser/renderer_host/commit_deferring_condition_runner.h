@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,9 @@
 #include <vector>
 
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ref.h"
 #include "base/memory/weak_ptr.h"
-#include "content/browser/prerender/prerender_commit_deferring_condition.h"
+#include "content/browser/preloading/prerender/prerender_commit_deferring_condition.h"
 #include "content/common/content_export.h"
 
 namespace content {
@@ -88,9 +89,19 @@ class CONTENT_EXPORT CommitDeferringConditionRunner {
   // registered conditions. This is typically used for adding a condition before
   // NavigationRequest is created.
   using ConditionGenerator =
-      base::RepeatingCallback<std::unique_ptr<CommitDeferringCondition>()>;
+      base::RepeatingCallback<std::unique_ptr<CommitDeferringCondition>(
+          NavigationHandle&,
+          CommitDeferringCondition::NavigationType)>;
+
+  // Specifies whether a ConditionGenerator installs its condition to run
+  // before existing conditions or after. Note: generators are run in the order
+  // in which they are added.
+  enum class InsertOrder { kBefore, kAfter };
+
   // Returns a generator id that is used for uninstalling the generator.
-  static int InstallConditionGeneratorForTesting(ConditionGenerator generator);
+  static int InstallConditionGeneratorForTesting(ConditionGenerator generator,
+                                                 InsertOrder order);
+
   // `generator_id` should be an identifier returned by
   // InstallConditionGeneratorForTesting().
   static void UninstallConditionGeneratorForTesting(int generator_id);
@@ -99,9 +110,9 @@ class CONTENT_EXPORT CommitDeferringConditionRunner {
   void AddConditionForTesting(
       std::unique_ptr<CommitDeferringCondition> condition);
 
-  // Used in tests to check if CommitDeferringConditionRunner is currently
-  // deferred for the navigation or not.
-  bool is_deferred_for_testing() const;
+  // Returns the condition that's currently causing the navigation commit to be
+  // deferred. If no condition is currently deferred, returns nullptr.
+  CommitDeferringCondition* GetDeferringConditionForTesting() const;
 
  private:
   friend class CommitDeferringConditionRunnerTest;
@@ -117,13 +128,14 @@ class CONTENT_EXPORT CommitDeferringConditionRunner {
   void ResumeProcessing();
 
   void ProcessConditions();
-  void AddCondition(std::unique_ptr<CommitDeferringCondition> condition);
+  void AddCondition(std::unique_ptr<CommitDeferringCondition> condition,
+                    InsertOrder order = InsertOrder::kAfter);
 
   std::vector<std::unique_ptr<CommitDeferringCondition>> conditions_;
 
   // This class is owned by its delegate (the NavigationRequest) so it's safe
   // to keep a reference to it.
-  Delegate& delegate_;
+  const raw_ref<Delegate> delegate_;
 
   // Used for distiguishing prerendered page activation from other navigations.
   // This is needed as IsPageActivation() and IsPrerenderedPageActivation() on

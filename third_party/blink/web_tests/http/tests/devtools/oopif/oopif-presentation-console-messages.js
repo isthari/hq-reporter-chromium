@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,26 +9,32 @@
   await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('console_test_runner');
   await TestRunner.showPanel('console');
 
-  function dumpMessage(prefix, message, url) {
-    TestRunner.addResult(`Line Message was ${prefix}: ${url} ${
+  const messages = new Map();
+  function dumpMessages() {
+    TestRunner.addResult("Current messages:");
+    for(const [message, url] of messages.entries()) {
+      TestRunner.addResult(`  - ${url} ${
         message.level()} '${message.text()}':${message.lineNumber()}:${
         message.columnNumber()}`);
+    }
   }
   TestRunner.addSniffer(
       Workspace.UISourceCode.prototype, 'addMessage', function(message) {
-        dumpMessage('added', message, this.url());
+        messages.set(message, this.url());
       }, true);
   TestRunner.addSniffer(
       Workspace.UISourceCode.prototype, 'removeMessage', function(message) {
-        dumpMessage('removed', message, this.url());
+        messages.delete(message, this.url());
       }, true);
 
   TestRunner.addResult('\nNavigating main frame');
   await TestRunner.navigatePromise('resources/error.html');
+  dumpMessages();
   TestRunner.addResult('Revealing main frame source');
   await Common.Revealer.reveal(Workspace.workspace.uiSourceCodeForURL('http://127.0.0.1:8000/devtools/oopif/resources/error.html'));
   TestRunner.addResult('\nCreating iframe');
   await TestRunner.addIframe('http://devtools.oopif.test:8000/devtools/oopif/resources/error.html', {id: 'myframe'});
+  dumpMessages();
   TestRunner.addResult('Revealing iframe source');
   await Common.Revealer.reveal(Workspace.workspace.uiSourceCodeForURL('http://devtools.oopif.test:8000/devtools/oopif/resources/error.html'));
   TestRunner.addResult('\nNavigating iframe');
@@ -39,9 +45,11 @@
       return new Promise(f => iframe.onload = f);
     })()
   `);
+  dumpMessages();
   TestRunner.addResult('Revealing iframe source');
   await Common.Revealer.reveal(Workspace.workspace.uiSourceCodeForURL('http://devtools.oopif.test:8000/devtools/oopif/resources/empty.html'));
   TestRunner.addResult('\nClearing console');
   SDK.consoleModel.requestClearMessages();
+  dumpMessages();
   TestRunner.completeTest();
 })();

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,6 +44,8 @@ class TransferCacheTestHelper : public TransferCacheDeserializeHelper,
   void CreateLocalEntry(
       uint32_t id,
       std::unique_ptr<ServiceTransferCacheEntry> entry) override;
+
+  size_t num_of_entries() const { return entries_.size(); }
 
  protected:
   // Serialization helpers.

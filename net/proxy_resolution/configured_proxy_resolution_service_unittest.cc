@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,15 +10,16 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/check.h"
 #include "base/format_macros.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/time/time.h"
 #include "net/base/mock_network_change_notifier.h"
 #include "net/base/net_errors.h"
 #include "net/base/network_change_notifier.h"
@@ -160,13 +161,11 @@ const char16_t kValidPacScript216[] = u"pac-script-v2-FindProxyForURL";
 class MockProxyConfigService : public ProxyConfigService {
  public:
   explicit MockProxyConfigService(const ProxyConfig& config)
-      : availability_(CONFIG_VALID),
-        config_(
+      : config_(
             ProxyConfigWithAnnotation(config, TRAFFIC_ANNOTATION_FOR_TESTS)) {}
 
   explicit MockProxyConfigService(const std::string& pac_url)
-      : availability_(CONFIG_VALID),
-        config_(ProxyConfig::CreateFromCustomPacURL(GURL(pac_url)),
+      : config_(ProxyConfig::CreateFromCustomPacURL(GURL(pac_url)),
                 TRAFFIC_ANNOTATION_FOR_TESTS) {}
 
   void AddObserver(Observer* observer) override {
@@ -198,7 +197,7 @@ class MockProxyConfigService : public ProxyConfigService {
   }
 
  private:
-  ConfigAvailability availability_;
+  ConfigAvailability availability_ = CONFIG_VALID;
   ProxyConfigWithAnnotation config_;
   base::ObserverList<Observer, true>::Unchecked observers_;
 };
@@ -363,11 +362,11 @@ JobMap GetCancelledJobsForURLs(const MockAsyncProxyResolver& resolver,
 }  // namespace
 
 TEST_F(ConfiguredProxyResolutionServiceTest, Direct) {
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
   ConfiguredProxyResolutionService service(
       std::make_unique<MockProxyConfigService>(ProxyConfig::CreateDirect()),
-      base::WrapUnique(factory), nullptr, /*quick_check_enabled=*/true);
+      std::move(factory), nullptr, /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
 
@@ -375,11 +374,11 @@ TEST_F(ConfiguredProxyResolutionServiceTest, Direct) {
   TestCompletionCallback callback;
   RecordingNetLogObserver net_log_observer;
   std::unique_ptr<ProxyResolutionRequest> request;
-  int rv = service.ResolveProxy(url, std::string(), NetworkIsolationKey(),
+  int rv = service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
                                 &info, callback.callback(), &request,
                                 NetLogWithSource::Make(NetLogSourceType::NONE));
   EXPECT_THAT(rv, IsOk());
-  EXPECT_TRUE(factory->pending_requests().empty());
+  EXPECT_TRUE(factory_ptr->pending_requests().empty());
 
   EXPECT_TRUE(info.is_direct());
   EXPECT_TRUE(info.proxy_resolve_start_time().is_null());
@@ -420,7 +419,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, OnResolveProxyCallbackAddProxy) {
   // mark the first server as bad.
   std::unique_ptr<ProxyResolutionRequest> request;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback.callback(), &request, net_log_with_source);
   EXPECT_THAT(rv, IsOk());
   EXPECT_EQ("badproxy:8080", ProxyServerToProxyUri(info.proxy_server()));
@@ -433,7 +432,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, OnResolveProxyCallbackAddProxy) {
   // Verify that network delegate is invoked.
   TestResolveProxyDelegate delegate;
   service.SetProxyDelegate(&delegate);
-  rv = service.ResolveProxy(url, "GET", NetworkIsolationKey(), &info,
+  rv = service.ResolveProxy(url, "GET", NetworkAnonymizationKey(), &info,
                             callback.callback(), &request, net_log_with_source);
   EXPECT_EQ(1, delegate.num_resolve_proxy_called());
   EXPECT_THAT(delegate.proxy_retry_info(), ElementsAre(Key("badproxy:8080")));
@@ -445,20 +444,20 @@ TEST_F(ConfiguredProxyResolutionServiceTest, OnResolveProxyCallbackAddProxy) {
   delegate.set_add_proxy(true);
 
   // Callback should interpose:
-  rv = service.ResolveProxy(url, "GET", NetworkIsolationKey(), &info,
+  rv = service.ResolveProxy(url, "GET", NetworkAnonymizationKey(), &info,
                             callback.callback(), &request, net_log_with_source);
   EXPECT_FALSE(info.is_direct());
   EXPECT_EQ(info.proxy_server().host_port_pair().host(), "delegate_proxy.com");
   delegate.set_add_proxy(false);
 
   // Check non-bypassed URL:
-  rv = service.ResolveProxy(url, "GET", NetworkIsolationKey(), &info,
+  rv = service.ResolveProxy(url, "GET", NetworkAnonymizationKey(), &info,
                             callback.callback(), &request, net_log_with_source);
   EXPECT_FALSE(info.is_direct());
   EXPECT_EQ(info.proxy_server().host_port_pair().host(), "foopy1");
 
   // Check bypassed URL:
-  rv = service.ResolveProxy(bypass_url, "GET", NetworkIsolationKey(), &info,
+  rv = service.ResolveProxy(bypass_url, "GET", NetworkAnonymizationKey(), &info,
                             callback.callback(), &request, net_log_with_source);
   EXPECT_TRUE(info.is_direct());
 }
@@ -488,7 +487,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   // First, warm up the ConfiguredProxyResolutionService.
   std::unique_ptr<ProxyResolutionRequest> request;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback.callback(), &request, net_log_with_source);
   EXPECT_THAT(rv, IsOk());
 
@@ -497,19 +496,19 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   delegate.set_remove_proxy(true);
 
   // Callback should interpose:
-  rv = service.ResolveProxy(url, "GET", NetworkIsolationKey(), &info,
+  rv = service.ResolveProxy(url, "GET", NetworkAnonymizationKey(), &info,
                             callback.callback(), &request, net_log_with_source);
   EXPECT_TRUE(info.is_direct());
   delegate.set_remove_proxy(false);
 
   // Check non-bypassed URL:
-  rv = service.ResolveProxy(url, "GET", NetworkIsolationKey(), &info,
+  rv = service.ResolveProxy(url, "GET", NetworkAnonymizationKey(), &info,
                             callback.callback(), &request, net_log_with_source);
   EXPECT_FALSE(info.is_direct());
   EXPECT_EQ(info.proxy_server().host_port_pair().host(), "foopy1");
 
   // Check bypassed URL:
-  rv = service.ResolveProxy(bypass_url, "GET", NetworkIsolationKey(), &info,
+  rv = service.ResolveProxy(bypass_url, "GET", NetworkAnonymizationKey(), &info,
                             callback.callback(), &request, net_log_with_source);
   EXPECT_TRUE(info.is_direct());
 }
@@ -551,16 +550,15 @@ DeletingCallback<T>::~DeletingCallback() = default;
 // Test that the ConfiguredProxyResolutionService correctly handles the case
 // where a request callback deletes another request.
 TEST_F(ConfiguredProxyResolutionServiceTest, CallbackDeletesRequest) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
-
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
   std::unique_ptr<ConfiguredProxyResolutionService> service =
       std::make_unique<ConfiguredProxyResolutionService>(
-          base::WrapUnique(config_service), base::WrapUnique(factory), nullptr,
+          std::move(config_service), std::move(factory), nullptr,
           /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
@@ -572,21 +570,21 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CallbackDeletesRequest) {
   net::CompletionOnceCallback callback2 =
       base::BindOnce([](int result) { ASSERT_FALSE(true); });
 
-  int rv =
-      service->ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                            callback.callback(), &request, NetLogWithSource());
+  int rv = service->ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
+                                 &info, callback.callback(), &request,
+                                 NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
-  rv = service->ResolveProxy(url2, std::string(), NetworkIsolationKey(), &info,
-                             std::move(callback2), &request2,
+  rv = service->ResolveProxy(url2, std::string(), NetworkAnonymizationKey(),
+                             &info, std::move(callback2), &request2,
                              NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // Run pending requests.
-  ASSERT_EQ(1u, factory->pending_requests().size());
+  ASSERT_EQ(1u, factory_ptr->pending_requests().size());
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(2u, resolver.pending_jobs().size());
   // Job order is nondeterministic, as requests are stored in an std::set, so
@@ -618,16 +616,15 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CallbackDeletesRequest) {
 // ConfiguredProxyResolutionService's destructor).
 TEST_F(ConfiguredProxyResolutionServiceTest,
        CallbackDeletesRequestDuringDestructor) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
 
   std::unique_ptr<ConfiguredProxyResolutionService> service =
       std::make_unique<ConfiguredProxyResolutionService>(
-          base::WrapUnique(config_service), base::WrapUnique(factory), nullptr,
+          std::move(config_service), std::move(factory), nullptr,
           /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
@@ -637,13 +634,13 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   DeletingCallback<ProxyResolutionRequest> callback(&request2),
       callback2(&request);
 
-  int rv =
-      service->ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                            callback.callback(), &request, NetLogWithSource());
+  int rv = service->ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
+                                 &info, callback.callback(), &request,
+                                 NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
-  rv = service->ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                             callback2.callback(), &request2,
+  rv = service->ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
+                             &info, callback2.callback(), &request2,
                              NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
@@ -669,16 +666,16 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
 // Test that the ConfiguredProxyResolutionService correctly handles the case
 // where a request callback deletes its own handle.
 TEST_F(ConfiguredProxyResolutionServiceTest, CallbackDeletesSelf) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
   std::unique_ptr<ConfiguredProxyResolutionService> service =
       std::make_unique<ConfiguredProxyResolutionService>(
-          base::WrapUnique(config_service), base::WrapUnique(factory), nullptr,
+          std::move(config_service), std::move(factory), nullptr,
           /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
@@ -686,7 +683,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CallbackDeletesSelf) {
 
   std::unique_ptr<ProxyResolutionRequest> request1;
   TestCompletionCallback callback1;
-  int rv = service->ResolveProxy(url, std::string(), NetworkIsolationKey(),
+  int rv = service->ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
                                  &info, callback1.callback(), &request1,
                                  NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
@@ -694,22 +691,22 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CallbackDeletesSelf) {
   GURL url2("http://www.example.com/");
   std::unique_ptr<ProxyResolutionRequest> request2;
   DeletingCallback<ProxyResolutionRequest> callback2(&request2);
-  rv = service->ResolveProxy(url2, std::string(), NetworkIsolationKey(), &info,
-                             callback2.callback(), &request2,
+  rv = service->ResolveProxy(url2, std::string(), NetworkAnonymizationKey(),
+                             &info, callback2.callback(), &request2,
                              NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   std::unique_ptr<ProxyResolutionRequest> request3;
   TestCompletionCallback callback3;
-  rv = service->ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                             callback3.callback(), &request3,
+  rv = service->ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
+                             &info, callback3.callback(), &request3,
                              NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
-  ASSERT_EQ(1u, factory->pending_requests().size());
+  ASSERT_EQ(1u, factory_ptr->pending_requests().size());
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(3u, resolver.pending_jobs().size());
   // Job order is nondeterministic, as requests are stored in an std::set, so
@@ -738,16 +735,15 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CallbackDeletesSelf) {
 // ConfiguredProxyResolutionService's destructor.
 TEST_F(ConfiguredProxyResolutionServiceTest,
        CallbackDeletesSelfDuringDestructor) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
 
   std::unique_ptr<ConfiguredProxyResolutionService> service =
       std::make_unique<ConfiguredProxyResolutionService>(
-          base::WrapUnique(config_service), base::WrapUnique(factory), nullptr,
+          std::move(config_service), std::move(factory), nullptr,
           /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
@@ -755,22 +751,22 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
 
   std::unique_ptr<ProxyResolutionRequest> request1;
   TestCompletionCallback callback1;
-  int rv = service->ResolveProxy(url, std::string(), NetworkIsolationKey(),
+  int rv = service->ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
                                  &info, callback1.callback(), &request1,
                                  NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   std::unique_ptr<ProxyResolutionRequest> request2;
   DeletingCallback<ProxyResolutionRequest> callback2(&request2);
-  rv = service->ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                             callback2.callback(), &request2,
+  rv = service->ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
+                             &info, callback2.callback(), &request2,
                              NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   std::unique_ptr<ProxyResolutionRequest> request3;
   TestCompletionCallback callback3;
-  rv = service->ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                             callback3.callback(), &request3,
+  rv = service->ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
+                             &info, callback3.callback(), &request3,
                              NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
@@ -785,12 +781,12 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
 }
 
 TEST_F(ConfiguredProxyResolutionServiceTest, ProxyServiceDeletedBeforeRequest) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
   GURL url("http://www.google.com/");
 
@@ -800,20 +796,20 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyServiceDeletedBeforeRequest) {
 
   int rv;
   {
-    ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                             base::WrapUnique(factory), nullptr,
+    ConfiguredProxyResolutionService service(std::move(config_service),
+                                             std::move(factory), nullptr,
                                              /*quick_check_enabled=*/true);
-    rv = service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                              callback.callback(), &request,
+    rv = service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
+                              &info, callback.callback(), &request,
                               NetLogWithSource::Make(NetLogSourceType::NONE));
     EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
     EXPECT_EQ(LOAD_STATE_RESOLVING_PROXY_FOR_URL, request->GetLoadState());
 
-    ASSERT_EQ(1u, factory->pending_requests().size());
+    ASSERT_EQ(1u, factory_ptr->pending_requests().size());
     EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-              factory->pending_requests()[0]->script_data()->url());
-    factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+              factory_ptr->pending_requests()[0]->script_data()->url());
+    factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
     ASSERT_EQ(1u, resolver.pending_jobs().size());
   }
 
@@ -825,16 +821,16 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyServiceDeletedBeforeRequest) {
 // Test that the ConfiguredProxyResolutionService correctly handles the case
 // where a request callback deletes the service.
 TEST_F(ConfiguredProxyResolutionServiceTest, CallbackDeletesService) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
+  auto* config_service_ptr = config_service.get();
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
 
   std::unique_ptr<ConfiguredProxyResolutionService> service =
       std::make_unique<ConfiguredProxyResolutionService>(
-          base::WrapUnique(config_service), base::WrapUnique(factory), nullptr,
+          std::move(config_service), std::move(factory), nullptr,
           /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
@@ -843,28 +839,28 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CallbackDeletesService) {
 
   DeletingCallback<ConfiguredProxyResolutionService> callback(&service);
   std::unique_ptr<ProxyResolutionRequest> request1;
-  int rv =
-      service->ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                            callback.callback(), &request1, NetLogWithSource());
+  int rv = service->ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
+                                 &info, callback.callback(), &request1,
+                                 NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   EXPECT_EQ(LOAD_STATE_RESOLVING_PROXY_FOR_URL, request1->GetLoadState());
 
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv = service->ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                             callback2.callback(), &request2,
+  rv = service->ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
+                             &info, callback2.callback(), &request2,
                              NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   TestCompletionCallback callback3;
   std::unique_ptr<ProxyResolutionRequest> request3;
-  rv = service->ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                             callback3.callback(), &request3,
+  rv = service->ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
+                             &info, callback3.callback(), &request3,
                              NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
-  config_service->SetConfig(ProxyConfigWithAnnotation(
+  config_service_ptr->SetConfig(ProxyConfigWithAnnotation(
       ProxyConfig::CreateDirect(), TRAFFIC_ANNOTATION_FOR_TESTS));
 
   ASSERT_EQ(0u, resolver.pending_jobs().size());
@@ -874,15 +870,15 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CallbackDeletesService) {
 }
 
 TEST_F(ConfiguredProxyResolutionServiceTest, PAC) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
@@ -892,17 +888,17 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC) {
   std::unique_ptr<ProxyResolutionRequest> request;
   RecordingNetLogObserver net_log_observer;
 
-  int rv = service.ResolveProxy(url, std::string(), NetworkIsolationKey(),
+  int rv = service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
                                 &info, callback.callback(), &request,
                                 NetLogWithSource::Make(NetLogSourceType::NONE));
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   EXPECT_EQ(LOAD_STATE_RESOLVING_PROXY_FOR_URL, request->GetLoadState());
 
-  ASSERT_EQ(1u, factory->pending_requests().size());
+  ASSERT_EQ(1u, factory_ptr->pending_requests().size());
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(url, resolver.pending_jobs()[0]->url());
@@ -938,15 +934,15 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC) {
 // Test that the proxy resolver does not see the URL's username/password
 // or its reference section.
 TEST_F(ConfiguredProxyResolutionServiceTest, PAC_NoIdentityOrHash) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   GURL url("http://username:password@www.google.com/?ref#hash#hash");
@@ -955,13 +951,13 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_NoIdentityOrHash) {
   TestCompletionCallback callback;
   std::unique_ptr<ProxyResolutionRequest> request;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   // The URL should have been simplified, stripping the username/password/hash.
@@ -973,14 +969,14 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_NoIdentityOrHash) {
 }
 
 TEST_F(ConfiguredProxyResolutionServiceTest, PAC_FailoverWithoutDirect) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
@@ -989,13 +985,13 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_FailoverWithoutDirect) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(url, resolver.pending_jobs()[0]->url());
@@ -1022,14 +1018,14 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_FailoverWithoutDirect) {
 // Test that if the execution of the PAC script fails (i.e. javascript runtime
 // error), and the PAC settings are non-mandatory, that we fall-back to direct.
 TEST_F(ConfiguredProxyResolutionServiceTest, PAC_RuntimeError) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   GURL url("http://this-causes-js-error/");
@@ -1038,13 +1034,13 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_RuntimeError) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(url, resolver.pending_jobs()[0]->url());
@@ -1081,14 +1077,14 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_RuntimeError) {
 // The important check of this test is to make sure that DIRECT is not somehow
 // cached as being a bad proxy.
 TEST_F(ConfiguredProxyResolutionServiceTest, PAC_FailoverAfterDirect) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
@@ -1097,13 +1093,13 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_FailoverAfterDirect) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(url, resolver.pending_jobs()[0]->url());
@@ -1141,12 +1137,12 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_ConfigSourcePropagates) {
   ProxyConfig config =
       ProxyConfig::CreateFromCustomPacURL(GURL("http://foopy/proxy.pac"));
 
-  MockProxyConfigService* config_service = new MockProxyConfigService(config);
+  auto config_service = std::make_unique<MockProxyConfigService>(config);
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   // Resolve something.
@@ -1155,10 +1151,10 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_ConfigSourcePropagates) {
   TestCompletionCallback callback;
   std::unique_ptr<ProxyResolutionRequest> request;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback.callback(), &request, NetLogWithSource());
   ASSERT_THAT(rv, IsError(ERR_IO_PENDING));
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
   ASSERT_EQ(1u, resolver.pending_jobs().size());
 
   // Set the result in proxy resolver.
@@ -1179,15 +1175,15 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyResolverFails) {
   // of the PAC script have already succeeded, so this corresponds with a
   // javascript runtime error while calling FindProxyForURL().
 
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   // Start first resolve request.
@@ -1196,13 +1192,13 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyResolverFails) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback1.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(url, resolver.pending_jobs()[0]->url());
@@ -1223,8 +1219,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyResolverFails) {
   // The second resolve request will try to run through the proxy resolver,
   // regardless of whether the first request failed in it.
   TestCompletionCallback callback2;
-  rv = service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                            callback2.callback(), &request, NetLogWithSource());
+  rv =
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
+                           callback2.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
@@ -1245,15 +1242,15 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   // Test what happens when the ProxyResolver fails with a fatal error while
   // a GetProxyForURL() call is in progress.
 
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   // Start first resolve request.
@@ -1262,14 +1259,14 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback1.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
-  ASSERT_EQ(1u, factory->pending_requests().size());
+  ASSERT_EQ(1u, factory_ptr->pending_requests().size());
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(url, resolver.pending_jobs()[0]->url());
@@ -1289,17 +1286,18 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
 
   // With no other requests, the ConfiguredProxyResolutionService waits for a
   // new request before initializing a new ProxyResolver.
-  EXPECT_TRUE(factory->pending_requests().empty());
+  EXPECT_TRUE(factory_ptr->pending_requests().empty());
 
   TestCompletionCallback callback2;
-  rv = service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                            callback2.callback(), &request, NetLogWithSource());
+  rv =
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
+                           callback2.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
-  ASSERT_EQ(1u, factory->pending_requests().size());
+  ASSERT_EQ(1u, factory_ptr->pending_requests().size());
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(url, resolver.pending_jobs()[0]->url());
@@ -1318,15 +1316,15 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   // Test what happens when the ProxyResolver fails with a fatal error while
   // a GetProxyForURL() call is in progress.
 
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   // Start two resolve requests.
@@ -1335,20 +1333,20 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   ProxyInfo info;
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1, request2;
-  int rv =
-      service.ResolveProxy(url1, std::string(), NetworkIsolationKey(), &info,
-                           callback1.callback(), &request1, NetLogWithSource());
+  int rv = service.ResolveProxy(url1, std::string(), NetworkAnonymizationKey(),
+                                &info, callback1.callback(), &request1,
+                                NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   TestCompletionCallback callback2;
-  rv =
-      service.ResolveProxy(url2, std::string(), NetworkIsolationKey(), &info,
-                           callback2.callback(), &request2, NetLogWithSource());
+  rv = service.ResolveProxy(url2, std::string(), NetworkAnonymizationKey(),
+                            &info, callback2.callback(), &request2,
+                            NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
-  ASSERT_EQ(1u, factory->pending_requests().size());
+  ASSERT_EQ(1u, factory_ptr->pending_requests().size());
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   JobMap jobs = GetPendingJobsForURLs(resolver, url1, url2);
 
@@ -1370,10 +1368,10 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
 
   // Since a second request was in progress, the
   // ConfiguredProxyResolutionService starts initializating a new ProxyResolver.
-  ASSERT_EQ(1u, factory->pending_requests().size());
+  ASSERT_EQ(1u, factory_ptr->pending_requests().size());
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   jobs = GetPendingJobsForURLs(resolver, url2);
 
@@ -1395,13 +1393,13 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
       ProxyConfig::CreateFromCustomPacURL(GURL("http://foopy/proxy.pac")));
   config.set_pac_mandatory(true);
 
-  MockProxyConfigService* config_service = new MockProxyConfigService(config);
+  auto config_service = std::make_unique<MockProxyConfigService>(config);
 
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   // Start first resolve request.
@@ -1410,15 +1408,15 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback1.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNow(ERR_FAILED, nullptr);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNow(ERR_FAILED, nullptr);
 
-  ASSERT_EQ(0u, factory->pending_requests().size());
+  ASSERT_EQ(0u, factory_ptr->pending_requests().size());
   // As the proxy resolver factory failed the request and is configured for a
   // mandatory PAC script, ConfiguredProxyResolutionService must not implicitly
   // fall-back to DIRECT.
@@ -1430,8 +1428,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   // mandatory PAC script, ConfiguredProxyResolutionService must not implicitly
   // fall-back to DIRECT.
   TestCompletionCallback callback2;
-  rv = service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                            callback2.callback(), &request, NetLogWithSource());
+  rv =
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
+                           callback2.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_MANDATORY_PROXY_CONFIGURATION_FAILED));
   EXPECT_FALSE(info.is_direct());
 }
@@ -1446,17 +1445,18 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
       ProxyConfig::CreateFromCustomPacURL(GURL("http://foopy/proxy.pac")));
   config.set_pac_mandatory(true);
 
-  MockProxyConfigService* config_service = new MockProxyConfigService(config);
+  auto config_service = std::make_unique<MockProxyConfigService>(config);
 
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Start resolve request.
@@ -1465,20 +1465,20 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   TestCompletionCallback callback;
   std::unique_ptr<ProxyResolutionRequest> request;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // Check that nothing has been sent to the proxy resolver factory yet.
-  ASSERT_EQ(0u, factory->pending_requests().size());
+  ASSERT_EQ(0u, factory_ptr->pending_requests().size());
 
   // Downloading the PAC script succeeds.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
-  fetcher->NotifyFetchCompletion(OK, "invalid-script-contents");
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
+  fetcher_ptr->NotifyFetchCompletion(OK, "invalid-script-contents");
 
-  EXPECT_FALSE(fetcher->has_pending_request());
-  ASSERT_EQ(0u, factory->pending_requests().size());
+  EXPECT_FALSE(fetcher_ptr->has_pending_request());
+  ASSERT_EQ(0u, factory_ptr->pending_requests().size());
 
   // Since PacFileDecider failed to identify a valid PAC and PAC was
   // mandatory for this configuration, the ConfiguredProxyResolutionService must
@@ -1498,14 +1498,14 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
       ProxyConfig::CreateFromCustomPacURL(GURL("http://foopy/proxy.pac")));
   config.set_pac_mandatory(true);
 
-  MockProxyConfigService* config_service = new MockProxyConfigService(config);
+  auto config_service = std::make_unique<MockProxyConfigService>(config);
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   // Start first resolve request.
@@ -1514,13 +1514,13 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback1.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(url, resolver.pending_jobs()[0]->url());
@@ -1538,8 +1538,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   // The second resolve request will try to run through the proxy resolver,
   // regardless of whether the first request failed in it.
   TestCompletionCallback callback2;
-  rv = service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                            callback2.callback(), &request, NetLogWithSource());
+  rv =
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
+                           callback2.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
@@ -1559,15 +1560,15 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback) {
   // Test what happens when we specify multiple proxy servers and some of them
   // are bad.
 
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
@@ -1577,13 +1578,13 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback1.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(url, resolver.pending_jobs()[0]->url());
@@ -1624,8 +1625,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback) {
   service.SetProxyDelegate(nullptr);
 
   TestCompletionCallback callback3;
-  rv = service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                            callback3.callback(), &request, NetLogWithSource());
+  rv =
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
+                           callback3.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
@@ -1671,8 +1673,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback) {
 
   // Look up proxies again
   TestCompletionCallback callback7;
-  rv = service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
-                            callback7.callback(), &request, NetLogWithSource());
+  rv =
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
+                           callback7.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
@@ -1698,15 +1701,15 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback) {
 // This test is similar to ProxyFallback, but this time we have an explicit
 // fallback choice to DIRECT.
 TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallbackToDirect) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
@@ -1716,13 +1719,13 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallbackToDirect) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(url, resolver.pending_jobs()[0]->url());
@@ -1762,15 +1765,15 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallbackToDirect) {
 TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback_BadConfig) {
   // Test proxy failover when the configuration is bad.
 
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
@@ -1782,13 +1785,13 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback_BadConfig) {
   std::unique_ptr<ProxyResolutionRequest> request;
   service.SetProxyDelegate(&delegate);
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback1.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(url, resolver.pending_jobs()[0]->url());
 
@@ -1815,8 +1818,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback_BadConfig) {
   // Fake a PAC failure.
   ProxyInfo info2;
   TestCompletionCallback callback2;
-  rv = service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info2,
-                            callback2.callback(), &request, NetLogWithSource());
+  rv = service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
+                            &info2, callback2.callback(), &request,
+                            NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
@@ -1837,9 +1841,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback_BadConfig) {
   ProxyInfo info3;
   TestCompletionCallback callback3;
   std::unique_ptr<ProxyResolutionRequest> request3;
-  rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info3,
-                           callback3.callback(), &request3, NetLogWithSource());
+  rv = service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
+                            &info3, callback3.callback(), &request3,
+                            NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
@@ -1870,14 +1874,14 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback_BadConfigMandatory) {
       ProxyConfig::CreateFromCustomPacURL(GURL("http://foopy/proxy.pac")));
 
   config.set_pac_mandatory(true);
-  MockProxyConfigService* config_service = new MockProxyConfigService(config);
+  auto config_service = std::make_unique<MockProxyConfigService>(config);
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
@@ -1887,13 +1891,13 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback_BadConfigMandatory) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(url, resolver.pending_jobs()[0]->url());
 
@@ -1921,9 +1925,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback_BadConfigMandatory) {
   ProxyInfo info2;
   TestCompletionCallback callback3;
   std::unique_ptr<ProxyResolutionRequest> request3;
-  rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info2,
-                           callback3.callback(), &request3, NetLogWithSource());
+  rv = service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
+                            &info2, callback3.callback(), &request3,
+                            NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
@@ -1945,9 +1949,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback_BadConfigMandatory) {
   ProxyInfo info3;
   TestCompletionCallback callback4;
   std::unique_ptr<ProxyResolutionRequest> request4;
-  rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info3,
-                           callback4.callback(), &request4, NetLogWithSource());
+  rv = service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
+                            &info3, callback4.callback(), &request4,
+                            NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
@@ -1986,14 +1990,14 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyBypassList) {
   std::unique_ptr<ProxyResolutionRequest> request2;
 
   // Request for a .org domain should bypass proxy.
-  rv = service.ResolveProxy(url1, std::string(), NetworkIsolationKey(),
+  rv = service.ResolveProxy(url1, std::string(), NetworkAnonymizationKey(),
                             &info[0], callback[0].callback(), &request1,
                             NetLogWithSource());
   EXPECT_THAT(rv, IsOk());
   EXPECT_TRUE(info[0].is_direct());
 
   // Request for a .com domain hits the proxy.
-  rv = service.ResolveProxy(url2, std::string(), NetworkIsolationKey(),
+  rv = service.ResolveProxy(url2, std::string(), NetworkAnonymizationKey(),
                             &info[1], callback[1].callback(), &request2,
                             NetLogWithSource());
   EXPECT_THAT(rv, IsOk());
@@ -2048,7 +2052,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PerProtocolProxyTests) {
     ProxyInfo info;
     TestCompletionCallback callback;
     int rv = service.ResolveProxy(
-        test_url, std::string(), NetworkIsolationKey(), &info,
+        test_url, std::string(), NetworkAnonymizationKey(), &info,
         callback.callback(), &request, NetLogWithSource());
     EXPECT_THAT(rv, IsOk());
     EXPECT_FALSE(info.is_direct());
@@ -2062,7 +2066,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PerProtocolProxyTests) {
     ProxyInfo info;
     TestCompletionCallback callback;
     int rv = service.ResolveProxy(
-        test_url, std::string(), NetworkIsolationKey(), &info,
+        test_url, std::string(), NetworkAnonymizationKey(), &info,
         callback.callback(), &request, NetLogWithSource());
     EXPECT_THAT(rv, IsOk());
     EXPECT_TRUE(info.is_direct());
@@ -2076,7 +2080,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PerProtocolProxyTests) {
     ProxyInfo info;
     TestCompletionCallback callback;
     int rv = service.ResolveProxy(
-        test_url, std::string(), NetworkIsolationKey(), &info,
+        test_url, std::string(), NetworkAnonymizationKey(), &info,
         callback.callback(), &request, NetLogWithSource());
     EXPECT_THAT(rv, IsOk());
     EXPECT_FALSE(info.is_direct());
@@ -2091,7 +2095,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PerProtocolProxyTests) {
     ProxyInfo info;
     TestCompletionCallback callback;
     int rv = service.ResolveProxy(
-        test_url, std::string(), NetworkIsolationKey(), &info,
+        test_url, std::string(), NetworkAnonymizationKey(), &info,
         callback.callback(), &request, NetLogWithSource());
     EXPECT_THAT(rv, IsOk());
     EXPECT_FALSE(info.is_direct());
@@ -2115,7 +2119,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
     ProxyInfo info;
     TestCompletionCallback callback;
     int rv = service.ResolveProxy(
-        test_url, std::string(), NetworkIsolationKey(), &info,
+        test_url, std::string(), NetworkAnonymizationKey(), &info,
         callback.callback(), &request, NetLogWithSource());
     ASSERT_THAT(rv, IsOk());
     // Should be test, even if there are no HTTP proxies configured.
@@ -2132,7 +2136,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
     ProxyInfo info;
     TestCompletionCallback callback;
     int rv = service.ResolveProxy(
-        test_url, std::string(), NetworkIsolationKey(), &info,
+        test_url, std::string(), NetworkAnonymizationKey(), &info,
         callback.callback(), &request, NetLogWithSource());
     ASSERT_THAT(rv, IsOk());
     // Used the HTTPS proxy. So traffic annotation should test.
@@ -2148,7 +2152,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
     ProxyInfo info;
     TestCompletionCallback callback;
     int rv = service.ResolveProxy(
-        test_url, std::string(), NetworkIsolationKey(), &info,
+        test_url, std::string(), NetworkAnonymizationKey(), &info,
         callback.callback(), &request, NetLogWithSource());
     ASSERT_THAT(rv, IsOk());
     // ProxyConfig is empty. Traffic annotation should still be TEST.
@@ -2175,7 +2179,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, DefaultProxyFallbackToSOCKS) {
     ProxyInfo info;
     TestCompletionCallback callback;
     int rv = service.ResolveProxy(
-        test_url, std::string(), NetworkIsolationKey(), &info,
+        test_url, std::string(), NetworkAnonymizationKey(), &info,
         callback.callback(), &request, NetLogWithSource());
     EXPECT_THAT(rv, IsOk());
     EXPECT_FALSE(info.is_direct());
@@ -2189,7 +2193,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, DefaultProxyFallbackToSOCKS) {
     ProxyInfo info;
     TestCompletionCallback callback;
     int rv = service.ResolveProxy(
-        test_url, std::string(), NetworkIsolationKey(), &info,
+        test_url, std::string(), NetworkAnonymizationKey(), &info,
         callback.callback(), &request, NetLogWithSource());
     EXPECT_THAT(rv, IsOk());
     EXPECT_FALSE(info.is_direct());
@@ -2204,7 +2208,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, DefaultProxyFallbackToSOCKS) {
     ProxyInfo info;
     TestCompletionCallback callback;
     int rv = service.ResolveProxy(
-        test_url, std::string(), NetworkIsolationKey(), &info,
+        test_url, std::string(), NetworkAnonymizationKey(), &info,
         callback.callback(), &request, NetLogWithSource());
     EXPECT_THAT(rv, IsOk());
     EXPECT_FALSE(info.is_direct());
@@ -2219,7 +2223,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, DefaultProxyFallbackToSOCKS) {
     ProxyInfo info;
     TestCompletionCallback callback;
     int rv = service.ResolveProxy(
-        test_url, std::string(), NetworkIsolationKey(), &info,
+        test_url, std::string(), NetworkAnonymizationKey(), &info,
         callback.callback(), &request, NetLogWithSource());
     EXPECT_THAT(rv, IsOk());
     EXPECT_FALSE(info.is_direct());
@@ -2233,15 +2237,15 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CancelInProgressRequest) {
   const GURL url1("http://request1");
   const GURL url2("http://request2");
   const GURL url3("http://request3");
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   // Start 3 requests.
@@ -2249,24 +2253,24 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CancelInProgressRequest) {
   ProxyInfo info1;
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
-  int rv =
-      service.ResolveProxy(url1, std::string(), NetworkIsolationKey(), &info1,
-                           callback1.callback(), &request1, NetLogWithSource());
+  int rv = service.ResolveProxy(url1, std::string(), NetworkAnonymizationKey(),
+                                &info1, callback1.callback(), &request1,
+                                NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // Successfully initialize the PAC script.
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->url());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   GetPendingJobsForURLs(resolver, url1);
 
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv =
-      service.ResolveProxy(url2, std::string(), NetworkIsolationKey(), &info2,
-                           callback2.callback(), &request2, NetLogWithSource());
+  rv = service.ResolveProxy(url2, std::string(), NetworkAnonymizationKey(),
+                            &info2, callback2.callback(), &request2,
+                            NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   GetPendingJobsForURLs(resolver, url1, url2);
@@ -2274,9 +2278,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CancelInProgressRequest) {
   ProxyInfo info3;
   TestCompletionCallback callback3;
   std::unique_ptr<ProxyResolutionRequest> request3;
-  rv =
-      service.ResolveProxy(url3, std::string(), NetworkIsolationKey(), &info3,
-                           callback3.callback(), &request3, NetLogWithSource());
+  rv = service.ResolveProxy(url3, std::string(), NetworkAnonymizationKey(),
+                            &info3, callback3.callback(), &request3,
+                            NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   GetPendingJobsForURLs(resolver, url1, url2, url3);
 
@@ -2308,19 +2312,20 @@ TEST_F(ConfiguredProxyResolutionServiceTest, InitialPACScriptDownload) {
   const GURL url1("http://request1");
   const GURL url2("http://request2");
   const GURL url3("http://request3");
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Start 3 requests.
@@ -2328,33 +2333,33 @@ TEST_F(ConfiguredProxyResolutionServiceTest, InitialPACScriptDownload) {
   ProxyInfo info1;
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
-  int rv =
-      service.ResolveProxy(url1, std::string(), NetworkIsolationKey(), &info1,
-                           callback1.callback(), &request1, NetLogWithSource());
+  int rv = service.ResolveProxy(url1, std::string(), NetworkAnonymizationKey(),
+                                &info1, callback1.callback(), &request1,
+                                NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // The first request should have triggered download of PAC script.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
 
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv =
-      service.ResolveProxy(url2, std::string(), NetworkIsolationKey(), &info2,
-                           callback2.callback(), &request2, NetLogWithSource());
+  rv = service.ResolveProxy(url2, std::string(), NetworkAnonymizationKey(),
+                            &info2, callback2.callback(), &request2,
+                            NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   ProxyInfo info3;
   TestCompletionCallback callback3;
   std::unique_ptr<ProxyResolutionRequest> request3;
-  rv =
-      service.ResolveProxy(url3, std::string(), NetworkIsolationKey(), &info3,
-                           callback3.callback(), &request3, NetLogWithSource());
+  rv = service.ResolveProxy(url3, std::string(), NetworkAnonymizationKey(),
+                            &info3, callback3.callback(), &request3,
+                            NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // Nothing has been sent to the factory yet.
-  EXPECT_TRUE(factory->pending_requests().empty());
+  EXPECT_TRUE(factory_ptr->pending_requests().empty());
 
   EXPECT_EQ(LOAD_STATE_DOWNLOADING_PAC_FILE, request1->GetLoadState());
   EXPECT_EQ(LOAD_STATE_DOWNLOADING_PAC_FILE, request2->GetLoadState());
@@ -2363,13 +2368,13 @@ TEST_F(ConfiguredProxyResolutionServiceTest, InitialPACScriptDownload) {
   // At this point the ConfiguredProxyResolutionService should be waiting for
   // the PacFileFetcher to invoke its completion callback, notifying it of PAC
   // script download completion.
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript1);
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
 
   // Now that the PAC script is downloaded, it will have been sent to the proxy
   // resolver.
   EXPECT_EQ(kValidPacScript116,
-            factory->pending_requests()[0]->script_data()->utf16());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   JobMap jobs = GetPendingJobsForURLs(resolver, url1, url2, url3);
 
@@ -2416,19 +2421,20 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
        ChangeScriptFetcherWhilePACDownloadInProgress) {
   const GURL url1("http://request1");
   const GURL url2("http://request2");
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Start 2 jobs.
@@ -2436,21 +2442,21 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   ProxyInfo info1;
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
-  int rv =
-      service.ResolveProxy(url1, std::string(), NetworkIsolationKey(), &info1,
-                           callback1.callback(), &request1, NetLogWithSource());
+  int rv = service.ResolveProxy(url1, std::string(), NetworkAnonymizationKey(),
+                                &info1, callback1.callback(), &request1,
+                                NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // The first request should have triggered download of PAC script.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
 
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv =
-      service.ResolveProxy(url2, std::string(), NetworkIsolationKey(), &info2,
-                           callback2.callback(), &request2, NetLogWithSource());
+  rv = service.ResolveProxy(url2, std::string(), NetworkAnonymizationKey(),
+                            &info2, callback2.callback(), &request2,
+                            NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // At this point the ConfiguredProxyResolutionService should be waiting for
@@ -2460,39 +2466,42 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   // We now change out the ConfiguredProxyResolutionService's script fetcher. We
   // should restart the initialization with the new fetcher.
 
-  fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  fetcher = std::make_unique<MockPacFileFetcher>();
+  fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Nothing has been sent to the factory yet.
-  EXPECT_TRUE(factory->pending_requests().empty());
+  EXPECT_TRUE(factory_ptr->pending_requests().empty());
 
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript1);
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
 
   // Now that the PAC script is downloaded, it will have been sent to the proxy
   // resolver.
   EXPECT_EQ(kValidPacScript116,
-            factory->pending_requests()[0]->script_data()->utf16());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   GetPendingJobsForURLs(resolver, url1, url2);
 }
 
 // Test cancellation of a request, while the PAC script is being fetched.
 TEST_F(ConfiguredProxyResolutionServiceTest, CancelWhilePACFetching) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Start 3 requests.
@@ -2501,33 +2510,33 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CancelWhilePACFetching) {
   std::unique_ptr<ProxyResolutionRequest> request1;
   RecordingNetLogObserver net_log_observer;
   int rv = service.ResolveProxy(GURL("http://request1"), std::string(),
-                                NetworkIsolationKey(), &info1,
+                                NetworkAnonymizationKey(), &info1,
                                 callback1.callback(), &request1,
                                 NetLogWithSource::Make(NetLogSourceType::NONE));
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // The first request should have triggered download of PAC script.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
 
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv = service.ResolveProxy(GURL("http://request2"), std::string(),
-                            NetworkIsolationKey(), &info2, callback2.callback(),
-                            &request2, NetLogWithSource());
+  rv = service.ResolveProxy(
+      GURL("http://request2"), std::string(), NetworkAnonymizationKey(), &info2,
+      callback2.callback(), &request2, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   ProxyInfo info3;
   TestCompletionCallback callback3;
   std::unique_ptr<ProxyResolutionRequest> request3;
-  rv = service.ResolveProxy(GURL("http://request3"), std::string(),
-                            NetworkIsolationKey(), &info3, callback3.callback(),
-                            &request3, NetLogWithSource());
+  rv = service.ResolveProxy(
+      GURL("http://request3"), std::string(), NetworkAnonymizationKey(), &info3,
+      callback3.callback(), &request3, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // Nothing has been sent to the factory yet.
-  EXPECT_TRUE(factory->pending_requests().empty());
+  EXPECT_TRUE(factory_ptr->pending_requests().empty());
 
   // Cancel the first 2 jobs.
   request1.reset();
@@ -2536,13 +2545,13 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CancelWhilePACFetching) {
   // At this point the ConfiguredProxyResolutionService should be waiting for
   // the PacFileFetcher to invoke its completion callback, notifying it of PAC
   // script download completion.
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript1);
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
 
   // Now that the PAC script is downloaded, it will have been sent to the
   // proxy resolver.
   EXPECT_EQ(kValidPacScript116,
-            factory->pending_requests()[0]->script_data()->utf16());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(GURL("http://request3"), resolver.pending_jobs()[0]->url());
@@ -2586,16 +2595,17 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   config.set_pac_url(GURL("http://foopy/proxy.pac"));
   config.proxy_rules().ParseFromString("http=foopy:80");  // Won't be used.
 
-  MockProxyConfigService* config_service = new MockProxyConfigService(config);
+  auto config_service = std::make_unique<MockProxyConfigService>(config);
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Start 2 requests.
@@ -2603,36 +2613,36 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   ProxyInfo info1;
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
-  int rv =
-      service.ResolveProxy(url1, std::string(), NetworkIsolationKey(), &info1,
-                           callback1.callback(), &request1, NetLogWithSource());
+  int rv = service.ResolveProxy(url1, std::string(), NetworkAnonymizationKey(),
+                                &info1, callback1.callback(), &request1,
+                                NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv =
-      service.ResolveProxy(url2, std::string(), NetworkIsolationKey(), &info2,
-                           callback2.callback(), &request2, NetLogWithSource());
+  rv = service.ResolveProxy(url2, std::string(), NetworkAnonymizationKey(),
+                            &info2, callback2.callback(), &request2,
+                            NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // Check that nothing has been sent to the proxy resolver factory yet.
-  ASSERT_EQ(0u, factory->pending_requests().size());
+  ASSERT_EQ(0u, factory_ptr->pending_requests().size());
 
   // It should be trying to auto-detect first -- FAIL the autodetect during
   // the script download.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://wpad/wpad.dat"), fetcher->pending_request_url());
-  fetcher->NotifyFetchCompletion(ERR_FAILED, std::string());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://wpad/wpad.dat"), fetcher_ptr->pending_request_url());
+  fetcher_ptr->NotifyFetchCompletion(ERR_FAILED, std::string());
 
   // Next it should be trying the custom PAC url.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript1);
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
 
   EXPECT_EQ(kValidPacScript116,
-            factory->pending_requests()[0]->script_data()->utf16());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   // Now finally, the pending jobs should have been sent to the resolver
   // (which was initialized with custom PAC script).
@@ -2673,16 +2683,17 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   config.set_pac_url(GURL("http://foopy/proxy.pac"));
   config.proxy_rules().ParseFromString("http=foopy:80");  // Won't be used.
 
-  MockProxyConfigService* config_service = new MockProxyConfigService(config);
+  auto config_service = std::make_unique<MockProxyConfigService>(config);
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Start 2 requests.
@@ -2690,38 +2701,38 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   ProxyInfo info1;
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
-  int rv =
-      service.ResolveProxy(url1, std::string(), NetworkIsolationKey(), &info1,
-                           callback1.callback(), &request1, NetLogWithSource());
+  int rv = service.ResolveProxy(url1, std::string(), NetworkAnonymizationKey(),
+                                &info1, callback1.callback(), &request1,
+                                NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv =
-      service.ResolveProxy(url2, std::string(), NetworkIsolationKey(), &info2,
-                           callback2.callback(), &request2, NetLogWithSource());
+  rv = service.ResolveProxy(url2, std::string(), NetworkAnonymizationKey(),
+                            &info2, callback2.callback(), &request2,
+                            NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // Check that nothing has been sent to the proxy resolver factory yet.
-  ASSERT_EQ(0u, factory->pending_requests().size());
+  ASSERT_EQ(0u, factory_ptr->pending_requests().size());
 
   // It should be trying to auto-detect first -- succeed the download.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://wpad/wpad.dat"), fetcher->pending_request_url());
-  fetcher->NotifyFetchCompletion(OK, "invalid-script-contents");
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://wpad/wpad.dat"), fetcher_ptr->pending_request_url());
+  fetcher_ptr->NotifyFetchCompletion(OK, "invalid-script-contents");
 
   // The script contents passed failed basic verification step (since didn't
   // contain token FindProxyForURL), so it was never passed to the resolver.
 
   // Next it should be trying the custom PAC url.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript1);
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
 
   EXPECT_EQ(kValidPacScript116,
-            factory->pending_requests()[0]->script_data()->utf16());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   // Now finally, the pending jobs should have been sent to the resolver
   // (which was initialized with custom PAC script).
@@ -2754,15 +2765,16 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   config.set_pac_url(GURL("http://foopy/proxy.pac"));
   config.proxy_rules().ParseFromString("http=foopy:80");
 
-  MockProxyConfigService* config_service = new MockProxyConfigService(config);
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  auto config_service = std::make_unique<MockProxyConfigService>(config);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Start 2 jobs.
@@ -2771,34 +2783,34 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv = service.ResolveProxy(
-      GURL("http://request1"), std::string(), NetworkIsolationKey(), &info1,
+      GURL("http://request1"), std::string(), NetworkAnonymizationKey(), &info1,
       callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv = service.ResolveProxy(GURL("http://request2"), std::string(),
-                            NetworkIsolationKey(), &info2, callback2.callback(),
-                            &request2, NetLogWithSource());
+  rv = service.ResolveProxy(
+      GURL("http://request2"), std::string(), NetworkAnonymizationKey(), &info2,
+      callback2.callback(), &request2, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // Check that nothing has been sent to the proxy resolver factory yet.
-  ASSERT_EQ(0u, factory->pending_requests().size());
+  ASSERT_EQ(0u, factory_ptr->pending_requests().size());
 
   // It should be trying to auto-detect first -- fail the download.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://wpad/wpad.dat"), fetcher->pending_request_url());
-  fetcher->NotifyFetchCompletion(ERR_FAILED, std::string());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://wpad/wpad.dat"), fetcher_ptr->pending_request_url());
+  fetcher_ptr->NotifyFetchCompletion(ERR_FAILED, std::string());
 
   // Next it should be trying the custom PAC url -- fail the download.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
-  fetcher->NotifyFetchCompletion(ERR_FAILED, std::string());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
+  fetcher_ptr->NotifyFetchCompletion(ERR_FAILED, std::string());
 
   // Since we never managed to initialize a resolver, nothing should have been
   // sent to it.
-  ASSERT_EQ(0u, factory->pending_requests().size());
+  ASSERT_EQ(0u, factory_ptr->pending_requests().size());
 
   // Verify that jobs ran as expected -- they should have fallen back to
   // the manual proxy configuration for HTTP urls.
@@ -2817,16 +2829,17 @@ TEST_F(ConfiguredProxyResolutionServiceTest, BypassDoesntApplyToPac) {
   config.proxy_rules().ParseFromString("http=foopy:80");  // Not used.
   config.proxy_rules().bypass_rules.ParseFromString("www.google.com");
 
-  MockProxyConfigService* config_service = new MockProxyConfigService(config);
+  auto config_service = std::make_unique<MockProxyConfigService>(config);
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Start 1 requests.
@@ -2835,21 +2848,21 @@ TEST_F(ConfiguredProxyResolutionServiceTest, BypassDoesntApplyToPac) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv = service.ResolveProxy(
-      GURL("http://www.google.com"), std::string(), NetworkIsolationKey(),
+      GURL("http://www.google.com"), std::string(), NetworkAnonymizationKey(),
       &info1, callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // Check that nothing has been sent to the proxy resolver factory yet.
-  ASSERT_EQ(0u, factory->pending_requests().size());
+  ASSERT_EQ(0u, factory_ptr->pending_requests().size());
 
   // It should be trying to auto-detect first -- succeed the download.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://wpad/wpad.dat"), fetcher->pending_request_url());
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript1);
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://wpad/wpad.dat"), fetcher_ptr->pending_request_url());
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
 
   EXPECT_EQ(kValidPacScript116,
-            factory->pending_requests()[0]->script_data()->utf16());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(GURL("http://www.google.com"), resolver.pending_jobs()[0]->url());
@@ -2866,9 +2879,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, BypassDoesntApplyToPac) {
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv = service.ResolveProxy(GURL("http://www.google.com"), std::string(),
-                            NetworkIsolationKey(), &info2, callback2.callback(),
-                            &request2, NetLogWithSource());
+  rv = service.ResolveProxy(
+      GURL("http://www.google.com"), std::string(), NetworkAnonymizationKey(),
+      &info2, callback2.callback(), &request2, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
@@ -2891,15 +2904,16 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   ProxyConfig config =
       ProxyConfig::CreateFromCustomPacURL(GURL("http://foopy/proxy.pac"));
 
-  MockProxyConfigService* config_service = new MockProxyConfigService(config);
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  auto config_service = std::make_unique<MockProxyConfigService>(config);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Start 1 request.
@@ -2908,17 +2922,17 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv = service.ResolveProxy(
-      GURL("http://www.google.com"), std::string(), NetworkIsolationKey(),
+      GURL("http://www.google.com"), std::string(), NetworkAnonymizationKey(),
       &info1, callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // Check that nothing has been sent to the proxy resolver factory yet.
-  ASSERT_EQ(0u, factory->pending_requests().size());
+  ASSERT_EQ(0u, factory_ptr->pending_requests().size());
 
   // InitProxyResolver should have issued a request to the PacFileFetcher
   // and be waiting on that to complete.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
 }
 
 // Delete the ConfiguredProxyResolutionService while InitProxyResolver has an
@@ -2927,14 +2941,14 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
 // deleted prior to the InitProxyResolver).
 TEST_F(ConfiguredProxyResolutionServiceTest,
        DeleteWhileInitProxyResolverHasOutstandingSet) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
@@ -2943,12 +2957,12 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   TestCompletionCallback callback;
   std::unique_ptr<ProxyResolutionRequest> request;
   int rv =
-      service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
+      service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(), &info,
                            callback.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-            factory->pending_requests()[0]->script_data()->url());
+            factory_ptr->pending_requests()[0]->script_data()->url());
 }
 
 // Test that when going from a configuration that required PAC to one
@@ -2956,12 +2970,13 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
 TEST_F(ConfiguredProxyResolutionServiceTest, UpdateConfigFromPACToDirect) {
   ProxyConfig config = ProxyConfig::CreateAutoDetect();
 
-  MockProxyConfigService* config_service = new MockProxyConfigService(config);
+  auto config_service = std::make_unique<MockProxyConfigService>(config);
+  auto* config_service_ptr = config_service.get();
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(false);
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+  auto* factory_ptr = factory.get();
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
   // Start 1 request.
@@ -2970,14 +2985,14 @@ TEST_F(ConfiguredProxyResolutionServiceTest, UpdateConfigFromPACToDirect) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv = service.ResolveProxy(
-      GURL("http://www.google.com"), std::string(), NetworkIsolationKey(),
+      GURL("http://www.google.com"), std::string(), NetworkAnonymizationKey(),
       &info1, callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // Successfully set the autodetect script.
   EXPECT_EQ(PacFileData::TYPE_AUTO_DETECT,
-            factory->pending_requests()[0]->script_data()->type());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->type());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   // Complete the pending request.
   ASSERT_EQ(1u, resolver.pending_jobs().size());
@@ -2993,37 +3008,37 @@ TEST_F(ConfiguredProxyResolutionServiceTest, UpdateConfigFromPACToDirect) {
   //
   // This new configuration no longer has auto_detect set, so
   // jobs should complete synchronously now as direct-connect.
-  config_service->SetConfig(ProxyConfigWithAnnotation::CreateDirect());
+  config_service_ptr->SetConfig(ProxyConfigWithAnnotation::CreateDirect());
 
   // Start another request -- the effective configuration has changed.
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv = service.ResolveProxy(GURL("http://www.google.com"), std::string(),
-                            NetworkIsolationKey(), &info2, callback2.callback(),
-                            &request2, NetLogWithSource());
+  rv = service.ResolveProxy(
+      GURL("http://www.google.com"), std::string(), NetworkAnonymizationKey(),
+      &info2, callback2.callback(), &request2, NetLogWithSource());
   EXPECT_THAT(rv, IsOk());
 
   EXPECT_TRUE(info2.is_direct());
 }
 
 TEST_F(ConfiguredProxyResolutionServiceTest, NetworkChangeTriggersPacRefetch) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
 
   RecordingNetLogObserver observer;
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory),
-                                           net::NetLog::Get(),
-                                           /*quick_check_enabled=*/true);
+  ConfiguredProxyResolutionService service(
+      std::move(config_service), std::move(factory), net::NetLog::Get(),
+      /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Disable the "wait after IP address changes" hack, so this unit-test can
@@ -3036,27 +3051,27 @@ TEST_F(ConfiguredProxyResolutionServiceTest, NetworkChangeTriggersPacRefetch) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv = service.ResolveProxy(
-      GURL("http://request1"), std::string(), NetworkIsolationKey(), &info1,
+      GURL("http://request1"), std::string(), NetworkAnonymizationKey(), &info1,
       callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // The first request should have triggered initial download of PAC script.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
 
   // Nothing has been sent to the factory yet.
-  EXPECT_TRUE(factory->pending_requests().empty());
+  EXPECT_TRUE(factory_ptr->pending_requests().empty());
 
   // At this point the ConfiguredProxyResolutionService should be waiting for
   // the PacFileFetcher to invoke its completion callback, notifying it of PAC
   // script download completion.
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript1);
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
 
   // Now that the PAC script is downloaded, the request will have been sent to
   // the proxy resolver.
   EXPECT_EQ(kValidPacScript116,
-            factory->pending_requests()[0]->script_data()->utf16());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(GURL("http://request1"), resolver.pending_jobs()[0]->url());
@@ -3079,28 +3094,28 @@ TEST_F(ConfiguredProxyResolutionServiceTest, NetworkChangeTriggersPacRefetch) {
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv = service.ResolveProxy(GURL("http://request2"), std::string(),
-                            NetworkIsolationKey(), &info2, callback2.callback(),
-                            &request2, NetLogWithSource());
+  rv = service.ResolveProxy(
+      GURL("http://request2"), std::string(), NetworkAnonymizationKey(), &info2,
+      callback2.callback(), &request2, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // This second request should have triggered the re-download of the PAC
   // script (since we marked the network as having changed).
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
 
   // Nothing has been sent to the factory yet.
-  EXPECT_TRUE(factory->pending_requests().empty());
+  EXPECT_TRUE(factory_ptr->pending_requests().empty());
 
   // Simulate the PAC script fetch as having completed (this time with
   // different data).
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript2);
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript2);
 
   // Now that the PAC script is downloaded, the second request will have been
   // sent to the proxy resolver.
   EXPECT_EQ(kValidPacScript216,
-            factory->pending_requests()[0]->script_data()->utf16());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(GURL("http://request2"), resolver.pending_jobs()[0]->url());
@@ -3135,19 +3150,20 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterFailure) {
   ImmediatePollPolicy poll_policy;
   ConfiguredProxyResolutionService::set_pac_script_poll_policy(&poll_policy);
 
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Start 1 request.
@@ -3156,16 +3172,16 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterFailure) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv = service.ResolveProxy(
-      GURL("http://request1"), std::string(), NetworkIsolationKey(), &info1,
+      GURL("http://request1"), std::string(), NetworkAnonymizationKey(), &info1,
       callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // The first request should have triggered initial download of PAC script.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
 
   // Nothing has been sent to the factory yet.
-  EXPECT_TRUE(factory->pending_requests().empty());
+  EXPECT_TRUE(factory_ptr->pending_requests().empty());
 
   // At this point the ConfiguredProxyResolutionService should be waiting for
   // the PacFileFetcher to invoke its completion callback, notifying it of PAC
@@ -3173,9 +3189,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterFailure) {
   //
   // We simulate a failed download attempt, the proxy service should now
   // fall-back to DIRECT connections.
-  fetcher->NotifyFetchCompletion(ERR_FAILED, std::string());
+  fetcher_ptr->NotifyFetchCompletion(ERR_FAILED, std::string());
 
-  ASSERT_TRUE(factory->pending_requests().empty());
+  ASSERT_TRUE(factory_ptr->pending_requests().empty());
 
   // Wait for completion callback, and verify it used DIRECT.
   EXPECT_THAT(callback1.WaitForResult(), IsOk());
@@ -3189,24 +3205,24 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterFailure) {
   //
   // Note that we shouldn't have to wait long here, since our test enables a
   // special unit-test mode.
-  fetcher->WaitUntilFetch();
+  fetcher_ptr->WaitUntilFetch();
 
-  ASSERT_TRUE(factory->pending_requests().empty());
+  ASSERT_TRUE(factory_ptr->pending_requests().empty());
 
   // Make sure that our background checker is trying to download the expected
   // PAC script (same one as before). This time we will simulate a successful
   // download of the script.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript1);
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
 
   base::RunLoop().RunUntilIdle();
 
   // Now that the PAC script is downloaded, it should be used to initialize the
   // ProxyResolver. Simulate a successful parse.
   EXPECT_EQ(kValidPacScript116,
-            factory->pending_requests()[0]->script_data()->utf16());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   // At this point the ConfiguredProxyResolutionService should have
   // re-configured itself to use the PAC script (thereby recovering from the
@@ -3217,9 +3233,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterFailure) {
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv = service.ResolveProxy(GURL("http://request2"), std::string(),
-                            NetworkIsolationKey(), &info2, callback2.callback(),
-                            &request2, NetLogWithSource());
+  rv = service.ResolveProxy(
+      GURL("http://request2"), std::string(), NetworkAnonymizationKey(), &info2,
+      callback2.callback(), &request2, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // Check that it was sent to the resolver.
@@ -3246,19 +3262,20 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   ImmediatePollPolicy poll_policy;
   ConfiguredProxyResolutionService::set_pac_script_poll_policy(&poll_policy);
 
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Start 1 request.
@@ -3267,27 +3284,27 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv = service.ResolveProxy(
-      GURL("http://request1"), std::string(), NetworkIsolationKey(), &info1,
+      GURL("http://request1"), std::string(), NetworkAnonymizationKey(), &info1,
       callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // The first request should have triggered initial download of PAC script.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
 
   // Nothing has been sent to the factory yet.
-  EXPECT_TRUE(factory->pending_requests().empty());
+  EXPECT_TRUE(factory_ptr->pending_requests().empty());
 
   // At this point the ConfiguredProxyResolutionService should be waiting for
   // the PacFileFetcher to invoke its completion callback, notifying it of PAC
   // script download completion.
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript1);
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
 
   // Now that the PAC script is downloaded, the request will have been sent to
   // the proxy resolver.
   EXPECT_EQ(kValidPacScript116,
-            factory->pending_requests()[0]->script_data()->utf16());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(GURL("http://request1"), resolver.pending_jobs()[0]->url());
@@ -3307,25 +3324,25 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   //
   // Note that we shouldn't have to wait long here, since our test enables a
   // special unit-test mode.
-  fetcher->WaitUntilFetch();
+  fetcher_ptr->WaitUntilFetch();
 
-  ASSERT_TRUE(factory->pending_requests().empty());
+  ASSERT_TRUE(factory_ptr->pending_requests().empty());
   ASSERT_TRUE(resolver.pending_jobs().empty());
 
   // Make sure that our background checker is trying to download the expected
   // PAC script (same one as before). This time we will simulate a successful
   // download of a DIFFERENT script.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript2);
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript2);
 
   base::RunLoop().RunUntilIdle();
 
   // Now that the PAC script is downloaded, it should be used to initialize the
   // ProxyResolver. Simulate a successful parse.
   EXPECT_EQ(kValidPacScript216,
-            factory->pending_requests()[0]->script_data()->utf16());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   // At this point the ConfiguredProxyResolutionService should have
   // re-configured itself to use the new PAC script.
@@ -3334,9 +3351,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv = service.ResolveProxy(GURL("http://request2"), std::string(),
-                            NetworkIsolationKey(), &info2, callback2.callback(),
-                            &request2, NetLogWithSource());
+  rv = service.ResolveProxy(
+      GURL("http://request2"), std::string(), NetworkAnonymizationKey(), &info2,
+      callback2.callback(), &request2, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // Check that it was sent to the resolver.
@@ -3363,19 +3380,20 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   ImmediatePollPolicy poll_policy;
   ConfiguredProxyResolutionService::set_pac_script_poll_policy(&poll_policy);
 
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Start 1 request.
@@ -3384,27 +3402,27 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv = service.ResolveProxy(
-      GURL("http://request1"), std::string(), NetworkIsolationKey(), &info1,
+      GURL("http://request1"), std::string(), NetworkAnonymizationKey(), &info1,
       callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // The first request should have triggered initial download of PAC script.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
 
   // Nothing has been sent to the factory yet.
-  EXPECT_TRUE(factory->pending_requests().empty());
+  EXPECT_TRUE(factory_ptr->pending_requests().empty());
 
   // At this point the ConfiguredProxyResolutionService should be waiting for
   // the PacFileFetcher to invoke its completion callback, notifying it of PAC
   // script download completion.
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript1);
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
 
   // Now that the PAC script is downloaded, the request will have been sent to
   // the proxy resolver.
   EXPECT_EQ(kValidPacScript116,
-            factory->pending_requests()[0]->script_data()->utf16());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(GURL("http://request1"), resolver.pending_jobs()[0]->url());
@@ -3424,21 +3442,21 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   //
   // Note that we shouldn't have to wait long here, since our test enables a
   // special unit-test mode.
-  fetcher->WaitUntilFetch();
+  fetcher_ptr->WaitUntilFetch();
 
-  ASSERT_TRUE(factory->pending_requests().empty());
+  ASSERT_TRUE(factory_ptr->pending_requests().empty());
   ASSERT_TRUE(resolver.pending_jobs().empty());
 
   // Make sure that our background checker is trying to download the expected
   // PAC script (same one as before). We will simulate the same response as
   // last time (i.e. the script is unchanged).
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript1);
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
 
   base::RunLoop().RunUntilIdle();
 
-  ASSERT_TRUE(factory->pending_requests().empty());
+  ASSERT_TRUE(factory_ptr->pending_requests().empty());
   ASSERT_TRUE(resolver.pending_jobs().empty());
 
   // At this point the ConfiguredProxyResolutionService is still running the
@@ -3448,9 +3466,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv = service.ResolveProxy(GURL("http://request2"), std::string(),
-                            NetworkIsolationKey(), &info2, callback2.callback(),
-                            &request2, NetLogWithSource());
+  rv = service.ResolveProxy(
+      GURL("http://request2"), std::string(), NetworkAnonymizationKey(), &info2,
+      callback2.callback(), &request2, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // Check that it was sent to the resolver.
@@ -3476,19 +3494,20 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterSuccess) {
   ImmediatePollPolicy poll_policy;
   ConfiguredProxyResolutionService::set_pac_script_poll_policy(&poll_policy);
 
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Start 1 request.
@@ -3497,27 +3516,27 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterSuccess) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv = service.ResolveProxy(
-      GURL("http://request1"), std::string(), NetworkIsolationKey(), &info1,
+      GURL("http://request1"), std::string(), NetworkAnonymizationKey(), &info1,
       callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // The first request should have triggered initial download of PAC script.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
 
   // Nothing has been sent to the factory yet.
-  EXPECT_TRUE(factory->pending_requests().empty());
+  EXPECT_TRUE(factory_ptr->pending_requests().empty());
 
   // At this point the ConfiguredProxyResolutionService should be waiting for
   // the PacFileFetcher to invoke its completion callback, notifying it of PAC
   // script download completion.
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript1);
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
 
   // Now that the PAC script is downloaded, the request will have been sent to
   // the proxy resolver.
   EXPECT_EQ(kValidPacScript116,
-            factory->pending_requests()[0]->script_data()->utf16());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(GURL("http://request1"), resolver.pending_jobs()[0]->url());
@@ -3537,17 +3556,17 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterSuccess) {
   //
   // Note that we shouldn't have to wait long here, since our test enables a
   // special unit-test mode.
-  fetcher->WaitUntilFetch();
+  fetcher_ptr->WaitUntilFetch();
 
-  ASSERT_TRUE(factory->pending_requests().empty());
+  ASSERT_TRUE(factory_ptr->pending_requests().empty());
   ASSERT_TRUE(resolver.pending_jobs().empty());
 
   // Make sure that our background checker is trying to download the expected
   // PAC script (same one as before). This time we will simulate a failure
   // to download the script.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
-  fetcher->NotifyFetchCompletion(ERR_FAILED, std::string());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
+  fetcher_ptr->NotifyFetchCompletion(ERR_FAILED, std::string());
 
   base::RunLoop().RunUntilIdle();
 
@@ -3559,9 +3578,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterSuccess) {
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv = service.ResolveProxy(GURL("http://request2"), std::string(),
-                            NetworkIsolationKey(), &info2, callback2.callback(),
-                            &request2, NetLogWithSource());
+  rv = service.ResolveProxy(
+      GURL("http://request2"), std::string(), NetworkAnonymizationKey(), &info2,
+      callback2.callback(), &request2, NetLogWithSource());
   EXPECT_THAT(rv, IsOk());
   EXPECT_TRUE(info2.is_direct());
 }
@@ -3651,19 +3670,20 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterActivity) {
   ImmediateAfterActivityPollPolicy poll_policy;
   ConfiguredProxyResolutionService::set_pac_script_poll_policy(&poll_policy);
 
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Start 1 request.
@@ -3672,27 +3692,27 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterActivity) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv = service.ResolveProxy(
-      GURL("http://request1"), std::string(), NetworkIsolationKey(), &info1,
+      GURL("http://request1"), std::string(), NetworkAnonymizationKey(), &info1,
       callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // The first request should have triggered initial download of PAC script.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
 
   // Nothing has been sent to the factory yet.
-  EXPECT_TRUE(factory->pending_requests().empty());
+  EXPECT_TRUE(factory_ptr->pending_requests().empty());
 
   // At this point the ConfiguredProxyResolutionService should be waiting for
   // the PacFileFetcher to invoke its completion callback, notifying it of PAC
   // script download completion.
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript1);
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
 
   // Now that the PAC script is downloaded, the request will have been sent to
   // the proxy resolver.
   EXPECT_EQ(kValidPacScript116,
-            factory->pending_requests()[0]->script_data()->utf16());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(GURL("http://request1"), resolver.pending_jobs()[0]->url());
@@ -3709,17 +3729,17 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterActivity) {
   // Our PAC poller is set to update ONLY in response to network activity,
   // (i.e. another call to ResolveProxy()).
 
-  ASSERT_FALSE(fetcher->has_pending_request());
-  ASSERT_TRUE(factory->pending_requests().empty());
+  ASSERT_FALSE(fetcher_ptr->has_pending_request());
+  ASSERT_TRUE(factory_ptr->pending_requests().empty());
   ASSERT_TRUE(resolver.pending_jobs().empty());
 
   // Start a second request.
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv = service.ResolveProxy(GURL("http://request2"), std::string(),
-                            NetworkIsolationKey(), &info2, callback2.callback(),
-                            &request2, NetLogWithSource());
+  rv = service.ResolveProxy(
+      GURL("http://request2"), std::string(), NetworkAnonymizationKey(), &info2,
+      callback2.callback(), &request2, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // This request should have sent work to the resolver; complete it.
@@ -3734,11 +3754,11 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterActivity) {
   // In response to getting that resolve request, the poller should have
   // started the next poll, and made it as far as to request the download.
 
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
 
   // This time we will fail the download, to simulate a PAC script change.
-  fetcher->NotifyFetchCompletion(ERR_FAILED, std::string());
+  fetcher_ptr->NotifyFetchCompletion(ERR_FAILED, std::string());
 
   // Drain the message loop, so ConfiguredProxyResolutionService is notified of
   // the change and has a chance to re-configure itself.
@@ -3749,9 +3769,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterActivity) {
   ProxyInfo info3;
   TestCompletionCallback callback3;
   std::unique_ptr<ProxyResolutionRequest> request3;
-  rv = service.ResolveProxy(GURL("http://request3"), std::string(),
-                            NetworkIsolationKey(), &info3, callback3.callback(),
-                            &request3, NetLogWithSource());
+  rv = service.ResolveProxy(
+      GURL("http://request3"), std::string(), NetworkAnonymizationKey(), &info3,
+      callback3.callback(), &request3, NetLogWithSource());
   EXPECT_THAT(rv, IsOk());
   EXPECT_TRUE(info3.is_direct());
 }
@@ -3781,7 +3801,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, IpAddressChangeResetsProxy) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv = service.ResolveProxy(
-      GURL("http://request1"), std::string(), NetworkIsolationKey(), &info1,
+      GURL("http://request1"), std::string(), NetworkAnonymizationKey(), &info1,
       callback1.callback(), &request1, NetLogWithSource());
   ASSERT_THAT(rv, IsError(ERR_IO_PENDING));
   ASSERT_TRUE(fetcher_ptr->has_pending_request());
@@ -3808,9 +3828,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, IpAddressChangeResetsProxy) {
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv = service.ResolveProxy(GURL("http://request1"), std::string(),
-                            NetworkIsolationKey(), &info2, callback2.callback(),
-                            &request2, NetLogWithSource());
+  rv = service.ResolveProxy(
+      GURL("http://request1"), std::string(), NetworkAnonymizationKey(), &info2,
+      callback2.callback(), &request2, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   EXPECT_THAT(resolver.pending_jobs(), testing::IsEmpty());
 
@@ -3848,7 +3868,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, DnsChangeTriggersPoll) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv = service.ResolveProxy(
-      GURL("http://request1"), std::string(), NetworkIsolationKey(), &info1,
+      GURL("http://request1"), std::string(), NetworkAnonymizationKey(), &info1,
       callback1.callback(), &request1, NetLogWithSource());
   ASSERT_THAT(rv, IsError(ERR_IO_PENDING));
   ASSERT_TRUE(fetcher_ptr->has_pending_request());
@@ -3873,9 +3893,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, DnsChangeTriggersPoll) {
   ProxyInfo info2;
   TestCompletionCallback callback2;
   std::unique_ptr<ProxyResolutionRequest> request2;
-  rv = service.ResolveProxy(GURL("http://request2"), std::string(),
-                            NetworkIsolationKey(), &info2, callback2.callback(),
-                            &request2, NetLogWithSource());
+  rv = service.ResolveProxy(
+      GURL("http://request2"), std::string(), NetworkAnonymizationKey(), &info2,
+      callback2.callback(), &request2, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   ASSERT_THAT(resolver.pending_jobs(), testing::SizeIs(1));
   resolver.pending_jobs()[0]->CompleteNow(OK);
@@ -3889,9 +3909,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, DnsChangeTriggersPoll) {
   ProxyInfo info3;
   TestCompletionCallback callback3;
   std::unique_ptr<ProxyResolutionRequest> request3;
-  rv = service.ResolveProxy(GURL("http://request3"), std::string(),
-                            NetworkIsolationKey(), &info3, callback3.callback(),
-                            &request3, NetLogWithSource());
+  rv = service.ResolveProxy(
+      GURL("http://request3"), std::string(), NetworkAnonymizationKey(), &info3,
+      callback3.callback(), &request3, NetLogWithSource());
   ASSERT_THAT(rv, IsError(ERR_IO_PENDING));
   ASSERT_THAT(factory_ptr->pending_requests(), testing::SizeIs(1));
   EXPECT_EQ(kValidPacScript216,
@@ -3931,13 +3951,12 @@ TEST_F(ConfiguredProxyResolutionServiceTest, DnsChangeNoopWithoutResolver) {
 class SanitizeUrlHelper {
  public:
   SanitizeUrlHelper() {
-    std::unique_ptr<MockProxyConfigService> config_service(
-        new MockProxyConfigService("http://foopy/proxy.pac"));
-
-    factory = new MockAsyncProxyResolverFactory(false);
-
+    auto config_service =
+        std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
+    auto factory = std::make_unique<MockAsyncProxyResolverFactory>(false);
+    auto* factory_ptr = factory.get();
     service_ = std::make_unique<ConfiguredProxyResolutionService>(
-        std::move(config_service), base::WrapUnique(factory.get()), nullptr,
+        std::move(config_service), std::move(factory), nullptr,
         /*quick_check_enabled=*/true);
 
     // Do an initial request to initialize the service (configure the PAC
@@ -3947,15 +3966,15 @@ class SanitizeUrlHelper {
     ProxyInfo info;
     TestCompletionCallback callback;
     std::unique_ptr<ProxyResolutionRequest> request;
-    int rv = service_->ResolveProxy(url, std::string(), NetworkIsolationKey(),
-                                    &info, callback.callback(), &request,
-                                    NetLogWithSource());
+    int rv = service_->ResolveProxy(
+        url, std::string(), NetworkAnonymizationKey(), &info,
+        callback.callback(), &request, NetLogWithSource());
     EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
     // First step is to download the PAC script.
     EXPECT_EQ(GURL("http://foopy/proxy.pac"),
-              factory->pending_requests()[0]->script_data()->url());
-    factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+              factory_ptr->pending_requests()[0]->script_data()->url());
+    factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
     EXPECT_EQ(1u, resolver.pending_jobs().size());
     EXPECT_EQ(url, resolver.pending_jobs()[0]->url());
@@ -3976,7 +3995,7 @@ class SanitizeUrlHelper {
     TestCompletionCallback callback;
     std::unique_ptr<ProxyResolutionRequest> request1;
     int rv = service_->ResolveProxy(
-        raw_url, std::string(), NetworkIsolationKey(), &info,
+        raw_url, std::string(), NetworkAnonymizationKey(), &info,
         callback.callback(), &request1, NetLogWithSource());
     EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
@@ -3995,7 +4014,6 @@ class SanitizeUrlHelper {
 
  private:
   MockAsyncProxyResolver resolver;
-  raw_ptr<MockAsyncProxyResolverFactory> factory;
   std::unique_ptr<ConfiguredProxyResolutionService> service_;
 };
 
@@ -4093,53 +4111,53 @@ TEST_F(ConfiguredProxyResolutionServiceTest, SanitizeUrlForPacScript) {
 }
 
 TEST_F(ConfiguredProxyResolutionServiceTest, OnShutdownWithLiveRequest) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   ProxyInfo info;
   TestCompletionCallback callback;
   std::unique_ptr<ProxyResolutionRequest> request;
   int rv = service.ResolveProxy(
-      GURL("http://request/"), std::string(), NetworkIsolationKey(), &info,
+      GURL("http://request/"), std::string(), NetworkAnonymizationKey(), &info,
       callback.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // The first request should have triggered download of PAC script.
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher->pending_request_url());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://foopy/proxy.pac"), fetcher_ptr->pending_request_url());
 
   service.OnShutdown();
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(callback.have_result());
-  EXPECT_FALSE(fetcher->has_pending_request());
+  EXPECT_FALSE(fetcher_ptr->has_pending_request());
 }
 
 TEST_F(ConfiguredProxyResolutionServiceTest, OnShutdownFollowedByRequest) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService("http://foopy/proxy.pac");
+  auto config_service =
+      std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
 
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   service.OnShutdown();
@@ -4148,10 +4166,10 @@ TEST_F(ConfiguredProxyResolutionServiceTest, OnShutdownFollowedByRequest) {
   TestCompletionCallback callback;
   std::unique_ptr<ProxyResolutionRequest> request;
   int rv = service.ResolveProxy(
-      GURL("http://request/"), std::string(), NetworkIsolationKey(), &info,
+      GURL("http://request/"), std::string(), NetworkAnonymizationKey(), &info,
       callback.callback(), &request, NetLogWithSource());
   EXPECT_THAT(rv, IsOk());
-  EXPECT_FALSE(fetcher->has_pending_request());
+  EXPECT_FALSE(fetcher_ptr->has_pending_request());
   EXPECT_TRUE(info.is_direct());
 }
 
@@ -4177,7 +4195,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   config.proxy_rules().ParseFromString("foopy1:8080");
   config.set_auto_detect(false);
 
-  auto service = ConfiguredProxyResolutionService::CreateFixed(
+  auto service = ConfiguredProxyResolutionService::CreateFixedForTest(
       ProxyConfigWithAnnotation(config, TRAFFIC_ANNOTATION_FOR_TESTS));
 
   // A normal request should use the proxy.
@@ -4185,7 +4203,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   ProxyInfo info1;
   TestCompletionCallback callback1;
   int rv = service->ResolveProxy(
-      GURL("http://www.example.com"), std::string(), NetworkIsolationKey(),
+      GURL("http://www.example.com"), std::string(), NetworkAnonymizationKey(),
       &info1, callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsOk());
   EXPECT_EQ("foopy1:8080", ProxyServerToProxyUri(info1.proxy_server()));
@@ -4199,7 +4217,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
       std::unique_ptr<ProxyResolutionRequest> request;
       ProxyInfo info;
       TestCompletionCallback callback;
-      rv = service->ResolveProxy(url, std::string(), NetworkIsolationKey(),
+      rv = service->ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
                                  &info, callback.callback(), &request,
                                  NetLogWithSource());
       EXPECT_THAT(rv, IsOk());
@@ -4214,16 +4232,17 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ImplicitlyBypassWithPac) {
   ProxyConfig config;
   config.set_auto_detect(true);
 
-  MockProxyConfigService* config_service = new MockProxyConfigService(config);
+  auto config_service = std::make_unique<MockProxyConfigService>(config);
   MockAsyncProxyResolver resolver;
-  MockAsyncProxyResolverFactory* factory =
-      new MockAsyncProxyResolverFactory(true);
-  ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr,
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(true);
+  auto* factory_ptr = factory.get();
+  ConfiguredProxyResolutionService service(std::move(config_service),
+                                           std::move(factory), nullptr,
                                            /*quick_check_enabled=*/true);
 
-  MockPacFileFetcher* fetcher = new MockPacFileFetcher;
-  service.SetPacFileFetchers(base::WrapUnique(fetcher),
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  auto* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
                              std::make_unique<DoNothingDhcpPacFileFetcher>());
 
   // Start 1 requests.
@@ -4232,19 +4251,19 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ImplicitlyBypassWithPac) {
   TestCompletionCallback callback1;
   std::unique_ptr<ProxyResolutionRequest> request1;
   int rv = service.ResolveProxy(
-      GURL("http://www.google.com"), std::string(), NetworkIsolationKey(),
+      GURL("http://www.google.com"), std::string(), NetworkAnonymizationKey(),
       &info1, callback1.callback(), &request1, NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // This started auto-detect; complete it.
-  ASSERT_EQ(0u, factory->pending_requests().size());
-  EXPECT_TRUE(fetcher->has_pending_request());
-  EXPECT_EQ(GURL("http://wpad/wpad.dat"), fetcher->pending_request_url());
-  fetcher->NotifyFetchCompletion(OK, kValidPacScript1);
+  ASSERT_EQ(0u, factory_ptr->pending_requests().size());
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+  EXPECT_EQ(GURL("http://wpad/wpad.dat"), fetcher_ptr->pending_request_url());
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
 
   EXPECT_EQ(kValidPacScript116,
-            factory->pending_requests()[0]->script_data()->utf16());
-  factory->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
 
   ASSERT_EQ(1u, resolver.pending_jobs().size());
   EXPECT_EQ(GURL("http://www.google.com"), resolver.pending_jobs()[0]->url());
@@ -4266,7 +4285,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ImplicitlyBypassWithPac) {
       std::unique_ptr<ProxyResolutionRequest> request;
       ProxyInfo info;
       TestCompletionCallback callback;
-      rv = service.ResolveProxy(url, std::string(), NetworkIsolationKey(),
+      rv = service.ResolveProxy(url, std::string(), NetworkAnonymizationKey(),
                                 &info, callback.callback(), &request,
                                 NetLogWithSource());
       EXPECT_THAT(rv, IsOk());
@@ -4277,11 +4296,11 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ImplicitlyBypassWithPac) {
 
 TEST_F(ConfiguredProxyResolutionServiceTest,
        CastToConfiguredProxyResolutionService) {
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService(ProxyConfig::CreateDirect());
+  auto config_service =
+      std::make_unique<MockProxyConfigService>(ProxyConfig::CreateDirect());
 
   ConfiguredProxyResolutionService service(
-      base::WrapUnique(config_service),
+      std::move(config_service),
       std::make_unique<MockAsyncProxyResolverFactory>(false), nullptr,
       /*quick_check_enabled=*/true);
 

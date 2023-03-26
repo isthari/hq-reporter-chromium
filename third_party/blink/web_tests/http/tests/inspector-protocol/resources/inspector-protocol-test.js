@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -57,7 +57,12 @@ var TestRunner = class {
   }
 
   params(name) {
-    return name ? this._params.get(name) : this._params;
+    if (name) {
+      return this._params instanceof URLSearchParams
+          ? this._params.get(name) : this._params[name];
+    }
+
+    return this._params;
   }
 
   _logObject(object, title, stabilizeNames = TestRunner.stabilizeNames) {
@@ -184,6 +189,10 @@ var TestRunner = class {
       document.head.appendChild(script);
     })
   };
+
+  browserSession() {
+    return this._browserSession;
+  }
 
   browserP() {
     return this._browserSession.protocol;
@@ -362,6 +371,11 @@ TestRunner.Session = class {
     return session;
   }
 
+  async attachChild(targetId) {
+    const {sessionId} = (await this.protocol.Target.attachToTarget({targetId, flatten: true})).result;
+    return this.createChild(sessionId);
+  }
+
   async sendCommand(method, params) {
     var requestId = ++this._requestId;
     if (this._testRunner._dumpInspectorProtocolMessages)
@@ -391,7 +405,9 @@ TestRunner.Session = class {
     }
     var response = await this.protocol.Runtime.evaluate({expression: code, returnByValue: true, awaitPromise, userGesture});
     if (response.error) {
-      this._testRunner.log(`Error while evaluating async '${code}': ${response.error}`);
+      const errorMessage = JSON.stringify(response.error);
+      const maybeAsync = awaitPromise ? 'async ' : '';
+      this._testRunner.log(`Error while evaluating ${maybeAsync}'${code}': ${errorMessage}`);
       this._testRunner.completeTest();
     } else {
       return response.result.result.value;
@@ -565,6 +581,8 @@ testRunner.setPopupBlockingEnabled(false);
 
 window.addEventListener('load', () => {
   var params = new URLSearchParams(window.location.search);
+  if (!params.get('test'))
+    return;
 
   var testScriptURL = params.get('test');
   var testBaseURL = testScriptURL.substring(0, testScriptURL.lastIndexOf('/') + 1);

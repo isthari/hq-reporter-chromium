@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #include "chrome/browser/lacros/browser_test_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
+#include "chrome/browser/ui/lacros/window_utility.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/tabs/tab_scrubber_chromeos.h"
@@ -43,7 +44,8 @@ TabStrip* GetTabStrip(Browser* browser) {
 // It verifies that triggering a tab scrubbing request when a lacros window
 // is upfront and active, does not activates the logic in Ash, and forwards
 // the call to Lacros.
-IN_PROC_BROWSER_TEST_F(TabScrubberBrowserTest, Smoke) {
+// TODO(crbug.com/1298835): Flaking very badly
+IN_PROC_BROWSER_TEST_F(TabScrubberBrowserTest, DISABLED_Smoke) {
   auto* lacros_service = chromeos::LacrosService::Get();
   ASSERT_TRUE(lacros_service->IsAvailable<crosapi::mojom::TestController>());
   // This test requires the tab scrubbing API.
@@ -57,8 +59,8 @@ IN_PROC_BROWSER_TEST_F(TabScrubberBrowserTest, Smoke) {
   // Wait for the window to be created.
   aura::Window* window = browser()->window()->GetNativeWindow();
   std::string window_id =
-      browser_test_util::GetWindowId(window->GetRootWindow());
-  browser_test_util::WaitForWindowCreation(window_id);
+      lacros_window_utility::GetRootWindowUniqueId(window->GetRootWindow());
+  ASSERT_TRUE(browser_test_util::WaitForWindowCreation(window_id));
 
   // Add further 5 blank tabs.
   for (int i = 0; i < 5; ++i)

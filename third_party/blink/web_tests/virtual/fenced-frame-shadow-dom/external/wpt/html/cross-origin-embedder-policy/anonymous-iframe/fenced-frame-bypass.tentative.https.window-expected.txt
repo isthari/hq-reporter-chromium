@@ -1,4 +1,0 @@
-This is a testharness.js-based test.
-FAIL fenced-frame-bypass assert_equals: expected "Cannot communicate" but got "Can communicate"
-Harness: the test ran to completion.
-

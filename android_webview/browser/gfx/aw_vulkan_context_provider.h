@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,10 @@
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/include/core/SkSurfaceCharacterization.h"
 #include "third_party/skia/include/gpu/GrBackendSemaphore.h"
-#include "third_party/skia/src/gpu/vk/GrVkSecondaryCBDrawContext.h"
+#include "third_party/skia/include/private/chromium/GrVkSecondaryCBDrawContext.h"
 
 struct AwDrawFn_InitVkParams;
 class GrDirectContext;
-class GrVkSecondaryCBDrawContext;
 
 namespace gpu {
 class VulkanImplementation;

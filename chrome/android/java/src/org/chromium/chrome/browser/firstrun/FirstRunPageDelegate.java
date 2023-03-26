@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@ package org.chromium.chrome.browser.firstrun;
 
 import android.os.Bundle;
 
+import org.chromium.base.Promise;
 import org.chromium.base.supplier.OneshotSupplier;
 
 /**
@@ -47,18 +48,6 @@ public interface FirstRunPageDelegate {
     void exitFirstRun();
 
     /**
-     * Notifies that the user refused to sync (e.g. "NO, THANKS").
-     */
-    void refuseSync();
-
-    /**
-     * Notifies that the user consented to sync.
-     * @param accountName An account to sync.
-     * @param openSettings Whether the settings page should be opened after sync is enabled.
-     */
-    void acceptSync(String accountName, boolean openSettings);
-
-    /**
      * @return Whether the user has accepted Chrome Terms of Service.
      */
     boolean didAcceptTermsOfService();
@@ -71,9 +60,11 @@ public interface FirstRunPageDelegate {
     /**
      * Notifies all interested parties that the user has accepted Chrome Terms of Service.
      * Must be called only after the delegate has fully initialized.
-     * @param allowCrashUpload True if the user allows to upload crash dumps and collect stats.
+     * Does not automatically advance to the next page, call {@link #advanceToNextPage()} directly.
+     * @param allowMetricsAndCrashUploading True if the user allows to upload crash dumps and
+     *         collect stats.
      */
-    void acceptTermsOfService(boolean allowCrashUpload);
+    void acceptTermsOfService(boolean allowMetricsAndCrashUploading);
 
     /**
      * Show an informational web page. The page doesn't show navigation control.
@@ -87,9 +78,32 @@ public interface FirstRunPageDelegate {
      */
     void recordFreProgressHistogram(@MobileFreProgress int state);
 
+    /** Records MobileFre.FromLaunch.NativeAndPoliciesLoaded histogram. **/
+    void recordNativePolicyAndChildStatusLoadedHistogram();
+
+    /** Records MobileFre.FromLaunch.NativeInitialized histogram. **/
+    void recordNativeInitializedHistogram();
+
     /**
      * The supplier that supplies whether reading policy value is necessary.
      * See {@link PolicyLoadListener} for details.
      */
     OneshotSupplier<Boolean> getPolicyLoadListener();
+
+    /**
+     * Returns the supplier that supplies child account status.
+     */
+    OneshotSupplier<Boolean> getChildAccountStatusSupplier();
+
+    /**
+     * Returns the promise that provides information about native initialization. Callers can use
+     * {@link Promise#isFulfilled()} to check whether the native has already been initialized.
+     */
+    Promise<Void> getNativeInitializationPromise();
+
+    /**
+     * Whether FRE pages can use layouts optimized for landscape orientation. Returns false if the
+     * FRE is shown in a dialog.
+     */
+    boolean canUseLandscapeLayout();
 }

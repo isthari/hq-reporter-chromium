@@ -1,11 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/browsing_data/content/mock_service_worker_helper.h"
 
-#include "base/callback.h"
 #include "base/containers/contains.h"
+#include "base/functional/callback.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/storage_usage_info.h"
@@ -35,10 +35,10 @@ void MockServiceWorkerHelper::AddServiceWorkerSamples() {
   const url::Origin kOrigin1 = url::Origin::Create(GURL("https://swhost1:1/"));
   const url::Origin kOrigin2 = url::Origin::Create(GURL("https://swhost2:2/"));
 
-  response_.emplace_back(kOrigin1, 1, base::Time());
+  response_.emplace_back(blink::StorageKey(kOrigin1), 1, base::Time());
   origins_[kOrigin1] = true;
 
-  response_.emplace_back(kOrigin2, 2, base::Time());
+  response_.emplace_back(blink::StorageKey(kOrigin2), 2, base::Time());
   origins_[kOrigin2] = true;
 }
 

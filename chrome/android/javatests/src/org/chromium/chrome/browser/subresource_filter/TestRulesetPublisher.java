@@ -1,10 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.subresource_filter;
 
 import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.annotations.NativeMethods;
 
 /**
  * Class which aids in publishing test rulesets for SubresourceFilter instrumentation tests.
@@ -14,7 +15,8 @@ public final class TestRulesetPublisher {
     private boolean mPublished;
 
     public void createAndPublishRulesetDisallowingSuffixForTesting(String suffix) {
-        nativeCreateAndPublishRulesetDisallowingSuffixForTesting(suffix);
+        TestRulesetPublisherJni.get().createAndPublishRulesetDisallowingSuffixForTesting(
+                this, suffix);
     }
 
     public boolean isPublished() {
@@ -26,5 +28,9 @@ public final class TestRulesetPublisher {
         mPublished = true;
     }
 
-    private native void nativeCreateAndPublishRulesetDisallowingSuffixForTesting(String suffix);
+    @NativeMethods
+    interface Natives {
+        void createAndPublishRulesetDisallowingSuffixForTesting(
+                TestRulesetPublisher obj, String suffix);
+    }
 }

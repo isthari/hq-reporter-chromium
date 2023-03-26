@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,8 +17,9 @@
 #include "base/gtest_prod_util.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/task/sequenced_task_runner.h"
+#include "chrome/browser/ash/app_list/app_list_syncable_service.h"
 #include "chrome/browser/ui/app_icon_loader_delegate.h"
-#include "chrome/browser/ui/app_list/app_list_syncable_service.h"
 #include "chrome/browser/ui/ash/shelf/settings_window_observer.h"
 #include "chrome/browser/ui/ash/shelf/shelf_app_updater.h"
 #include "components/account_id/account_id.h"
@@ -119,7 +120,7 @@ class ChromeShelfController
   void ReplaceWithAppShortcutOrRemove(const ash::ShelfID& id);
 
   // Returns true if the item identified by |id| is pinned.
-  bool IsPinned(const ash::ShelfID& id);
+  bool IsPinned(const ash::ShelfID& id) const;
 
   // This method is only used by BrowserStatusMonitor and tests. This method
   // relies on implicit assumptions and is likely unsuitable for other use
@@ -135,7 +136,7 @@ class ChromeShelfController
   void Close(const ash::ShelfID& id);
 
   // Returns true if the specified item is open.
-  bool IsOpen(const ash::ShelfID& id);
+  bool IsOpen(const ash::ShelfID& id) const;
 
   // Returns true if the specified item is for a platform app.
   bool IsPlatformApp(const ash::ShelfID& id);
@@ -173,7 +174,7 @@ class ChromeShelfController
 
   // Returns ShelfID for |app_id|. If |app_id| is empty, or the app is not
   // pinned, returns the id of browser shrotcut.
-  ash::ShelfID GetShelfIDForAppId(const std::string& app_id);
+  ash::ShelfID GetShelfIDForAppId(const std::string& app_id) const;
 
   // Activates a |window|. If |allow_minimize| is true and the system allows
   // it, the the window will get minimized instead.
@@ -412,6 +413,12 @@ class ChromeShelfController
   // sync_preferences::PrefServiceSyncableObserver:
   void OnIsSyncingChanged() override;
 
+  // Initializes local shelf prefs if OS prefs started syncing (which implies
+  // that initial synced prefs values have been set).
+  // Shelf prefs are tracked both as local and synced prefs. Synced pref is used
+  // only to initialize local prefs when the user logs in for the first time.
+  void InitLocalShelfPrefsIfOsPrefsAreSyncing();
+
   // An internal helper to unpin a shelf item; this does not update app sync.
   void UnpinShelfItemInternal(const ash::ShelfID& id);
 
@@ -443,7 +450,7 @@ class ChromeShelfController
   Profile* latest_active_profile_ = nullptr;
 
   // The ShelfModel instance owned by ash::Shell's ShelfController.
-  ash::ShelfModel* model_;
+  ash::ShelfModel* const model_;
 
   // Guaranteed to outlive this class. The central authority for creating
   // ShelfItems from app_ids.

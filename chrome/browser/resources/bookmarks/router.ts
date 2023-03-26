@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,7 +65,7 @@ export class BookmarksRouterElement extends BookmarksRouterElementBase {
     ];
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
     this.watch('selectedId_', state => state.selectedFolder);
     this.watch('searchTerm_', state => state.search.term);
@@ -94,7 +94,7 @@ export class BookmarksRouterElement extends BookmarksRouterElementBase {
     }
   }
 
-  private onQueryChanged_(current: (string|null), previous: (string|null)) {
+  private onQueryChanged_(_current: (string|null), previous: (string|null)) {
     if (previous !== undefined) {
       this.urlQuery_ = this.query_;
     }

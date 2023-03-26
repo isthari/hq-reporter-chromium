@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,13 +25,23 @@ BASE_EXPORT IntegrityLevel GetCurrentProcessIntegrityLevel();
 
 // Determines whether the current process is elevated. Note: in some
 // configurations this may be true for processes launched without using
-// base::LaunchElevatedProcess().
+// LaunchOptions::elevated.
 BASE_EXPORT bool IsCurrentProcessElevated();
 
 // Determines whether the current process is running within an App Container.
 BASE_EXPORT bool IsCurrentProcessInAppContainer();
 
 #endif  // BUILDFLAG(IS_WIN)
+
+#if BUILDFLAG(IS_MAC)
+// Returns whether the current process is responsible for itself. See
+// https://bugs.chromium.org/p/chromium/issues/detail?id=945969 and
+// https://bugs.chromium.org/p/chromium/issues/detail?id=996993.
+//
+// On versions of macOS that do not have the concept, this will always return
+// true.
+BASE_EXPORT bool IsProcessSelfResponsible();
+#endif
 
 }  // namespace base
 

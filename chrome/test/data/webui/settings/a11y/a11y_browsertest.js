@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,7 @@ const axeOptionsExcludeLinkInTextBlock =
     Object.assign({}, SettingsAccessibilityV3Test.axeOptions, {
       'rules': Object.assign({}, SettingsAccessibilityV3Test.axeOptions.rules, {
         'link-in-text-block': {enabled: false},
-      })
+      }),
     });
 
 const violationFilterExcludeCustomInputAndTabindex =
@@ -44,20 +44,12 @@ const violationFilterExcludeCustomInputAndTabindex =
 
 GEN('#if !BUILDFLAG(IS_CHROMEOS)');
 [[
-  'ManageProfile', 'manage_profile_a11y_test.js',
-  {filter: violationFilterExcludeCustomInputAndTabindex}
+  'ManageProfile',
+  'manage_profile_a11y_test.js',
+  {filter: violationFilterExcludeCustomInputAndTabindex},
 ],
  ['Signout', 'sign_out_a11y_test.js'],
 ].forEach(test => defineTest(...test));
-GEN('#endif');
-
-// Disable since the EDIT_DICTIONARY route does not exist on Mac.
-// TODO(crbug.com/1012370) flaky on Linux b/c assertTrue(!!languagesPage);
-// TODO(crbug.com/1012370) flaky on Win the same way
-GEN('#if !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_WIN)');
-defineTest(
-    'EditDictionary', 'edit_dictionary_a11y_test.js',
-    {filter: violationFilterExcludeCustomInputAndTabindex});
 GEN('#endif');
 
 function defineTest(testName, module, config) {
@@ -65,7 +57,8 @@ function defineTest(testName, module, config) {
   this[className] = class extends SettingsAccessibilityV3Test {
     /** @override */
     get browsePreload() {
-      return `chrome://settings/test_loader.html?module=settings/a11y/${module}&host=webui-test`;
+      return `chrome://settings/test_loader.html?module=settings/a11y/${
+          module}`;
     }
   };
 

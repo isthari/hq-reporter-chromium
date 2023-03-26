@@ -1,25 +1,31 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/autofill/form_input_accessory/form_input_accessory_coordinator.h"
 
-#include <vector>
+#import <vector>
 
-#include "base/ios/ios_util.h"
-#include "base/mac/foundation_util.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/strings/utf_string_conversions.h"
-#include "components/autofill/core/browser/personal_data_manager.h"
-#include "components/autofill/core/common/autofill_features.h"
-#include "components/keyed_service/core/service_access_type.h"
-#include "components/password_manager/core/browser/manage_passwords_referrer.h"
-#include "components/password_manager/core/browser/password_ui_utils.h"
-#include "components/strings/grit/components_strings.h"
-#include "ios/chrome/browser/autofill/personal_data_manager_factory.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "base/functional/bind.h"
+#import "base/ios/ios_util.h"
+#import "base/mac/foundation_util.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/strings/utf_string_conversions.h"
+#import "base/task/sequenced_task_runner.h"
+#import "base/time/time.h"
+#import "components/autofill/core/browser/personal_data_manager.h"
+#import "components/autofill/core/common/autofill_features.h"
+#import "components/keyed_service/core/service_access_type.h"
+#import "components/password_manager/core/browser/manage_passwords_referrer.h"
+#import "components/password_manager/core/browser/password_ui_utils.h"
+#import "components/password_manager/core/common/password_manager_features.h"
+#import "components/password_manager/ios/password_generation_provider.h"
+#import "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/autofill/personal_data_manager_factory.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/main/browser.h"
-#include "ios/chrome/browser/passwords/ios_chrome_password_store_factory.h"
+#import "ios/chrome/browser/passwords/ios_chrome_password_store_factory.h"
+#import "ios/chrome/browser/passwords/password_tab_helper.h"
 #import "ios/chrome/browser/ui/alert_coordinator/alert_coordinator.h"
 #import "ios/chrome/browser/ui/autofill/form_input_accessory/form_input_accessory_mediator.h"
 #import "ios/chrome/browser/ui/autofill/form_input_accessory/form_input_accessory_view_controller.h"
@@ -35,16 +41,14 @@
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
 #import "ios/chrome/browser/ui/commands/security_alert_commands.h"
-#import "ios/chrome/browser/ui/main/scene_state.h"
-#import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
-#include "ios/chrome/browser/ui/util/ui_util.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/common/ui/reauthentication/reauthentication_module.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_chromium_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/web/public/web_state.h"
-#include "ui/base/device_form_factor.h"
-#include "ui/base/l10n/l10n_util_mac.h"
+#import "ui/base/device_form_factor.h"
+#import "ui/base/l10n/l10n_util_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -83,6 +87,10 @@
 // Active Form Input View Controller.
 @property(nonatomic, strong) UIViewController* formInputViewController;
 
+// The browser state. May return null after the coordinator has been stopped
+// (thus the returned value must be checked for null).
+@property(nonatomic, readonly) ChromeBrowserState* browserState;
+
 @end
 
 @implementation FormInputAccessoryCoordinator
@@ -110,14 +118,15 @@
       [[FormInputAccessoryViewController alloc]
           initWithManualFillAccessoryViewControllerDelegate:self];
 
+  DCHECK(self.browserState);
   auto passwordStore = IOSChromePasswordStoreFactory::GetForBrowserState(
-      self.browser->GetBrowserState(), ServiceAccessType::EXPLICIT_ACCESS);
+      self.browserState, ServiceAccessType::EXPLICIT_ACCESS);
 
   // There is no personal data manager in OTR (incognito). Get the original
   // one for manual fallback.
   autofill::PersonalDataManager* personalDataManager =
       autofill::PersonalDataManagerFactory::GetForBrowserState(
-          self.browser->GetBrowserState()->GetOriginalChromeBrowserState());
+          self.browserState->GetOriginalChromeBrowserState());
 
   __weak id<SecurityAlertCommands> securityAlertHandler = HandlerForProtocol(
       self.browser->GetCommandDispatcher(), SecurityAlertCommands);
@@ -130,6 +139,8 @@
         securityAlertHandler:securityAlertHandler
       reauthenticationModule:self.reauthenticationModule];
   self.formInputAccessoryViewController.formSuggestionClient =
+      self.formInputAccessoryMediator;
+  self.formInputAccessoryViewController.brandingViewControllerDelegate =
       self.formInputAccessoryMediator;
 }
 
@@ -274,7 +285,23 @@
 }
 
 - (void)openAllPasswordsPicker {
+  [self reset];
   [self showConfirmationDialogToUseOtherPassword];
+}
+
+- (void)openPasswordSuggestion {
+  [self reset];
+  if (![self.injectionHandler canUserInjectInPasswordField:YES
+                                             requiresHTTPS:NO]) {
+    return;
+  }
+  web::WebState* active_web_state =
+      self.browser->GetWebStateList()->GetActiveWebState();
+  DCHECK(active_web_state);
+  id<PasswordGenerationProvider> generationProvider =
+      PasswordTabHelper::FromWebState(active_web_state)
+          ->GetPasswordGenerationProvider();
+  [generationProvider triggerPasswordGeneration];
 }
 
 #pragma mark - CardCoordinatorDelegate
@@ -302,6 +329,7 @@
 #pragma mark - SecurityAlertCommands
 
 - (void)presentSecurityWarningAlertWithText:(NSString*)body {
+  [self stopChildren];
   NSString* alertTitle =
       l10n_util::GetNSString(IDS_IOS_MANUAL_FALLBACK_NOT_SECURE_TITLE);
   NSString* defaultActionTitle =
@@ -325,6 +353,7 @@
 }
 
 - (void)showSetPasscodeDialog {
+  [self stopChildren];
   UIAlertController* alertController = [UIAlertController
       alertControllerWithTitle:l10n_util::GetNSString(
                                    IDS_IOS_SETTINGS_SET_UP_SCREENLOCK_TITLE)
@@ -374,16 +403,27 @@
 
 #pragma mark - Private
 
+- (ChromeBrowserState*)browserState {
+  return self.browser ? self.browser->GetBrowserState() : nullptr;
+}
+
 // Shows confirmation dialog before opening Other passwords.
 - (void)showConfirmationDialogToUseOtherPassword {
   WebStateList* webStateList = self.browser->GetWebStateList();
   const GURL& URL = webStateList->GetActiveWebState()->GetLastCommittedURL();
   std::u16string origin = base::ASCIIToUTF16(
       password_manager::GetShownOrigin(url::Origin::Create(URL)));
-  NSString* title =
-      l10n_util::GetNSString(IDS_IOS_CONFIRM_USING_OTHER_PASSWORD_TITLE);
+
+  bool useUpdatedStrings = base::FeatureList::IsEnabled(
+      password_manager::features::kIOSPasswordUISplit);
+
+  NSString* title = l10n_util::GetNSString(
+      useUpdatedStrings ? IDS_IOS_MANUAL_FALLBACK_SELECT_PASSWORD_DIALOG_TITLE
+                        : IDS_IOS_CONFIRM_USING_OTHER_PASSWORD_TITLE);
   NSString* message = l10n_util::GetNSStringF(
-      IDS_IOS_CONFIRM_USING_OTHER_PASSWORD_DESCRIPTION, origin);
+      useUpdatedStrings ? IDS_IOS_MANUAL_FALLBACK_SELECT_PASSWORD_DIALOG_MESSAGE
+                        : IDS_IOS_CONFIRM_USING_OTHER_PASSWORD_DESCRIPTION,
+      origin);
 
   self.alertCoordinator = [[AlertCoordinator alloc]
       initWithBaseViewController:self.baseViewController

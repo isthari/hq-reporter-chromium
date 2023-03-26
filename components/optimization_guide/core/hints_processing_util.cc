@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,6 +63,12 @@ std::string GetStringNameForOptimizationType(
       return "MerchantTrustSignalsV2";
     case proto::OptimizationType::PAGE_ENTITIES:
       return "PageEntities";
+    case proto::OptimizationType::HISTORY_CLUSTERS:
+      return "HistoryClusters";
+    case proto::OptimizationType::THANK_CREATOR_ELIGIBLE:
+      return "ThankCreatorEligible";
+    case proto::OptimizationType::IBAN_AUTOFILL_BLOCKED:
+      return "IBANAutofillBlocked";
   }
 
   // The returned string is used to record histograms for the optimization type.

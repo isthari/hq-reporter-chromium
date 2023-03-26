@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,14 +9,14 @@
 #include "ash/clipboard/clipboard_history_util.h"
 #include "ash/clipboard/views/clipboard_history_delete_button.h"
 #include "ash/clipboard/views/clipboard_history_view_constants.h"
-#include "ash/public/cpp/style/scoped_light_mode_as_default.h"
-#include "ash/style/ash_color_provider.h"
-#include "base/bind.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
 #include "base/time/time.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/models/image_model.h"
+#include "ui/chromeos/styles/cros_tokens_color_mappings.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
@@ -154,6 +154,7 @@ class FadeImageView : public views::ImageView,
 class ClipboardHistoryBitmapItemView::BitmapContentsView
     : public ClipboardHistoryBitmapItemView::ContentsView {
  public:
+  METADATA_HEADER(BitmapContentsView);
   explicit BitmapContentsView(ClipboardHistoryBitmapItemView* container)
       : ContentsView(container), container_(container) {
     SetLayoutManager(std::make_unique<views::FillLayout>());
@@ -166,10 +167,10 @@ class ClipboardHistoryBitmapItemView::BitmapContentsView
     // `border_container_view_` should be above `image_view_`.
     border_container_view_ = AddChildView(std::make_unique<views::View>());
 
-    border_container_view_->SetBorder(views::CreateRoundedRectBorder(
+    border_container_view_->SetBorder(views::CreateThemedRoundedRectBorder(
         ClipboardHistoryViews::kImageBorderThickness,
         ClipboardHistoryViews::kImageRoundedCornerRadius,
-        gfx::kPlaceholderColor));
+        kColorAshHairlineBorderColor));
 
     InstallDeleteButton();
   }
@@ -214,19 +215,6 @@ class ClipboardHistoryBitmapItemView::BitmapContentsView
     SetClipPath(SkPath::RRect(local_bounds, radius, radius));
 
     UpdateImageViewSize();
-  }
-
-  void OnThemeChanged() override {
-    // Use the light mode as default because the light mode is the default mode
-    // of the native theme which decides the context menu's background color.
-    // TODO(andrewxu): remove this line after https://crbug.com/1143009 is
-    // fixed.
-    ScopedLightModeAsDefault scoped_light_mode_as_default;
-
-    ContentsView::OnThemeChanged();
-    border_container_view_->GetBorder()->set_color(
-        AshColorProvider::Get()->GetControlsLayerColor(
-            AshColorProvider::ControlsLayerType::kHairlineBorderColor));
   }
 
   std::unique_ptr<views::ImageView> BuildImageView() {
@@ -305,6 +293,9 @@ class ClipboardHistoryBitmapItemView::BitmapContentsView
   base::WeakPtrFactory<BitmapContentsView> weak_ptr_factory_{this};
 };
 
+BEGIN_METADATA(ClipboardHistoryBitmapItemView, BitmapContentsView, ContentsView)
+END_METADATA
+
 ////////////////////////////////////////////////////////////////////////////////
 // ClipboardHistoryBitmapItemView
 
@@ -314,30 +305,30 @@ ClipboardHistoryBitmapItemView::ClipboardHistoryBitmapItemView(
     views::MenuItemView* container)
     : ClipboardHistoryItemView(clipboard_history_item, container),
       resource_manager_(resource_manager),
-      data_format_(*ClipboardHistoryUtil::CalculateMainFormat(
-          clipboard_history_item->data())) {}
+      data_format_(*clipboard_history_util::CalculateMainFormat(
+          clipboard_history_item->data())) {
+  switch (data_format_) {
+    case ui::ClipboardInternalFormat::kHtml:
+      SetAccessibleName(
+          l10n_util::GetStringUTF16(IDS_CLIPBOARD_HISTORY_MENU_HTML_IMAGE));
+      break;
+    case ui::ClipboardInternalFormat::kPng:
+      SetAccessibleName(
+          l10n_util::GetStringUTF16(IDS_CLIPBOARD_HISTORY_MENU_PNG_IMAGE));
+      break;
+    default:
+      NOTREACHED();
+  }
+}
 
 ClipboardHistoryBitmapItemView::~ClipboardHistoryBitmapItemView() = default;
-
-const char* ClipboardHistoryBitmapItemView::GetClassName() const {
-  return "ClipboardHistoryBitmapItemView";
-}
 
 std::unique_ptr<ClipboardHistoryBitmapItemView::ContentsView>
 ClipboardHistoryBitmapItemView::CreateContentsView() {
   return std::make_unique<BitmapContentsView>(this);
 }
 
-std::u16string ClipboardHistoryBitmapItemView::GetAccessibleName() const {
-  switch (data_format_) {
-    case ui::ClipboardInternalFormat::kHtml:
-      return l10n_util::GetStringUTF16(IDS_CLIPBOARD_HISTORY_MENU_HTML_IMAGE);
-    case ui::ClipboardInternalFormat::kPng:
-      return l10n_util::GetStringUTF16(IDS_CLIPBOARD_HISTORY_MENU_PNG_IMAGE);
-    default:
-      NOTREACHED();
-      return std::u16string();
-  }
-}
+BEGIN_METADATA(ClipboardHistoryBitmapItemView, ClipboardHistoryItemView)
+END_METADATA
 
 }  // namespace ash

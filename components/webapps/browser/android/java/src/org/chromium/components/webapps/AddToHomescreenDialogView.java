@@ -1,10 +1,9 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.webapps;
 
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
@@ -21,9 +20,11 @@ import android.widget.LinearLayout;
 import android.widget.RatingBar;
 import android.widget.TextView;
 
+import androidx.annotation.RequiresApi;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.modaldialog.ModalDialogProperties;
@@ -95,7 +96,8 @@ public class AddToHomescreenDialogView
                     mShortcutTitleInput.getLayoutParams().height =
                             mProgressBarView.getMeasuredHeight()
                             + mShortcutTitleInput.getPaddingBottom();
-                    v.requestLayout();
+                    ViewUtils.requestLayout(v,
+                            "AddToHomescreenDialogView.<init>.OnLayoutChangeListener.onLayoutChange");
                     v.removeOnLayoutChangeListener(this);
                 }
             }
@@ -128,7 +130,7 @@ public class AddToHomescreenDialogView
                         .with(ModalDialogProperties.CUSTOM_VIEW, mParentView)
                         .with(ModalDialogProperties.CANCEL_ON_TOUCH_OUTSIDE, true)
                         .build();
-        mModalDialogManager.showDialog(mDialogModel, ModalDialogManager.ModalDialogType.APP);
+        mModalDialogManager.showDialog(mDialogModel, ModalDialogManager.ModalDialogType.TAB);
     }
 
     // @VisibleForTests implies that a method should only be accessed from tests or within private
@@ -136,6 +138,7 @@ public class AddToHomescreenDialogView
     protected void setTitle(String title) {
         mAppNameView.setText(title);
         mShortcutTitleInput.setText(title);
+        mIconView.setContentDescription(title);
     }
 
     void setUrl(String url) {
@@ -153,7 +156,7 @@ public class AddToHomescreenDialogView
         mIconView.setVisibility(View.VISIBLE);
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
+    @RequiresApi(Build.VERSION_CODES.O)
     private void setAdaptiveIcon(Bitmap icon) {
         mIconView.setImageIcon(Icon.createWithAdaptiveBitmap(icon));
     }

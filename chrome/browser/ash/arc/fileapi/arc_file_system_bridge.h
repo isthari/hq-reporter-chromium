@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,10 +41,20 @@ class ArcFileSystemBridge
       public ConnectionObserver<mojom::FileSystemInstance>,
       public mojom::FileSystemHost {
  public:
+  using OpenFileToReadCallback = mojom::FileSystemHost::OpenFileToReadCallback;
+
   class Observer {
    public:
     virtual void OnDocumentChanged(int64_t watcher_id,
                                    storage::WatcherManager::ChangeType type) {}
+
+    // Propagates `mojom::FileSystemHost::OnMediaStoreUriAdded()` events from
+    // ARC to observers. See payload details in mojo interface documentation:
+    // /ash/components/arc/mojom/file_system.mojom.
+    virtual void OnMediaStoreUriAdded(
+        const GURL& uri,
+        const mojom::MediaStoreMetadata& metadata) {}
+
     virtual void OnRootsChanged() {}
 
    protected:
@@ -109,6 +119,8 @@ class ArcFileSystemBridge
   void GetFileSelectorElements(
       mojom::GetFileSelectorElementsRequestPtr request,
       GetFileSelectorElementsCallback callback) override;
+  void OnMediaStoreUriAdded(const GURL& uri,
+                            mojom::MediaStoreMetadataPtr metadata) override;
 
   // ConnectionObserver<mojom::FileSystemInstance> overrides:
   void OnConnectionClosed() override;

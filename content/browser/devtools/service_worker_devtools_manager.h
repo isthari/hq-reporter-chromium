@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,12 @@
 #include <map>
 
 #include "base/containers/flat_set.h"
-#include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
 #include "base/observer_list.h"
 #include "base/unguessable_token.h"
 #include "content/browser/devtools/devtools_throttle_handle.h"
 #include "content/public/browser/global_routing_id.h"
-#include "services/network/public/cpp/cross_origin_embedder_policy.h"
+#include "services/network/public/mojom/client_security_state.mojom-forward.h"
 #include "services/network/public/mojom/cross_origin_embedder_policy.mojom-forward.h"
 #include "services/network/public/mojom/url_response_head.mojom-forward.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -83,6 +82,9 @@ class ServiceWorkerDevToolsManager {
       scoped_refptr<ServiceWorkerContextWrapper> context_wrapper,
       int64_t version_id);
 
+  // Called when a service worker is starting.
+  //
+  // `client_security_state` may be nullptr.
   void WorkerStarting(
       int worker_process_id,
       int worker_route_id,
@@ -91,8 +93,7 @@ class ServiceWorkerDevToolsManager {
       const GURL& url,
       const GURL& scope,
       bool is_installed_version,
-      absl::optional<network::CrossOriginEmbedderPolicy>
-          cross_origin_embedder_policy,
+      network::mojom::ClientSecurityStatePtr client_security_state,
       mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
           coep_reporter,
       base::UnguessableToken* devtools_worker_token,
@@ -102,12 +103,7 @@ class ServiceWorkerDevToolsManager {
       int worker_route_id,
       mojo::PendingRemote<blink::mojom::DevToolsAgent> agent_remote,
       mojo::PendingReceiver<blink::mojom::DevToolsAgentHost> host_receiver);
-  void UpdateCrossOriginEmbedderPolicy(
-      int worker_process_id,
-      int worker_route_id,
-      network::CrossOriginEmbedderPolicy cross_origin_embedder_policy,
-      mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
-          coep_reporter);
+
   void WorkerVersionInstalled(int worker_process_id, int worker_route_id);
   // If the worker instance is stopped its worker_process_id and
   // worker_route_id will be invalid. For that case we pass context

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,8 +21,7 @@
 #include "third_party/webrtc/rtc_base/socket_address.h"
 #include "third_party/webrtc/rtc_base/time_utils.h"
 
-namespace remoting {
-namespace protocol {
+namespace remoting::protocol {
 
 namespace {
 
@@ -49,8 +48,8 @@ class ChromiumSocketFactoryTest : public testing::Test,
         rtc::SocketAddress("127.0.0.1", 0), 0, 0));
     ASSERT_TRUE(socket_.get() != nullptr);
     EXPECT_EQ(socket_->GetState(), rtc::AsyncPacketSocket::STATE_BOUND);
-    socket_->SignalReadPacket.connect(
-        this, &ChromiumSocketFactoryTest::OnPacket);
+    socket_->SignalReadPacket.connect(this,
+                                      &ChromiumSocketFactoryTest::OnPacket);
   }
 
   void OnPacket(rtc::AsyncPacketSocket* socket,
@@ -111,8 +110,7 @@ TEST_F(ChromiumSocketFactoryTest, SendAndReceive) {
       socket_factory_->CreateUdpSocket(rtc::SocketAddress("127.0.0.1", 0), 0,
                                        0));
   ASSERT_TRUE(sending_socket.get() != nullptr);
-  EXPECT_EQ(sending_socket->GetState(),
-            rtc::AsyncPacketSocket::STATE_BOUND);
+  EXPECT_EQ(sending_socket->GetState(), rtc::AsyncPacketSocket::STATE_BOUND);
 
   VerifyCanSendAndReceive(sending_socket.get());
 }
@@ -171,8 +169,7 @@ TEST_F(ChromiumSocketFactoryTest, TransientError) {
   // IPv4 address. This send is expected to fail, but the socket should still be
   // functional.
   sending_socket->SendTo(test_packet.data(), test_packet.size(),
-                         rtc::SocketAddress("::1", 0),
-                         rtc::PacketOptions());
+                         rtc::SocketAddress("::1", 0), rtc::PacketOptions());
 
   // Verify that socket is still usable.
   VerifyCanSendAndReceive(sending_socket.get());
@@ -191,5 +188,4 @@ TEST_F(ChromiumSocketFactoryTest, CheckSendTime) {
   ASSERT_EQ(last_packet_time_, rtc::TimeMicros());
 }
 
-}  // namespace protocol
-}  // namespace remoting
+}  // namespace remoting::protocol

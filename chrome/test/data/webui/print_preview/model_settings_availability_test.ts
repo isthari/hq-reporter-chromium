@@ -1,21 +1,21 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {Destination, DestinationConnectionStatus, DestinationOrigin, DestinationType, DuplexType, GooglePromotedDestinationId, Margins, MarginsType, PrintPreviewModelElement, Size} from 'chrome://print/print_preview.js';
-// <if expr="chromeos_ash or chromeos_lacros">
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {Destination, DestinationOrigin, DuplexType, Margins, MarginsType, PrintPreviewModelElement, Size} from 'chrome://print/print_preview.js';
+// <if expr="is_chromeos">
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 // </if>
 
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 
-import {getCddTemplate, getCloudDestination, getSaveAsPdfDestination} from './print_preview_test_utils.js';
+import {getCddTemplate, getSaveAsPdfDestination} from './print_preview_test_utils.js';
 
 suite('ModelSettingsAvailabilityTest', function() {
   let model: PrintPreviewModelElement;
 
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     model = document.createElement('print-preview-model');
     document.body.appendChild(model);
 
@@ -34,9 +34,8 @@ suite('ModelSettingsAvailabilityTest', function() {
     model.margins = new Margins(72, 72, 72, 72);
 
     // Create a test destination.
-    model.destination = new Destination(
-        'FooDevice', DestinationType.LOCAL, DestinationOrigin.LOCAL, 'FooName',
-        DestinationConnectionStatus.ONLINE);
+    model.destination =
+        new Destination('FooDevice', DestinationOrigin.LOCAL, 'FooName');
     model.set(
         'destination.capabilities',
         getCddTemplate(model.destination.id).capabilities);
@@ -150,8 +149,9 @@ suite('ModelSettingsAvailabilityTest', function() {
      {
        colorCap: {
          option: [
-           {type: 'STANDARD_COLOR', is_default: true}, {type: 'CUSTOM_COLOR'}
-         ]
+           {type: 'STANDARD_COLOR', is_default: true},
+           {type: 'CUSTOM_COLOR'},
+         ],
        },
        expectedValue: true,
      },
@@ -159,8 +159,8 @@ suite('ModelSettingsAvailabilityTest', function() {
        colorCap: {
          option: [
            {type: 'STANDARD_MONOCHROME', is_default: true},
-           {type: 'CUSTOM_MONOCHROME'}
-         ]
+           {type: 'CUSTOM_MONOCHROME'},
+         ],
        },
        expectedValue: false,
      },
@@ -191,8 +191,8 @@ suite('ModelSettingsAvailabilityTest', function() {
       colorCap: {
         option: [
           {type: 'STANDARD_MONOCHROME', is_default: true},
-          {type: 'STANDARD_COLOR'}
-        ]
+          {type: 'STANDARD_COLOR'},
+        ],
       },
       expectedValue: false,
     },
@@ -200,8 +200,8 @@ suite('ModelSettingsAvailabilityTest', function() {
        colorCap: {
          option: [
            {type: 'STANDARD_MONOCHROME'},
-           {type: 'STANDARD_COLOR', is_default: true}
-         ]
+           {type: 'STANDARD_COLOR', is_default: true},
+         ],
        },
        expectedValue: true,
      },
@@ -209,8 +209,8 @@ suite('ModelSettingsAvailabilityTest', function() {
        colorCap: {
          option: [
            {type: 'CUSTOM_MONOCHROME', vendor_id: '42'},
-           {type: 'CUSTOM_COLOR', is_default: true, vendor_id: '43'}
-         ]
+           {type: 'CUSTOM_COLOR', is_default: true, vendor_id: '43'},
+         ],
        },
        expectedValue: true,
      }].forEach(capabilityAndValue => {
@@ -221,21 +221,6 @@ suite('ModelSettingsAvailabilityTest', function() {
           capabilityAndValue.expectedValue, model.settings.color.value);
       assertTrue(model.settings.color.available);
     });
-
-    // Google Drive always has an unavailableValue of true when using the cloud
-    // destination.
-    model.set(
-        'destination',
-        getCloudDestination(
-            GooglePromotedDestinationId.DOCS, GooglePromotedDestinationId.DOCS,
-            'foo@chromium.org'));
-    const capabilities =
-        getCddTemplate(GooglePromotedDestinationId.DOCS).capabilities!;
-    delete capabilities.printer!.color;
-    model.set('destination.capabilities', capabilities);
-    assertFalse(model.settings.color.available);
-    assertTrue(model.settings.color.unavailableValue as boolean);
-    assertFalse(model.settings.color.setFromUi);
   });
 
   function setSaveAsPdfDestination() {
@@ -462,15 +447,15 @@ suite('ModelSettingsAvailabilityTest', function() {
           'name': 'SmallLabel',
           'width_microns': 38100,
           'height_microns': 12700,
-          'is_default': false
+          'is_default': false,
         },
         {
           'name': 'BigLabel',
           'width_microns': 50800,
           'height_microns': 76200,
-          'is_default': true
-        }
-      ]
+          'is_default': true,
+        },
+      ],
     };
     model.set('destination.capabilities', capabilities);
     model.set('settings.margins.value', MarginsType.DEFAULT);
@@ -531,7 +516,7 @@ suite('ModelSettingsAvailabilityTest', function() {
     capabilities = getCddTemplate(model.destination.id).capabilities!;
     delete capabilities.printer!.duplex;
     capabilities.printer.duplex = {
-      option: [{type: DuplexType.NO_DUPLEX, is_default: true}]
+      option: [{type: DuplexType.NO_DUPLEX, is_default: true}],
     };
     model.set('destination.capabilities', capabilities);
     assertFalse(model.settings.duplex.available);
@@ -543,8 +528,8 @@ suite('ModelSettingsAvailabilityTest', function() {
     capabilities.printer.duplex = {
       option: [
         {type: DuplexType.NO_DUPLEX},
-        {type: DuplexType.LONG_EDGE, is_default: true}
-      ]
+        {type: DuplexType.LONG_EDGE, is_default: true},
+      ],
     };
     model.set('destination.capabilities', capabilities);
     assertTrue(model.settings.duplex.available);
@@ -558,7 +543,7 @@ suite('ModelSettingsAvailabilityTest', function() {
     // Windows and macOS depend on policy - see policy_test.js for their
     // testing coverage.
     model.set('documentSettings.isModifiable', false);
-    // <if expr="chromeos_ash or chromeos_lacros or is_linux">
+    // <if expr="is_linux or is_chromeos">
     // Always available for PDFs on Linux and ChromeOS
     assertTrue(model.settings.rasterize.available);
     assertFalse(model.settings.rasterize.setFromUi);
@@ -602,7 +587,7 @@ suite('ModelSettingsAvailabilityTest', function() {
     assertFalse(model.settings.pagesPerSheet.available);
   });
 
-  // <if expr="chromeos_ash or chromeos_lacros">
+  // <if expr="is_chromeos">
   test('pin', function() {
     // Make device unmanaged.
     loadTimeData.overrideValues({isEnterpriseManaged: false});

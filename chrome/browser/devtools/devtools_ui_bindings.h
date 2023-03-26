@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 
 #include "base/containers/unique_ptr_adapters.h"
 #include "base/memory/weak_ptr.h"
+#include "base/values.h"
 #include "chrome/browser/devtools/device/devtools_android_bridge.h"
 #include "chrome/browser/devtools/devtools_embedder_message_dispatcher.h"
 #include "chrome/browser/devtools/devtools_file_helper.h"
@@ -102,12 +103,12 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
   void Detach();
   bool IsAttachedTo(content::DevToolsAgentHost* agent_host);
 
-  static base::Value GetSyncInformationForProfile(Profile* profile);
+  static base::Value::Dict GetSyncInformationForProfile(Profile* profile);
 
  private:
   using DevToolsUIBindingsList = std::vector<DevToolsUIBindings*>;
 
-  void HandleMessageFromDevToolsFrontend(base::Value);
+  void HandleMessageFromDevToolsFrontend(base::Value::Dict message);
 
   // content::DevToolsAgentHostClient implementation.
   void DispatchProtocolMessage(content::DevToolsAgentHost* agent_host,

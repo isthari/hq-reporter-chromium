@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "ash/public/cpp/network_config_service.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/observer_list.h"
 #include "chrome/browser/ash/printing/cups_printer_status_creator.h"
@@ -42,7 +42,7 @@
 #include "printing/printer_query_result.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
-namespace chromeos {
+namespace ash {
 
 PrintServersConfig::PrintServersConfig() = default;
 PrintServersConfig::~PrintServersConfig() = default;
@@ -56,7 +56,7 @@ class PrintServersManagerImpl : public PrintServersManager {
  public:
   PrintServersManagerImpl(
       std::unique_ptr<PrintServersPolicyProvider> print_servers_provider,
-      std::unique_ptr<ash::ServerPrintersProvider> server_printers_provider)
+      std::unique_ptr<ServerPrintersProvider> server_printers_provider)
       : print_servers_provider_(std::move(print_servers_provider)),
         server_printers_provider_(std::move(server_printers_provider)) {
     print_servers_provider_->SetListener(
@@ -169,7 +169,7 @@ class PrintServersManagerImpl : public PrintServersManager {
 
   PrintServersConfig config_;
 
-  std::unique_ptr<ash::ServerPrintersProvider> server_printers_provider_;
+  std::unique_ptr<ServerPrintersProvider> server_printers_provider_;
 
   base::ObserverList<PrintServersManager::Observer>::Unchecked observer_list_;
 
@@ -183,12 +183,12 @@ std::unique_ptr<PrintServersManager> PrintServersManager::Create(
     Profile* profile) {
   return std::make_unique<PrintServersManagerImpl>(
       PrintServersPolicyProvider::Create(profile),
-      ash::ServerPrintersProvider::Create(profile));
+      ServerPrintersProvider::Create(profile));
 }
 
 // static
 std::unique_ptr<PrintServersManager> PrintServersManager::CreateForTesting(
-    std::unique_ptr<ash::ServerPrintersProvider> server_printers_provider,
+    std::unique_ptr<ServerPrintersProvider> server_printers_provider,
     std::unique_ptr<PrintServersPolicyProvider> print_servers_provider) {
   return std::make_unique<PrintServersManagerImpl>(
       std::move(print_servers_provider), std::move(server_printers_provider));
@@ -206,4 +206,4 @@ void PrintServersManager::RegisterLocalStatePrefs(
   PrintServersProvider::RegisterLocalStatePrefs(registry);
 }
 
-}  // namespace chromeos
+}  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_DEVICE_REAUTH_ANDROID_BIOMETRIC_AUTHENTICATOR_BRIDGE_IMPL_H_
 
 #include "base/android/scoped_java_ref.h"
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "chrome/browser/device_reauth/android/biometric_authenticator_android.h"
 
 class BiometricAuthenticatorBridgeImpl : public BiometricAuthenticatorBridge {
@@ -23,7 +23,8 @@ class BiometricAuthenticatorBridgeImpl : public BiometricAuthenticatorBridge {
   BiometricAuthenticatorBridgeImpl&& operator=(
       const BiometricAuthenticatorBridgeImpl&&) = delete;
 
-  device_reauth::BiometricsAvailability CanAuthenticate() override;
+  device_reauth::BiometricsAvailability CanAuthenticateWithBiometric() override;
+  bool CanAuthenticateWithBiometricOrScreenLock() override;
 
   // Starts the authentication.
   void Authenticate(

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,14 +20,14 @@ suite('ExtensionsActivityLogHistoryItemTest', function() {
 
   // Initialize an extension activity log item before each test.
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     testActivityGroup = {
       activityIds: new Set(['1']),
       key: 'i18n.getUILanguage',
       count: 1,
       activityType: chrome.activityLogPrivate.ExtensionActivityFilter.API_CALL,
       countsByUrl: new Map(),
-      expanded: false
+      expanded: false,
     };
 
     activityLogHistoryItem =
@@ -59,7 +59,7 @@ suite('ExtensionsActivityLogHistoryItemTest', function() {
       count: 3,
       activityType:
           chrome.activityLogPrivate.ExtensionActivityFilter.DOM_ACCESS,
-      countsByUrl
+      countsByUrl,
     };
     activityLogHistoryItem.set('data', testActivityGroup);
 
@@ -83,7 +83,7 @@ suite('ExtensionsActivityLogHistoryItemTest', function() {
       count: 3,
       activityType:
           chrome.activityLogPrivate.ExtensionActivityFilter.DOM_ACCESS,
-      countsByUrl
+      countsByUrl,
     };
 
     activityLogHistoryItem.set('data', testActivityGroup);
@@ -108,7 +108,7 @@ suite('ExtensionsActivityLogHistoryItemTest', function() {
       count: 15,
       activityType:
           chrome.activityLogPrivate.ExtensionActivityFilter.DOM_ACCESS,
-      countsByUrl
+      countsByUrl,
     };
     activityLogHistoryItem.set('data', testActivityGroup);
     activityLogHistoryItem.shadowRoot!

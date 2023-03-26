@@ -143,7 +143,7 @@
         clip: rect(auto 999px 500px -5px); /* Clip the top edge. */
       }
 
-      :host-context([enable-branding-update]):host([is-card-start]) #background-clip {
+      :host([is-card-start]) #background-clip {
         clip: auto;
       }
 
@@ -176,6 +176,14 @@
       #options {
         align-items: center;
         display: flex;
+      }
+
+      /* Visually hide the label but still allow the screen reader to
+        pick it up. */
+      cr-checkbox::part(label-container) {
+        clip: rect(0,0,0,0);
+        display: block;
+        position: fixed;
       }
     </style>
 
@@ -233,6 +241,7 @@
             <cr-icon-button id="menu-button" iron-icon="cr:more-vert"
                 focus-row-control focus-type="cr-menu-button"
                 title="$i18n{actionMenuDescription}" on-click="onMenuButtonTap_"
+                on-keydown="onMenuButtonKeydown_"
                 aria-haspopup="menu"
                 aria-describedby$="[[ariaDescribedByForHeading_]]">
             </cr-icon-button>

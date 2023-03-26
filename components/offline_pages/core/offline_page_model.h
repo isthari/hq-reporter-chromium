@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,9 +53,6 @@ class OfflinePageModel : public base::SupportsUserData, public KeyedService {
 
     // Whether the page is being saved in the background.
     bool is_background;
-
-    // Run page problem detectors while generating MTHML if true.
-    bool use_page_problem_detectors;
 
     // The app package that the request originated from.
     std::string request_origin;

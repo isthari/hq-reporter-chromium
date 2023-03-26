@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,8 +56,8 @@ std::vector<std::string> RegisterAllFeatureVariationParameters(
 // to |unsupported_entries|.
 void GetFlagFeatureEntries(flags_ui::FlagsStorage* flags_storage,
                            flags_ui::FlagAccess access,
-                           base::Value::ListStorage& supported_entries,
-                           base::Value::ListStorage& unsupported_entries);
+                           base::Value::List& supported_entries,
+                           base::Value::List& unsupported_entries);
 
 // Gets the list of feature entries for the deprecated flags page. Entries that
 // are available for the current platform are appended to |supported_entries|;
@@ -65,8 +65,8 @@ void GetFlagFeatureEntries(flags_ui::FlagsStorage* flags_storage,
 void GetFlagFeatureEntriesForDeprecatedPage(
     flags_ui::FlagsStorage* flags_storage,
     flags_ui::FlagAccess access,
-    base::Value::ListStorage& supported_entries,
-    base::Value::ListStorage& unsupported_entries);
+    base::Value::List& supported_entries,
+    base::Value::List& unsupported_entries);
 
 // Gets the FlagsState used in about_flags.
 flags_ui::FlagsState* GetCurrentFlagsState();

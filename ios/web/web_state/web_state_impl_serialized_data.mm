@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -69,6 +69,17 @@ CRWSessionStorage* WebStateImpl::SerializedData::GetSessionStorage() const {
   return session_storage_;
 }
 
+base::Time WebStateImpl::SerializedData::GetLastActiveTime() const {
+  if (!create_params_.last_active_time.is_null())
+    return create_params_.last_active_time;
+
+  return session_storage_.lastActiveTime;
+}
+
+base::Time WebStateImpl::SerializedData::GetCreationTime() const {
+  return session_storage_.creationTime;
+}
+
 BrowserState* WebStateImpl::SerializedData::GetBrowserState() const {
   return create_params_.browser_state;
 }
@@ -91,6 +102,10 @@ const FaviconStatus& WebStateImpl::SerializedData::GetFaviconStatus() const {
 void WebStateImpl::SerializedData::SetFaviconStatus(
     const FaviconStatus& favicon_status) {
   favicon_status_ = favicon_status;
+}
+
+int WebStateImpl::SerializedData::GetNavigationItemCount() const {
+  return session_storage_.itemStorages.count;
 }
 
 const GURL& WebStateImpl::SerializedData::GetVisibleURL() const {

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,17 @@
 #include "ash/public/cpp/session/session_observer.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/tablet_mode_observer.h"
+#include "ash/shelf/shelf.h"
 #include "ash/system/tray/tray_background_view.h"
 #include "ash/wm/overview/overview_observer.h"
+#include "base/time/time.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/events/event_constants.h"
+
+namespace ui {
+class Event;
+class GestureEvent;
+}  // namespace ui
 
 namespace views {
 class ImageView;
@@ -54,7 +61,6 @@ class ASH_EXPORT OverviewButtonTray : public TrayBackgroundView,
   void OnGestureEvent(ui::GestureEvent* event) override;
 
   // ActionableView:
-  bool PerformAction(const ui::Event& event) override;
   void HandlePerformActionResult(bool action_performed,
                                  const ui::Event& event) override;
 
@@ -81,6 +87,10 @@ class ASH_EXPORT OverviewButtonTray : public TrayBackgroundView,
 
  private:
   friend class OverviewButtonTrayTest;
+
+  // Callback called when this is pressed. Long press is reacted to in
+  // `OnGestureEvent()`, see crbug/1374368.
+  void OnButtonPressed(const ui::Event& event);
 
   void UpdateIconVisibility();
 

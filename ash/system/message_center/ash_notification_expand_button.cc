@@ -1,17 +1,21 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/message_center/ash_notification_expand_button.h"
 
+#include "ash/public/cpp/metrics_util.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/system/message_center/message_center_constants.h"
 #include "ash/system/message_center/message_center_utils.h"
 #include "ash/system/tray/tray_popup_utils.h"
+#include "base/metrics/histogram_functions.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/color/color_id.h"
+#include "ui/compositor/animation_throughput_reporter.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/animation/tween.h"
 #include "ui/gfx/geometry/rect.h"
@@ -23,7 +27,7 @@
 #include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
-#include "ui/views/layout/flex_layout.h"
+#include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/layout_types.h"
 #include "ui/views/view_class_properties.h"
 
@@ -35,8 +39,8 @@ END_METADATA
 AshNotificationExpandButton::AshNotificationExpandButton(
     PressedCallback callback)
     : Button(std::move(callback)) {
-  SetLayoutManager(std::make_unique<views::FlexLayout>())
-      ->SetMainAxisAlignment(views::LayoutAlignment::kEnd);
+  SetLayoutManager(std::make_unique<views::BoxLayout>(
+      views::BoxLayout::Orientation::kHorizontal));
 
   auto label = std::make_unique<views::Label>();
   label->SetFontList(gfx::FontList({kGoogleSansFont}, gfx::Font::NORMAL,
@@ -56,7 +60,8 @@ AshNotificationExpandButton::AshNotificationExpandButton(
   image_ = AddChildView(std::move(image));
 
   views::InstallRoundRectHighlightPathGenerator(
-      this, gfx::Insets(), kNotificationExpandButtonCornerRadius);
+      this, kNotificationExpandButtonFocusInsets,
+      kNotificationExpandButtonCornerRadius);
 
   SetAccessibleName(l10n_util::GetStringUTF16(
       expanded_ ? IDS_ASH_NOTIFICATION_COLLAPSE_TOOLTIP
@@ -64,6 +69,8 @@ AshNotificationExpandButton::AshNotificationExpandButton(
 
   message_center_utils::InitLayerForAnimations(label_);
   message_center_utils::InitLayerForAnimations(image_);
+
+  views::FocusRing::Get(this)->SetColorId(ui::kColorAshFocusRing);
 
   SetPaintToLayer(ui::LAYER_SOLID_COLOR);
   layer()->SetFillsBoundsOpaquely(false);
@@ -118,15 +125,12 @@ void AshNotificationExpandButton::UpdateIcons() {
       SkBitmapOperations::ROTATION_180_CW);
 }
 
-void AshNotificationExpandButton::PerformExpandCollapseAnimation() {
+void AshNotificationExpandButton::AnimateExpandCollapse() {
   // If the button is not used for grouped notification, there's no animation to
   // perform here.
   if (!total_grouped_notifications_)
     return;
 
-  // This value is used to add extra width to the view's bounds. We will animate
-  // the view with this extra width to its target state.
-  int extra_width;
   int bounds_animation_duration;
   gfx::Tween::Type bounds_animation_tween_type;
 
@@ -139,8 +143,10 @@ void AshNotificationExpandButton::PerformExpandCollapseAnimation() {
     }
 
     // Fade in animation when label is visible.
-    message_center_utils::FadeInView(label_, kExpandButtonFadeInLabelDelayMs,
-                                     kExpandButtonFadeInLabelDurationMs);
+    message_center_utils::FadeInView(
+        label_, kExpandButtonFadeInLabelDelayMs,
+        kExpandButtonFadeInLabelDurationMs, gfx::Tween::LINEAR,
+        "Ash.NotificationView.ExpandButtonLabel.FadeIn.AnimationSmoothness");
 
     bounds_animation_duration = kExpandButtonShowLabelBoundsChangeDurationMs;
     bounds_animation_tween_type = gfx::Tween::LINEAR_OUT_SLOW_IN;
@@ -148,6 +154,7 @@ void AshNotificationExpandButton::PerformExpandCollapseAnimation() {
     // In this case, `total_grouped_notifications_` is not zero and label is not
     // visible. This means the label switch from visible to invisible and we
     // should do fade out animation.
+    label_fading_out_ = true;
     message_center_utils::FadeOutView(
         label_,
         base::BindRepeating(
@@ -156,15 +163,66 @@ void AshNotificationExpandButton::PerformExpandCollapseAnimation() {
               if (parent) {
                 label->layer()->SetOpacity(1.0f);
                 label->SetVisible(false);
+                parent->set_label_fading_out(false);
               }
             },
             weak_factory_.GetWeakPtr(), label_),
-        0, kExpandButtonFadeOutLabelDurationMs);
+        0, kExpandButtonFadeOutLabelDurationMs, gfx::Tween::LINEAR,
+        "Ash.NotificationView.ExpandButtonLabel.FadeOut.AnimationSmoothness");
 
     bounds_animation_duration = kExpandButtonHideLabelBoundsChangeDurationMs;
     bounds_animation_tween_type = gfx::Tween::ACCEL_20_DECEL_100;
   }
 
+  AnimateBoundsChange(
+      bounds_animation_duration, bounds_animation_tween_type,
+      "Ash.NotificationView.ExpandButton.BoundsChange.AnimationSmoothness");
+}
+
+void AshNotificationExpandButton::AnimateSingleToGroupNotification() {
+  message_center_utils::FadeInView(
+      label_, /*delay_in_ms=*/0, kConvertFromSingleToGroupFadeInDurationMs,
+      gfx::Tween::LINEAR,
+      "Ash.NotificationView.ExpandButton.ConvertSingleToGroup.FadeIn."
+      "AnimationSmoothness");
+
+  AnimateBoundsChange(
+      kConvertFromSingleToGroupBoundsChangeDurationMs,
+      gfx::Tween::ACCEL_20_DECEL_100,
+      "Ash.NotificationView.ExpandButton.ConvertSingleToGroup.BoundsChange."
+      "AnimationSmoothness");
+}
+
+void AshNotificationExpandButton::OnThemeChanged() {
+  views::Button::OnThemeChanged();
+
+  UpdateIcons();
+  image_->SetImage(expanded_ ? expanded_image_ : collapsed_image_);
+
+  SkColor background_color = AshColorProvider::Get()->GetControlsLayerColor(
+      AshColorProvider::ControlsLayerType::kControlBackgroundColorInactive);
+  layer()->SetColor(background_color);
+}
+
+gfx::Size AshNotificationExpandButton::CalculatePreferredSize() const {
+  gfx::Size size = Button::CalculatePreferredSize();
+
+  // When label is fading out, it is still visible but we should not consider
+  // its size in our calculation here, so that size change animation can be
+  // performed correctly.
+  if (label_fading_out_) {
+    return gfx::Size(size.width() - label_->GetPreferredSize().width() -
+                         kNotificationExpandButtonLabelInsets.width(),
+                     size.height());
+  }
+
+  return size;
+}
+
+void AshNotificationExpandButton::AnimateBoundsChange(
+    int duration_in_ms,
+    gfx::Tween::Type tween_type,
+    const std::string& animation_histogram_name) {
   // Perform size change animation with layer bounds animation, setting the
   // bounds to its previous state and then animating to current state. At the
   // same time, we move `image_` in the opposite direction so that it appears to
@@ -172,7 +230,17 @@ void AshNotificationExpandButton::PerformExpandCollapseAnimation() {
   const gfx::Rect target_bounds = layer()->GetTargetBounds();
   const gfx::Rect image_target_bounds = image_->layer()->GetTargetBounds();
 
-  extra_width = previous_bounds_.width() - target_bounds.width();
+  // This value is used to add extra width to the view's bounds. We will animate
+  // the view with this extra width to its target state.
+  int extra_width = previous_bounds_.width() - target_bounds.width();
+
+  ui::AnimationThroughputReporter reporter(
+      layer()->GetAnimator(),
+      metrics_util::ForSmoothness(base::BindRepeating(
+          [](const std::string& animation_histogram_name, int smoothness) {
+            base::UmaHistogramPercentage(animation_histogram_name, smoothness);
+          },
+          animation_histogram_name)));
 
   layer()->SetBounds(
       gfx::Rect(target_bounds.x() - extra_width, target_bounds.y(),
@@ -183,24 +251,9 @@ void AshNotificationExpandButton::PerformExpandCollapseAnimation() {
 
   views::AnimationBuilder()
       .Once()
-      .SetDuration(base::Milliseconds(bounds_animation_duration))
-      .SetBounds(this, target_bounds, bounds_animation_tween_type)
-      .SetBounds(image_, image_target_bounds, bounds_animation_tween_type);
-}
-
-void AshNotificationExpandButton::OnThemeChanged() {
-  views::Button::OnThemeChanged();
-
-  UpdateIcons();
-  image_->SetImage(expanded_ ? expanded_image_ : collapsed_image_);
-
-  views::FocusRing::Get(this)->SetColor(
-      AshColorProvider::Get()->GetControlsLayerColor(
-          AshColorProvider::ControlsLayerType::kFocusRingColor));
-
-  SkColor background_color = AshColorProvider::Get()->GetControlsLayerColor(
-      AshColorProvider::ControlsLayerType::kControlBackgroundColorInactive);
-  layer()->SetColor(background_color);
+      .SetDuration(base::Milliseconds(duration_in_ms))
+      .SetBounds(this, target_bounds, tween_type)
+      .SetBounds(image_, image_target_bounds, tween_type);
 }
 
 }  // namespace ash

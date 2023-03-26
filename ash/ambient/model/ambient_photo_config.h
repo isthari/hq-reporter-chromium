@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,6 +40,14 @@ struct ASH_EXPORT AmbientPhotoConfig {
 
   // The maximum number of topics that the UI will display at any given time.
   std::size_t topic_set_size = 0;
+
+  // The minimum number of topics required for the UI to launch and be
+  // functional. This is only used in the worst-case scenario where
+  // |num_topic_sets_to_buffer| is too difficult to reach for whatever reason
+  // (network slowness, etc).
+  //
+  // Must be > 0 && <= GetNumDecodedTopicsToBuffer().
+  std::size_t min_total_topics_required = 0;
 
   // A marker is any time point of interest in the UI. Note all Ambient UIs have
   // a time component to them. They are cyclic with a period T and progress

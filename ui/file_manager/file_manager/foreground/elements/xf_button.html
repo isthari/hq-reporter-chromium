@@ -57,7 +57,7 @@
     position: relative;
   }
 
-  :host(:not([data-category='dismiss'])) {
+  :host(:not([data-category='dismiss']):not([data-category='extra-button'])) {
     width: 36px;
   }
 
@@ -65,9 +65,26 @@
     display: none;
   }
 
-  :host(:not([data-category='dismiss'])) #dismiss {
+  :host([data-category='extra-button']) #icon {
     display: none;
+  }
+
+  #dismiss {
+    display: none;
+  }
+
+  #extra-button {
+    display: none;
+  }
+
+  :host([data-category='dismiss']) #dismiss {
+    display: unset;
+  }
+
+  :host([data-category='extra-button']) #extra-button {
+    display: unset;
   }
 </style>
 <cr-button id='dismiss'>$i18n{DRIVE_WELCOME_DISMISS}</cr-button>
+<cr-button id='extra-button'></cr-button>
 <cr-icon-button id='icon'></cr-icon-button>

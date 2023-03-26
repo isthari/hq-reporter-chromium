@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -75,6 +75,7 @@ class OfflineSigninLimiterTest : public testing::Test {
 
   std::unique_ptr<TestingProfile> profile_;
   base::WallClockTimer* timer_ = nullptr;  // Not owned.
+  base::WallClockTimer* lockscreen_timer_ = nullptr;  // Not owned.
 
   OfflineSigninLimiter* limiter_ = nullptr;  // Owned.
   base::test::ScopedPowerMonitorTestSource test_power_monitor_source_;
@@ -87,8 +88,6 @@ OfflineSigninLimiterTest::OfflineSigninLimiterTest()
     : task_environment_(base::test::TaskEnvironment::TimeSource::MOCK_TIME),
       user_manager_(new MockUserManager),
       user_manager_enabler_(base::WrapUnique(user_manager_)) {
-  feature_list_.InitAndEnableFeature(
-      features::kEnableSamlReauthenticationOnLockscreen);
   local_state_ = std::make_unique<ScopedTestingLocalState>(
       TestingBrowserProcess::GetGlobal());
 }
@@ -97,7 +96,6 @@ OfflineSigninLimiterTest::~OfflineSigninLimiterTest() {
   DestroyLimiter();
   Mock::VerifyAndClearExpectations(user_manager_);
   EXPECT_CALL(*user_manager_, Shutdown()).Times(1);
-  EXPECT_CALL(*user_manager_, RemoveSessionStateObserver(_)).Times(1);
   profile_ = nullptr;
   // Finish any pending tasks before deleting the TestingBrowserProcess.
   task_environment_.RunUntilIdle();
@@ -111,6 +109,7 @@ void OfflineSigninLimiterTest::DestroyLimiter() {
     delete limiter_;
     limiter_ = nullptr;
     timer_ = nullptr;
+    lockscreen_timer_ = nullptr;
   }
 }
 
@@ -119,6 +118,7 @@ void OfflineSigninLimiterTest::CreateLimiter() {
   limiter_ = new OfflineSigninLimiter(profile_.get(),
                                       task_environment_.GetMockClock());
   timer_ = limiter_->GetTimerForTesting();
+  lockscreen_timer_ = limiter_->GetLockscreenTimerForTesting();
 }
 
 void OfflineSigninLimiterTest::SetUp() {
@@ -1317,6 +1317,24 @@ TEST_F(OfflineSigninLimiterTest, SAMLLogInOfflineWithOnLockReauth) {
   EXPECT_TRUE(password_sync_manager->IsLockReauthEnabled());
   // After changing the re-auth flag timer should be stopped.
   EXPECT_FALSE(timer_->IsRunning());
+}
+
+TEST_F(OfflineSigninLimiterTest, SAMLLockscreenReauthDefaultLimit) {
+  AddSAMLUser();
+  PrefService* prefs = profile_->GetPrefs();
+
+  // Set the time of last login with SAML, time limit defaults to -1 which is no
+  // limit.
+  prefs->SetTime(prefs::kSAMLLastGAIASignInTime,
+                 task_environment_.GetMockClock()->Now());
+
+  // Advance time by four weeks.
+  task_environment_.FastForwardBy(base::Days(28));  // 4 weeks.
+
+  // Authenticate offline and check if lockscreen timer is not running.
+  CreateLimiter();
+  limiter_->SignedIn(UserContext::AUTH_FLOW_OFFLINE);
+  EXPECT_FALSE(lockscreen_timer_->IsRunning());
 }
 
 }  //  namespace ash

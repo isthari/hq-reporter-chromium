@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback_forward.h"
 #include "base/cancelable_callback.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
@@ -89,6 +89,7 @@ class CONTENT_EXPORT BackgroundSyncManager
   // parameters if the user or UA chose different parameters than those
   // supplied.
   void Register(int64_t sw_registration_id,
+                int render_process_host_id,
                 blink::mojom::SyncRegistrationOptions options,
                 StatusAndRegistrationCallback callback);
 
@@ -296,14 +297,17 @@ class CONTENT_EXPORT BackgroundSyncManager
   // Register callbacks
   void RegisterCheckIfHasMainFrame(
       int64_t sw_registration_id,
+      int render_process_host_id,
       blink::mojom::SyncRegistrationOptions options,
       StatusAndRegistrationCallback callback);
   void RegisterDidCheckIfMainFrame(
       int64_t sw_registration_id,
+      int render_process_host_id,
       blink::mojom::SyncRegistrationOptions options,
       StatusAndRegistrationCallback callback,
       bool has_main_frame_client);
   void RegisterImpl(int64_t sw_registration_id,
+                    int render_process_host_id,
                     blink::mojom::SyncRegistrationOptions options,
                     StatusAndRegistrationCallback callback);
   void RegisterDidAskForPermission(

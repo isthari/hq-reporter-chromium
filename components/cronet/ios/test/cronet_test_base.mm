@@ -1,10 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "cronet_test_base.h"
 
 #include "base/location.h"
+#import "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "crypto/sha2.h"
 #include "net/base/net_errors.h"

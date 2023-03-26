@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,7 @@ suite('CrExtensionsErrorConsoleTest', function() {
 
   // Initialize an extension activity log item before each test.
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     window.history.replaceState(
         {}, '', '?errors=oehidglfoeondlkoeloailjdmmghacge');
     const manager = document.createElement('extensions-manager');
@@ -29,7 +29,7 @@ suite('CrExtensionsErrorConsoleTest', function() {
   });
 
   test('TestUpDownErrors', function() {
-    let initialFocus = findMatches(document, ACTIVE_ERROR_IN_STACK)[0];
+    const initialFocus = findMatches(document, ACTIVE_ERROR_IN_STACK)[0];
     assertTrue(!!initialFocus);
     assertEquals(1, findMatches(document, ACTIVE_ERROR_IN_STACK).length);
     assertEquals(4, findMatches(document, STACK_ERRORS).length);

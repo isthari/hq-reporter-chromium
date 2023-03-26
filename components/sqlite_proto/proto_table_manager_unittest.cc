@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,8 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/strcat.h"
-#include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/sqlite_proto/key_value_data.h"
 #include "components/sqlite_proto/key_value_table.h"
 #include "components/sqlite_proto/test_proto.pb.h"
@@ -48,7 +47,7 @@ TEST(ProtoTableTest, PutReinitializeAndGet) {
   CHECK(db.OpenInMemory());
 
   auto manager = base::MakeRefCounted<ProtoTableManager>(
-      base::ThreadTaskRunnerHandle::Get());
+      base::SingleThreadTaskRunner::GetCurrentDefault());
   manager->InitializeOnDbSequence(&db, std::vector<std::string>{kTableName},
                                   /*schema_version=*/1);
 
@@ -72,7 +71,7 @@ TEST(ProtoTableTest, PutReinitializeAndGet) {
   }
 
   manager = base::MakeRefCounted<ProtoTableManager>(
-      base::ThreadTaskRunnerHandle::Get());
+      base::SingleThreadTaskRunner::GetCurrentDefault());
   manager->InitializeOnDbSequence(&db, std::vector<std::string>{kTableName},
                                   /*schema_version=*/1);
 
@@ -107,7 +106,7 @@ TEST(ProtoTableTest, ReinitializingWithDifferentVersionClearsTables) {
   constexpr int kInitialVersion = 1;
 
   auto manager = base::MakeRefCounted<ProtoTableManager>(
-      base::ThreadTaskRunnerHandle::Get());
+      base::SingleThreadTaskRunner::GetCurrentDefault());
   manager->InitializeOnDbSequence(&db, std::vector<std::string>{kTableName},
                                   /*schema_version=*/kInitialVersion);
 
@@ -131,7 +130,7 @@ TEST(ProtoTableTest, ReinitializingWithDifferentVersionClearsTables) {
   }
 
   manager = base::MakeRefCounted<ProtoTableManager>(
-      base::ThreadTaskRunnerHandle::Get());
+      base::SingleThreadTaskRunner::GetCurrentDefault());
   manager->InitializeOnDbSequence(&db, std::vector<std::string>{kTableName},
                                   /*schema_version=*/kInitialVersion + 1);
 
@@ -160,7 +159,7 @@ TEST(ProtoTableTest, InitializingWithoutWrittenVersionClearsTables) {
   constexpr int kInitialVersion = 1;
 
   auto manager = base::MakeRefCounted<ProtoTableManager>(
-      base::ThreadTaskRunnerHandle::Get());
+      base::SingleThreadTaskRunner::GetCurrentDefault());
   manager->InitializeOnDbSequence(&db, std::vector<std::string>{kTableName},
                                   /*schema_version=*/kInitialVersion);
 
@@ -187,7 +186,7 @@ TEST(ProtoTableTest, InitializingWithoutWrittenVersionClearsTables) {
   }
 
   manager = base::MakeRefCounted<ProtoTableManager>(
-      base::ThreadTaskRunnerHandle::Get());
+      base::SingleThreadTaskRunner::GetCurrentDefault());
   manager->InitializeOnDbSequence(&db, std::vector<std::string>{kTableName},
                                   /*schema_version=*/kInitialVersion);
 
@@ -216,7 +215,7 @@ TEST(ProtoTableTest, LoadingUnexpectedlyLargeVersionClearsTables) {
   constexpr int kInitialVersion = 1;
 
   auto manager = base::MakeRefCounted<ProtoTableManager>(
-      base::ThreadTaskRunnerHandle::Get());
+      base::SingleThreadTaskRunner::GetCurrentDefault());
   manager->InitializeOnDbSequence(&db, std::vector<std::string>{kTableName},
                                   /*schema_version=*/kInitialVersion);
 
@@ -253,7 +252,7 @@ TEST(ProtoTableTest, LoadingUnexpectedlyLargeVersionClearsTables) {
   }
 
   manager = base::MakeRefCounted<ProtoTableManager>(
-      base::ThreadTaskRunnerHandle::Get());
+      base::SingleThreadTaskRunner::GetCurrentDefault());
   manager->InitializeOnDbSequence(&db, std::vector<std::string>{kTableName},
                                   /*schema_version=*/kInitialVersion);
 

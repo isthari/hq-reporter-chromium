@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,10 @@
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
+#include "media/mojo/mojom/speech_recognition.mojom.h"
 
 namespace ash {
 namespace {
-
-using base::ListValue;
-using base::Value;
 
 constexpr base::StringPiece kStartOffsetKey = "startOffset";
 constexpr base::StringPiece kEndOffsetKey = "endOffset";
@@ -23,6 +21,7 @@ constexpr base::StringPiece kCaptionLanguage = "captionLanguage";
 constexpr base::StringPiece kCaptionsKey = "captions";
 constexpr base::StringPiece kKeyIdeasKey = "tableOfContent";
 constexpr base::StringPiece kOffset = "offset";
+constexpr base::StringPiece kRecognitionStatus = "recognitionStatus";
 
 base::Value HypothesisPartsToValue(
     const media::HypothesisParts& hypothesis_parts) {
@@ -139,6 +138,10 @@ void ProjectorMetadata::AddTranscript(
   should_mark_key_idea_ = false;
 }
 
+void ProjectorMetadata::SetSpeechRecognitionStatus(RecognitionStatus status) {
+  speech_recognition_status_ = status;
+}
+
 void ProjectorMetadata::MarkKeyIdea() {
   should_mark_key_idea_ = true;
 }
@@ -175,7 +178,8 @@ std::string ProjectorMetadata::Serialize() {
 //        "startOffset": 4400,
 //        "text": "Making a creation",
 //      },
-//    ]
+//    ],
+//    "recognitionStatus": 0,
 //  }
 //
 // Which is:
@@ -185,6 +189,7 @@ std::string ProjectorMetadata::Serialize() {
 //   "captions": LIST
 //   "captionLanguage": STRING
 //   "tableOfContent": LIST
+//   "recognitionStatus": INTEGER
 base::Value ProjectorMetadata::ToJson() {
   base::Value metadata(base::Value::Type::DICTIONARY);
   metadata.SetStringKey(kCaptionLanguage, caption_language_);
@@ -198,6 +203,8 @@ base::Value ProjectorMetadata::ToJson() {
   for (auto& key_idea : key_ideas_)
     key_ideas_value.Append(key_idea->ToJson());
   metadata.SetKey(kKeyIdeasKey, std::move(key_ideas_value));
+  metadata.SetIntKey(kRecognitionStatus,
+                     static_cast<int>(speech_recognition_status_));
   return metadata;
 }
 

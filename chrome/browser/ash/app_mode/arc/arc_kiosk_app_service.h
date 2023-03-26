@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,14 @@
 
 #include "base/containers/flat_set.h"
 #include "base/timer/timer.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_icon.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ash/app_mode/arc/arc_kiosk_app_launcher.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_launcher.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_manager_observer.h"
 #include "chrome/browser/ash/arc/kiosk/arc_kiosk_bridge.h"
 #include "chrome/browser/ash/arc/policy/arc_policy_bridge.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager_observer.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_icon.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "components/keyed_service/core/keyed_service.h"
 
 class Profile;
@@ -45,6 +45,8 @@ class ArcKioskAppService : public KeyedService,
  public:
   static ArcKioskAppService* Create(Profile* profile);
   static ArcKioskAppService* Get(content::BrowserContext* context);
+
+  void SetNetworkDelegate(NetworkDelegate* network_delegate);
 
   // KeyedService overrides
   void Shutdown() override;
@@ -83,7 +85,9 @@ class ArcKioskAppService : public KeyedService,
   void OnComplianceReportReceived(
       const base::Value* compliance_report) override;
 
-  // KioskAppLauncher:
+  // `KioskAppLauncher`:
+  void AddObserver(KioskAppLauncher::Observer* observer) override;
+  void RemoveObserver(KioskAppLauncher::Observer* observer) override;
   void Initialize() override;
   void ContinueWithNetworkReady() override;
   void RestartLauncher() override;
@@ -113,6 +117,8 @@ class ArcKioskAppService : public KeyedService,
   std::unique_ptr<ArcAppListPrefs::AppInfo> app_info_;
   std::unique_ptr<ArcAppIcon> app_icon_;
   int32_t task_id_ = -1;
+  KioskAppLauncher::ObserverList observers_;
+
   // This contains the list of apps that must be installed for the device to be
   // policy-compliant according to the policy report. Even if an app has already
   // finished installing, it could still remain in this list for some time.
@@ -126,11 +132,5 @@ class ArcKioskAppService : public KeyedService,
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when the //chrome/browser/chromeos
-// source code migration is finished.
-namespace chromeos {
-using ::ash::ArcKioskAppService;
-}
 
 #endif  // CHROME_BROWSER_ASH_APP_MODE_ARC_ARC_KIOSK_APP_SERVICE_H_

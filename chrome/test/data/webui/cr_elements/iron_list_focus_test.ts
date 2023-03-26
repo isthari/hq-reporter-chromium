@@ -1,13 +1,13 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
 import 'chrome://resources/polymer/v3_0/iron-list/iron-list.js';
 
+import {getTrustedHTML} from 'chrome://resources/js/static_types.js';
 import {IronListElement} from 'chrome://resources/polymer/v3_0/iron-list/iron-list.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-
 import {assertEquals, assertNotEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
 // clang-format on
 
@@ -32,7 +32,7 @@ class TestElement extends HTMLElement {
   }
 
   // Pass focus to child in shadowRoot b/c iron-list expects that.
-  focus() {
+  override focus() {
     const button = this.shadowRoot!.querySelector('button');
     assertTrue(!!button);
     button!.focus();
@@ -50,7 +50,7 @@ suite('iron-list-focus-test', function() {
   let testIronList: IronListElement;
 
   setup(function() {
-    document.body.innerHTML = `
+    document.body.innerHTML = getTrustedHTML`
       <div id="testDiv">
         <iron-list>
           <template>

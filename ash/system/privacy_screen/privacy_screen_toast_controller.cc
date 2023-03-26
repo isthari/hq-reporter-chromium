@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,8 @@
 #include "ash/system/unified/unified_system_tray.h"
 #include "ash/system/unified/unified_system_tray_bubble.h"
 #include "ash/system/unified/unified_system_tray_view.h"
-#include "base/bind.h"
 #include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 
 namespace ash {
 
@@ -47,7 +47,7 @@ void PrivacyScreenToastController::ShowToast() {
   TrayBubbleView::InitParams init_params;
   init_params.shelf_alignment = tray_->shelf()->alignment();
   init_params.preferred_width = kPrivacyScreenToastMinWidth;
-  init_params.delegate = this;
+  init_params.delegate = GetWeakPtr();
   init_params.parent_window = tray_->GetBubbleWindowContainer();
   init_params.anchor_view = nullptr;
   init_params.anchor_mode = TrayBubbleView::AnchorMode::kRect;
@@ -55,8 +55,6 @@ void PrivacyScreenToastController::ShowToast() {
   // Decrease bottom and right insets to compensate for the adjustment of
   // the respective edges in Shelf::GetSystemTrayAnchorRect().
   init_params.insets = GetTrayBubbleInsets();
-  init_params.corner_radius = kBubbleCornerRadius;
-  init_params.has_shadow = false;
   init_params.translucent = true;
 
   bubble_view_ = new TrayBubbleView(init_params);

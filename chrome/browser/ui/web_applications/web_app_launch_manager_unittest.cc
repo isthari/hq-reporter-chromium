@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,11 +10,13 @@
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_launch_params.h"
 #include "chrome/browser/web_applications/test/web_app_test.h"
+#include "chrome/browser/web_applications/test/web_app_test_utils.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_utils.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
+#include "components/services/app_service/public/cpp/app_launch_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -31,13 +33,13 @@ class MockWebAppLaunchManager : public WebAppLaunchManager {
   MockWebAppLaunchManager& operator=(const MockWebAppLaunchManager&) = delete;
   ~MockWebAppLaunchManager() override = default;
 
-  MOCK_METHOD(void,
-              LaunchWebApplication,
-              (apps::AppLaunchParams && params,
-               base::OnceCallback<void(Browser* browser,
-                                       apps::mojom::LaunchContainer container)>
-                   callback),
-              (override));
+  MOCK_METHOD(
+      void,
+      LaunchWebApplication,
+      (apps::AppLaunchParams && params,
+       base::OnceCallback<void(Browser* browser,
+                               apps::LaunchContainer container)> callback),
+      (override));
 };
 
 #if BUILDFLAG(IS_WIN)
@@ -59,10 +61,6 @@ class WebAppLaunchManagerUnitTest : public WebAppTest {
 
   void SetUp() override {
     WebAppTest::SetUp();
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-    SkipMainProfileCheckForTesting();
-#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
-
     WebAppProvider::GetForLocalAppsUnchecked(profile())->Start();
   }
 
@@ -72,10 +70,10 @@ class WebAppLaunchManagerUnitTest : public WebAppTest {
       const std::vector<base::FilePath>& launch_files,
       const absl::optional<GURL>& url_handler_launch_url,
       const absl::optional<GURL>& protocol_handler_launch_url) {
-    apps::AppLaunchParams params(
-        kTestAppId, apps::mojom::LaunchContainer::kLaunchContainerWindow,
-        WindowOpenDisposition::NEW_WINDOW,
-        apps::mojom::LaunchSource::kFromCommandLine);
+    apps::AppLaunchParams params(kTestAppId,
+                                 apps::LaunchContainer::kLaunchContainerWindow,
+                                 WindowOpenDisposition::NEW_WINDOW,
+                                 apps::LaunchSource::kFromCommandLine);
 
     params.current_directory = base::FilePath(kCurrentDirectory);
     params.command_line = command_line;
@@ -119,6 +117,11 @@ class WebAppLaunchManagerUnitTest : public WebAppTest {
     EXPECT_EQ(actual_results.protocol_handler_launch_url,
               expected_results.protocol_handler_launch_url);
   }
+
+ private:
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  web_app::test::ScopedSkipMainProfileCheck skip_main_profile_check_;
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 };
 
 TEST_F(WebAppLaunchManagerUnitTest, LaunchApplication) {
@@ -135,15 +138,15 @@ TEST_F(WebAppLaunchManagerUnitTest, LaunchApplication) {
       .WillOnce(testing::Invoke(
           [&](apps::AppLaunchParams&& params,
               base::OnceCallback<void(Browser * browser,
-                                      apps::mojom::LaunchContainer container)>
+                                      apps::LaunchContainer container)>
                   callback) {
             ValidateLaunchParams(params, expected_results);
             run_loop.Quit();
           }));
 
-  manager.LaunchApplication(kTestAppId, command_line,
-                            base::FilePath(kCurrentDirectory), absl::nullopt,
-                            absl::nullopt, {}, base::DoNothing());
+  manager.LaunchApplication(
+      kTestAppId, command_line, base::FilePath(kCurrentDirectory),
+      absl::nullopt, absl::nullopt, absl::nullopt, {}, base::DoNothing());
   run_loop.Run();
 }
 
@@ -158,8 +161,7 @@ TEST_F(WebAppLaunchManagerUnitTest, LaunchApplication_ProtocolWebPrefix) {
   apps::AppLaunchParams expected_results =
       CreateLaunchParams(command_line, std::vector<base::FilePath>(),
                          absl::nullopt, protocol_handler_launch_url);
-  expected_results.launch_source =
-      apps::mojom::LaunchSource::kFromProtocolHandler;
+  expected_results.launch_source = apps::LaunchSource::kFromProtocolHandler;
 
   testing::StrictMock<MockWebAppLaunchManager> manager(profile());
   EXPECT_CALL(manager, LaunchWebApplication(testing::_, testing::_))
@@ -167,7 +169,7 @@ TEST_F(WebAppLaunchManagerUnitTest, LaunchApplication_ProtocolWebPrefix) {
       .WillOnce(testing::Invoke(
           [&](apps::AppLaunchParams&& params,
               base::OnceCallback<void(Browser * browser,
-                                      apps::mojom::LaunchContainer container)>
+                                      apps::LaunchContainer container)>
                   callback) {
             ValidateLaunchParams(params, expected_results);
             run_loop.Quit();
@@ -175,7 +177,8 @@ TEST_F(WebAppLaunchManagerUnitTest, LaunchApplication_ProtocolWebPrefix) {
 
   manager.LaunchApplication(kTestAppId, command_line,
                             base::FilePath(kCurrentDirectory), absl::nullopt,
-                            protocol_handler_launch_url, {}, base::DoNothing());
+                            protocol_handler_launch_url, absl::nullopt, {},
+                            base::DoNothing());
   run_loop.Run();
 }
 
@@ -190,8 +193,7 @@ TEST_F(WebAppLaunchManagerUnitTest, LaunchApplication_ProtocolMailTo) {
   apps::AppLaunchParams expected_results =
       CreateLaunchParams(command_line, std::vector<base::FilePath>(),
                          absl::nullopt, protocol_handler_launch_url);
-  expected_results.launch_source =
-      apps::mojom::LaunchSource::kFromProtocolHandler;
+  expected_results.launch_source = apps::LaunchSource::kFromProtocolHandler;
 
   testing::StrictMock<MockWebAppLaunchManager> manager(profile());
   EXPECT_CALL(manager, LaunchWebApplication(testing::_, testing::_))
@@ -199,7 +201,7 @@ TEST_F(WebAppLaunchManagerUnitTest, LaunchApplication_ProtocolMailTo) {
       .WillOnce(testing::Invoke(
           [&](apps::AppLaunchParams&& params,
               base::OnceCallback<void(Browser * browser,
-                                      apps::mojom::LaunchContainer container)>
+                                      apps::LaunchContainer container)>
                   callback) {
             ValidateLaunchParams(params, expected_results);
             run_loop.Quit();
@@ -207,7 +209,8 @@ TEST_F(WebAppLaunchManagerUnitTest, LaunchApplication_ProtocolMailTo) {
 
   manager.LaunchApplication(kTestAppId, command_line,
                             base::FilePath(kCurrentDirectory), absl::nullopt,
-                            protocol_handler_launch_url, {}, base::DoNothing());
+                            protocol_handler_launch_url, absl::nullopt, {},
+                            base::DoNothing());
   run_loop.Run();
 }
 
@@ -227,15 +230,15 @@ TEST_F(WebAppLaunchManagerUnitTest, LaunchApplication_ProtocolDisallowed) {
       .WillOnce(testing::Invoke(
           [&](apps::AppLaunchParams&& params,
               base::OnceCallback<void(Browser * browser,
-                                      apps::mojom::LaunchContainer container)>
+                                      apps::LaunchContainer container)>
                   callback) {
             ValidateLaunchParams(params, expected_results);
             run_loop.Quit();
           }));
 
-  manager.LaunchApplication(kTestAppId, command_line,
-                            base::FilePath(kCurrentDirectory), absl::nullopt,
-                            absl::nullopt, {}, base::DoNothing());
+  manager.LaunchApplication(
+      kTestAppId, command_line, base::FilePath(kCurrentDirectory),
+      absl::nullopt, absl::nullopt, absl::nullopt, {}, base::DoNothing());
   run_loop.Run();
 }
 

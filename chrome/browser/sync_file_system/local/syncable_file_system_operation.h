@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,7 @@
 #include <memory>
 #include <vector>
 
-#include "base/callback.h"
-#include "base/memory/ref_counted.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/types/pass_key.h"
 #include "storage/browser/file_system/file_system_operation.h"
@@ -20,7 +19,7 @@
 namespace storage {
 class FileSystemContext;
 class FileSystemOperationContext;
-}
+}  // namespace storage
 
 namespace sync_file_system {
 
@@ -56,13 +55,15 @@ class SyncableFileSystemOperation : public storage::FileSystemOperation {
             const storage::FileSystemURL& dest_url,
             CopyOrMoveOptionSet options,
             ErrorBehavior error_behavior,
-            const CopyOrMoveProgressCallback& progress_callback,
+            std::unique_ptr<storage::CopyOrMoveHookDelegate>
+                copy_or_move_hook_delegate,
             StatusCallback callback) override;
   void Move(const storage::FileSystemURL& src_url,
             const storage::FileSystemURL& dest_url,
             CopyOrMoveOptionSet options,
             ErrorBehavior error_behavior,
-            const CopyOrMoveProgressCallback& progress_callback,
+            std::unique_ptr<storage::CopyOrMoveHookDelegate>
+                copy_or_move_hook_delegate,
             StatusCallback callback) override;
   void DirectoryExists(const storage::FileSystemURL& url,
                        StatusCallback callback) override;
@@ -92,7 +93,7 @@ class SyncableFileSystemOperation : public storage::FileSystemOperation {
                  const base::Time& last_modified_time,
                  StatusCallback callback) override;
   void OpenFile(const storage::FileSystemURL& url,
-                int file_flags,
+                uint32_t file_flags,
                 OpenFileCallback callback) override;
   void Cancel(StatusCallback cancel_callback) override;
   void CreateSnapshotFile(const storage::FileSystemURL& path,

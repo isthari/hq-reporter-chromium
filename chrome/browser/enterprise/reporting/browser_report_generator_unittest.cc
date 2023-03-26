@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,6 +26,7 @@
 #include "content/public/common/webplugininfo.h"
 #include "content/public/test/browser_task_environment.h"
 #include "device_management_backend.pb.h"
+#include "ppapi/buildflags/buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if !BUILDFLAG(IS_ANDROID)
@@ -33,7 +34,7 @@
 #endif  // !BUILDFLAG(IS_ANDROID)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/common/chrome_constants.h"
+#include "chromeos/ash/components/browser_context_helper/browser_context_types.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING) && !BUILDFLAG(IS_CHROMEOS_ASH)
@@ -180,11 +181,14 @@ class BrowserReportGeneratorTest : public ::testing::Test {
 
   void InitializeIrregularProfiles() {
     profile_manager_.CreateGuestProfile();
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_ANDROID)
     profile_manager_.CreateSystemProfile();
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_ANDROID)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-    profile_manager_.CreateTestingProfile(chrome::kInitialProfile);
-    profile_manager_.CreateTestingProfile(chrome::kLockScreenAppProfile);
+    profile_manager_.CreateTestingProfile(ash::kSigninBrowserContextBaseName);
+    profile_manager_.CreateTestingProfile(
+        ash::kLockScreenAppBrowserContextBaseName);
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   }
 

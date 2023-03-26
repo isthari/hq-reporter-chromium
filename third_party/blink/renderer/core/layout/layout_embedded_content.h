@@ -26,6 +26,7 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 #include "third_party/blink/renderer/core/layout/layout_replaced.h"
+#include "third_party/blink/renderer/platform/transforms/affine_transform.h"
 
 namespace ui {
 class Cursor;
@@ -46,7 +47,7 @@ class CORE_EXPORT LayoutEmbeddedContent : public LayoutReplaced {
   bool NodeAtPoint(HitTestResult&,
                    const HitTestLocation&,
                    const PhysicalOffset& accumulated_offset,
-                   HitTestAction) override;
+                   HitTestPhase) override;
 
   // LayoutEmbeddedContent::ChildFrameView returns the LocalFrameView associated
   // with the current Node, if Node is HTMLFrameOwnerElement. This is different
@@ -57,7 +58,16 @@ class CORE_EXPORT LayoutEmbeddedContent : public LayoutReplaced {
   WebPluginContainerImpl* Plugin() const;
   EmbeddedContentView* GetEmbeddedContentView() const;
 
-  PhysicalRect ReplacedContentRect() const final;
+  // Subtracts border/padding, and other offsets if they exist.
+  PhysicalOffset EmbeddedContentFromBorderBox(const PhysicalOffset&) const;
+  gfx::PointF EmbeddedContentFromBorderBox(const gfx::PointF&) const;
+  // Adds border/padding, and other offsets if they exist.
+  PhysicalOffset BorderBoxFromEmbeddedContent(const PhysicalOffset&) const;
+  gfx::Rect BorderBoxFromEmbeddedContent(const gfx::Rect&) const;
+
+  PhysicalRect ReplacedContentRectFrom(
+      const LayoutSize size,
+      const NGPhysicalBoxStrut& border_padding) const final;
 
   void UpdateOnEmbeddedContentViewChange();
   void UpdateGeometry(EmbeddedContentView&);
@@ -68,6 +78,14 @@ class CORE_EXPORT LayoutEmbeddedContent : public LayoutReplaced {
   }
 
   bool IsThrottledFrameView() const;
+
+  // The size of the child frame when it should be "frozen"; i.e., it should not
+  // change even when the size of |this| changes.
+  virtual const absl::optional<PhysicalSize> FrozenFrameSize() const;
+
+  // A transform mapping from the coordinate space of the embedded content
+  // rendered by this object to the object's border-box.
+  AffineTransform EmbeddedContentTransform() const;
 
  protected:
   PaintLayerType LayerTypeRequired() const override;
@@ -95,7 +113,11 @@ class CORE_EXPORT LayoutEmbeddedContent : public LayoutReplaced {
       HitTestResult&,
       const HitTestLocation&,
       const PhysicalOffset& accumulated_offset,
-      HitTestAction);
+      HitTestPhase);
+
+  bool PointOverResizer(const HitTestResult&,
+                        const HitTestLocation&,
+                        const PhysicalOffset& accumulated_offset) const;
 };
 
 template <>

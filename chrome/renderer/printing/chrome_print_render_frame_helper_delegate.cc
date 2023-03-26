@@ -1,14 +1,14 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/renderer/printing/chrome_print_render_frame_helper_delegate.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/check.h"
 #include "base/command_line.h"
-#include "base/feature_list.h"
 #include "base/strings/string_util.h"
 #include "chrome/common/chrome_switches.h"
 #include "content/public/renderer/render_frame.h"
@@ -23,7 +23,6 @@
 #if BUILDFLAG(ENABLE_PDF)
 #include "chrome/common/pdf_util.h"
 #include "extensions/renderer/guest_view/mime_handler_view/post_message_support.h"
-#include "pdf/pdf_features.h"
 #endif  // BUILDFLAG(ENABLE_PDF)
 
 ChromePrintRenderFrameHelperDelegate::ChromePrintRenderFrameHelperDelegate() =
@@ -37,25 +36,8 @@ ChromePrintRenderFrameHelperDelegate::~ChromePrintRenderFrameHelperDelegate() =
 blink::WebElement ChromePrintRenderFrameHelperDelegate::GetPdfElement(
     blink::WebLocalFrame* frame) {
 #if BUILDFLAG(ENABLE_PDF)
-  if (IsPdfInternalPluginAllowedOrigin(frame->GetSecurityOrigin())) {
-    DCHECK(!base::FeatureList::IsEnabled(chrome_pdf::features::kPdfUnseasoned));
-    // <object> with id="plugin" is created in
-    // chrome/browser/resources/pdf/pdf_viewer_base.js.
-    auto viewer_element = frame->GetDocument().GetElementById("viewer");
-    if (!viewer_element.IsNull() && !viewer_element.ShadowRoot().IsNull()) {
-      auto plugin_element =
-          viewer_element.ShadowRoot().QuerySelector("#plugin");
-      if (!plugin_element.IsNull()) {
-        return plugin_element;
-      }
-    }
-    NOTREACHED();
-    return blink::WebElement();
-  }
-
   if (frame->Parent() &&
       IsPdfInternalPluginAllowedOrigin(frame->Parent()->GetSecurityOrigin())) {
-    DCHECK(base::FeatureList::IsEnabled(chrome_pdf::features::kPdfUnseasoned));
     auto plugin_element = frame->GetDocument().QuerySelector("embed");
     DCHECK(!plugin_element.IsNull());
     return plugin_element;
@@ -79,9 +61,9 @@ bool ChromePrintRenderFrameHelperDelegate::OverridePrint(
     // instructs the PDF plugin to print. This is to make window.print() on a
     // PDF plugin document correctly print the PDF. See
     // https://crbug.com/448720.
-    base::DictionaryValue message;
-    message.SetString("type", "print");
-    post_message_support->PostMessageFromValue(message);
+    base::Value::Dict message;
+    message.Set("type", "print");
+    post_message_support->PostMessageFromValue(base::Value(std::move(message)));
     return true;
   }
 #endif  // BUILDFLAG(ENABLE_PDF)

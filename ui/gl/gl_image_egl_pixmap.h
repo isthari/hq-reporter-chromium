@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,15 +28,10 @@ class GL_EXPORT GLImageEGLPixmap : public GLImage {
 
   // Overridden from GLImage:
   gfx::Size GetSize() override;
-  unsigned GetInternalFormat() override;
-  unsigned GetDataType() override;
-  BindOrCopy ShouldBindOrCopy() override;
   bool BindTexImage(unsigned target) override;
-  void ReleaseTexImage(unsigned target) override;
-  void Flush() override {}
-  void OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
-                    uint64_t process_tracing_id,
-                    const std::string& dump_name) override;
+
+  // Releases the image that was bound via BindTexImage().
+  void ReleaseEGLImage();
 
  protected:
   ~GLImageEGLPixmap() override;

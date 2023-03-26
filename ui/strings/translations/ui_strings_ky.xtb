@@ -2,10 +2,11 @@
 <!DOCTYPE translationbundle>
 <translationbundle lang="ky">
 <translation id="1028699632127661925"><ph name="DEVICE_NAME" /> түзмөгүнө жөнөтүлүүдө...</translation>
-<translation id="111910763555783249">Эскертме жөндөөлөрү</translation>
+<translation id="111910763555783249">Эскертме параметрлери</translation>
 <translation id="1127811143501539442">{DAYS,plural, =1{1 күн мурун}other{# күн мурун}}</translation>
 <translation id="1156623771253174079">{SECONDS,plural, =1{1 мүнөт мурун}other{# мүнөт мурун}}</translation>
 <translation id="1169783199079129864">{MINUTES,plural, =1{1мүн}other{#мүн}}</translation>
+<translation id="1181037720776840403">Алып салуу</translation>
 <translation id="1243314992276662751">Жүктөп берүү</translation>
 <translation id="1266864766717917324"><ph name="CONTENT_TYPE" /> менен бөлүшүлгөн жок</translation>
 <translation id="1269641567813814718">Win</translation>
@@ -25,6 +26,7 @@
 <translation id="1803208670097017349">{MONTHS,plural, =1{1 ай}other{# ай}}</translation>
 <translation id="1809410197924942083"><ph name="QUANTITY" /> Mб/сек</translation>
 <translation id="1830179671306812954">{HOURS,plural, =1{1 саат жана }other{# саат жана }}</translation>
+<translation id="185013357618350178">&amp;Тандоо</translation>
 <translation id="1859234291848436338">Жазуу багыты</translation>
 <translation id="1860796786778352021">Эскертмени жабуу</translation>
 <translation id="186476001994626254">Вебдеги мазмунду акылдуу чаптоо</translation>
@@ -62,7 +64,6 @@
 <translation id="2666092431469916601">Өйдө</translation>
 <translation id="2701330563083355633"><ph name="DEVICE_NAME" /> аркылуу бөлүшүлдү</translation>
 <translation id="271033894570825754">Жаңы</translation>
-<translation id="2743387203779672305">Алмашуу буферине көчүрүү</translation>
 <translation id="2824719307700604149">{YEARS,plural, =1{1 жыл мурун}other{# жыл мурун}}</translation>
 <translation id="2878511608894704031">Баарын жок кылуу</translation>
 <translation id="2907671656515444832">{DAYS,plural, =1{1 к. кийин}other{# к. кийин}}</translation>
@@ -94,12 +95,14 @@
 <translation id="3889424535448813030">Оң жебе</translation>
 <translation id="3897092660631435901">Меню</translation>
 <translation id="3909791450649380159">Ке&amp;сүү</translation>
+<translation id="3924145049010392604">Meta</translation>
 <translation id="3990502903496589789">Оң жак чети</translation>
 <translation id="3994749195054421561"><ph name="COLUMN_NAME" /> тилкеси өсүү тартибинде иреттелди.</translation>
+<translation id="4031910098617850788">F5</translation>
 <translation id="40579289237549812">{UNREAD_NOTIFICATIONS,plural, =1{1 жаңы билдирме}other{# жаңы билдирме}}</translation>
-<translation id="4250229828105606438">Скриншот</translation>
 <translation id="4266252015790371705">{MONTHS,plural, =1{1 ай мурун}other{# ай мурун}}</translation>
 <translation id="4289300219472526559">Сүйлөп баштаңыз</translation>
+<translation id="4289540628985791613">Сереп салуу</translation>
 <translation id="4306392492252714209">Алмашуу буферинен өчүрүү.</translation>
 <translation id="4491109536499578614">Сүрөт</translation>
 <translation id="4565377596337484307">Сырсөздү жашыруу</translation>
@@ -162,7 +165,7 @@
 <translation id="6965382102122355670">OK</translation>
 <translation id="6974053822202609517">Оңдон солго</translation>
 <translation id="7052633198403197513">F1</translation>
-<translation id="7170202025028120564">Колдонмонун экран жөндөөлөрү, аны өчүрүп күйгүзгөндө иштеп баштайт.</translation>
+<translation id="7170202025028120564">Колдонмонун экран параметрлери, аны өчүрүп күйгүзгөндө иштеп баштайт.</translation>
 <translation id="7222373446505536781">F11</translation>
 <translation id="7238427729722629793">{MINUTES,plural, =1{1 мүн. калды}other{# мүн. калды}}</translation>
 <translation id="7365057348334984696">{MINUTES,plural, =1{1 мүн. мурун}other{# мүн. мурун}}</translation>
@@ -203,7 +206,6 @@
 <translation id="8730621377337864115">Бүттү</translation>
 <translation id="8772073294905169192">{HOURS,plural, =1{1 с.}other{# с.}}</translation>
 <translation id="8798099450830957504">Демейки</translation>
-<translation id="883911313571074303">Сүрөттүн түшүндүрмөсүн жазыңыз</translation>
 <translation id="8841375032071747811">Артка баскычы</translation>
 <translation id="8867568208303837180">Жөнөтүлүүдө…</translation>
 <translation id="8876215549894133151">Формат:</translation>

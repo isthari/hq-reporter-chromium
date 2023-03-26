@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,7 @@
 #include "net/url_request/url_request_context_builder.h"
 #include "net/url_request/url_request_test_util.h"
 #include "services/network/public/cpp/corb/corb_impl.h"
+#include "services/network/public/cpp/corb/orb_impl.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -36,8 +37,7 @@ using MimeType = network::corb::CrossOriginReadBlocking::MimeType;
 using MimeTypeBucket = CorbResponseAnalyzer::MimeTypeBucket;
 using SniffingResult = network::corb::CrossOriginReadBlocking::SniffingResult;
 
-namespace network {
-namespace corb {
+namespace network::corb {
 
 namespace {
 
@@ -51,6 +51,7 @@ enum class Verdict {
 };
 
 constexpr int kVerdictPacketForHeadersBasedVerdict = -1;
+constexpr int kVerdictPacketForInconclusiveSniffing = 99999;
 
 // This struct is used to describe each test case in this file.  It's passed as
 // a test parameter to each TEST_P test.
@@ -363,10 +364,8 @@ const TestScenario kScenarios[] = {
         0,                                          // verdict_packet
     },
     {
-        // Blocked, because the unit test doesn't make a call to
-        // NetworkService::AddAllowedRequestInitiatorForPlugin (simulating a
-        // behavior of a compromised renderer that only pretends to be hosting
-        // PDF).
+        // Blocked. (Simulating a behavior of a compromised renderer that only
+        // pretends to be hosting PDF).
         "Blocked: Cross-site fetch HTML from Flash without CORS",
         __LINE__,
         "http://www.b.com/plugin.html",  // target_url
@@ -444,9 +443,9 @@ const TestScenario kScenarios[] = {
         {},                                // packets
         false,                             // resource_is_sensitive
         CrossOriginProtectionDecision::
-            kAllowedAfterSniffing,        // protection_decision
-        Verdict::kAllowBecauseOutOfData,  // verdict
-        0,                                // verdict_packet
+            kAllowedAfterSniffing,              // protection_decision
+        Verdict::kAllowBecauseOutOfData,        // verdict
+        kVerdictPacketForInconclusiveSniffing,  // verdict_packet
     },
     {
         "Allowed: Empty response with PNG mime type and nosniff header",
@@ -461,9 +460,9 @@ const TestScenario kScenarios[] = {
         {},                                 // packets
         false,                              // resource_is_sensitive
         CrossOriginProtectionDecision::
-            kAllowedAfterSniffing,        // protection_decision
-        Verdict::kAllowBecauseOutOfData,  // verdict
-        0,                                // verdict_packet
+            kAllowedAfterSniffing,              // protection_decision
+        Verdict::kAllowBecauseOutOfData,        // verdict
+        kVerdictPacketForInconclusiveSniffing,  // verdict_packet
     },
 
     // Allowed responses due to sniffing:
@@ -609,9 +608,9 @@ const TestScenario kScenarios[] = {
         {"<htm"},                          // packets
         false,                             // resource_is_sensitive
         CrossOriginProtectionDecision::
-            kAllowedAfterSniffing,        // protection_decision
-        Verdict::kAllowBecauseOutOfData,  // verdict
-        1,                                // verdict_packet
+            kAllowedAfterSniffing,              // protection_decision
+        Verdict::kAllowBecauseOutOfData,        // verdict
+        kVerdictPacketForInconclusiveSniffing,  // verdict_packet
     },
     {
         "Allowed: HTML tag appears only after net::kMaxBytesToSniff",
@@ -625,9 +624,9 @@ const TestScenario kScenarios[] = {
         {kHTMLWithTooLongComment},         // packets
         false,                             // resource_is_sensitive
         CrossOriginProtectionDecision::
-            kAllowedAfterSniffing,        // protection_decision
-        Verdict::kAllowBecauseOutOfData,  // verdict
-        0,                                // verdict_packet
+            kAllowedAfterSniffing,              // protection_decision
+        Verdict::kAllowBecauseOutOfData,        // verdict
+        kVerdictPacketForInconclusiveSniffing,  // verdict_packet
     },
     {
         "Allowed: Empty response with html mime type",
@@ -641,9 +640,9 @@ const TestScenario kScenarios[] = {
         {},                                // packets
         false,                             // resource_is_sensitive
         CrossOriginProtectionDecision::
-            kAllowedAfterSniffing,        // protection_decision
-        Verdict::kAllowBecauseOutOfData,  // verdict
-        0,                                // verdict_packet
+            kAllowedAfterSniffing,              // protection_decision
+        Verdict::kAllowBecauseOutOfData,        // verdict
+        kVerdictPacketForInconclusiveSniffing,  // verdict_packet
     },
     {
         "Allowed: Same-origin XHR to a filesystem URI",
@@ -1020,7 +1019,7 @@ const TestScenario kScenarios[] = {
         "http://c.com/",               // initiator_origin
         "HTTP/1.1 200 OK\n"
         "X-Content-Type-Options: nosniff",  // response_headers
-        "audio/x-wav",                      // response_content_type
+        "application/octet-stream",         // response_content_type
         MimeType::kOthers,                  // canonical_mime_type
         MimeTypeBucket::kPublic,            // mime_type_bucket
         {")]", "}'\n[true, true, false, \"user@chromium.org\"]"},  // packets
@@ -1045,6 +1044,44 @@ const TestScenario kScenarios[] = {
             kBlockedAfterSniffing,  // protection_decision
         Verdict::kBlock,            // verdict
         1,                          // verdict_packet
+    },
+    {
+        // Test based on wpt/.../corb/.../css-with-json-parser-breaker.css
+        "Blocked: Cross-site CSS with parser breaker and text/css mime type",
+        __LINE__,
+        "http://a.com/resource.css",            // target_url
+        "http://c.com/",                        // initiator_origin
+        "HTTP/1.1 200 OK",                      // response_headers
+        "text/css",                             // response_content_type
+        MimeType::kOthers,                      // canonical_mime_type
+        MimeTypeBucket::kPublic,                // mime_type_bucket
+        {R"()]}'
+            {}
+            #header { color: red; } )"},        // packets
+        false,                                  // resource_is_sensitive
+        CrossOriginProtectionDecision::kAllow,  // protection_decision
+        Verdict::kAllow,                        // verdict
+        kVerdictPacketForHeadersBasedVerdict,   // verdict_packet
+    },
+    {
+        // Test based on http/tests/security/resources/xorigincss1.css
+        "Blocked: Cross-site HTML/CSS polyglot with text/css mime type",
+        __LINE__,
+        "http://a.com/resource.css",            // target_url
+        "http://c.com/",                        // initiator_origin
+        "HTTP/1.1 200 OK",                      // response_headers
+        "text/css",                             // response_content_type
+        MimeType::kOthers,                      // canonical_mime_type
+        MimeTypeBucket::kPublic,                // mime_type_bucket
+        {R"(  <html>{}\n"
+              .id3 {
+                background-color: yellow;
+              }
+              </html> )"},                      // packets
+        false,                                  // resource_is_sensitive
+        CrossOriginProtectionDecision::kAllow,  // protection_decision
+        Verdict::kAllow,                        // verdict
+        kVerdictPacketForHeadersBasedVerdict,   // verdict_packet
     },
     {
         "Blocked: Cross-site XHR to a filesystem URI",
@@ -1082,7 +1119,7 @@ const TestScenario kScenarios[] = {
     // range specified, so we can get away with testing with arbitrary/random
     // values.
     {
-        "Allowed: Javascript 206",
+        "Blocked-by-ORB: Javascript 206",
         __LINE__,
         "http://www.b.com/script.js",  // target_url
         "http://www.a.com/",           // initiator_origin
@@ -1118,7 +1155,7 @@ const TestScenario kScenarios[] = {
         kVerdictPacketForHeadersBasedVerdict,    // verdict_packet
     },
     {
-        "Allowed: text/plain 206 media",
+        "Blocked-by-ORB: text/plain 206 media",
         __LINE__,
         "http://www.b.com/movie.txt",  // target_url
         "http://www.a.com/",           // initiator_origin
@@ -1143,10 +1180,80 @@ const TestScenario kScenarios[] = {
         "text/html",                             // response_content_type
         MimeType::kHtml,                         // canonical_mime_type
         MimeTypeBucket::kProtected,              // mime_type_bucket
-        {"simulated *middle*-of-html content"},  // packets
+        {"these middle bytes are unsniffable"},  // packets
         false,                                   // resource_is_sensitive
         CrossOriginProtectionDecision::kBlock,   // protection_decision
         Verdict::kBlock,                         // verdict
+        kVerdictPacketForHeadersBasedVerdict,    // verdict_packet
+    },
+    {
+        "Blocked-by-ORB: application/octet-stream 206 (middle)",
+        __LINE__,
+        "http://www.b.com/movie.html",  // target_url
+        "http://www.a.com/",            // initiator_origin
+        "HTTP/1.1 206 OK\n"
+        "Content-Range: bytes 200-1000/67589",   // response_headers
+        "application/octet-stream",              // response_content_type
+        MimeType::kOthers,                       // canonical_mime_type
+        MimeTypeBucket::kProtected,              // mime_type_bucket
+        {"these middle bytes are unsniffable"},  // packets
+        false,                                   // resource_is_sensitive
+        CrossOriginProtectionDecision::kBlock,   // protection_decision
+        Verdict::kAllow,                         // verdict
+        kVerdictPacketForHeadersBasedVerdict,    // verdict_packet
+    },
+    {
+        "Allowed: application/octet-stream 206 media - beginning of video",
+        __LINE__,
+        "http://www.b.com/movie.mp4",  // target_url
+        "http://www.a.com/",           // initiator_origin
+        "HTTP/1.1 206 OK\n"
+        "Content-Range: bytes 0-800/67589",  // response_headers
+        "application/octet-stream",          // response_content_type
+        MimeType::kOthers,                   // canonical_mime_type
+        MimeTypeBucket::kProtected,          // mime_type_bucket
+        // Body of test response is based on:
+        // 1) net/base/mime_sniffer.cc
+        // 2) https://mimesniff.spec.whatwg.org/#signature-for-mp4
+        {"....ftypmp4...."},                    // packets
+        false,                                  // resource_is_sensitive
+        CrossOriginProtectionDecision::kAllow,  // protection_decision
+        Verdict::kAllow,                        // verdict
+        kVerdictPacketForHeadersBasedVerdict,   // verdict_packet
+    },
+    {
+        "Allowed: video/mp4 206 media - beginning of resource",
+        __LINE__,
+        "http://www.b.com/movie.mp4",  // target_url
+        "http://www.a.com/",           // initiator_origin
+        "HTTP/1.1 206 OK\n"
+        "Content-Range: bytes 0-800/67589",  // response_headers
+        "video/mp4",                         // response_content_type
+        MimeType::kOthers,                   // canonical_mime_type
+        MimeTypeBucket::kProtected,          // mime_type_bucket
+        // Body of test response is based on:
+        // 1) net/base/mime_sniffer.cc
+        // 2) https://mimesniff.spec.whatwg.org/#signature-for-mp4
+        {"MIME type means this doesn't have to sniff as video"},  // packets
+        false,                                  // resource_is_sensitive
+        CrossOriginProtectionDecision::kAllow,  // protection_decision
+        Verdict::kAllow,                        // verdict
+        kVerdictPacketForHeadersBasedVerdict,   // verdict_packet
+    },
+    {
+        "Allowed: video/mp4 206 media - middle of resource",
+        __LINE__,
+        "http://www.b.com/movie.mp4",  // target_url
+        "http://www.a.com/",           // initiator_origin
+        "HTTP/1.1 206 OK\n"
+        "Content-Range: bytes 200-1000/67589",   // response_headers
+        "video/mp4",                             // response_content_type
+        MimeType::kOthers,                       // canonical_mime_type
+        MimeTypeBucket::kProtected,              // mime_type_bucket
+        {"these middle bytes are unsniffable"},  // packets
+        false,                                   // resource_is_sensitive
+        CrossOriginProtectionDecision::kAllow,   // protection_decision
+        Verdict::kAllow,                         // verdict
         kVerdictPacketForHeadersBasedVerdict,    // verdict_packet
     },
     // Responses with no data.
@@ -1178,9 +1285,9 @@ const TestScenario kScenarios[] = {
         {/* empty body doesn't sniff as html */},  // packets
         false,                                     // resource_is_sensitive
         CrossOriginProtectionDecision::
-            kAllowedAfterSniffing,        // protection_decision
-        Verdict::kAllowBecauseOutOfData,  // verdict
-        0,                                // verdict_packet
+            kAllowedAfterSniffing,              // protection_decision
+        Verdict::kAllowBecauseOutOfData,        // verdict
+        kVerdictPacketForInconclusiveSniffing,  // verdict_packet
     },
 
     // Testing the CORB protection logging.
@@ -1741,9 +1848,9 @@ const TestScenario kScenarios[] = {
         {/* empty body doesn't sniff as html */},  // packets
         true,                                      // resource_is_sensitive
         CrossOriginProtectionDecision::
-            kAllowedAfterSniffing,        // protection_decision
-        Verdict::kAllowBecauseOutOfData,  // verdict
-        0,                                // verdict_packet
+            kAllowedAfterSniffing,              // protection_decision
+        Verdict::kAllowBecauseOutOfData,        // verdict
+        kVerdictPacketForInconclusiveSniffing,  // verdict_packet
     },
 
     // These responses confirm we are correctly reporting when a nosniff header
@@ -1891,9 +1998,10 @@ class ResponseAnalyzerTest : public testing::Test,
   // Take and run ResponseAnalyzer on the current scenario. Allow the analyzer
   // to sniff the response body if needed and confirm it correctly decides to
   // block or allow.
-  void RunAnalyzerOnScenario(const mojom::URLResponseHead& response,
-                             std::unique_ptr<ResponseAnalyzer> analyzer) {
-    TestScenario scenario = GetParam();
+  void RunAnalyzerOnScenario(const TestScenario& scenario,
+                             const mojom::URLResponseHead& response,
+                             std::unique_ptr<ResponseAnalyzer> analyzer,
+                             bool verify_when_decision_is_made = true) {
     // Initialize |request| from the parameters.
     std::unique_ptr<net::URLRequest> request = context_->CreateRequest(
         GURL(scenario.target_url), net::DEFAULT_PRIORITY, &delegate_,
@@ -1923,39 +2031,46 @@ class ResponseAnalyzerTest : public testing::Test,
 
     // If the |verdict_packet| == kVerdictPacketForHeadersBasedVerdict = -1,
     // then the sniffing loop below will be skipped.
-    EXPECT_LT(scenario.verdict_packet, static_cast<int>(packets_vector.size()));
+    if (scenario.verdict_packet != kVerdictPacketForInconclusiveSniffing &&
+        scenario.verdict_packet != kVerdictPacketForHeadersBasedVerdict) {
+      EXPECT_LT(scenario.verdict_packet,
+                static_cast<int>(packets_vector.size()));
+    }
 
     // Verify that the ResponseAnalyzer asks for sniffing if this is what the
     // testcase expects.
-    bool expected_to_sniff =
-        scenario.verdict_packet != kVerdictPacketForHeadersBasedVerdict;
-    if (expected_to_sniff) {
-      EXPECT_EQ(decision, ResponseAnalyzer::Decision::kSniffMore);
-    } else {
-      // If we don't expect to sniff then ResponseAnalyzer should have already
-      // made a blockng decision based on the headers.
-      if (scenario.verdict == Verdict::kBlock) {
-        EXPECT_EQ(decision, ResponseAnalyzer::Decision::kBlock);
+    if (verify_when_decision_is_made) {
+      bool expected_to_sniff =
+          scenario.verdict_packet != kVerdictPacketForHeadersBasedVerdict;
+      if (expected_to_sniff) {
+        EXPECT_EQ(decision, ResponseAnalyzer::Decision::kSniffMore);
       } else {
-        EXPECT_EQ(decision, ResponseAnalyzer::Decision::kAllow);
+        // If we don't expect to sniff then ResponseAnalyzer should have already
+        // made a blockng decision based on the headers.
+        if (scenario.verdict == Verdict::kBlock) {
+          EXPECT_EQ(decision, ResponseAnalyzer::Decision::kBlock);
+        } else {
+          EXPECT_EQ(decision, ResponseAnalyzer::Decision::kAllow);
+        }
       }
     }
 
     // Simulate the behaviour of the URLLoader by appending the packets into
     // |data_buffer| and feeding this to |analyzer|.
     bool run_out_of_data_to_sniff = false;
+    int actual_verdict_packet = kVerdictPacketForHeadersBasedVerdict;
     if (decision == ResponseAnalyzer::Decision::kSniffMore) {
       std::string data_buffer;
       size_t data_offset = 0;
-      for (int packet_index = 0; packet_index <= scenario.verdict_packet;
+      for (size_t packet_index = 0; packet_index < packets_vector.size();
            packet_index++) {
         SCOPED_TRACE(testing::Message()
                      << "While delivering packet #" << packet_index);
 
         // At each iteration of the loop we feed a new packet to |analyzer|,
-        // breaking at the |verdict_packet|. Since we haven't given the next
-        // packet to |analyzer| yet at this point in the loop, it shouldn't have
-        // made a decision yet.
+        // expecting to get a decision at the |verdict_packet|. Since we haven't
+        // given the next packet to |analyzer| yet at this point in the loop, it
+        // shouldn't have made a decision yet.
         EXPECT_EQ(decision, ResponseAnalyzer::Decision::kSniffMore);
 
         // Append the next packet of the response body. If appending the entire
@@ -1968,14 +2083,17 @@ class ResponseAnalyzerTest : public testing::Test,
         // Hand |analyzer_| the data to sniff.
         decision = analyzer->Sniff(data_buffer);
         data_offset += bytes_to_append;
-        if (decision != ResponseAnalyzer::Decision::kSniffMore)
+        if (decision != ResponseAnalyzer::Decision::kSniffMore) {
+          actual_verdict_packet = packet_index;
           break;
+        }
       }
     }
 
     // Handle scenarios where no decision can be made before running out of data
     // to sniff.
     if (decision == ResponseAnalyzer::Decision::kSniffMore) {
+      actual_verdict_packet = kVerdictPacketForInconclusiveSniffing;
       run_out_of_data_to_sniff = true;
       decision = analyzer->HandleEndOfSniffableResponseBody();
 
@@ -1985,18 +2103,23 @@ class ResponseAnalyzerTest : public testing::Test,
 
     // Confirm the analyzer is blocking or allowing correctly (now that we have
     // performed any needed sniffing).
+    if (verify_when_decision_is_made) {
+      EXPECT_EQ(scenario.verdict_packet, actual_verdict_packet);
+    }
     if (scenario.verdict == Verdict::kBlock) {
       EXPECT_EQ(decision, ResponseAnalyzer::Decision::kBlock);
     } else {
       EXPECT_EQ(decision, ResponseAnalyzer::Decision::kAllow);
 
-      // In this case either the |analyzer| has decided to allow the response,
-      // or run out of data and so the response will be allowed by default.
-      if (scenario.verdict == Verdict::kAllow) {
-        EXPECT_FALSE(run_out_of_data_to_sniff);
-      } else {
-        EXPECT_EQ(Verdict::kAllowBecauseOutOfData, scenario.verdict);
-        EXPECT_TRUE(run_out_of_data_to_sniff);
+      if (verify_when_decision_is_made) {
+        // In this case either the |analyzer| has decided to allow the response,
+        // or run out of data and so the response will be allowed by default.
+        if (scenario.verdict == Verdict::kAllow) {
+          EXPECT_FALSE(run_out_of_data_to_sniff);
+        } else {
+          EXPECT_EQ(Verdict::kAllowBecauseOutOfData, scenario.verdict);
+          EXPECT_TRUE(run_out_of_data_to_sniff);
+        }
       }
     }
   }
@@ -2027,7 +2150,8 @@ TEST_P(ResponseAnalyzerTest, ResponseBlocking) {
                      scenario.initiator_origin);
 
   // Run the analyzer and confirm it allows/blocks correctly.
-  RunAnalyzerOnScenario(*response, std::make_unique<CorbResponseAnalyzer>());
+  RunAnalyzerOnScenario(scenario, *response,
+                        std::make_unique<CorbResponseAnalyzer>());
 
   // Verify that histograms are correctly incremented.
   base::HistogramTester::CountsMap expected_counts;
@@ -2113,7 +2237,8 @@ TEST_P(ResponseAnalyzerTest, CORBProtectionLogging) {
   const bool expect_nosniff = CorbResponseAnalyzer::HasNoSniff(*response);
 
   // Run the analyzer and confirm it allows/blocks correctly.
-  RunAnalyzerOnScenario(*response, std::make_unique<CorbResponseAnalyzer>());
+  RunAnalyzerOnScenario(scenario, *response,
+                        std::make_unique<CorbResponseAnalyzer>());
 
   base::HistogramTester::CountsMap expected_counts;
   expected_counts["SiteIsolation.CORBProtection.SensitiveResource"] = 1;
@@ -2222,6 +2347,46 @@ TEST_P(ResponseAnalyzerTest, CORBProtectionLogging) {
                     "SiteIsolation.CORBProtection.SensitiveResource"),
                 testing::ElementsAre(base::Bucket(false, 1)));
   }
+}
+
+TEST_P(ResponseAnalyzerTest, OpaqueResponseBlocking) {
+  TestScenario scenario = GetParam();
+  SCOPED_TRACE(testing::Message()
+               << "\nScenario at " << __FILE__ << ":" << scenario.source_line);
+
+  // Unlike CORB, ORB blocks all 206 responses, unless there was an earlier
+  // request to the same URL and that earlier request was classified (based on
+  // the MIME type or sniffing) as an audio-or-video response.
+  base::StringPiece description = scenario.description;
+  if (description == "Blocked-by-ORB: text/plain 206 media" ||
+      description == "Blocked-by-ORB: Javascript 206" ||
+      description == "Blocked-by-ORB: application/octet-stream 206 (middle)") {
+    scenario.verdict = Verdict::kBlock;
+    scenario.verdict_packet = kVerdictPacketForHeadersBasedVerdict;
+  }
+
+  // Initialize |response| from the parameters and record if it looks sensitive
+  // or supports range requests. These values are saved because the analyzer
+  // will clear the response headers in the event it decides to block.
+  auto response =
+      CreateResponse(scenario.response_content_type, scenario.response_headers,
+                     scenario.initiator_origin);
+
+  // ORB may make the final decision at a different time than CORB.  This
+  // makes no difference from functional/observable behavior perspective
+  // and skipping this verification makes it easier to share testcases
+  // across ORB and CORB.
+  //
+  // TODO(lukasza): Eventually `verify_when_decision_is_made` for ORB (once
+  // CORB is removed at the latest, but possibly earlier than that).
+  constexpr bool kVerifyWhenDecisionIsMade = false;
+
+  PerFactoryState per_factory_state;
+  auto analyzer =
+      std::make_unique<OpaqueResponseBlockingAnalyzer>(per_factory_state);
+
+  RunAnalyzerOnScenario(scenario, *response, std::move(analyzer),
+                        kVerifyWhenDecisionIsMade);
 }
 
 INSTANTIATE_TEST_SUITE_P(All,
@@ -2616,5 +2781,4 @@ TEST(CrossOriginReadBlockingTest, SupportsRangeRequests) {
       CorbResponseAnalyzer::SupportsRangeRequests(*none_accept_ranges));
 }
 
-}  // namespace corb
-}  // namespace network
+}  // namespace network::corb

@@ -1,27 +1,26 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey_app_interface.h"
 
-#include "base/format_macros.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/format_macros.h"
+#import "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#include "components/bookmarks/browser/bookmark_model.h"
-#include "components/bookmarks/browser/titled_url_match.h"
-#include "components/prefs/pref_service.h"
-#include "components/query_parser/query_parser.h"
-#include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/pref_names.h"
+#import "components/bookmarks/browser/bookmark_model.h"
+#import "components/bookmarks/browser/titled_url_match.h"
+#import "components/prefs/pref_service.h"
+#import "components/query_parser/query_parser.h"
+#import "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/prefs/pref_names.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_path_cache.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_utils_ios.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity_service.h"
 #import "ios/testing/nserror_util.h"
-#include "ui/base/models/tree_node_iterator.h"
-#include "url/gurl.h"
+#import "ui/base/models/tree_node_iterator.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -42,9 +41,10 @@
                                       secondURL:(NSString*)secondURL
                                        thirdURL:(NSString*)thirdURL
                                       fourthURL:(NSString*)fourthURL {
-  if (![BookmarkEarlGreyAppInterface waitForBookmarkModelLoaded:YES])
+  if (![BookmarkEarlGreyAppInterface waitForBookmarkModelLoaded:YES]) {
     return testing::NSErrorWithLocalizedDescription(
         @"Bookmark model was not loaded");
+  }
 
   bookmarks::BookmarkModel* bookmark_model =
       [BookmarkEarlGreyAppInterface bookmarkModel];
@@ -87,9 +87,10 @@
 }
 
 + (NSError*)setupBookmarksWhichExceedsScreenHeightUsingURL:(NSString*)URL {
-  if (![BookmarkEarlGreyAppInterface waitForBookmarkModelLoaded:YES])
+  if (![BookmarkEarlGreyAppInterface waitForBookmarkModelLoaded:YES]) {
     return testing::NSErrorWithLocalizedDescription(
         @"Bookmark model was not loaded");
+  }
 
   bookmarks::BookmarkModel* bookmark_model =
       [BookmarkEarlGreyAppInterface bookmarkModel];
@@ -144,23 +145,25 @@
       bookmarkModel->GetBookmarksMatching(
           matchString, kMaxCountOfBookmarks,
           query_parser::MatchingAlgorithm::DEFAULT);
-  if (matches.size() != expectedCount)
+  if (matches.size() != expectedCount) {
     return testing::NSErrorWithLocalizedDescription(
         @"Unexpected number of bookmarks");
+  }
 
   return nil;
 }
 
 + (NSError*)addBookmarkWithTitle:(NSString*)title URL:(NSString*)url {
-  if (![BookmarkEarlGreyAppInterface waitForBookmarkModelLoaded:YES])
+  if (![BookmarkEarlGreyAppInterface waitForBookmarkModelLoaded:YES]) {
     return testing::NSErrorWithLocalizedDescription(
         @"Bookmark model was not loaded");
+  }
 
   GURL bookmarkURL = GURL(base::SysNSStringToUTF8(url));
   bookmarks::BookmarkModel* bookmark_model =
       [BookmarkEarlGreyAppInterface bookmarkModel];
-  bookmark_model->AddURL(bookmark_model->mobile_node(), 0,
-                         base::SysNSStringToUTF16(title), bookmarkURL);
+  bookmark_model->AddNewURL(bookmark_model->mobile_node(), 0,
+                            base::SysNSStringToUTF16(title), bookmarkURL);
 
   return nil;
 }
@@ -234,16 +237,18 @@
       break;
     }
   }
-  if (!folder)
+  if (!folder) {
     return testing::NSErrorWithLocalizedDescription(
         [NSString stringWithFormat:@"No folder named %@", name]);
+  }
 
-  if (folder->children().size() != count)
+  if (folder->children().size() != count) {
     return testing::NSErrorWithLocalizedDescription(
         [NSString stringWithFormat:
                       @"Unexpected number of children in folder '%@': %" PRIuS
                        " instead of %" PRIuS,
                       name, folder->children().size(), count]);
+  }
 
   return nil;
 }
@@ -251,9 +256,10 @@
 + (NSError*)verifyExistenceOfBookmarkWithURL:(NSString*)URL
                                         name:(NSString*)name {
   const bookmarks::BookmarkNode* bookmark =
-      [self bookmarkModel] -> GetMostRecentlyAddedUserNodeForURL(
-                               GURL(base::SysNSStringToUTF16(URL)));
-  if (bookmark->GetTitle().compare(base::SysNSStringToUTF16(name)) != 0) {
+      [self bookmarkModel]->GetMostRecentlyAddedUserNodeForURL(
+          GURL(base::SysNSStringToUTF16(URL)));
+  if (!bookmark ||
+      bookmark->GetTitle().compare(base::SysNSStringToUTF16(name)) != 0) {
     return testing::NSErrorWithLocalizedDescription(
         [NSString stringWithFormat:@"Could not find bookmark named %@ for %@",
                                    name, URL]);
@@ -264,8 +270,8 @@
 
 + (NSError*)verifyAbsenceOfBookmarkWithURL:(NSString*)URL {
   const bookmarks::BookmarkNode* bookmark =
-      [self bookmarkModel] -> GetMostRecentlyAddedUserNodeForURL(
-                               GURL(base::SysNSStringToUTF16(URL)));
+      [self bookmarkModel]->GetMostRecentlyAddedUserNodeForURL(
+          GURL(base::SysNSStringToUTF16(URL)));
   if (bookmark) {
     return testing::NSErrorWithLocalizedDescription(
         [NSString stringWithFormat:@"There is a bookmark for %@", URL]);
@@ -278,13 +284,14 @@
   std::u16string folderTitle16(base::SysNSStringToUTF16(title));
 
   ui::TreeNodeIterator<const bookmarks::BookmarkNode> iterator(
-      [self bookmarkModel] -> root_node());
+      [self bookmarkModel]->root_node());
   BOOL folderExists = NO;
 
   while (iterator.has_next()) {
     const bookmarks::BookmarkNode* bookmark = iterator.Next();
-    if (bookmark->is_url())
+    if (bookmark->is_url()) {
       continue;
+    }
     // This is a folder.
     if (bookmark->GetTitle() == folderTitle16) {
       // Folder exists, return.
@@ -292,9 +299,10 @@
     }
   }
 
-  if (!folderExists)
+  if (!folderExists) {
     return testing::NSErrorWithLocalizedDescription(
         [NSString stringWithFormat:@"Folder %@ doesn't exist", title]);
+  }
 
   return nil;
 }

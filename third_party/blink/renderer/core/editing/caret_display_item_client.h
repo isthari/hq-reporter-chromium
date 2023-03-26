@@ -82,7 +82,7 @@ class CORE_EXPORT CaretDisplayItemClient final
 
  private:
   friend class CaretDisplayItemClientTest;
-  friend class ParameterizedComputeCaretRectTest;
+  friend class ComputeCaretRectTest;
 
   struct CaretRectAndPainterBlock {
     STACK_ALLOCATED();
@@ -112,7 +112,7 @@ class CORE_EXPORT CaretDisplayItemClient final
   // in the previous layout block.
   Member<const LayoutBlock> previous_layout_block_;
 
-  const NGPhysicalBoxFragment* box_fragment_ = nullptr;
+  WeakMember<const NGPhysicalBoxFragment> box_fragment_;
 
   bool is_active_ = false;
   bool needs_paint_invalidation_ = false;

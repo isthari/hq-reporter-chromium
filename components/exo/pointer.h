@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "ash/shell_observer.h"
 #include "base/memory/weak_ptr.h"
 #include "base/unguessable_token.h"
 #include "components/exo/surface_observer.h"
@@ -15,6 +16,7 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/aura/client/cursor_client_observer.h"
+#include "ui/aura/client/drag_drop_client_observer.h"
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/base/cursor/mojom/cursor_type.mojom-forward.h"
@@ -48,8 +50,10 @@ class SurfaceTreeHost;
 class Pointer : public SurfaceTreeHost,
                 public SurfaceObserver,
                 public ui::EventHandler,
+                public aura::client::DragDropClientObserver,
                 public aura::client::CursorClientObserver,
-                public aura::client::FocusChangeObserver {
+                public aura::client::FocusChangeObserver,
+                public ash::ShellObserver {
  public:
   Pointer(PointerDelegate* delegate, Seat* seat);
 
@@ -74,24 +78,32 @@ class Pointer : public SurfaceTreeHost,
   // Set delegate for pinch events.
   void SetGesturePinchDelegate(PointerGesturePinchDelegate* delegate);
 
-  // Overridden from SurfaceDelegate:
+  // SurfaceDelegate:
   void OnSurfaceCommit() override;
 
-  // Overridden from SurfaceObserver:
+  // SurfaceObserver:
   void OnSurfaceDestroying(Surface* surface) override;
 
-  // Overridden from ui::EventHandler:
+  // ui::EventHandler:
   void OnMouseEvent(ui::MouseEvent* event) override;
   void OnScrollEvent(ui::ScrollEvent* event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
 
-  // Overridden from aura::client::CursorClientObserver:
+  // aura::client::DragDropClientObserver:
+  void OnDragStarted() override;
+  void OnDragCompleted(const ui::DropTargetEvent& event) override;
+
+  // aura::client::CursorClientObserver:
   void OnCursorSizeChanged(ui::CursorSize cursor_size) override;
   void OnCursorDisplayChanged(const display::Display& display) override;
 
-  // Overridden from aura::client::FocusChangeObserver;
+  // aura::client::FocusChangeObserver;
   void OnWindowFocused(aura::Window* gained_focus,
                        aura::Window* lost_focus) override;
+
+  // ash::ShellObserver:
+  void OnRootWindowAdded(aura::Window* root_window) override;
+  void OnRootWindowWillShutdown(aura::Window* root_window) override;
 
   // Relative motion registration.
   void RegisterRelativePointerDelegate(RelativePointerDelegate* delegate);
@@ -144,12 +156,15 @@ class Pointer : public SurfaceTreeHost,
   // Remove the currently active pointer capture (if there is one).
   void DisablePointerCapture();
 
-  // Returns the effective target for |event|.
-  Surface* GetEffectiveTargetForEvent(const ui::LocatedEvent* event) const;
+  // Returns the effective target for |event| and the event's location converted
+  // to the target's coordinates.
+  Surface* GetEffectiveTargetForEvent(const ui::LocatedEvent* event,
+                                      gfx::PointF* location_in_target) const;
 
   // Change pointer focus to |surface|.
   void SetFocus(Surface* surface,
-                const gfx::PointF& location,
+                const gfx::PointF& root_location,
+                const gfx::PointF& surface_location,
                 int button_flags);
 
   // Updates the root_surface in |SurfaceTreeHost| from which the cursor
@@ -166,10 +181,6 @@ class Pointer : public SurfaceTreeHost,
 
   // Update |cursor_| to |cursor_bitmap_| transformed for the current display.
   void UpdateCursor();
-
-  // Convert the given |location_in_target| to coordinates in the root window.
-  gfx::PointF GetLocationInRoot(Surface* target,
-                                gfx::PointF location_in_target);
 
   // Called to check if cursor should be moved to the center of the window when
   // sending relative movements.
@@ -192,6 +203,11 @@ class Pointer : public SurfaceTreeHost,
 
   // Stop observing |surface| if it's no longer relevant.
   void MaybeRemoveSurfaceObserver(Surface* surface);
+
+  // Return true if location is same.
+  bool CheckIfSameLocation(bool is_synthesized,
+                           const gfx::PointF& location_in_root,
+                           const gfx::PointF& location_in_target);
 
   // The delegate instance that all events are dispatched to.
   PointerDelegate* const delegate_;
@@ -217,15 +233,18 @@ class Pointer : public SurfaceTreeHost,
   // The current focus surface for the pointer.
   Surface* focus_surface_ = nullptr;
 
-  // The location of the pointer in the current focus surface.
-  gfx::PointF location_;
+  // The location of the pointer in the root window.
+  gfx::PointF location_in_root_;
+
+  // The location of the pointer converted to the target.
+  gfx::PointF location_in_surface_;
 
   // The location of the pointer when pointer capture is first enabled.
   absl::optional<gfx::Point> location_when_pointer_capture_enabled_;
 
   // If this is not nullptr, a synthetic move was sent and this points to the
   // location of a generated move that was sent which should not be forwarded.
-  absl::optional<gfx::Point> location_synthetic_move_;
+  absl::optional<gfx::Point> expected_next_mouse_location_;
 
   // The window with pointer capture. Pointer capture is enabled if and only if
   // this is not null.

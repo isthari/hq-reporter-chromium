@@ -1,4 +1,4 @@
-// Copyright (c) 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,13 +14,12 @@
 #include "components/sync/driver/sync_service_impl.h"
 #include "components/sync/engine/polling_constants.h"
 #include "components/sync/protocol/client_commands.pb.h"
-#include "components/sync/test/fake_server/sessions_hierarchy.h"
+#include "components/sync/test/sessions_hierarchy.h"
 #include "content/public/test/browser_test.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 using sessions_helper::CheckInitialState;
 using sessions_helper::OpenTab;
-using syncer::SyncPrefs;
 using testing::Gt;
 
 namespace {
@@ -100,8 +99,6 @@ IN_PROC_BROWSER_TEST_F(TwoClientPollingSyncTest, DISABLED_ShouldPollOnStartup) {
   // Disconnect client 1 from sync and write another change from client 0.
   // Disconnect the remote client from the invalidation service.
   DisableNotificationsForClient(1);
-  // Make sure no extra sync cycles get triggered by test infrastructure.
-  StopConfigurationRefresher();
   // Note: It's important to *not* clear data here - if we clear data, then
   // we'll do a regular GetUpdates at the next startup, so there'd be no need
   // for a poll.

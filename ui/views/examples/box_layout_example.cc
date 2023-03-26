@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,8 +25,7 @@
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/view.h"
 
-namespace views {
-namespace examples {
+namespace views::examples {
 
 BoxLayoutExample::BoxLayoutExample() : LayoutExampleBase("Box Layout") {}
 
@@ -56,20 +55,20 @@ void BoxLayoutExample::ContentsChanged(Textfield* textfield,
 void BoxLayoutExample::CreateAdditionalControls() {
   constexpr const char* kOrientationValues[2] = {"Horizontal", "Vertical"};
   orientation_ = CreateAndAddCombobox(
-      u"Orientation", kOrientationValues, base::size(kOrientationValues),
+      u"Orientation", kOrientationValues, std::size(kOrientationValues),
       base::BindRepeating(&LayoutExampleBase::RefreshLayoutPanel,
                           base::Unretained(this), true));
 
   constexpr const char* kMainAxisValues[3] = {"Start", "Center", "End"};
   main_axis_alignment_ = CreateAndAddCombobox(
-      u"Main axis", kMainAxisValues, base::size(kMainAxisValues),
+      u"Main axis", kMainAxisValues, std::size(kMainAxisValues),
       base::BindRepeating(&BoxLayoutExample::MainAxisAlignmentChanged,
                           base::Unretained(this)));
 
   constexpr const char* kCrossAxisValues[4] = {"Stretch", "Start", "Center",
                                                "End"};
   cross_axis_alignment_ = CreateAndAddCombobox(
-      u"Cross axis", kCrossAxisValues, base::size(kCrossAxisValues),
+      u"Cross axis", kCrossAxisValues, std::size(kCrossAxisValues),
       base::BindRepeating(&BoxLayoutExample::CrossAxisAlignmentChanged,
                           base::Unretained(this)));
 
@@ -92,15 +91,15 @@ void BoxLayoutExample::UpdateLayoutManager() {
   int child_spacing;
   base::StringToInt(between_child_spacing_->GetText(), &child_spacing);
   layout_ = panel->SetLayoutManager(std::make_unique<BoxLayout>(
-      orientation_->GetSelectedIndex() == 0
+      orientation_->GetSelectedIndex() == 0u
           ? BoxLayout::Orientation::kHorizontal
           : BoxLayout::Orientation::kVertical,
       gfx::Insets(), child_spacing, collapse_margins_->GetChecked()));
 
   layout_->set_cross_axis_alignment(static_cast<BoxLayout::CrossAxisAlignment>(
-      cross_axis_alignment_->GetSelectedIndex()));
+      cross_axis_alignment_->GetSelectedIndex().value()));
   layout_->set_main_axis_alignment(static_cast<BoxLayout::MainAxisAlignment>(
-      main_axis_alignment_->GetSelectedIndex()));
+      main_axis_alignment_->GetSelectedIndex().value()));
 
   int default_flex;
   base::StringToInt(default_flex_->GetText(), &default_flex);
@@ -127,15 +126,14 @@ void BoxLayoutExample::UpdateBorderInsets() {
 
 void BoxLayoutExample::MainAxisAlignmentChanged() {
   layout_->set_main_axis_alignment(static_cast<BoxLayout::MainAxisAlignment>(
-      main_axis_alignment_->GetSelectedIndex()));
+      main_axis_alignment_->GetSelectedIndex().value()));
   RefreshLayoutPanel(false);
 }
 
 void BoxLayoutExample::CrossAxisAlignmentChanged() {
   layout_->set_cross_axis_alignment(static_cast<BoxLayout::CrossAxisAlignment>(
-      cross_axis_alignment_->GetSelectedIndex()));
+      cross_axis_alignment_->GetSelectedIndex().value()));
   RefreshLayoutPanel(false);
 }
 
-}  // namespace examples
-}  // namespace views
+}  // namespace views::examples

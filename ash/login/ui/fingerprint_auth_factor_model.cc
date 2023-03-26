@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,14 +23,34 @@ constexpr int kFingerprintFailedAnimationNumFrames = 45;
 
 }  // namespace
 
+// static
+FingerprintAuthFactorModel::Factory*
+    FingerprintAuthFactorModel::Factory::factory_instance_ = nullptr;
+
+// static
+std::unique_ptr<FingerprintAuthFactorModel>
+FingerprintAuthFactorModel::Factory::Create(FingerprintState state) {
+  if (factory_instance_) {
+    return factory_instance_->CreateInstance(state);
+  }
+  return std::make_unique<FingerprintAuthFactorModel>(state);
+}
+
+// static
+void FingerprintAuthFactorModel::Factory::SetFactoryForTesting(
+    FingerprintAuthFactorModel::Factory* factory) {
+  factory_instance_ = factory;
+}
+
 FingerprintAuthFactorModel::FingerprintAuthFactorModel(FingerprintState state)
     : state_(state) {}
 
 FingerprintAuthFactorModel::~FingerprintAuthFactorModel() = default;
 
 void FingerprintAuthFactorModel::SetFingerprintState(FingerprintState state) {
-  if (state_ == state)
+  if (state_ == state) {
     return;
+  }
 
   // Clear out the timeout if the state changes. This shouldn't happen
   // ordinarily -- permanent error states are permanent after all -- but this is
@@ -41,6 +61,11 @@ void FingerprintAuthFactorModel::SetFingerprintState(FingerprintState state) {
   RefreshUI();
 }
 
+void FingerprintAuthFactorModel::ResetUIState() {
+  auth_result_.reset();
+  RefreshUI();
+}
+
 void FingerprintAuthFactorModel::NotifyFingerprintAuthResult(bool result) {
   auth_result_ = result;
   RefreshUI();
@@ -48,8 +73,9 @@ void FingerprintAuthFactorModel::NotifyFingerprintAuthResult(bool result) {
 
 AuthFactorModel::AuthFactorState
 FingerprintAuthFactorModel::GetAuthFactorState() const {
-  if (!available_)
+  if (!available_) {
     return AuthFactorState::kUnavailable;
+  }
 
   if (auth_result_.has_value()) {
     if (auth_result_.value()) {
@@ -109,8 +135,9 @@ bool FingerprintAuthFactorModel::ShouldAnnounceLabel() const {
 }
 
 int FingerprintAuthFactorModel::GetAccessibleNameId() const {
-  if (state_ == FingerprintState::DISABLED_FROM_ATTEMPTS)
+  if (state_ == FingerprintState::DISABLED_FROM_ATTEMPTS) {
     return IDS_ASH_LOGIN_FINGERPRINT_UNLOCK_ACCESSIBLE_AUTH_DISABLED_FROM_ATTEMPTS;
+  }
 
   return GetLabelId();
 }

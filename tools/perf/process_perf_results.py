@@ -1,10 +1,11 @@
-#!/usr/bin/env vpython
-# Copyright 2018 The Chromium Authors. All rights reserved.
+#!/usr/bin/env vpython3
+# Copyright 2018 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 from __future__ import print_function
 
+from __future__ import absolute_import
 import argparse
 import collections
 import json
@@ -16,6 +17,7 @@ import sys
 import tempfile
 import time
 import uuid
+import six
 
 logging.basicConfig(
     level=logging.INFO,
@@ -102,7 +104,7 @@ def _upload_perf_results(json_to_upload, name, configuration_name,
       '--perf-dashboard-machine-group', _GetMachineGroup(build_properties)
   ]
   buildbucket = build_properties.get('buildbucket', {})
-  if isinstance(buildbucket, basestring):
+  if isinstance(buildbucket, six.string_types):
     buildbucket = json.loads(buildbucket)
 
   if 'build' in buildbucket:
@@ -120,6 +122,17 @@ def _upload_perf_results(json_to_upload, name, configuration_name,
   #TODO(crbug.com/1072729): log this in top level
   logging.info('upload_results_to_perf_dashboard: %s.' % args)
 
+  # Duplicate part of the results upload to staging.
+  if configuration_name == 'linux-perf-fyi' and name == 'system_health.common_desktop':
+    try:
+      RESULTS_URL_STAGE = 'https://chromeperf-stage.uc.r.appspot.com'
+      staging_args = [(s if s != RESULTS_URL else RESULTS_URL_STAGE)
+                      for s in args]
+      result = upload_results_to_perf_dashboard.main(staging_args)
+      logging.info('Uploaded results to staging. Return value: %d', result)
+    except Exception as e:
+      logging.info('Failed to upload results to staging: %s', str(e))
+
   return upload_results_to_perf_dashboard.main(args)
 
 def _is_histogram(json_file):
@@ -132,7 +145,7 @@ def _is_gtest(json_file):
 
 def _determine_data_format(json_file):
   if json_file not in _data_format_cache:
-    with open(json_file) as f:
+    with open(json_file, 'rb') as f:
       data = json.load(f)
       if isinstance(data, list):
         _data_format_cache[json_file] = DATA_FORMAT_HISTOGRAMS
@@ -296,7 +309,7 @@ def _scan_output_dir(task_output_dir):
   # the lists were written to.
   for directory in benchmark_directory_list:
     benchmark_name = _get_benchmark_name(directory)
-    if benchmark_name in benchmark_directory_map.keys():
+    if benchmark_name in benchmark_directory_map:
       benchmark_directory_map[benchmark_name].append(directory)
     else:
       benchmark_directory_map[benchmark_name] = [directory]
@@ -500,7 +513,7 @@ def _GetCpuCount(log=True):
     return cpu_count
   except NotImplementedError:
     if log:
-      logging.warn(
+      logging.warning(
           'Failed to get a CPU count for this bot. See crbug.com/947035.')
     # TODO(crbug.com/948281): This is currently set to 4 since the mac masters
     # only have 4 cores. Once we move to all-linux, this can be increased or
@@ -576,9 +589,9 @@ def _should_add_device_id_in_perf_result(builder_name):
   # We should always add device id in calibration builders.
   # For testing purpose, adding fyi as well for faster turnaround, because
   # calibration builders run every 24 hours.
-  return any([
-      builder_name == p.name for p in bot_platforms.CALIBRATION_PLATFORMS
-  ]) or (builder_name == 'android-pixel2-perf-fyi')
+  return any(builder_name == p.name
+             for p in bot_platforms.CALIBRATION_PLATFORMS) or (
+                 builder_name == 'android-pixel2-perf-fyi')
 
 
 def _update_perf_results_for_calibration(benchmarks_shard_map_file,
@@ -703,15 +716,18 @@ def _write_perf_data_to_logfile(benchmark_name, output_file,
         logging.error('Error parsing perf results JSON for benchmark  %s' %
               benchmark_name)
     if results:
-      try:
-        output_json_file = logdog_helper.open_text(benchmark_name)
-        json.dump(results, output_json_file,
-                  indent=4, separators=(',', ': '))
-      except ValueError as e:
-        logging.error('ValueError: "%s" while dumping output to logdog' % e)
-      finally:
-        output_json_file.close()
-      viewer_url = output_json_file.get_viewer_url()
+      output_json_file = logdog_helper.open_text(benchmark_name)
+      if output_json_file:
+        viewer_url = output_json_file.get_viewer_url()
+        try:
+          json.dump(results, output_json_file, indent=4, separators=(',', ': '))
+        except ValueError as e:
+          logging.error('ValueError: "%s" while dumping output to logdog' % e)
+        finally:
+          output_json_file.close()
+      else:
+        logging.warning('Could not open output JSON file for benchmark %s' %
+                        benchmark_name)
   else:
     logging.warning("Perf results JSON file doesn't exist for benchmark %s" %
           benchmark_name)
@@ -785,7 +801,10 @@ def main():
         args.lightweight, args.skip_perf)
     return return_code
   finally:
-    shutil.rmtree(output_results_dir)
+    # crbug/1378275. In some cases, the temp dir could be deleted. Add a
+    # check to avoid FileNotFoundError.
+    if os.path.exists(output_results_dir):
+      shutil.rmtree(output_results_dir)
 
 
 if __name__ == '__main__':

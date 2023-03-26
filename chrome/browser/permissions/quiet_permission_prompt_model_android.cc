@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,9 +27,13 @@ std::u16string GetNotificationBlockedUIDescription(QuietUiReason reason) {
     case QuietUiReason::kTriggeredDueToAbusiveContent:
       return l10n_util::GetStringUTF16(
           IDS_NOTIFICATION_QUIET_PERMISSION_INFOBAR_ABUSIVE_MESSAGE);
-    case QuietUiReason::kPredictedVeryUnlikelyGrant:
+    case QuietUiReason::kServicePredictedVeryUnlikelyGrant:
+    case QuietUiReason::kOnDevicePredictedVeryUnlikelyGrant:
       return l10n_util::GetStringUTF16(
           IDS_NOTIFICATION_QUIET_PERMISSION_INFOBAR_PREDICTION_SERVICE_MESSAGE);
+    case QuietUiReason::kTriggeredDueToDisruptiveBehavior:
+      return l10n_util::GetStringUTF16(
+          IDS_NOTIFICATION_QUIET_PERMISSION_INFOBAR_DISRUPTIVE_MESSAGE);
   }
   NOTREACHED();
   return std::u16string();
@@ -54,7 +58,8 @@ QuietPermissionPromptModelAndroid GetQuietNotificationPermissionPromptModel(
 
   switch (reason) {
     case QuietUiReason::kEnabledInPrefs:
-    case QuietUiReason::kPredictedVeryUnlikelyGrant:
+    case QuietUiReason::kServicePredictedVeryUnlikelyGrant:
+    case QuietUiReason::kOnDevicePredictedVeryUnlikelyGrant:
     case QuietUiReason::kTriggeredByCrowdDeny:
       model.primary_button_label = l10n_util::GetStringUTF16(
           IDS_NOTIFICATIONS_QUIET_PERMISSION_BUBBLE_ALLOW_BUTTON);
@@ -65,6 +70,7 @@ QuietPermissionPromptModelAndroid GetQuietNotificationPermissionPromptModel(
       break;
     case QuietUiReason::kTriggeredDueToAbusiveRequests:
     case QuietUiReason::kTriggeredDueToAbusiveContent:
+    case QuietUiReason::kTriggeredDueToDisruptiveBehavior:
       model.primary_button_label = l10n_util::GetStringUTF16(
           IDS_NOTIFICATIONS_QUIET_PERMISSION_BUBBLE_CONTINUE_BLOCKING_BUTTON);
       model.primary_button_behavior = PrimaryButtonBehavior::kContinueBlocking;
@@ -76,7 +82,8 @@ QuietPermissionPromptModelAndroid GetQuietNotificationPermissionPromptModel(
   }
 
   if (reason == QuietUiReason::kTriggeredDueToAbusiveRequests ||
-      reason == QuietUiReason::kTriggeredDueToAbusiveContent) {
+      reason == QuietUiReason::kTriggeredDueToAbusiveContent ||
+      reason == QuietUiReason::kTriggeredDueToDisruptiveBehavior) {
     model.learn_more_text = l10n_util::GetStringUTF16(IDS_LEARN_MORE);
   }
 

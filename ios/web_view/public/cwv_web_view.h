@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,6 @@ NS_ASSUME_NONNULL_BEGIN
 @class CWVTranslationController;
 @class CWVWebViewConfiguration;
 @protocol CWVNavigationDelegate;
-@protocol CWVScriptCommandHandler;
 @protocol CWVUIDelegate;
 @class CWVSSLStatus;
 
@@ -218,57 +217,40 @@ CWV_EXPORT
 // Unlike WKWebView, this method supports HTTPBody.
 - (void)loadRequest:(NSURLRequest*)request;
 
-// Evaluates a JavaScript string.
-// The completion handler is invoked when script evaluation completes.
+// Evaluates a JavaScript string in the main frame of the page content world.
+// `completion` is invoked with the result of evaluating the script and a
+// boolean representing success (`YES`) or failure (`NO`) of the evaluation.
 //
-// Note that |javaScriptString| is wrapped with:
-//   if (<implementation defined>) { ... }
-// before evaluation, which causes some tricky side effect when you use |let| or
-// |const| in the script.
-//
-//   1. Variables defined with |let| or |const| at the top level of the script
-//      do NOT become a global variable. i.e., It is accessible neither from
-//      scripts in the page nor another call to
-//      -evaluateJavaScript:completionHandler:. Variables defined with |var|
-//      DOES become a global variable.
-//
-//   2. Variables defined with |let| or |const| at the top level are not
-//      accessible from top level functions, even in the same script. Variable
-//      defined with |var| doesn't have this issue either. e.g., evaluation of
-//      this script causes an error:
-//
-//        let a =  3;
-//        function f() {
-//          console.log(a);  // ReferenceError: Can't find variable: a
-//        }
-//        f();
-//
-// To workaround the issue, you can use |var| instead, or an explicit reference
-// to window.xxx. This is because |let| and |const| are scoped by braces while
-// |var| isn't, and due to tricky behavior of WebKit in non-strict mode.
+// Evaluation of `javaScriptString` will fail (and return NO to `completion`) if
+// there is no current internal representation of the main frame. This can occur
+// when the web view is navigating or if the current page content does not allow
+// JavaScript execution (ex: JS disabled or PDF content).
 - (void)evaluateJavaScript:(NSString*)javaScriptString
-         completionHandler:(void (^)(id, NSError*))completionHandler;
+                completion:(void (^)(id result, NSError* error))completion;
 
-// Registers a handler that will be called when a command matching
-// |commandPrefix| is received.
+// Adds a message handler for messages sent from JavaScript.
+// `handler` will be called each time a message is sent with the corresponding
+// value of `command`. To send messages from JavaScript, use the WebKit
+// message handler `CWVWebViewMessage` and provide values for the `command` and
+// `payload` keys.
+// `command` must be a string and match the registered handler `command` string
+// `payload` must be a dictionary.
 //
-// Web pages can send a command by executing JavaScript like this:
-//   __gCrWeb.message.invokeOnHost(
-//       {'command': 'test.command1', 'key1':'value1', 'key2': 42});
-// And receive it by:
-//   [webView addScriptCommandHandler:handler commandPrefix:@"test"];
+// Example call from JavaScript:
 //
-// Make sure to call -removeScriptCommandHandlerForCommandPrefix: with the same
-// prefix before deallocating a CWVWebView instance. Otherwise it causes an
-// assertion failure.
+//  let message = {
+//    'command': 'myFeatureMessage',
+//    'payload' : {'key1':'value1', 'key2':42}
+//  }
+//  window.webkit.messageHandlers['CWVWebViewMessage'].postMessage(message);
 //
-// This provides a similar functionarity to -[WKUserContentController
-// addScriptMessageHandler:name:].
-- (void)addScriptCommandHandler:(id<CWVScriptCommandHandler>)handler
-                  commandPrefix:(NSString*)commandPrefix;
+// NOTE: Only a single `handler` may be registered for a given `command`.
+- (void)addMessageHandler:(void (^)(NSDictionary* payload))handler
+               forCommand:(NSString*)command;
 
-// Removes the handler associated with |commandPrefix|.
-- (void)removeScriptCommandHandlerForCommandPrefix:(NSString*)commandPrefix;
+// Removes the message handler associated with `command` previously added with
+// `addMessageHandler:forCommand:`.
+- (void)removeMessageHandlerForCommand:(NSString*)command;
 
 @end
 

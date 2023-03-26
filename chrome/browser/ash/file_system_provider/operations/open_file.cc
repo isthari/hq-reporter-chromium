@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,12 +13,12 @@ namespace ash {
 namespace file_system_provider {
 namespace operations {
 
-OpenFile::OpenFile(extensions::EventRouter* event_router,
+OpenFile::OpenFile(RequestDispatcher* dispatcher,
                    const ProvidedFileSystemInfo& file_system_info,
                    const base::FilePath& file_path,
                    OpenFileMode mode,
                    ProvidedFileSystemInterface::OpenFileCallback callback)
-    : Operation(event_router, file_system_info),
+    : Operation(dispatcher, file_system_info),
       file_path_(file_path),
       mode_(mode),
       callback_(std::move(callback)) {}

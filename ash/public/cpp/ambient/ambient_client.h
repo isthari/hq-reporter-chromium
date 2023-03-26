@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 
 #include "ash/public/cpp/ash_public_export.h"
 #include "ash/public/cpp/image_downloader.h"
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/scoped_refptr.h"
 #include "services/device/public/mojom/wake_lock_provider.mojom.h"
 
@@ -40,6 +40,8 @@ class ASH_PUBLIC_EXPORT AmbientClient {
 
   // Return whether the ambient mode is allowed for the user.
   virtual bool IsAmbientModeAllowed() = 0;
+
+  virtual void SetAmbientModeAllowedForTesting(bool allowed) = 0;
 
   // Return the gaia and access token associated with the active user's profile.
   virtual void RequestAccessToken(GetAccessTokenCallback callback) = 0;

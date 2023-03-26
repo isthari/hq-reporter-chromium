@@ -1,19 +1,19 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/app_mode/kiosk_app_update_service.h"
 
 #include "base/logging.h"
+#include "base/metrics/histogram_functions.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/ash/system/automatic_reboot_manager.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_process_platform_part_chromeos.h"
+#include "chrome/browser/browser_process_platform_part_ash.h"
 #include "chrome/browser/extensions/extension_service.h"
-#include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/lifetime/application_lifetime_desktop.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "extensions/browser/api/runtime/runtime_api.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/extension_system_provider.h"
@@ -28,6 +28,9 @@ namespace {
 const int kForceRestartWaitTimeMs = 24 * 3600 * 1000;  // 24 hours.
 
 }  // namespace
+
+const char kKioskPrimaryAppInSessionUpdateHistogram[] =
+    "Kiosk.ChromeApp.PrimaryAppInSessionUpdate";
 
 KioskAppUpdateService::KioskAppUpdateService(
     Profile* profile,
@@ -51,14 +54,17 @@ void KioskAppUpdateService::Init(const std::string& app_id) {
   if (automatic_reboot_manager_)
     automatic_reboot_manager_->AddObserver(this);
 
-  if (KioskAppManager::Get())
+  if (KioskAppManager::IsInitialized()) {
     KioskAppManager::Get()->AddObserver(this);
+  }
 
   if (automatic_reboot_manager_->reboot_requested())
     OnRebootRequested(automatic_reboot_manager_->reboot_reason());
 }
 
 void KioskAppUpdateService::StartAppUpdateRestartTimer() {
+  base::UmaHistogramCounts100(kKioskPrimaryAppInSessionUpdateHistogram, 1);
+
   if (restart_timer_.IsRunning())
     return;
 
@@ -78,8 +84,9 @@ void KioskAppUpdateService::Shutdown() {
       extensions::ExtensionSystem::Get(profile_)->extension_service();
   if (service)
     service->RemoveUpdateObserver(this);
-  if (KioskAppManager::Get())
+  if (KioskAppManager::IsInitialized()) {
     KioskAppManager::Get()->RemoveObserver(this);
+  }
   if (automatic_reboot_manager_)
     automatic_reboot_manager_->RemoveObserver(this);
 }
@@ -125,7 +132,7 @@ void KioskAppUpdateService::OnRebootRequested(Reason reason) {
 
 void KioskAppUpdateService::WillDestroyAutomaticRebootManager() {
   automatic_reboot_manager_->RemoveObserver(this);
-  automatic_reboot_manager_ = NULL;
+  automatic_reboot_manager_ = nullptr;
 }
 
 void KioskAppUpdateService::OnKioskAppCacheUpdated(const std::string& app_id) {
@@ -140,9 +147,7 @@ void KioskAppUpdateService::OnKioskAppCacheUpdated(const std::string& app_id) {
 }
 
 KioskAppUpdateServiceFactory::KioskAppUpdateServiceFactory()
-    : BrowserContextKeyedServiceFactory(
-        "KioskAppUpdateService",
-        BrowserContextDependencyManager::GetInstance()) {
+    : ProfileKeyedServiceFactory("KioskAppUpdateService") {
   DependsOn(
       extensions::ExtensionsBrowserClient::Get()->GetExtensionSystemFactory());
 }
@@ -156,7 +161,7 @@ KioskAppUpdateService* KioskAppUpdateServiceFactory::GetForProfile(
   // This should never be called unless we are running in forced app mode.
   DCHECK(chrome::IsRunningInForcedAppMode());
   if (!chrome::IsRunningInForcedAppMode())
-    return NULL;
+    return nullptr;
 
   return static_cast<KioskAppUpdateService*>(
       GetInstance()->GetServiceForBrowserContext(profile, true));

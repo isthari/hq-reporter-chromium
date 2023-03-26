@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <stdint.h>
 
 #include "base/check.h"
-#include "base/cxx17_backports.h"
 #include "remoting/base/util.h"
 #include "remoting/proto/video.pb.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_frame.h"
@@ -19,7 +18,7 @@ namespace remoting {
 
 static uint8_t* GetPacketOutputBuffer(VideoPacket* packet, size_t size) {
   packet->mutable_data()->resize(size);
-  return reinterpret_cast<uint8_t*>(base::data(*packet->mutable_data()));
+  return reinterpret_cast<uint8_t*>(std::data(*packet->mutable_data()));
 }
 
 VideoEncoderVerbatim::VideoEncoderVerbatim() = default;
@@ -31,8 +30,9 @@ std::unique_ptr<VideoPacket> VideoEncoderVerbatim::Encode(
 
   // If nothing has changed in the frame then return NULL to indicate that
   // we don't need to actually send anything (e.g. nothing to top-off).
-  if (frame.updated_region().is_empty())
+  if (frame.updated_region().is_empty()) {
     return nullptr;
+  }
 
   // Create a VideoPacket with common fields (e.g. DPI, rects, shape) set.
   std::unique_ptr<VideoPacket> packet(helper_.CreateVideoPacket(frame));
@@ -43,8 +43,8 @@ std::unique_ptr<VideoPacket> VideoEncoderVerbatim::Encode(
   for (webrtc::DesktopRegion::Iterator iter(frame.updated_region());
        !iter.IsAtEnd(); iter.Advance()) {
     const webrtc::DesktopRect& rect = iter.rect();
-    output_size += rect.width() * rect.height() *
-        webrtc::DesktopFrame::kBytesPerPixel;
+    output_size +=
+        rect.width() * rect.height() * webrtc::DesktopFrame::kBytesPerPixel;
   }
 
   uint8_t* out = GetPacketOutputBuffer(packet.get(), output_size);

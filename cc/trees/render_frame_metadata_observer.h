@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,7 +29,7 @@ class CC_EXPORT RenderFrameMetadataObserver {
 
   // Binds on the current thread. This should only be called from the compositor
   // thread.
-  virtual void BindToCurrentThread() = 0;
+  virtual void BindToCurrentSequence() = 0;
 
   // Notification of the RendarFrameMetadata for the frame being submitted to
   // the display compositor.

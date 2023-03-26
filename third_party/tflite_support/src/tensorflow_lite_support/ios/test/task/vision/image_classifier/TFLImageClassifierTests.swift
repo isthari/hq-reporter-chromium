@@ -12,30 +12,35 @@
  See the License for the specific language governing permissions and
  limitations under the License.
  ==============================================================================*/
+import GMLImageUtils
 import XCTest
 
 @testable import TFLImageClassifier
 
-class TFLImageClassifierTests: XCTestCase {
+class ImageClassifierTests: XCTestCase {
 
-  static let bundle = Bundle(for: TFLImageClassifierTests.self)
+  static let bundle = Bundle(for: ImageClassifierTests.self)
   static let modelPath = bundle.path(
     forResource: "mobilenet_v2_1.0_224",
-    ofType: "tflite")!
+    ofType: "tflite")
 
   func testSuccessfullInferenceOnMLImageWithUIImage() throws {
 
-    let modelPath = try XCTUnwrap(TFLImageClassifierTests.modelPath)
+    let modelPath = try XCTUnwrap(ImageClassifierTests.modelPath)
 
-    let imageClassifierOptions = TFLImageClassifierOptions(modelPath: modelPath)
-    XCTAssertNotNil(imageClassifierOptions)
+    let imageClassifierOptions = ImageClassifierOptions(modelPath: modelPath)
 
     let imageClassifier =
-      try TFLImageClassifier.imageClassifier(options: imageClassifierOptions!)
+      try ImageClassifier.classifier(options: imageClassifierOptions)
 
-    let gmlImage = try gmlImage(withName: "burger", ofType: "jpg")
-    let classificationResults: TFLClassificationResult =
-      try imageClassifier.classify(gmlImage: gmlImage)
+    let gmlImage = try XCTUnwrap(
+      MLImage.imageFromBundle(
+        class: type(of: self),
+        filename: "burger",
+        type: "jpg"))
+
+    let classificationResults: ClassificationResult =
+      try imageClassifier.classify(mlImage: gmlImage)
 
     XCTAssertNotNil(classificationResults)
     XCTAssertEqual(classificationResults.classifications.count, 1)
@@ -48,21 +53,24 @@ class TFLImageClassifierTests: XCTestCase {
 
   func testModelOptionsWithMaxResults() throws {
 
-    let modelPath = try XCTUnwrap(TFLImageClassifierTests.modelPath)
+    let modelPath = try XCTUnwrap(ImageClassifierTests.modelPath)
 
-    let imageClassifierOptions = TFLImageClassifierOptions(modelPath: modelPath)
-    XCTAssertNotNil(imageClassifierOptions)
+    let imageClassifierOptions = ImageClassifierOptions(modelPath: modelPath)
 
     let maxResults = 3
-    imageClassifierOptions!.classificationOptions.maxResults = maxResults
+    imageClassifierOptions.classificationOptions.maxResults = maxResults
 
     let imageClassifier =
-      try TFLImageClassifier.imageClassifier(options: imageClassifierOptions!)
+      try ImageClassifier.classifier(options: imageClassifierOptions)
 
-    let gmlImage = try gmlImage(withName: "burger", ofType: "jpg")
+    let gmlImage = try XCTUnwrap(
+      MLImage.imageFromBundle(
+        class: type(of: self),
+        filename: "burger",
+        type: "jpg"))
 
-    let classificationResults: TFLClassificationResult = try imageClassifier.classify(
-      gmlImage: gmlImage)
+    let classificationResults: ClassificationResult = try imageClassifier.classify(
+      mlImage: gmlImage)
 
     XCTAssertNotNil(classificationResults)
     XCTAssertEqual(classificationResults.classifications.count, 1)
@@ -76,19 +84,22 @@ class TFLImageClassifierTests: XCTestCase {
 
   func testInferenceWithBoundingBox() throws {
 
-    let modelPath = try XCTUnwrap(TFLImageClassifierTests.modelPath)
+    let modelPath = try XCTUnwrap(ImageClassifierTests.modelPath)
 
-    let imageClassifierOptions = TFLImageClassifierOptions(modelPath: modelPath)
-    XCTAssertNotNil(imageClassifierOptions)
+    let imageClassifierOptions = ImageClassifierOptions(modelPath: modelPath)
 
     let imageClassifier =
-      try TFLImageClassifier.imageClassifier(options: imageClassifierOptions!)
+      try ImageClassifier.classifier(options: imageClassifierOptions)
 
-    let gmlImage = try gmlImage(withName: "multi_objects", ofType: "jpg")
+    let gmlImage = try XCTUnwrap(
+      MLImage.imageFromBundle(
+        class: type(of: self),
+        filename: "multi_objects",
+        type: "jpg"))
 
     let roi = CGRect(x: 406, y: 110, width: 148, height: 153)
     let classificationResults =
-      try imageClassifier.classify(gmlImage: gmlImage, regionOfInterest: roi)
+      try imageClassifier.classify(mlImage: gmlImage, regionOfInterest: roi)
 
     XCTAssertNotNil(classificationResults)
     XCTAssertEqual(classificationResults.classifications.count, 1)
@@ -102,18 +113,21 @@ class TFLImageClassifierTests: XCTestCase {
 
   func testInferenceWithRGBAImage() throws {
 
-    let modelPath = try XCTUnwrap(TFLImageClassifierTests.modelPath)
+    let modelPath = try XCTUnwrap(ImageClassifierTests.modelPath)
 
-    let imageClassifierOptions = TFLImageClassifierOptions(modelPath: modelPath)
-    XCTAssertNotNil(imageClassifierOptions)
+    let imageClassifierOptions = ImageClassifierOptions(modelPath: modelPath)
 
     let imageClassifier =
-      try TFLImageClassifier.imageClassifier(options: imageClassifierOptions!)
+      try ImageClassifier.classifier(options: imageClassifierOptions)
 
-    let gmlImage = try gmlImage(withName: "sparrow", ofType: "png")
+    let gmlImage = try XCTUnwrap(
+      MLImage.imageFromBundle(
+        class: type(of: self),
+        filename: "sparrow",
+        type: "png"))
 
     let classificationResults =
-      try imageClassifier.classify(gmlImage: gmlImage)
+      try imageClassifier.classify(mlImage: gmlImage)
 
     XCTAssertNotNil(classificationResults)
     XCTAssertEqual(classificationResults.classifications.count, 1)
@@ -122,15 +136,5 @@ class TFLImageClassifierTests: XCTestCase {
     let category = classificationResults.classifications[0].categories[0]
     XCTAssertEqual(category.label, "junco")
     XCTAssertEqual(category.score, 0.253016, accuracy: 0.001)
-  }
-
-  private func gmlImage(withName name: String, ofType type: String) throws -> MLImage {
-    let imagePath =
-      try XCTUnwrap(TFLImageClassifierTests.bundle.path(forResource: name, ofType: type))
-    let image = UIImage(contentsOfFile: imagePath)
-    let imageForInference = try XCTUnwrap(image)
-    let gmlImage = try XCTUnwrap(MLImage(image: imageForInference))
-
-    return gmlImage
   }
 }

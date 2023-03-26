@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,6 +45,11 @@ NearbyShareDelegateImpl::~NearbyShareDelegateImpl() {
   ash::SessionController::Get()->RemoveObserver(this);
   if (nearby_share_service_)
     RemoveNearbyShareServiceObservers();
+}
+
+bool NearbyShareDelegateImpl::IsEnabled() {
+  return nearby_share_service_ != nullptr &&
+         nearby_share_service_->GetSettings()->GetEnabled();
 }
 
 bool NearbyShareDelegateImpl::IsPodButtonVisible() {

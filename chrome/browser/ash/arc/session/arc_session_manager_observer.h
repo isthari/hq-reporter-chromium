@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,11 @@ class ArcSessionManagerObserver {
   // Called to notify that whether Google Play Store is enabled or not, which
   // is represented by "arc.enabled" preference, is updated.
   virtual void OnArcPlayStoreEnabledChanged(bool enabled) {}
+
+  // Called with when user opted-in for ARC and ARC is going to be created for
+  // this user. I.e. successful user action triggered ARC user instance
+  // initialization.
+  virtual void OnArcOptInUserAction() {}
 
   // Called to notify that checking of Android management status started
   // during the opt-in flow.

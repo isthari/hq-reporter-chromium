@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@ namespace remoting {
 
 class RsaKeyPair;
 
-// This class dispenses |TokenValidator| implementations that use a UrlFetcher
+// This class dispenses |TokenValidator| implementations that use a UrlRequest
 // to contact a |token_validation_url| and exchange the |token| for a
 // |shared_secret|.
 class TokenValidatorFactoryImpl : public protocol::TokenValidatorFactory {

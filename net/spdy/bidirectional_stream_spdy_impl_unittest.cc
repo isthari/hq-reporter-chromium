@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <string>
 
 #include "base/containers/span.h"
-#include "base/cxx17_backports.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
@@ -42,7 +41,7 @@ namespace net {
 namespace {
 
 const char kBodyData[] = "Body data";
-const size_t kBodyDataSize = base::size(kBodyData);
+const size_t kBodyDataSize = std::size(kBodyData);
 // Size of the buffer to be allocated for each read.
 const size_t kReadBufferSize = 4096;
 
@@ -76,16 +75,7 @@ class TestDelegateBase : public BidirectionalStreamImpl::Delegate {
       : stream_(std::make_unique<BidirectionalStreamSpdyImpl>(session,
                                                               NetLogSource())),
         read_buf_(read_buf),
-        read_buf_len_(read_buf_len),
-        loop_(nullptr),
-        error_(OK),
-        bytes_read_(0),
-        on_data_read_count_(0),
-        on_data_sent_count_(0),
-        do_not_start_read_(false),
-        run_until_completion_(false),
-        not_expect_callback_(false),
-        on_failed_called_(false) {}
+        read_buf_len_(read_buf_len) {}
 
   TestDelegateBase(const TestDelegateBase&) = delete;
   TestDelegateBase& operator=(const TestDelegateBase&) = delete;
@@ -229,14 +219,14 @@ class TestDelegateBase : public BidirectionalStreamImpl::Delegate {
   std::unique_ptr<base::RunLoop> loop_;
   spdy::Http2HeaderBlock response_headers_;
   spdy::Http2HeaderBlock trailers_;
-  int error_;
-  int bytes_read_;
-  int on_data_read_count_;
-  int on_data_sent_count_;
-  bool do_not_start_read_;
-  bool run_until_completion_;
-  bool not_expect_callback_;
-  bool on_failed_called_;
+  int error_ = OK;
+  int bytes_read_ = 0;
+  int on_data_read_count_ = 0;
+  int on_data_sent_count_ = 0;
+  bool do_not_start_read_ = false;
+  bool run_until_completion_ = false;
+  bool not_expect_callback_ = false;
+  bool on_failed_called_ = false;
 };
 
 }  // namespace
@@ -252,7 +242,7 @@ class BidirectionalStreamSpdyImplTest : public testing::TestWithParam<bool>,
              PRIVACY_MODE_DISABLED,
              SpdySessionKey::IsProxySession::kFalse,
              SocketTag(),
-             NetworkIsolationKey(),
+             NetworkAnonymizationKey(),
              SecureDnsPolicy::kAllow),
         ssl_data_(SSLSocketDataProvider(ASYNC, OK)) {
     ssl_data_.next_proto = kProtoHTTP2;
@@ -528,7 +518,7 @@ TEST_P(BidirectionalStreamSpdyImplTest, RstWithNoErrorBeforeSendIsComplete) {
   EXPECT_EQ(CountWriteBytes(base::make_span(writes, 1)),
             delegate->GetTotalSentBytes());
   // Should not count RST stream.
-  EXPECT_EQ(CountReadBytes(base::make_span(reads).first(base::size(reads) - 2)),
+  EXPECT_EQ(CountReadBytes(base::make_span(reads).first(std::size(reads) - 2)),
             delegate->GetTotalReceivedBytes());
 
   // Now call SendData again should produce an error because end of stream

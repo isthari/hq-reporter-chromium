@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/memory/raw_ptr.h"
+#include "third_party/omnibox_proto/groups.pb.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
@@ -15,7 +16,7 @@ class OmniboxEditModel;
 class OmniboxResultView;
 class PrefService;
 
-// The View that's a direct child of the OmniboxPopupContentsView, one per row.
+// The View that's a direct child of the OmniboxPopupViewViews, one per row.
 // This, in turn, has a child OmniboxResultView and an optional header that is
 // painted right above it. The header is not a child of OmniboxResultView
 // because it's logically not part of the result view:
@@ -31,7 +32,8 @@ class OmniboxRowView : public views::View {
                  PrefService* pref_service);
 
   // Sets the header that appears above this row. Also shows the header.
-  void ShowHeader(int suggestion_group_id, const std::u16string& header_text);
+  void ShowHeader(omnibox::GroupId suggestion_group_id,
+                  const std::u16string& header_text);
 
   // Hides the header.
   void HideHeader();

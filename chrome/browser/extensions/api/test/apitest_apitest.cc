@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -146,6 +146,19 @@ IN_PROC_BROWSER_TEST_P(TestAPITestWithContextType,
   EXPECT_EQ(kExpectedFailureMessage, result_catcher.message());
 }
 
+IN_PROC_BROWSER_TEST_P(TestAPITestWithContextType, AsyncExceptions) {
+  ResultCatcher result_catcher;
+  constexpr char kBackgroundJs[] =
+      R"(chrome.test.runTests([
+           async function asyncExceptions() {
+             throw new Error('test error');
+           }
+         ]);)";
+  ASSERT_TRUE(LoadExtensionScriptWithContext(kBackgroundJs, GetParam()));
+  EXPECT_FALSE(result_catcher.GetNextResult());
+  EXPECT_EQ(kExpectedFailureMessage, result_catcher.message());
+}
+
 // Verifies that chrome.test.assertPromiseRejects() succeeds using
 // promises that reject with the expected message.
 IN_PROC_BROWSER_TEST_F(TestAPITest, AssertPromiseRejects_Successful) {
@@ -254,7 +267,7 @@ IN_PROC_BROWSER_TEST_F(TestAPITest, SendMessage_WithPromise) {
              chrome.test.succeed();
            },
          ]);)";
-  ExtensionTestMessageListener ping_listener("ping", true /* will_reply */);
+  ExtensionTestMessageListener ping_listener("ping", ReplyBehavior::kWillReply);
   ASSERT_TRUE(LoadExtensionScriptWithContext(kWorkerJs,
                                              ContextType::kServiceWorker,
                                              /*manifest_version=*/3));

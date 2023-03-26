@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <memory>
 
 #include "ash/quick_pair/common/pair_failure.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/scoped_refptr.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -19,7 +19,7 @@ class BluetoothAdapter;
 namespace ash {
 namespace quick_pair {
 
-struct Device;
+class Device;
 class FastPairDataEncryptor;
 class FastPairGattServiceClient;
 
@@ -59,8 +59,9 @@ class FastPairHandshake {
     return fast_pair_data_encryptor_.get();
   }
 
-  // Returns whether or not this handshake has an active GATT connection.
-  virtual bool IsConnected() = 0;
+  FastPairGattServiceClient* fast_pair_gatt_service_client() {
+    return fast_pair_gatt_service_client_.get();
+  }
 
  protected:
   bool completed_successfully_ = false;

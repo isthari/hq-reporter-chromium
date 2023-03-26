@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/test_mock_time_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/clock.h"
 #include "base/time/tick_clock.h"
 #include "base/time/time.h"
@@ -103,14 +103,15 @@ class RemoteCommandsQueueTest : public testing::Test {
   void VerifyCommandIssuedTime(RemoteCommandJob* job,
                                base::TimeTicks expected_issued_time);
 
-  base::ThreadTaskRunnerHandle runner_handle_;
+  base::SingleThreadTaskRunner::CurrentDefaultHandle
+      runner_current_default_handle_;
 };
 
 RemoteCommandsQueueTest::RemoteCommandsQueueTest()
     : task_runner_(new base::TestMockTimeTaskRunner()),
       clock_(nullptr),
       tick_clock_(nullptr),
-      runner_handle_(task_runner_) {}
+      runner_current_default_handle_(task_runner_) {}
 
 void RemoteCommandsQueueTest::SetUp() {
   clock_ = task_runner_->GetMockClock();

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,10 +18,8 @@ namespace printing {
 namespace print_management {
 namespace {
 
-namespace mojom = printing_manager::mojom;
-namespace proto = ::chromeos::printing::proto;
+namespace mojom = ::chromeos::printing::printing_manager::mojom;
 
-using ::chromeos::CupsPrintJob;
 using ::chromeos::PrinterErrorCode;
 
 mojom::PrintJobCompletionStatus PrintJobStatusProtoToMojom(

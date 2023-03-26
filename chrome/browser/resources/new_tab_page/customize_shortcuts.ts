@@ -1,25 +1,40 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import './mini_page.js';
-import 'chrome://resources/cr_elements/cr_icons_css.m.js';
-import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.m.js';
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
+import 'chrome://resources/cr_elements/cr_icons.css.js';
+import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
 
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {FocusOutlineManager} from 'chrome://resources/js/cr/ui/focus_outline_manager.m.js';
-import {html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {CrToggleElement} from 'chrome://resources/cr_elements/cr_toggle/cr_toggle.js';
+import {FocusOutlineManager} from 'chrome://resources/js/focus_outline_manager.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {I18nMixin} from './i18n_setup.js';
+import {getTemplate} from './customize_shortcuts.html.js';
 import {CustomizeDialogAction, PageHandlerRemote} from './new_tab_page.mojom-webui.js';
 import {NewTabPageProxy} from './new_tab_page_proxy.js';
 
+
+export interface CustomizeShortcutsElement {
+  $: {
+    hide: HTMLElement,
+    hideToggle: CrToggleElement,
+    optionCustomLinks: HTMLElement,
+    optionCustomLinksButton: HTMLElement,
+    optionMostVisited: HTMLElement,
+    optionMostVisitedButton: HTMLElement,
+  };
+}
+
 /** Element that lets the user configure shortcut settings. */
-class CustomizeShortcutsElement extends I18nMixin
-(PolymerElement) {
+export class CustomizeShortcutsElement extends PolymerElement {
   static get is() {
     return 'ntp-customize-shortcuts';
+  }
+
+  static get template() {
+    return getTemplate();
   }
 
   static get properties() {
@@ -45,7 +60,7 @@ class CustomizeShortcutsElement extends I18nMixin
         });
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
     FocusOutlineManager.forDocument(document);
   }
@@ -97,10 +112,6 @@ class CustomizeShortcutsElement extends I18nMixin
     }
     this.customLinksEnabled_ = false;
     this.hide_ = false;
-  }
-
-  static get template() {
-    return html`{__html_template__}`;
   }
 }
 

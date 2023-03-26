@@ -31,25 +31,11 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_WIDGET_H_
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_WIDGET_H_
 
-#include "build/build_config.h"
-#include "cc/input/browser_controls_state.h"
-#include "cc/metrics/begin_main_frame_metrics.h"
-#include "cc/paint/element_id.h"
-#include "cc/trees/layer_tree_host_client.h"
-#include "third_party/blink/public/common/input/web_menu_source_type.h"
 #include "third_party/blink/public/common/metrics/document_update_reason.h"
-#include "third_party/blink/public/mojom/input/pointer_lock_context.mojom-shared.h"
-#include "third_party/blink/public/mojom/input/pointer_lock_result.mojom-shared.h"
-#include "third_party/blink/public/mojom/manifest/display_mode.mojom-shared.h"
-#include "third_party/blink/public/platform/cross_variant_mojo_util.h"
-#include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
-#include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_input_event_result.h"
-#include "third_party/blink/public/platform/web_text_input_info.h"
-#include "third_party/blink/public/platform/web_vector.h"
-#include "third_party/blink/public/web/web_hit_test_result.h"
+#include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/web/web_lifecycle_update.h"
-#include "third_party/blink/public/web/web_range.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace cc {
 class LayerTreeHost;
@@ -61,6 +47,12 @@ struct ScreenInfo;
 struct ScreenInfos;
 }  // namespace display
 
+namespace gfx {
+class PointF;
+class Rect;
+class Vector2dF;
+}  // namespace gfx
+
 namespace ui {
 class Cursor;
 }
@@ -68,10 +60,7 @@ class Cursor;
 namespace blink {
 struct VisualProperties;
 class WebCoalescedInputEvent;
-
-namespace scheduler {
-class WebRenderWidgetSchedulingState;
-}
+class WebHitTestResult;
 
 class WebWidget {
  public:
@@ -80,10 +69,8 @@ class WebWidget {
   // is called. |settings| is typically null. When |settings| is null
   // the default settings will be used, tests may provide a |settings| object to
   // override the defaults.
-  virtual void InitializeCompositing(
-      scheduler::WebAgentGroupScheduler& agent_group_scheduler,
-      const display::ScreenInfos& screen_info,
-      const cc::LayerTreeSettings* settings) = 0;
+  virtual void InitializeCompositing(const display::ScreenInfos& screen_info,
+                                     const cc::LayerTreeSettings* settings) = 0;
 
   // Set the compositor as visible. If |visible| is true, then the compositor
   // will request a new layer frame sink and begin producing frames from the
@@ -137,10 +124,6 @@ class WebWidget {
 
   // Returns the state of focus for the WebWidget.
   virtual bool HasFocus() { return false; }
-
-  // Accessor to the WebWidget scheduing state.
-  virtual scheduler::WebRenderWidgetSchedulingState*
-  RendererWidgetSchedulingState() = 0;
 
   virtual void SetCursor(const ui::Cursor& cursor) = 0;
 

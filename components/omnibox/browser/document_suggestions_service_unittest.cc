@@ -1,10 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/omnibox/browser/document_suggestions_service.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/field_trial.h"
@@ -60,7 +60,8 @@ class DocumentSuggestionsServiceTest : public testing::Test {
     variations::AssociateGoogleVariationID(
         variations::GOOGLE_WEB_PROPERTIES_ANY_CONTEXT, "trial name",
         "group name", kVariationID);
-    base::FieldTrialList::CreateFieldTrial("trial name", "group name")->group();
+    base::FieldTrialList::CreateFieldTrial("trial name", "group name")
+        ->Activate();
   }
   DocumentSuggestionsServiceTest(const DocumentSuggestionsServiceTest&) =
       delete;

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,19 +10,18 @@
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/ui/profile_picker.h"
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/profiles/profile_picker_test_base.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "content/public/browser/navigation_controller.h"
-#include "content/public/browser/notification_source.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/mojom/frame/user_activation_update_types.mojom.h"
 #include "ui/events/keycodes/dom/dom_key.h"
 #include "ui/views/view.h"
 #include "ui/views/view_observer.h"
@@ -63,7 +62,7 @@ class ProfilePickerInteractiveUiTest : public ProfilePickerTestBase {
 
   void ShowAndFocusPicker(ProfilePicker::EntryPoint entry_point,
                           const GURL& expected_url) {
-    ProfilePicker::Show(entry_point);
+    ProfilePicker::Show(ProfilePicker::Params::FromEntryPoint(entry_point));
     WaitForLoadStop(expected_url);
     EXPECT_TRUE(
         ui_test_utils::ShowAndFocusNativeWindow(widget()->GetNativeWindow()));
@@ -117,6 +116,14 @@ class ProfilePickerInteractiveUiTest : public ProfilePickerTestBase {
     ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
         widget()->GetNativeWindow(), key, control, shift, alt, command));
   }
+
+  void SimulateUserActivation() {
+    content::UpdateUserActivationStateInterceptor user_activation_interceptor(
+        web_contents()->GetPrimaryMainFrame());
+    user_activation_interceptor.UpdateUserActivationState(
+        blink::mojom::UserActivationUpdateType::kNotifyActivation,
+        blink::mojom::UserActivationNotificationType::kTest);
+  }
 };
 
 // Checks that the main picker view can be closed with keyboard shortcut.
@@ -140,14 +147,9 @@ IN_PROC_BROWSER_TEST_F(ProfilePickerInteractiveUiTest, ExitWithKeyboard) {
                      GURL("chrome://profile-picker"));
   EXPECT_TRUE(ProfilePicker::IsOpen());
 
-  content::WindowedNotificationObserver terminate_observer(
-      chrome::NOTIFICATION_APP_TERMINATING,
-      content::NotificationService::AllSources());
   // Send Cmd-Q.
   SendKeyPress(ui::VKEY_Q, /*control=*/false, /*shift=*/false, /*alt=*/false,
                /*command=*/true);
-  // Check that Chrome is quitting.
-  terminate_observer.Wait();
   WaitForPickerClosed();
   EXPECT_TRUE(browser_shutdown::IsTryingToQuit());
 }
@@ -290,4 +292,21 @@ IN_PROC_BROWSER_TEST_F(ProfilePickerInteractiveUiTest,
   // Navigating back once again does nothing.
   SendBackKeyboardCommand();
   EXPECT_EQ(web_contents()->GetController().GetPendingEntry(), nullptr);
+}
+
+IN_PROC_BROWSER_TEST_F(ProfilePickerInteractiveUiTest,
+                       NavigateBackFromNewProfileWithKeyboard) {
+  ShowAndFocusPicker(ProfilePicker::EntryPoint::kProfileMenuAddNewProfile,
+                     GURL("chrome://profile-picker/new-profile"));
+  EXPECT_EQ(2, web_contents()->GetController().GetEntryCount());
+  EXPECT_EQ(1, web_contents()->GetController().GetLastCommittedEntryIndex());
+
+  // For applying the history manipulation, it needs user activation.
+  SimulateUserActivation();
+  EXPECT_TRUE(web_contents()->GetController().CanGoBack());
+
+  // Navigate back with the keyboard.
+  SendBackKeyboardCommand();
+  WaitForLoadStop(GURL("chrome://profile-picker"));
+  EXPECT_EQ(0, web_contents()->GetController().GetLastCommittedEntryIndex());
 }

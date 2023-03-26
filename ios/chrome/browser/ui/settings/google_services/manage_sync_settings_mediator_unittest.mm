@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,17 @@
 
 #import "base/mac/foundation_util.h"
 #import "components/autofill/core/common/autofill_prefs.h"
-#include "components/prefs/pref_registry_simple.h"
-#include "components/prefs/testing_pref_service.h"
-#include "components/sync/base/pref_names.h"
-#import "components/sync/driver/mock_sync_service.h"
-#include "components/sync/driver/sync_service.h"
+#import "components/prefs/pref_registry_simple.h"
+#import "components/prefs/testing_pref_service.h"
+#import "components/sync/base/pref_names.h"
+#import "components/sync/driver/sync_service.h"
+#import "components/sync/test/mock_sync_service.h"
+#import "ios/chrome/browser/application_context/application_context.h"
 #import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #import "ios/chrome/browser/main/test_browser.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
+#import "ios/chrome/browser/signin/fake_system_identity_manager.h"
+#import "ios/chrome/browser/sync/mock_sync_service_utils.h"
 #import "ios/chrome/browser/sync/sync_service_factory.h"
 #import "ios/chrome/browser/sync/sync_setup_service_factory.h"
 #import "ios/chrome/browser/sync/sync_setup_service_mock.h"
@@ -23,15 +27,14 @@
 #import "ios/chrome/browser/ui/settings/google_services/manage_sync_settings_constants.h"
 #import "ios/chrome/browser/ui/settings/google_services/manage_sync_settings_consumer.h"
 #import "ios/chrome/browser/ui/settings/google_services/manage_sync_settings_table_view_controller.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_detail_icon_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_image_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_info_button_item.h"
 #import "ios/chrome/browser/ui/table_view/table_view_model.h"
 #import "ios/chrome/grit/ios_strings.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity_service.h"
 #import "ios/web/public/test/web_task_environment.h"
 #import "testing/gmock/include/gmock/gmock.h"
-#include "testing/gtest/include/gtest/gtest.h"
+#import "testing/gtest/include/gtest/gtest.h"
 #import "testing/gtest_mac.h"
 #import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
@@ -48,10 +51,6 @@ using ::testing::NiceMock;
 using ::testing::Return;
 
 namespace {
-std::unique_ptr<KeyedService> CreateMockSyncService(
-    web::BrowserState* context) {
-  return std::make_unique<NiceMock<syncer::MockSyncService>>();
-}
 
 PrefService* SetPrefService() {
   TestingPrefServiceSimple* prefs = new TestingPrefServiceSimple();
@@ -75,11 +74,14 @@ class ManageSyncSettingsMediatorTest : public PlatformTest {
   void SetUp() override {
     PlatformTest::SetUp();
 
-    FakeChromeIdentity* identity =
-        [FakeChromeIdentity identityWithEmail:@"foo1@gmail.com"
+    FakeSystemIdentity* identity =
+        [FakeSystemIdentity identityWithEmail:@"foo1@gmail.com"
                                        gaiaID:@"foo1ID"
                                          name:@"Fake Foo 1"];
-    identity_service()->AddIdentity(identity);
+    FakeSystemIdentityManager* system_identity_manager =
+        FakeSystemIdentityManager::FromSystemIdentityManager(
+            GetApplicationContext()->GetSystemIdentityManager());
+    system_identity_manager->AddIdentity(identity);
 
     TestChromeBrowserState::Builder builder;
     builder.AddTestingFactory(SyncServiceFactory::GetInstance(),
@@ -116,8 +118,8 @@ class ManageSyncSettingsMediatorTest : public PlatformTest {
         .WillByDefault(Return(true));
     ON_CALL(*sync_setup_service_mock_, IsSyncingAllDataTypes())
         .WillByDefault(Return(true));
-    ON_CALL(*sync_setup_service_mock_, HasFinishedInitialSetup())
-        .WillByDefault(Return(true));
+    ON_CALL(*sync_setup_service_mock_, IsInitialSetupOngoing())
+        .WillByDefault(Return(false));
     ON_CALL(*sync_service_mock_, GetTransportState())
         .WillByDefault(Return(syncer::SyncService::TransportState::ACTIVE));
   }
@@ -131,7 +133,7 @@ class ManageSyncSettingsMediatorTest : public PlatformTest {
         .WillByDefault(Return(false));
     ON_CALL(*sync_setup_service_mock_, IsSyncingAllDataTypes())
         .WillByDefault(Return(true));
-    ON_CALL(*sync_setup_service_mock_, HasFinishedInitialSetup())
+    ON_CALL(*sync_setup_service_mock_, IsInitialSetupOngoing())
         .WillByDefault(Return(true));
     ON_CALL(*sync_service_mock_, GetTransportState())
         .WillByDefault(Return(syncer::SyncService::TransportState::DISABLED));
@@ -144,14 +146,10 @@ class ManageSyncSettingsMediatorTest : public PlatformTest {
         .WillByDefault(Return(false));
     ON_CALL(*sync_setup_service_mock_, IsSyncingAllDataTypes())
         .WillByDefault(Return(true));
-    ON_CALL(*sync_setup_service_mock_, HasFinishedInitialSetup())
+    ON_CALL(*sync_setup_service_mock_, IsInitialSetupOngoing())
         .WillByDefault(Return(false));
     ON_CALL(*sync_service_mock_, GetTransportState())
         .WillByDefault(Return(syncer::SyncService::TransportState::DISABLED));
-  }
-
-  ios::FakeChromeIdentityService* identity_service() {
-    return ios::FakeChromeIdentityService::GetInstanceFromChromeProvider();
   }
 
  protected:
@@ -333,8 +331,8 @@ TEST_F(ManageSyncSettingsMediatorTest, SyncServiceMultipleErrors) {
       itemsInSectionWithIdentifier:SyncSettingsSectionIdentifier::
                                        SyncErrorsSectionIdentifier];
   ASSERT_EQ(1UL, error_items.count);
-  SettingsImageDetailTextItem* error_item =
-      base::mac::ObjCCastStrict<SettingsImageDetailTextItem>(error_items[0]);
+  TableViewDetailIconItem* error_item =
+      base::mac::ObjCCastStrict<TableViewDetailIconItem>(error_items[0]);
   EXPECT_NSEQ(
       error_item.detailText,
       l10n_util::GetNSString(

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,16 +10,21 @@
 #import "base/ios/block_types.h"
 #import "ios/chrome/browser/ui/authentication/signin/signin_constants.h"
 
+@class AuthenticationFlow;
 class AuthenticationService;
 class ChromeAccountManagerService;
-@class ChromeIdentity;
 @class ConsistencyPromoSigninMediator;
 class PrefService;
 @class SigninCompletionInfo;
+@protocol SystemIdentity;
 
 namespace signin {
 class IdentityManager;
 }  // signin
+
+namespace signin_metrics {
+enum class AccessPoint : int;
+}
 
 // Sign-in error.
 typedef NS_ENUM(NSInteger, ConsistencyPromoSigninMediatorError) {
@@ -27,6 +32,8 @@ typedef NS_ENUM(NSInteger, ConsistencyPromoSigninMediatorError) {
   ConsistencyPromoSigninMediatorErrorTimeout,
   // Generic error.
   ConsistencyPromoSigninMediatorErrorGeneric,
+  // Failed to sign-in.
+  ConsistencyPromoSigninMediatorErrorFailedToSignin,
 };
 
 // Delegate for ConsistencyPromoSigninMediator.
@@ -44,7 +51,7 @@ typedef NS_ENUM(NSInteger, ConsistencyPromoSigninMediatorError) {
 // Called if the sign-in is successful.
 - (void)consistencyPromoSigninMediatorSignInDone:
             (ConsistencyPromoSigninMediator*)mediator
-                                    withIdentity:(ChromeIdentity*)identity;
+                                    withIdentity:(id<SystemIdentity>)identity;
 
 // Called if there is sign-in error.
 - (void)consistencyPromoSigninMediator:(ConsistencyPromoSigninMediator*)mediator
@@ -63,16 +70,17 @@ typedef NS_ENUM(NSInteger, ConsistencyPromoSigninMediatorError) {
         (ChromeAccountManagerService*)accountManagerService
             authenticationService:(AuthenticationService*)authenticationService
                   identityManager:(signin::IdentityManager*)identityManager
-                  userPrefService:(PrefService*)userPrefService;
+                  userPrefService:(PrefService*)userPrefService
+                      accessPoint:(signin_metrics::AccessPoint)accessPoint;
 
 // Disconnects the mediator.
 - (void)disconnectWithResult:(SigninCoordinatorResult)signinResult;
 
 // Records when an identity is added by a subscreen of the web sign-in dialogs.
-- (void)chromeIdentityAdded:(ChromeIdentity*)identity;
+- (void)systemIdentityAdded:(id<SystemIdentity>)identity;
 
 // Starts the sign-in flow.
-- (void)signinWithIdentity:(ChromeIdentity*)identity;
+- (void)signinWithAuthenticationFlow:(AuthenticationFlow*)authenticationFlow;
 
 @end
 

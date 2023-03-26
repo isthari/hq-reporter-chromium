@@ -1,8 +1,8 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "third_party/blink/renderer/platform/mediastream/media_constraints.h"
+#include "third_party/blink/renderer/modules/mediastream/media_constraints.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_string_stringsequence.h"
@@ -94,9 +94,9 @@ TEST(MediaTrackConstraintsTest, MandatoryChecks) {
   EXPECT_FALSE(the_set.HasMandatoryOutsideSet({"width"}, found_name));
   EXPECT_TRUE(the_set.HasMandatoryOutsideSet({"height"}, found_name));
   EXPECT_EQ("width", found_name);
-  the_set.goog_payload_padding.SetExact(true);
+  the_set.echo_cancellation.SetExact(true);
   EXPECT_TRUE(the_set.HasMandatoryOutsideSet({"width"}, found_name));
-  EXPECT_EQ("googPayloadPadding", found_name);
+  EXPECT_EQ("echoCancellation", found_name);
 }
 
 TEST(MediaTrackConstraintsTest, SetToString) {

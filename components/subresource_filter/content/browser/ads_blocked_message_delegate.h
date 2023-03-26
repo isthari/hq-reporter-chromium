@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include <memory>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "components/messages/android/message_enums.h"
 #include "components/messages/android/message_wrapper.h"
 #include "components/subresource_filter/android/ads_blocked_dialog.h"
@@ -46,6 +46,8 @@ class AdsBlockedMessageDelegate
 
   void ShowMessage();
   void DismissMessage(messages::DismissReason dismiss_reason);
+
+  void DismissMessageForTesting(messages::DismissReason dismiss_reason);
 
   messages::MessageWrapper* message_for_testing() { return message_.get(); }
   bool reprompt_required_flag_for_testing() { return reprompt_required_; }

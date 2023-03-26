@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,50 +14,47 @@ class Rect;
 class Size;
 }
 
-namespace cc {
-class Layer;
-}
-
 namespace viz {
 class SurfaceId;
 }
 
 namespace content {
 
-class PictureInPictureWindowController;
+class VideoPictureInPictureWindowController;
 
 // This window will always float above other windows. The intention is to show
 // content perpetually while the user is still interacting with the other
 // browser windows.
-class OverlayWindow {
+class VideoOverlayWindow {
  public:
+  // GENERATED_JAVA_ENUM_PACKAGE:(
+  //   org.chromium.content_public.browser.overlay_window)
   enum PlaybackState {
     kPlaying = 0,
     kPaused,
     kEndOfVideo,
   };
 
-  OverlayWindow() = default;
+  VideoOverlayWindow() = default;
 
-  OverlayWindow(const OverlayWindow&) = delete;
-  OverlayWindow& operator=(const OverlayWindow&) = delete;
+  VideoOverlayWindow(const VideoOverlayWindow&) = delete;
+  VideoOverlayWindow& operator=(const VideoOverlayWindow&) = delete;
 
-  virtual ~OverlayWindow() = default;
+  // Returns a created VideoOverlayWindow. This is defined in the
+  // platform-specific implementation for the class.
+  static std::unique_ptr<VideoOverlayWindow> Create(
+      VideoPictureInPictureWindowController* controller);
 
-  // Returns a created OverlayWindow. This is defined in the platform-specific
-  // implementation for the class.
-  static std::unique_ptr<OverlayWindow> Create(
-      PictureInPictureWindowController* controller);
+  virtual ~VideoOverlayWindow() = default;
 
-  virtual bool IsActive() = 0;
+  virtual bool IsActive() const = 0;
   virtual void Close() = 0;
   virtual void ShowInactive() = 0;
   virtual void Hide() = 0;
-  virtual bool IsVisible() = 0;
-  virtual bool IsAlwaysOnTop() = 0;
+  virtual bool IsVisible() const = 0;
   // Retrieves the window's current bounds, including its window.
   virtual gfx::Rect GetBounds() = 0;
-  virtual void UpdateVideoSize(const gfx::Size& natural_size) = 0;
+  virtual void UpdateNaturalSize(const gfx::Size& natural_size) = 0;
   virtual void SetPlaybackState(PlaybackState playback_state) = 0;
   virtual void SetPlayPauseButtonVisibility(bool is_visible) = 0;
   virtual void SetSkipAdButtonVisibility(bool is_visible) = 0;
@@ -68,8 +65,10 @@ class OverlayWindow {
   virtual void SetToggleMicrophoneButtonVisibility(bool is_visible) = 0;
   virtual void SetToggleCameraButtonVisibility(bool is_visible) = 0;
   virtual void SetHangUpButtonVisibility(bool is_visible) = 0;
+  virtual void SetNextSlideButtonVisibility(bool is_visible) = 0;
+  virtual void SetPreviousSlideButtonVisibility(bool is_visible) = 0;
+
   virtual void SetSurfaceId(const viz::SurfaceId& surface_id) = 0;
-  virtual cc::Layer* GetLayerForTesting() = 0;
 };
 
 }  // namespace content

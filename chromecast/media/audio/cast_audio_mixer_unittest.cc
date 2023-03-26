@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,9 @@
 #include <memory>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
 #include "base/time/time.h"
 #include "chromecast/common/mojom/service_connector.mojom.h"
@@ -22,6 +23,7 @@
 #include "chromecast/media/audio/mock_cast_audio_manager_helper_delegate.h"
 #include "media/audio/audio_io.h"
 #include "media/audio/test_audio_thread.h"
+#include "media/base/audio_glitch_info.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -41,7 +43,7 @@ using testing::StrictMock;
 ::media::AudioParameters GetAudioParams() {
   return ::media::AudioParameters(
       ::media::AudioParameters::AUDIO_PCM_LOW_LATENCY,
-      ::media::CHANNEL_LAYOUT_STEREO, 48000, 1024);
+      ::media::ChannelLayoutConfig::Stereo(), 48000, 1024);
 }
 
 void SignalPull(
@@ -49,7 +51,7 @@ void SignalPull(
     base::TimeDelta delay) {
   std::unique_ptr<::media::AudioBus> audio_bus =
       ::media::AudioBus::Create(GetAudioParams());
-  source_callback->OnMoreData(delay, base::TimeTicks::Now(), 0,
+  source_callback->OnMoreData(delay, base::TimeTicks::Now(), {},
                               audio_bus.get());
 }
 
@@ -69,13 +71,16 @@ class MockAudioSourceCallback
   }
 
   MOCK_METHOD4(OnMoreData,
-               int(base::TimeDelta, base::TimeTicks, int, ::media::AudioBus*));
+               int(base::TimeDelta,
+                   base::TimeTicks,
+                   const ::media::AudioGlitchInfo&,
+                   ::media::AudioBus*));
   MOCK_METHOD1(OnError, void(ErrorType));
 
  private:
   int OnMoreDataImpl(base::TimeDelta /* delay */,
                      base::TimeTicks /* delay_timestamp */,
-                     int /* prior_frames_skipped */,
+                     const ::media::AudioGlitchInfo& /* glitch_info */,
                      ::media::AudioBus* dest) {
     dest->Zero();
     return dest->frames();
@@ -405,7 +410,7 @@ TEST_F(CastAudioMixerTest, Delay) {
   // |delay| is the same because the Mixer and stream are
   // using the same AudioParameters.
   base::TimeDelta delay = base::Microseconds(1000);
-  EXPECT_CALL(source, OnMoreData(delay, _, 0, _));
+  EXPECT_CALL(source, OnMoreData(delay, _, ::media::AudioGlitchInfo(), _));
   SignalPull(source_callback_, delay);
 
   EXPECT_CALL(mock_mixer_stream(), Stop());

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,10 @@
 #include "base/containers/flat_map.h"
 #include "base/files/file_path.h"
 #include "base/memory/weak_ptr.h"
+#include "base/values.h"
 #include "base/version.h"
 #include "chrome/browser/resource_coordinator/intervention_policy_database.pb.h"
 #include "url/origin.h"
-
-namespace base {
-class Value;
-}
 
 namespace resource_coordinator {
 
@@ -51,7 +48,7 @@ class InterventionPolicyDatabase {
   // stored in |proto_location|.
   void InitializeDatabaseWithProtoFile(const base::FilePath& proto_location,
                                        const base::Version& version,
-                                       base::Value manifest);
+                                       base::Value::Dict manifest);
 
   void AddOriginPoliciesForTesting(const url::Origin& origin,
                                    OriginInterventionPolicies policies);

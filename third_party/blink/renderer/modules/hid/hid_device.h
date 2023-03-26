@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,9 @@
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_piece.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
@@ -26,7 +28,6 @@
 namespace blink {
 
 class ExecutionContext;
-class HID;
 class HIDCollectionInfo;
 class ScriptPromiseResolver;
 class ScriptState;
@@ -39,7 +40,20 @@ class MODULES_EXPORT HIDDevice
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  HIDDevice(HID* parent,
+  // ServiceInterface provides a pure-virtual HID service interface for
+  // HIDDevice creators to, for example, open a device.
+  class ServiceInterface : public GarbageCollectedMixin {
+   public:
+    virtual void Connect(
+        const String& device_guid,
+        mojo::PendingRemote<device::mojom::blink::HidConnectionClient>
+            connection_client,
+        device::mojom::blink::HidManager::ConnectCallback callback) = 0;
+    virtual void Forget(device::mojom::blink::HidDeviceInfoPtr device_info,
+                        mojom::blink::HidService::ForgetCallback callback) = 0;
+  };
+
+  HIDDevice(ServiceInterface* parent,
             device::mojom::blink::HidDeviceInfoPtr info,
             ExecutionContext* execution_context);
   ~HIDDevice() override;
@@ -79,6 +93,7 @@ class MODULES_EXPORT HIDDevice
   bool HasPendingActivity() const override;
 
   void UpdateDeviceInfo(device::mojom::blink::HidDeviceInfoPtr info);
+  void ResetIsForgotten();
 
   static HIDReportItem* ToHIDReportItem(
       const device::mojom::blink::HidReportItem& report_item);
@@ -106,7 +121,7 @@ class MODULES_EXPORT HIDDevice
 
   void MarkRequestComplete(ScriptPromiseResolver*);
 
-  Member<HID> parent_;
+  Member<ServiceInterface> parent_;
   device::mojom::blink::HidDeviceInfoPtr device_info_;
   HeapMojoRemote<device::mojom::blink::HidConnection> connection_;
   HeapMojoReceiver<device::mojom::blink::HidConnectionClient, HIDDevice>

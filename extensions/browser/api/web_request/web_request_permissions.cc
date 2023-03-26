@@ -1,10 +1,9 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "extensions/browser/api/web_request/web_request_permissions.h"
 
-#include "base/cxx17_backports.h"
 #include "base/debug/crash_logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_piece.h"
@@ -15,7 +14,6 @@
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/api/web_request/permission_helper.h"
 #include "extensions/browser/api/web_request/web_request_api_constants.h"
-#include "extensions/browser/api/web_request/web_request_api_helpers.h"
 #include "extensions/browser/api/web_request/web_request_info.h"
 #include "extensions/browser/extension_navigation_ui_data.h"
 #include "extensions/browser/extension_registry.h"
@@ -43,16 +41,12 @@ namespace {
 // ExtensionWebRequestEventRouter::RequestFiler, which specifies the schemes
 // allowed by web request event listeners. Consolidate the two.
 bool HasWebRequestScheme(const GURL& url) {
-  // TODO(https://crbug.com/1257045): Remove urn: scheme support.
   return (url.SchemeIs(url::kAboutScheme) || url.SchemeIs(url::kFileScheme) ||
           url.SchemeIs(url::kFileSystemScheme) ||
           url.SchemeIs(url::kFtpScheme) || url.SchemeIsHTTPOrHTTPS() ||
           url.SchemeIs(extensions::kExtensionScheme) || url.SchemeIsWSOrWSS() ||
-          url.SchemeIs(url::kUrnScheme) ||
           url.SchemeIs(url::kUuidInPackageScheme));
 }
-
-bool g_allow_all_extension_locations_in_public_session = false;
 
 PermissionsData::PageAccess GetHostAccessForURL(
     const extensions::Extension& extension,
@@ -96,19 +90,6 @@ PermissionsData::PageAccess CanExtensionAccessURLInternal(
   if (initiator &&
       extension->permissions_data()->IsPolicyBlockedHost(initiator->GetURL())) {
     return PermissionsData::PageAccess::kDenied;
-  }
-
-  // When restrictions are enabled in Public Session, allow all URLs for
-  // webRequests initiated by a regular extension (but don't allow chrome://
-  // URLs).
-  if (extension_web_request_api_helpers::
-          ArePublicSessionRestrictionsEnabled() &&
-      extension->is_extension() && !url.SchemeIs("chrome")) {
-    // Make sure that the extension is truly installed by policy (the assumption
-    // in Public Session is that all extensions are installed by policy).
-    CHECK(g_allow_all_extension_locations_in_public_session ||
-          extensions::Manifest::IsPolicyLocation(extension->location()));
-    return PermissionsData::PageAccess::kAllowed;
   }
 
   // Check if this event crosses incognito boundaries when it shouldn't.
@@ -200,8 +181,8 @@ bool IsSensitiveGoogleClientUrl(const extensions::WebRequestInfo& request) {
   // PermissionsData::CanAccessPage into one function.
   static constexpr char kGoogleCom[] = "google.com";
   static constexpr char kClient[] = "clients";
-  constexpr size_t kGoogleComLength = base::size(kGoogleCom) - 1;
-  constexpr size_t kClientLength = base::size(kClient) - 1;
+  constexpr size_t kGoogleComLength = std::size(kGoogleCom) - 1;
+  constexpr size_t kClientLength = std::size(kClient) - 1;
 
   if (!url.DomainIs(kGoogleCom))
     return false;
@@ -290,6 +271,17 @@ bool WebRequestPermissions::HideRequest(
     return true;
   }
 
+  // Hide requests initiated by the new Webstore domain, including requests that
+  // may be on subframes which have an opaque origin.
+  if (request.initiator) {
+    const auto& request_tuple_or_precursor_tuple =
+        request.initiator->GetTupleOrPrecursorTupleIfOpaque();
+    if (request_tuple_or_precursor_tuple ==
+        url::SchemeHostPort(extension_urls::GetNewWebstoreLaunchURL())) {
+      return true;
+    }
+  }
+
   const GURL& url = request.url;
 
   bool is_request_from_webui_renderer =
@@ -335,23 +327,23 @@ bool WebRequestPermissions::HideRequest(
 
   // Safebrowsing and Chrome Webstore URLs are always protected, i.e. also
   // for requests from common renderers.
+  // TODO(crbug.com/1355623): it would be nice to be able to just use
+  // extension_urls::IsWebstoreDomain for the last two checks here, but the old
+  // webstore check specifically requires the path to be checked, not just the
+  // domain. However once the old webstore is turned down we can change it over
+  // during that cleanup.
   if (extension_urls::IsWebstoreUpdateUrl(url) ||
       extension_urls::IsBlocklistUpdateUrl(url) ||
       extension_urls::IsSafeBrowsingUrl(url::Origin::Create(url),
                                         url.path_piece()) ||
       (url.DomainIs("chrome.google.com") &&
        base::StartsWith(url.path_piece(), "/webstore",
-                        base::CompareCase::SENSITIVE))) {
+                        base::CompareCase::SENSITIVE)) ||
+      url.DomainIs(extension_urls::GetNewWebstoreLaunchURL().host())) {
     return true;
   }
 
   return false;
-}
-
-// static
-void WebRequestPermissions::
-     AllowAllExtensionLocationsInPublicSessionForTesting(bool value) {
-  g_allow_all_extension_locations_in_public_session = value;
 }
 
 // static

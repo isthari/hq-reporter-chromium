@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 
 #include "ash/login/ui/login_pin_view.h"
 #include "ash/login/ui/login_test_base.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/timer/mock_timer.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/views/widget/widget.h"
@@ -33,7 +33,7 @@ class LoginPinViewTest : public LoginTestBase {
   // in a widget.
   void CreateLoginPinViewWithStyle(LoginPinView::Style style) {
     view_ =
-        new LoginPinView(style, CreateDefaultLoginPalette(),
+        new LoginPinView(style,
                          base::BindRepeating(&LoginPinViewTest::OnPinKey,
                                              base::Unretained(this)),
                          base::BindRepeating(&LoginPinViewTest::OnPinBackspace,
@@ -143,12 +143,14 @@ TEST_F(LoginPinViewTest, AlphanumericKeyboardButtonSpacingAndSize) {
   // Validate each x or y coordinate has the correct distance between it and the
   // next one. This is correct because we have already validated button size.
   EXPECT_EQ(3u, sorted_x.size());
-  for (size_t i = 0; i < sorted_x.size() - 1; ++i)
+  for (size_t i = 0; i < sorted_x.size() - 1; ++i) {
     EXPECT_EQ(sorted_x[i] + expected_button_size.width(), sorted_x[i + 1]);
+  }
 
   EXPECT_EQ(4u, sorted_y.size());
-  for (size_t i = 0; i < sorted_y.size() - 1; ++i)
+  for (size_t i = 0; i < sorted_y.size() - 1; ++i) {
     EXPECT_EQ(sorted_y[i] + expected_button_size.height(), sorted_y[i + 1]);
+  }
 }
 
 // Validates buttons have the correct spacing for numeric PIN keyboard style.
@@ -201,12 +203,14 @@ TEST_F(LoginPinViewTest, NumericKeyboardButtonSpacingAndSize) {
   // Validate each x or y coordinate has the correct distance between it and the
   // next one. This is correct because we have already validated button size.
   EXPECT_EQ(3u, sorted_x.size());
-  for (size_t i = 0; i < sorted_x.size() - 1; ++i)
+  for (size_t i = 0; i < sorted_x.size() - 1; ++i) {
     EXPECT_EQ(sorted_x[i] + expected_button_size.width(), sorted_x[i + 1]);
+  }
 
   EXPECT_EQ(4u, sorted_y.size());
-  for (size_t i = 0; i < sorted_y.size() - 1; ++i)
+  for (size_t i = 0; i < sorted_y.size() - 1; ++i) {
     EXPECT_EQ(sorted_y[i] + expected_button_size.height(), sorted_y[i + 1]);
+  }
 }
 
 // Verifies that holding the backspace button automatically triggers and begins

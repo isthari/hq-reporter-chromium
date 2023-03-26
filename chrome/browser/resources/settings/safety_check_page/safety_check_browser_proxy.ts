@@ -1,9 +1,9 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import {sendWithPromise} from 'chrome://resources/js/cr.m.js';
+import {sendWithPromise} from 'chrome://resources/js/cr.js';
 // clang-format on
 
 /**
@@ -22,7 +22,6 @@ export enum SafetyCheckCallbackConstants {
   PASSWORDS_CHANGED = 'safety-check-passwords-status-changed',
   SAFE_BROWSING_CHANGED = 'safety-check-safe-browsing-status-changed',
   EXTENSIONS_CHANGED = 'safety-check-extensions-status-changed',
-  CHROME_CLEANER_CHANGED = 'safety-check-chrome-cleaner-status-changed',
 }
 
 /**

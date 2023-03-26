@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -92,7 +92,7 @@ public class ReactiveRecorder {
         return result;
     }
 
-    private class Event {
+    private static class Event {
         public String type;
         public Object value;
 

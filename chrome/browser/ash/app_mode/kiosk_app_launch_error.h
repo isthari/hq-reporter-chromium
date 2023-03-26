@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,7 +34,7 @@ class KioskAppLaunchError {
                                   // force-installed extensions.
     kExtensionsPolicyInvalid =
         15,  // The policy value of ExtensionInstallForcelist is invalid.
-    kCount,  // Count of all errors.
+    kMaxValue = kExtensionsPolicyInvalid,  // Max value of errors.
   };
 
   // Returns a message for given |error|.
@@ -60,11 +60,5 @@ class KioskAppLaunchError {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::KioskAppLaunchError;
-}
 
 #endif  // CHROME_BROWSER_ASH_APP_MODE_KIOSK_APP_LAUNCH_ERROR_H_

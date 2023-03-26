@@ -1,10 +1,9 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/webui/fileicon_source.h"
 
-#include "base/cxx17_backports.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/strcat.h"
 #include "build/build_config.h"
@@ -119,7 +118,7 @@ TEST_F(FileIconSourceTest, FileIconSource_Parse) {
   ui::test::ScopedSetSupportedResourceScaleFactors scoped_supported(
       supported_scale_factors);
 
-  for (unsigned i = 0; i < base::size(kBasicExpectations); i++) {
+  for (unsigned i = 0; i < std::size(kBasicExpectations); i++) {
     auto source = std::make_unique<TestFileIconSource>();
     content::URLDataSource::GotDataCallback callback;
     EXPECT_CALL(

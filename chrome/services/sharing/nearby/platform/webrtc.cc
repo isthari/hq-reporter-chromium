@@ -1,28 +1,29 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/services/sharing/nearby/platform/webrtc.h"
 
 #include "ash/constants/ash_features.h"
-#include "ash/services/nearby/public/mojom/webrtc_signaling_messenger.mojom-shared.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "chrome/services/sharing/webrtc/ipc_network_manager.h"
 #include "chrome/services/sharing/webrtc/ipc_packet_socket_factory.h"
 #include "chrome/services/sharing/webrtc/mdns_responder_adapter.h"
 #include "chrome/services/sharing/webrtc/p2p_port_allocator.h"
+#include "chromeos/ash/services/nearby/public/mojom/webrtc_signaling_messenger.mojom-shared.h"
 #include "components/webrtc/thread_wrapper.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
-#include "third_party/nearby/src/cpp/platform/public/count_down_latch.h"
-#include "third_party/nearby/src/cpp/platform/public/future.h"
-#include "third_party/nearby/src/cpp/platform/public/logging.h"
+#include "third_party/nearby/src/internal/platform/count_down_latch.h"
+#include "third_party/nearby/src/internal/platform/future.h"
+#include "third_party/nearby/src/internal/platform/logging.h"
 #include "third_party/webrtc/api/jsep.h"
 #include "third_party/webrtc/api/peer_connection_interface.h"
 #include "third_party/webrtc_overrides/task_queue_factory.h"
 #include "unicode/locid.h"
 
-namespace location {
 namespace nearby {
 namespace chrome {
 
@@ -153,7 +154,7 @@ class WebRtcSignalingMessengerImpl : public api::WebRtcSignalingMessenger {
  public:
   WebRtcSignalingMessengerImpl(
       const std::string& self_id,
-      const connections::LocationHint& location_hint,
+      const location::nearby::connections::LocationHint& location_hint,
       const mojo::SharedRemote<sharing::mojom::WebRtcSignalingMessenger>&
           messenger)
       : self_id_(self_id),
@@ -273,7 +274,7 @@ class WebRtcSignalingMessengerImpl : public api::WebRtcSignalingMessenger {
  private:
   bool receiving_messages_ = false;
   std::string self_id_;
-  connections::LocationHint location_hint_;
+  location::nearby::connections::LocationHint location_hint_;
   // This is received and stored on a successful StartReceiveMessages(). We
   // choose to not bind right away because multiple threads end up
   // creating/calling/destroying WebRtcSignalingMessengerImpl by the design
@@ -292,8 +293,7 @@ class WebRtcSignalingMessengerImpl : public api::WebRtcSignalingMessenger {
 
 WebRtcMedium::WebRtcMedium(
     const mojo::SharedRemote<network::mojom::P2PSocketManager>& socket_manager,
-    const mojo::SharedRemote<
-        location::nearby::connections::mojom::MdnsResponderFactory>&
+    const mojo::SharedRemote<sharing::mojom::MdnsResponderFactory>&
         mdns_responder_factory,
     const mojo::SharedRemote<sharing::mojom::IceConfigFetcher>&
         ice_config_fetcher,
@@ -532,20 +532,23 @@ void WebRtcMedium::OnIceServersFetched(
   dependencies.async_resolver_factory =
       std::make_unique<ProxyAsyncResolverFactory>(socket_factory_.get());
 
-  rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection =
-      peer_connection_factory_->CreatePeerConnection(rtc_config,
-                                                     std::move(dependencies));
-  callback(std::move(peer_connection));
+  webrtc::RTCErrorOr<rtc::scoped_refptr<webrtc::PeerConnectionInterface>>
+      peer_connection = peer_connection_factory_->CreatePeerConnectionOrError(
+          rtc_config, std::move(dependencies));
+  if (peer_connection.ok()) {
+    callback(peer_connection.MoveValue());
+  } else {
+    callback(/*peer_connection=*/nullptr);
+  }
 }
 
 std::unique_ptr<api::WebRtcSignalingMessenger>
 WebRtcMedium::GetSignalingMessenger(
     absl::string_view self_id,
-    const connections::LocationHint& location_hint) {
+    const location::nearby::connections::LocationHint& location_hint) {
   return std::make_unique<WebRtcSignalingMessengerImpl>(
       std::string(self_id), location_hint, webrtc_signaling_messenger_);
 }
 
 }  // namespace chrome
 }  // namespace nearby
-}  // namespace location

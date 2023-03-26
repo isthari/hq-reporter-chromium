@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,9 +24,9 @@
 namespace ash {
 
 constexpr int kPointRadius = 20;
-constexpr SkColor kProjectionFillColor = SkColorSetRGB(0xF5, 0xF5, 0xDC);
-constexpr SkColor kProjectionStrokeColor = SK_ColorGRAY;
-constexpr int kProjectionAlpha = 0xB0;
+constexpr SkColor4f kProjectionFillColor{0.96f, 0.96f, 0.86f, 1.0f};
+constexpr SkColor4f kProjectionStrokeColor = SkColors::kGray;
+constexpr float kProjectionAlpha = 0xB0 / 255.0f;
 constexpr base::TimeDelta kFadeoutDuration = base::Milliseconds(250);
 constexpr int kFadeoutFrameRate = 60;
 
@@ -71,29 +71,29 @@ class TouchPointView : public views::View,
  private:
   // views::View:
   void OnPaint(gfx::Canvas* canvas) override {
-    int alpha = kProjectionAlpha;
-    if (fadeout_)
-      alpha = static_cast<int>(fadeout_->CurrentValueBetween(alpha, 0));
+    const float alpha =
+        fadeout_ ? fadeout_->CurrentValueBetween(kProjectionAlpha, 0.0f)
+                 : kProjectionAlpha;
 
     cc::PaintFlags fill_flags;
-    fill_flags.setAlpha(alpha);
+    fill_flags.setAlphaf(alpha);
 
-    constexpr SkColor gradient_colors[2] = {kProjectionFillColor,
-                                            kProjectionStrokeColor};
+    constexpr SkColor4f gradient_colors[2] = {kProjectionFillColor,
+                                              kProjectionStrokeColor};
     constexpr SkScalar gradient_pos[2] = {SkFloatToScalar(0.9f),
                                           SkFloatToScalar(1.0f)};
     constexpr gfx::Point center(kPointRadius + 1, kPointRadius + 1);
 
     fill_flags.setShader(cc::PaintShader::MakeRadialGradient(
         gfx::PointToSkPoint(center), SkIntToScalar(kPointRadius),
-        gradient_colors, gradient_pos, base::size(gradient_colors),
+        gradient_colors, gradient_pos, std::size(gradient_colors),
         SkTileMode::kMirror));
     canvas->DrawCircle(center, SkIntToScalar(kPointRadius), fill_flags);
 
     cc::PaintFlags stroke_flags;
     stroke_flags.setStyle(cc::PaintFlags::kStroke_Style);
     stroke_flags.setColor(kProjectionStrokeColor);
-    stroke_flags.setAlpha(alpha);
+    stroke_flags.setAlphaf(alpha);
     canvas->DrawCircle(center, SkIntToScalar(kPointRadius), stroke_flags);
   }
 

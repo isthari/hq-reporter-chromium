@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/browser/ui/views/toolbar/toolbar_account_icon_container_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/autofill/core/common/autofill_payments_features.h"
@@ -86,23 +85,29 @@ LocationBarBubbleDelegateView::LocationBarBubbleDelegateView(
   if (web_contents) {
     Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
     // |browser| can be null in tests.
-    if (browser)
+    if (browser) {
       fullscreen_observation_.Observe(
           browser->exclusive_access_manager()->fullscreen_controller());
+      fullscreen_controller_ = browser->exclusive_access_manager()
+                                   ->fullscreen_controller()
+                                   ->GetWeakPtr();
+    }
   }
   // TODO(pbos): Removing this seems to crash on linux-ozone-rel which seems
   // really wrong. If we need the accessible role before ShowForReason() we
   // can't rely on DisplayReason in there. It also really seems like this dialog
   // role should not depend on if it's showing in the foreground or not.
-  SetAccessibleRole(GetAccessibleRoleForReason(display_reason_));
+  SetAccessibleWindowRole(GetAccessibleRoleForReason(display_reason_));
 }
 
-LocationBarBubbleDelegateView::~LocationBarBubbleDelegateView() = default;
+LocationBarBubbleDelegateView::~LocationBarBubbleDelegateView() {
+  CHECK(!fullscreen_controller_.WasInvalidated());
+}
 
 void LocationBarBubbleDelegateView::ShowForReason(DisplayReason reason,
                                                   bool allow_refocus_alert) {
   display_reason_ = reason;
-  SetAccessibleRole(GetAccessibleRoleForReason(reason));
+  SetAccessibleWindowRole(GetAccessibleRoleForReason(reason));
 
   // These bubbles all anchor to the location bar or toolbar. We selectively
   // anchor location bar bubbles to one end or the other of the toolbar based on
@@ -149,9 +154,6 @@ void LocationBarBubbleDelegateView::WebContentsDestroyed() {
 
 void LocationBarBubbleDelegateView::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
-  // TODO(https://crbug.com/1218946): With MPArch there may be multiple main
-  // frames. This caller was converted automatically to the primary main frame
-  // to preserve its semantics. Follow up to confirm correctness.
   if (!close_on_main_frame_origin_navigation_ ||
       !navigation_handle->IsInPrimaryMainFrame() ||
       !navigation_handle->HasCommitted()) {
@@ -159,15 +161,16 @@ void LocationBarBubbleDelegateView::DidFinishNavigation(
   }
 
   // Close dialog when navigating to a different domain.
-  if (!url::IsSameOriginWith(navigation_handle->GetPreviousMainFrameURL(),
-                             navigation_handle->GetURL())) {
+  if (!url::IsSameOriginWith(
+          navigation_handle->GetPreviousPrimaryMainFrameURL(),
+          navigation_handle->GetURL())) {
     CloseBubble();
   }
 }
 
 gfx::Rect LocationBarBubbleDelegateView::GetAnchorBoundsInScreen() const {
   gfx::Rect bounds = GetBoundsInScreen();
-  bounds.Inset(gfx::Insets(
+  bounds.Inset(gfx::Insets::VH(
       GetLayoutConstant(LOCATION_BAR_BUBBLE_ANCHOR_VERTICAL_INSET), 0));
   return bounds;
 }

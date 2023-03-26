@@ -1,10 +1,10 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/net/net_error_tab_helper.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "chrome/browser/net/dns_probe_service.h"
 #include "chrome/browser/net/dns_probe_service_factory.h"
@@ -21,7 +21,6 @@
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
-#include "ipc/ipc_message_macros.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "net/base/net_errors.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
@@ -31,6 +30,11 @@
 #include "chrome/browser/offline_pages/offline_page_utils.h"
 #include "components/offline_pages/core/client_namespace_constants.h"
 #endif  // BUILDFLAG(ENABLE_OFFLINE_PAGES)
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_features.h"
+#include "chrome/browser/ui/ash/network/network_portal_signin_controller.h"
+#endif
 
 using content::BrowserContext;
 using content::BrowserThread;
@@ -160,6 +164,25 @@ void NetErrorTabHelper::SetIsShowingDownloadButtonInErrorPage(
 }
 #endif  // BUILDFLAG(ENABLE_OFFLINE_PAGES)
 
+#if BUILDFLAG(IS_CHROMEOS)
+void NetErrorTabHelper::ShowPortalSignin() {
+  // TODO(b/247618374): Lacros implementation.
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  if (!ash::features::IsCaptivePortalErrorPageEnabled()) {
+    net_error_page_support_.ReportBadMessage(
+        "Captive Portal Error Page feature not enabled");
+    return;
+  }
+  if (!portal_signin_controller_) {
+    portal_signin_controller_ =
+        std::make_unique<ash::NetworkPortalSigninController>();
+  }
+  portal_signin_controller_->ShowSignin(
+      ash::NetworkPortalSigninController::SigninSource::kErrorPage);
+#endif
+}
+#endif
+
 NetErrorTabHelper::NetErrorTabHelper(WebContents* contents)
     : WebContentsObserver(contents),
       content::WebContentsUserData<NetErrorTabHelper>(*contents),
@@ -253,7 +276,7 @@ void NetErrorTabHelper::SendInfo() {
   DCHECK(dns_error_page_committed_);
 
   DVLOG(1) << "Sending status " << DnsProbeStatusToString(dns_probe_status_);
-  content::RenderFrameHost* rfh = web_contents()->GetMainFrame();
+  content::RenderFrameHost* rfh = web_contents()->GetPrimaryMainFrame();
 
   mojo::AssociatedRemote<chrome::mojom::NetworkDiagnosticsClient> client;
   rfh->GetRemoteAssociatedInterfaces()->GetInterface(&client);
@@ -280,8 +303,8 @@ void NetErrorTabHelper::RunNetworkDiagnosticsHelper(
   if (!CanShowNetworkDiagnosticsDialog(web_contents()))
     return;
 
-  if (network_diagnostics_receivers_.GetCurrentTargetFrame() !=
-      web_contents()->GetMainFrame()) {
+  if (!network_diagnostics_receivers_.GetCurrentTargetFrame()
+           ->IsInPrimaryMainFrame()) {
     return;
   }
 

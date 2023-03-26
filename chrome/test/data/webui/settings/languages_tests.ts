@@ -1,13 +1,12 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import {isWindows} from 'chrome://resources/js/cr.m.js';
 import {LanguageHelper, LanguagesBrowserProxyImpl} from 'chrome://settings/lazy_load.js';
 import {CrSettingsPrefs} from 'chrome://settings/settings.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {fakeDataBind} from 'chrome://webui-test/test_util.js';
+import {fakeDataBind, flushTasks} from 'chrome://webui-test/polymer_test_util.js';
 
 import {FakeLanguageSettingsPrivate, getFakeLanguagePrefs} from './fake_language_settings_private.js';
 import {FakeSettingsPrivate} from './fake_settings_private.js';
@@ -30,10 +29,10 @@ suite('settings-languages', function() {
 
   suiteSetup(function() {
     CrSettingsPrefs.deferInitialization = true;
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
   });
 
-  setup(function() {
+  setup(async function() {
     const settingsPrefs = document.createElement('settings-prefs');
     const settingsPrivate = new FakeSettingsPrivate(getFakeLanguagePrefs());
     settingsPrefs.initialize(
@@ -54,12 +53,13 @@ suite('settings-languages', function() {
 
     // Prefs would normally be data-bound to settings-languages.
     fakeDataBind(settingsPrefs, settingsLanguages, 'prefs');
+    await flushTasks();
 
     document.body.appendChild(settingsLanguages);
-    return languageHelper.whenReady().then(function() {
-      return isWindows ? browserProxy.whenCalled('getProspectiveUILanguage') :
-                         Promise.resolve();
-    });
+    await languageHelper.whenReady();
+    // <if expr="is_win">
+    await browserProxy.whenCalled('getProspectiveUiLanguage');
+    // </if>
   });
 
   test('languages model', function() {
@@ -83,9 +83,69 @@ suite('settings-languages', function() {
     lang = languageHelper.getLanguage('iw')!;
     assertEquals('he', lang.code);
 
-    // The 'no' macrolanguage is returned for Norsk Nynorsk.
-    lang = languageHelper.getLanguage('nn')!;
-    assertEquals('no', lang.code);
+    // tl is converted to fil
+    lang = languageHelper.getLanguage('tl')!;
+    assertEquals('fil', lang.code);
+  });
+
+  test('is translate base language', function() {
+    assertFalse(languageHelper.isTranslateBaseLanguage(
+        languageHelper.getLanguage('nb')!));
+    assertFalse(languageHelper.isTranslateBaseLanguage(
+        languageHelper.getLanguage('en-US')!));
+    assertTrue(languageHelper.isTranslateBaseLanguage(
+        languageHelper.getLanguage('en')!));
+    assertTrue(languageHelper.isTranslateBaseLanguage(
+        languageHelper.getLanguage('sw')!));
+  });
+
+  test('get language code without region', function() {
+    const cases: Array<[string, string]> = [
+      ['en', 'en'],
+      ['en-us', 'en'],
+      ['fil', 'fil'],
+      ['iw', 'iw'],
+      ['a', 'a'],
+      ['a-b', 'a'],
+      ['a-b-c', 'a'],
+      ['', ''],
+    ];
+
+    for (const [code, base] of cases) {
+      assertEquals(languageHelper.getBaseLanguage(code), base);
+    }
+  });
+
+  test('to translate format', function() {
+    const cases: Array<[string, string]> = [
+      ['en', 'en'],
+      ['en-AU', 'en'],
+      ['zh-HK', 'zh-TW'],
+      ['zh-TW', 'zh-TW'],
+      ['fil', 'tl'],
+      ['nb', 'no'],
+      ['nn', 'nn'],
+      ['he', 'iw'],
+    ];
+
+    for (const [code, converted] of cases) {
+      assertEquals(
+          languageHelper.convertLanguageCodeForTranslate(code), converted);
+    }
+  });
+
+  test('to chrome format', function() {
+    const cases: Array<[string, string]> = [
+      ['en-US', 'en-US'],
+      ['iw', 'he'],
+      ['tl', 'fil'],
+      ['jw', 'jv'],
+    ];
+
+    for (const [code, converted] of cases) {
+      assertEquals(
+          languageHelper.convertLanguageCodeForChrome(code), converted);
+    }
   });
 
   test('modifying languages', function() {

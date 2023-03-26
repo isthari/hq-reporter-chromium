@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 
 #include <set>
 
-#include "base/callback_forward.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner.h"
@@ -63,7 +63,7 @@ class UiHierarchyDataCollector : public DataCollector {
       DataCollectorDoneCallback on_exported_callback) override;
 
  private:
-  // Creates a "ui_hierarchy" file under `target_directory` and writes
+  // Creates a "ui_hierarchy.txt" file under `target_directory` and writes
   // `ui_hierarchy_data` into this file. Tries to scrub PII sensitive data in
   // `ui_hierarchy_data` when writing to it except the data under PII categories
   // in `pii_types_to_keep`.

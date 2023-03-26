@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,13 +27,12 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/webui/chromeos/login/demo_preferences_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/demo_preferences_screen_handler.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
-#include "chromeos/dbus/oobe_config/fake_oobe_configuration_client.h"
-#include "chromeos/tpm/stub_install_attributes.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/install_attributes/stub_install_attributes.h"
 #include "components/account_id/account_id.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/prefs/pref_service.h"
@@ -286,7 +285,8 @@ TEST_F(ChromeArcUtilTest, IsArcAllowedForProfile_ActiveDirectoryEnabled) {
       {"", "--arc-availability=officially-supported"});
   ScopedLogIn login(
       GetFakeUserManager(),
-      AccountId::AdFromObjGuid("f04557de-5da2-40ce-ae9d-b8874d8da96e"),
+      AccountId::AdFromUserEmailObjGuid("testing_profile@test",
+                                        "f04557de-5da2-40ce-ae9d-b8874d8da96e"),
       user_manager::USER_TYPE_ACTIVE_DIRECTORY);
   EXPECT_FALSE(
       ash::ProfileHelper::Get()->GetUserByProfile(profile())->HasGaiaAccount());
@@ -297,7 +297,8 @@ TEST_F(ChromeArcUtilTest, IsArcAllowedForProfile_ActiveDirectoryDisabled) {
   base::CommandLine::ForCurrentProcess()->InitFromArgv({""});
   ScopedLogIn login(
       GetFakeUserManager(),
-      AccountId::AdFromObjGuid("f04557de-5da2-40ce-ae9d-b8874d8da96e"),
+      AccountId::AdFromUserEmailObjGuid("testing_profile@test",
+                                        "f04557de-5da2-40ce-ae9d-b8874d8da96e"),
       user_manager::USER_TYPE_ACTIVE_DIRECTORY);
   EXPECT_FALSE(
       ash::ProfileHelper::Get()->GetUserByProfile(profile())->HasGaiaAccount());
@@ -695,21 +696,9 @@ TEST_F(ChromeArcUtilTest, ArcStartModeDefaultDemoMode) {
   EXPECT_TRUE(IsPlayStoreAvailable());
 }
 
-// TODO(b/154290639): We disable Play Store if device is offline enrolled.
-TEST_F(ChromeArcUtilTest, ArcStartModeDefaultOfflineDemoMode) {
-  auto* command_line = base::CommandLine::ForCurrentProcess();
-  command_line->InitFromArgv({"", "--arc-availability=installed"});
-  ash::DemoSession::SetDemoConfigForTesting(
-      ash::DemoSession::DemoModeConfig::kOffline);
-  ScopedLogIn login(GetFakeUserManager(),
-                    AccountId::FromUserEmail("public_user@gmail.com"),
-                    user_manager::USER_TYPE_PUBLIC_ACCOUNT);
-  EXPECT_FALSE(IsPlayStoreAvailable());
-}
-
 TEST_F(ChromeArcUtilTest, ArcStartModeDefaultDemoModeWithoutPlayStore) {
   base::test::ScopedFeatureList feature_list;
-  feature_list.InitWithFeatureState(chromeos::features::kShowPlayInDemoMode,
+  feature_list.InitWithFeatureState(ash::features::kShowPlayInDemoMode,
                                     false /* disabled */);
   auto* command_line = base::CommandLine::ForCurrentProcess();
   command_line->InitFromArgv({"", "--arc-availability=installed"});
@@ -758,7 +747,7 @@ TEST_F(ChromeArcUtilTest, ArcUnmanagedToManagedTransition_FeatureOff) {
 class ArcOobeTest : public ChromeArcUtilTest {
  public:
   ArcOobeTest() {
-    chromeos::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
+    ash::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
     oobe_configuration_ = std::make_unique<ash::OobeConfiguration>();
   }
 
@@ -770,7 +759,7 @@ class ArcOobeTest : public ChromeArcUtilTest {
     // configuration.
     fake_login_display_host_.reset();
     oobe_configuration_.reset();
-    chromeos::ConciergeClient::Shutdown();
+    ash::ConciergeClient::Shutdown();
   }
 
  protected:
@@ -903,7 +892,7 @@ TEST_F(ArcOobeOptInActiveInTest, OobeOptInActive) {
   EXPECT_FALSE(IsArcOobeOptInActive());
   // ARC ToS wizard but Onboarding flow completed.
   login_display_host()->StartWizard(
-      chromeos::ArcTermsOfServiceScreenView::kScreenId);
+      ash::ArcTermsOfServiceScreenView::kScreenId);
   EXPECT_FALSE(IsArcOobeOptInActive());
 }
 
@@ -923,8 +912,7 @@ TEST_F(DemoSetupFlowArcOptInTest, TermsOfServiceOobeNegotiationNeeded) {
       {"", "--arc-availability=officially-supported"});
   DisableDBusForProfileManager();
   CreateLoginDisplayHost();
-  login_display_host()->StartWizard(
-      chromeos::DemoPreferencesScreenView::kScreenId);
+  login_display_host()->StartWizard(ash::DemoPreferencesScreenView::kScreenId);
   login_display_host()
       ->GetWizardController()
       ->SimulateDemoModeSetupForTesting();
@@ -939,8 +927,7 @@ TEST_F(DemoSetupFlowArcOptInTest,
        "--arc-start-mode=always-start-with-no-play-store"});
   DisableDBusForProfileManager();
   CreateLoginDisplayHost();
-  login_display_host()->StartWizard(
-      chromeos::DemoPreferencesScreenView::kScreenId);
+  login_display_host()->StartWizard(ash::DemoPreferencesScreenView::kScreenId);
   login_display_host()
       ->GetWizardController()
       ->SimulateDemoModeSetupForTesting();

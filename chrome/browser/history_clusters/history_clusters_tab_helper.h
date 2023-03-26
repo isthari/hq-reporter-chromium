@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,7 +36,9 @@ class HistoryClustersTabHelper
   // Called by `HistoryTabHelper` right after submitting a new navigation for
   // `web_contents()` to HistoryService. We need close coordination with
   // History's conception of the visit lifetime.
-  void OnUpdatedHistoryForNavigation(int64_t navigation_id, const GURL& url);
+  void OnUpdatedHistoryForNavigation(int64_t navigation_id,
+                                     base::Time timestamp,
+                                     const GURL& url);
 
   // Invoked for navigations that are tracked by UKM. Specifically, same-app
   // navigations aren't tracked individually in UKM and therefore won't receive
@@ -63,14 +65,6 @@ class HistoryClustersTabHelper
       content::NavigationHandle* navigation_handle) override;
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override;
-  void DidOpenRequestedURL(content::WebContents* new_contents,
-                           content::RenderFrameHost* source_render_frame_host,
-                           const GURL& url,
-                           const content::Referrer& referrer,
-                           WindowOpenDisposition disposition,
-                           ui::PageTransition transition,
-                           bool started_from_context_menu,
-                           bool renderer_initiated) override;
   void WebContentsDestroyed() override;
 
  private:

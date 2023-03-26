@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -68,25 +68,37 @@ ui::ColorId GetHintColorId(int context) {
 }
 
 ui::ColorId GetColorId(int context, int style) {
-  if (style == style::STYLE_DIALOG_BUTTON_DEFAULT)
+  if (style == style::STYLE_DIALOG_BUTTON_DEFAULT) {
     return ui::kColorButtonForegroundProminent;
-  if (style == style::STYLE_DISABLED)
+  }
+  if (style == style::STYLE_DIALOG_BUTTON_TONAL) {
+    return ui::kColorButtonForegroundTonal;
+  }
+  if (style == style::STYLE_DISABLED) {
     return GetDisabledColorId(context);
-  if (style == style::STYLE_LINK)
+  }
+  if (style == style::STYLE_LINK) {
     return ui::kColorLinkForeground;
-  if (style == style::STYLE_HINT)
+  }
+  if (style == style::STYLE_HINT) {
     return GetHintColorId(context);
-  if (context == style::CONTEXT_BUTTON_MD)
+  }
+  if (context == style::CONTEXT_BUTTON_MD) {
     return ui::kColorButtonForeground;
-  if (context == style::CONTEXT_LABEL && style == style::STYLE_SECONDARY)
+  }
+  if (context == style::CONTEXT_LABEL && style == style::STYLE_SECONDARY) {
     return ui::kColorLabelForegroundSecondary;
+  }
   if (context == style::CONTEXT_DIALOG_BODY_TEXT &&
-      (style == style::STYLE_PRIMARY || style == style::STYLE_SECONDARY))
+      (style == style::STYLE_PRIMARY || style == style::STYLE_SECONDARY)) {
     return ui::kColorDialogForeground;
-  if (context == style::CONTEXT_TEXTFIELD)
+  }
+  if (context == style::CONTEXT_TEXTFIELD) {
     return ui::kColorTextfieldForeground;
-  if (context == style::CONTEXT_MENU || context == style::CONTEXT_TOUCH_MENU)
+  }
+  if (context == style::CONTEXT_MENU || context == style::CONTEXT_TOUCH_MENU) {
     return GetMenuColorId(style);
+  }
   return ui::kColorLabelForeground;
 }
 
@@ -95,6 +107,9 @@ ui::ColorId GetColorId(int context, int style) {
 ui::ResourceBundle::FontDetails TypographyProvider::GetFontDetails(
     int context,
     int style) const {
+  DCHECK(StyleAllowedForContext(context, style))
+      << "context: " << context << " style: " << style;
+
   ui::ResourceBundle::FontDetails details;
 
   switch (context) {
@@ -126,6 +141,10 @@ ui::ResourceBundle::FontDetails TypographyProvider::GetFontDetails(
                                    .GetFontWeight());
       }
       break;
+    case style::STYLE_EMPHASIZED:
+    case style::STYLE_EMPHASIZED_SECONDARY:
+      details.weight = gfx::Font::Weight::SEMIBOLD;
+      break;
   }
 
   return details;
@@ -146,15 +165,18 @@ int TypographyProvider::GetLineHeight(int context, int style) const {
   return GetFont(context, style).GetHeight();
 }
 
+bool TypographyProvider::StyleAllowedForContext(int context, int style) const {
+  // TODO(https://crbug.com/1352340): Limit emphasizing text to contexts where
+  // it's obviously correct. chrome_typography_provider.cc implements this
+  // correctly, but that does not cover uses outside of //chrome or //ash.
+  return true;
+}
+
 // static
 gfx::Font::Weight TypographyProvider::MediumWeightForUI() {
 #if BUILDFLAG(IS_MAC)
-  // System fonts are not user-configurable on Mac, so there's a simpler check.
-  // However, 10.11 do not ship with a MEDIUM weight system font. In that
-  // case, trying to use MEDIUM there will give a bold font, which will look
-  // worse with the surrounding NORMAL text than just using NORMAL.
-  return base::mac::IsOS10_11() ? gfx::Font::Weight::NORMAL
-                                : gfx::Font::Weight::MEDIUM;
+  // System fonts are not user-configurable on Mac, so it's simpler.
+  return gfx::Font::Weight::MEDIUM;
 #else
   // NORMAL may already have at least MEDIUM weight. Return NORMAL in that case
   // since trying to return MEDIUM would actually make the font lighter-weight

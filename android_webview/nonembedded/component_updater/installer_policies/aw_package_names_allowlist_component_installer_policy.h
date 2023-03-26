@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,10 +12,10 @@
 #include <vector>
 
 #include "android_webview/nonembedded/component_updater/aw_component_installer_policy.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/values.h"
 
 namespace base {
-class Value;
 class FilePath;
 }  // namespace base
 
@@ -38,9 +38,9 @@ class AwPackageNamesAllowlistComponentInstallerPolicy
   bool SupportsGroupPolicyEnabledComponentUpdates() const override;
   bool RequiresNetworkEncryption() const override;
   update_client::CrxInstaller::Result OnCustomInstall(
-      const base::Value& manifest,
+      const base::Value::Dict& manifest,
       const base::FilePath& install_dir) override;
-  bool VerifyInstallation(const base::Value& manifest,
+  bool VerifyInstallation(const base::Value::Dict& manifest,
                           const base::FilePath& install_dir) const override;
   base::FilePath GetRelativeInstallDir() const override;
   std::string GetName() const override;

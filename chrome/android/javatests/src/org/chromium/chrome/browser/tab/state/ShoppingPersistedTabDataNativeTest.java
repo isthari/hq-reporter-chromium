@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,8 +42,6 @@ public class ShoppingPersistedTabDataNativeTest {
 
     @SmallTest
     @Test
-    @CommandLineFlags.
-    Add({"force-fieldtrial-params=Study.Group:enable_persisted_tab_data_maintenance/true"})
     public void testMaintenance() throws TimeoutException {
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> { ShoppingPersistedTabData.onDeferredStartup(); });

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/time/time.h"
 #include "components/optimization_guide/core/page_content_annotations_common.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -22,8 +22,6 @@ namespace optimization_guide {
 // container that matches the I/O of a single call to the PCA Service.
 class PageContentAnnotationJob {
  public:
-  using WeightedCategories = std::vector<WeightedString>;
-
   PageContentAnnotationJob(BatchAnnotationCallback on_complete_callback,
                            const std::vector<std::string>& inputs,
                            AnnotationType type);
@@ -44,8 +42,9 @@ class PageContentAnnotationJob {
   // without return nullopt.
   size_t CountOfRemainingNonNullInputs() const;
 
-  // Posts a new result after an execution has completed.
-  void PostNewResult(const BatchAnnotationResult& result);
+  // Posts a new result after an execution has completed for the given input
+  // |index|.
+  void PostNewResult(const BatchAnnotationResult& result, size_t index);
 
   // Returns true if any element of |results_| was a successful execution. We
   // expect that if one result is successful, many more will be as well.

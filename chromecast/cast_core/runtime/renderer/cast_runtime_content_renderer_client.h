@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,21 +7,16 @@
 
 #include <memory>
 
-#include "base/containers/flat_map.h"
 #include "chromecast/renderer/cast_content_renderer_client.h"
-#include "chromecast/renderer/url_rewrite_rules_provider.h"
-#include "components/cast_streaming/renderer/public/demuxer_provider.h"
 
 namespace cast_streaming {
-class RendererControllerProxy;
-}
-
-namespace media {
-class Demuxer;
+class ResourceProvider;
 }
 
 namespace chromecast {
 
+// TODO(crbug.com/1359580): Use code from //components/cast_receiver/renderer
+// instead of relying on CastContentRendererClient.
 class CastRuntimeContentRendererClient
     : public shell::CastContentRendererClient {
  public:
@@ -37,19 +32,12 @@ class CastRuntimeContentRendererClient
       CastRuntimeContentRendererClient&&) = delete;
 
   // content::ContentRendererClient overrides.
-  void RenderFrameCreated(content::RenderFrame* render_frame) override;
-  std::unique_ptr<::media::Demuxer> OverrideDemuxerForUrl(
-      content::RenderFrame* render_frame,
-      const GURL& url,
-      scoped_refptr<base::SingleThreadTaskRunner> media_task_runner) override;
-  std::unique_ptr<blink::URLLoaderThrottleProvider>
-  CreateURLLoaderThrottleProvider(
-      blink::URLLoaderThrottleProviderType type) override;
+  std::unique_ptr<cast_streaming::ResourceProvider>
+  CreateCastStreamingResourceProvider() override;
 
  private:
-  cast_streaming::DemuxerProvider cast_streaming_demuxer_provider_;
-  std::unique_ptr<cast_streaming::RendererControllerProxy>
-      cast_streaming_renderer_controller_proxy_;
+  std::unique_ptr<cast_streaming::ResourceProvider>
+      cast_streaming_resource_provider_;
 };
 
 }  // namespace chromecast

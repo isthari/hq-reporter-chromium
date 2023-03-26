@@ -1,10 +1,12 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/safe_browsing/core/browser/realtime/policy_engine.h"
 
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
+#include "components/safe_browsing/core/common/features.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/safe_browsing/core/common/safebrowsing_constants.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
@@ -88,6 +90,12 @@ TEST_F(RealTimePolicyEngineTest,
        TestCanPerformFullURLLookup_EnhancedProtection) {
   pref_service_.SetBoolean(prefs::kSafeBrowsingEnhanced, true);
   ASSERT_TRUE(CanPerformFullURLLookup(/* is_off_the_record */ false));
+}
+
+TEST_F(RealTimePolicyEngineTest,
+       TestCanPerformFullURLLookup_DisabledEnhancedProtection) {
+  pref_service_.SetBoolean(prefs::kSafeBrowsingEnhanced, false);
+  ASSERT_FALSE(CanPerformFullURLLookup(/* is_off_the_record */ false));
 }
 
 TEST_F(RealTimePolicyEngineTest,

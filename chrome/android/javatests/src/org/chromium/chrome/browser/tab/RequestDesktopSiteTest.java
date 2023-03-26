@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -51,7 +51,6 @@ import java.util.concurrent.TimeoutException;
 @Batch(Batch.PER_CLASS)
 @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-@Features.EnableFeatures(ContentFeatureList.REQUEST_DESKTOP_SITE_GLOBAL)
 public class RequestDesktopSiteTest {
     private static final String URL_1 = "https://www.chromium.org/";
     private static final String URL_2 = "https://www.example.com/";
@@ -190,13 +189,16 @@ public class RequestDesktopSiteTest {
     }
 
     private void assertContentSettingsHistogramRecorded() {
-        Assert.assertEquals("<ContentSettings.DefaultRequestDesktopSiteSetting> is not recorded.",
+        Assert.assertEquals(
+                "<ContentSettings.RegularProfile.DefaultRequestDesktopSiteSetting> is not recorded.",
                 1,
                 RecordHistogram.getHistogramTotalCountForTesting(
-                        "ContentSettings.DefaultRequestDesktopSiteSetting"));
-        Assert.assertEquals("<ContentSettings.Exceptions.request-desktop-site> is not recorded.", 1,
+                        "ContentSettings.RegularProfile.DefaultRequestDesktopSiteSetting"));
+        Assert.assertEquals(
+                "<ContentSettings.RegularProfile.Exceptions.request-desktop-site> is not recorded.",
+                1,
                 RecordHistogram.getHistogramTotalCountForTesting(
-                        "ContentSettings.Exceptions.request-desktop-site"));
+                        "ContentSettings.RegularProfile.Exceptions.request-desktop-site"));
     }
 
     private void assertChangeUserActionRecorded(boolean switchToDesktop) {

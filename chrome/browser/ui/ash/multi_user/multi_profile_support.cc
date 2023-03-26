@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "ash/public/cpp/multi_user_window_manager.h"
-#include "ash/public/cpp/multi_user_window_manager_observer.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/ash/app_restore/full_restore_service.h"
@@ -65,11 +64,11 @@ void RecordUMAForTransferredWindowType(aura::Window* window) {
       return;
     // If it is not a browser, it is probably be a V2 application. In that case
     // one of the AppWindowRegistry instances should know about it.
-    extensions::AppWindow* app_window = NULL;
+    extensions::AppWindow* app_window = nullptr;
     std::vector<Profile*> profiles =
         g_browser_process->profile_manager()->GetLoadedProfiles();
     for (std::vector<Profile*>::iterator it = profiles.begin();
-         it != profiles.end() && app_window == NULL; it++) {
+         it != profiles.end() && app_window == nullptr; it++) {
       app_window =
           extensions::AppWindowRegistry::Get(*it)->GetAppWindowForNativeWindow(
               window);

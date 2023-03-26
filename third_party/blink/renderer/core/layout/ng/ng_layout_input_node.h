@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,11 +16,11 @@
 #include "third_party/blink/renderer/core/layout/ng/list/layout_ng_outside_list_marker.h"
 #include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 #include "third_party/blink/renderer/platform/text/writing_mode.h"
+#include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 
 namespace blink {
 
 class ComputedStyle;
-class DisplayLockContext;
 class Document;
 class LayoutObject;
 class LayoutBox;
@@ -90,7 +90,6 @@ class CORE_EXPORT NGLayoutInputNode {
     return IsFloating() || IsOutOfFlowPositioned();
   }
   bool IsReplaced() const { return box_->IsLayoutReplaced(); }
-  bool IsFrame() const { return box_->IsFrame(); }
   bool IsAbsoluteContainer() const {
     return box_->CanContainAbsolutePositionObjects();
   }
@@ -98,6 +97,7 @@ class CORE_EXPORT NGLayoutInputNode {
     return box_->CanContainFixedPositionObjects();
   }
   bool IsBody() const { return IsBlock() && box_->IsBody(); }
+  bool IsView() const { return IsBlock() && box_->IsLayoutNGView(); }
   bool IsDocumentElement() const { return box_->IsDocumentElement(); }
   bool IsFlexItem() const { return IsBlock() && box_->IsFlexItemIncludingNG(); }
   bool IsFlexibleBox() const {
@@ -122,6 +122,8 @@ class CORE_EXPORT NGLayoutInputNode {
   bool IsFieldsetContainer() const {
     return IsBlock() && box_->IsLayoutNGFieldset();
   }
+  bool IsInitialLetterBox() const { return box_->IsInitialLetterBox(); }
+  bool IsMedia() const { return box_->IsMedia(); }
   bool IsRubyRun() const { return IsBlock() && box_->IsRubyRun(); }
   bool IsRubyText() const { return box_->IsRubyText(); }
 
@@ -140,6 +142,7 @@ class CORE_EXPORT NGLayoutInputNode {
   bool IsNGTable() const { return IsTable() && box_->IsLayoutNGObject(); }
 
   bool IsTableCaption() const { return IsBlock() && box_->IsTableCaption(); }
+  bool IsTableSection() const { return IsBlock() && box_->IsTableSection(); }
 
   // Section with empty rows is considered empty.
   bool IsEmptyTableSection() const;
@@ -185,9 +188,17 @@ class CORE_EXPORT NGLayoutInputNode {
     return box_->GetNGPaginationBreakability() == LayoutBox::kForbidBreaks;
   }
 
+  AtomicString PageName() const {
+    return IsBlock() ? Style().Page() : AtomicString();
+  }
+
   bool IsScrollContainer() const {
     return IsBlock() && box_->IsScrollContainer();
   }
+
+  // Return true if this is the document root and it is paginated. A paginated
+  // root establishes a fragmentation context.
+  bool IsPaginatedRoot() const;
 
   bool CreatesNewFormattingContext() const {
     return IsBlock() && box_->CreatesNewFormattingContext();
@@ -240,25 +251,17 @@ class CORE_EXPORT NGLayoutInputNode {
     return box_->ShouldApplyBlockSizeContainment();
   }
 
-  bool IsContainerForContainerQueries() const {
-    return box_->IsContainerForContainerQueries();
+  bool CanMatchSizeContainerQueries() const {
+    return box_->CanMatchSizeContainerQueries();
   }
 
   LogicalAxes ContainedAxes() const {
-    LogicalAxes axes(kLogicalAxisNone);
+    LogicalAxes axes = kLogicalAxisNone;
     if (ShouldApplyInlineSizeContainment())
-      axes |= LogicalAxes(kLogicalAxisInline);
+      axes |= kLogicalAxisInline;
     if (ShouldApplyBlockSizeContainment())
-      axes |= LogicalAxes(kLogicalAxisBlock);
+      axes |= kLogicalAxisBlock;
     return axes;
-  }
-
-  // CSS defines certain cases to synthesize inline block baselines from box.
-  // See comments in UseLogicalBottomMarginEdgeForInlineBlockBaseline().
-  bool UseBlockEndMarginEdgeForInlineBlockBaseline() const {
-    if (auto* layout_box = DynamicTo<LayoutBlock>(GetLayoutBox()))
-      return layout_box->UseLogicalBottomMarginEdgeForInlineBlockBaseline();
-    return false;
   }
 
   // CSS intrinsic sizing getters.
@@ -283,11 +286,6 @@ class CORE_EXPORT NGLayoutInputNode {
     return box_->DefaultIntrinsicContentBlockSize();
   }
 
-  // Display locking functionality.
-  const DisplayLockContext& GetDisplayLockContext() const {
-    DCHECK(box_->GetDisplayLockContext());
-    return *box_->GetDisplayLockContext();
-  }
   bool ChildLayoutBlockedByDisplayLock() const {
     return box_->ChildLayoutBlockedByDisplayLock();
   }
@@ -321,6 +319,8 @@ class CORE_EXPORT NGLayoutInputNode {
   void ShowNodeTree() const;
 #endif
 
+  void Trace(Visitor* visitor) const { visitor->Trace(box_); }
+
  protected:
   NGLayoutInputNode(LayoutBox* box, NGLayoutInputNodeType type)
       : box_(box), type_(type) {}
@@ -329,7 +329,7 @@ class CORE_EXPORT NGLayoutInputNode {
       absl::optional<LayoutUnit>* computed_inline_size,
       absl::optional<LayoutUnit>* computed_block_size) const;
 
-  UntracedMember<LayoutBox> box_;
+  Member<LayoutBox> box_;
 
   unsigned type_ : 1;  // NGLayoutInputNodeType
 };

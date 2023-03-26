@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,8 +25,8 @@ constexpr int kInfoIconSizeDp = 20;
 }  // namespace
 
 LoginTooltipView::LoginTooltipView(const std::u16string& message,
-                                   views::View* anchor_view)
-    : LoginBaseBubbleView(anchor_view) {
+                                   base::WeakPtr<views::View> anchor_view)
+    : LoginBaseBubbleView(std::move(anchor_view)) {
   info_icon_ = AddChildView(std::make_unique<views::ImageView>());
   info_icon_->SetPreferredSize(gfx::Size(kInfoIconSizeDp, kInfoIconSizeDp));
 

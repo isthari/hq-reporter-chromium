@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -71,7 +71,7 @@ IN_PROC_BROWSER_TEST_F(ZoomBubbleBrowserTest, NonImmersiveFullscreen) {
     // notification before testing the zoom bubble visibility.
     FullscreenNotificationObserver waiter(browser());
     static_cast<content::WebContentsDelegate*>(browser())
-        ->EnterFullscreenModeForTab(web_contents->GetMainFrame(), {});
+        ->EnterFullscreenModeForTab(web_contents->GetPrimaryMainFrame(), {});
     waiter.Wait();
   }
   ASSERT_FALSE(browser_view->immersive_mode_controller()->IsEnabled());
@@ -208,11 +208,11 @@ IN_PROC_BROWSER_TEST_F(ZoomBubbleBrowserTest, ImmersiveFullscreen) {
   EXPECT_FALSE(zoom_bubble->GetAnchorView());
 
   // An immersive reveal should hide the zoom bubble.
-  std::unique_ptr<ImmersiveRevealedLock> immersive_reveal_lock(
+  std::unique_ptr<ImmersiveRevealedLock> immersive_reveal_lock =
       immersive_controller->GetRevealedLock(
-          ImmersiveModeController::ANIMATE_REVEAL_NO));
+          ImmersiveModeController::ANIMATE_REVEAL_NO);
   ASSERT_TRUE(immersive_controller->IsRevealed());
-  EXPECT_EQ(NULL, ZoomBubbleView::zoom_bubble_);
+  EXPECT_EQ(nullptr, ZoomBubbleView::zoom_bubble_);
 
   // The zoom bubble should be anchored when it is shown in immersive fullscreen
   // and the top-of-window views are revealed.
@@ -257,7 +257,10 @@ IN_PROC_BROWSER_TEST_F(ZoomBubbleBrowserTest, TabSwitchCloses) {
   ASSERT_TRUE(
       AddTabAtIndex(0, GURL(url::kAboutBlankURL), ui::PAGE_TRANSITION_LINK));
   ShowInActiveTab(browser());
+  views::test::WidgetDestroyedWaiter close_waiter(
+      ZoomBubbleView::GetZoomBubble()->GetWidget());
   chrome::SelectNextTab(browser());
+  close_waiter.Wait();
   EXPECT_FALSE(ZoomBubbleView::GetZoomBubble());
 }
 

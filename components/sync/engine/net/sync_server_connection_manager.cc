@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "components/sync/engine/cancelation_signal.h"
 #include "components/sync/engine/net/http_post_provider.h"
@@ -35,7 +35,8 @@ class Connection : public CancelationSignal::Observer {
 
   HttpResponse Init(const GURL& connection_url,
                     const std::string& access_token,
-                    const std::string& payload);
+                    const std::string& payload,
+                    bool allow_batching);
   bool ReadBufferResponse(std::string* buffer_out, HttpResponse* response);
 
   // CancelationSignal::Observer overrides.
@@ -69,7 +70,8 @@ Connection::~Connection() = default;
 
 HttpResponse Connection::Init(const GURL& sync_request_url,
                               const std::string& access_token,
-                              const std::string& payload) {
+                              const std::string& payload,
+                              bool allow_batching) {
   post_provider_->SetURL(sync_request_url);
 
   if (!access_token.empty()) {
@@ -81,6 +83,8 @@ HttpResponse Connection::Init(const GURL& sync_request_url,
   // Must be octet-stream, or the payload may be parsed for a cookie.
   post_provider_->SetPostPayload("application/octet-stream", payload.length(),
                                  payload.data());
+
+  post_provider_->SetAllowBatching(allow_batching);
 
   // Issue the POST, blocking until it finishes.
   if (!cancelation_signal_->TryRegisterHandler(this)) {
@@ -115,10 +119,8 @@ HttpResponse Connection::Init(const GURL& sync_request_url,
 
 bool Connection::ReadBufferResponse(std::string* buffer_out,
                                     HttpResponse* response) {
-  if (net::HTTP_OK != response->http_status_code) {
-    response->server_status = HttpResponse::SYNC_SERVER_ERROR;
-    return false;
-  }
+  DCHECK_EQ(response->server_status, HttpResponse::SERVER_CONNECTION_OK);
+  DCHECK_EQ(response->http_status_code, net::HTTP_OK);
 
   if (response->content_length <= 0)
     return false;
@@ -157,6 +159,7 @@ SyncServerConnectionManager::~SyncServerConnectionManager() = default;
 HttpResponse SyncServerConnectionManager::PostBuffer(
     const std::string& buffer_in,
     const std::string& access_token,
+    bool allow_batching,
     std::string* buffer_out) {
   if (access_token.empty()) {
     // Print a log to distinguish this "known failure" from others.
@@ -174,8 +177,8 @@ HttpResponse SyncServerConnectionManager::PostBuffer(
 
   // Note that the post may be aborted by now, which will just cause Init to
   // fail with CONNECTION_UNAVAILABLE.
-  HttpResponse http_response =
-      connection->Init(sync_request_url_, access_token, buffer_in);
+  HttpResponse http_response = connection->Init(sync_request_url_, access_token,
+                                                buffer_in, allow_batching);
 
   if (http_response.server_status == HttpResponse::SYNC_AUTH_ERROR) {
     ClearAccessToken();

@@ -49,6 +49,7 @@
 #include "absl/hash/internal/city.h"
 #include "absl/hash/internal/low_level_hash.h"
 #include "absl/meta/type_traits.h"
+#include "absl/numeric/bits.h"
 #include "absl/numeric/int128.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
@@ -419,6 +420,39 @@ H AbslHashValue(H hash_state, T* ptr) {
 template <typename H>
 H AbslHashValue(H hash_state, std::nullptr_t) {
   return H::combine(std::move(hash_state), static_cast<void*>(nullptr));
+}
+
+// AbslHashValue() for hashing pointers-to-member
+template <typename H, typename T, typename C>
+H AbslHashValue(H hash_state, T C::* ptr) {
+  auto salient_ptm_size = [](std::size_t n) -> std::size_t {
+#if defined(_MSC_VER)
+    // Pointers-to-member-function on MSVC consist of one pointer plus 0, 1, 2,
+    // or 3 ints. In 64-bit mode, they are 8-byte aligned and thus can contain
+    // padding (namely when they have 1 or 3 ints). The value below is a lower
+    // bound on the number of salient, non-padding bytes that we use for
+    // hashing.
+    if (alignof(T C::*) == alignof(int)) {
+      // No padding when all subobjects have the same size as the total
+      // alignment. This happens in 32-bit mode.
+      return n;
+    } else {
+      // Padding for 1 int (size 16) or 3 ints (size 24).
+      // With 2 ints, the size is 16 with no padding, which we pessimize.
+      return n == 24 ? 20 : n == 16 ? 12 : n;
+    }
+#else
+    // On other platforms, we assume that pointers-to-members do not have
+    // padding.
+#ifdef __cpp_lib_has_unique_object_representations
+    static_assert(std::has_unique_object_representations<T C::*>::value);
+#endif  // __cpp_lib_has_unique_object_representations
+    return n;
+#endif
+  };
+  return H::combine_contiguous(std::move(hash_state),
+                               reinterpret_cast<unsigned char*>(&ptr),
+                               salient_ptm_size(sizeof ptr));
 }
 
 // -----------------------------------------------------------------------------
@@ -1019,7 +1053,7 @@ class ABSL_DLL MixingHashState : public HashStateBase<MixingHashState> {
     uint64_t most_significant = low_mem;
     uint64_t least_significant = high_mem;
 #endif
-    return {least_significant, most_significant >> (128 - len * 8)};
+    return {least_significant, most_significant};
   }
 
   // Reads 4 to 8 bytes from p. Zero pads to fill uint64_t.
@@ -1057,15 +1091,10 @@ class ABSL_DLL MixingHashState : public HashStateBase<MixingHashState> {
   }
 
   ABSL_ATTRIBUTE_ALWAYS_INLINE static uint64_t Mix(uint64_t state, uint64_t v) {
-#if defined(__aarch64__)
-    // On AArch64, calculating a 128-bit product is inefficient, because it
-    // requires a sequence of two instructions to calculate the upper and lower
-    // halves of the result.
-    using MultType = uint64_t;
-#else
+    // Though the 128-bit product on AArch64 needs two instructions, it is
+    // still a good balance between speed and hash quality.
     using MultType =
         absl::conditional_t<sizeof(size_t) == 4, uint64_t, uint128>;
-#endif
     // We do the addition in 64-bit space to make sure the 128-bit
     // multiplication is fast. If we were to do it as MultType the compiler has
     // to assume that the high word is non-zero and needs to perform 2
@@ -1155,9 +1184,22 @@ inline uint64_t MixingHashState::CombineContiguousImpl(
     }
     v = Hash64(first, len);
   } else if (len > 8) {
+    // This hash function was constructed by the ML-driven algorithm discovery
+    // using reinforcement learning. We fed the agent lots of inputs from
+    // microbenchmarks, SMHasher, low hamming distance from generated inputs and
+    // picked up the one that was good on micro and macrobenchmarks.
     auto p = Read9To16(first, len);
-    state = Mix(state, p.first);
-    v = p.second;
+    uint64_t lo = p.first;
+    uint64_t hi = p.second;
+    // Rotation by 53 was found to be most often useful when discovering these
+    // hashing algorithms with ML techniques.
+    lo = absl::rotr(lo, 53);
+    state += kMul;
+    lo += state;
+    state ^= hi;
+    uint128 m = state;
+    m *= lo;
+    return static_cast<uint64_t>(m ^ (m >> 64));
   } else if (len >= 4) {
     v = Read4To8(first, len);
   } else if (len > 0) {

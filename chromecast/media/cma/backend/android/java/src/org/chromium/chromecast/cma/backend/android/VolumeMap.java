@@ -1,10 +1,9 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chromecast.cma.backend.android;
 
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
@@ -22,7 +21,6 @@ import org.chromium.chromecast.media.AudioContentType;
  * and dBFS values. It uses an Android API that was made public in SDK version 28.
  */
 @JNINamespace("chromecast::media")
-@TargetApi(Build.VERSION_CODES.N)
 public final class VolumeMap {
     private static final String TAG = "VolumeMap";
 

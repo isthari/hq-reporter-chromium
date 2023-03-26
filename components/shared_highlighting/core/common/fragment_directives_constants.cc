@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,6 +29,9 @@ const int kSelectorDirectiveValuePrefixLength =
 const char kSelectorDirectiveTypePrefix[] = "type=";
 const int kSelectorDirectiveTypePrefixLength =
     strlen(kSelectorDirectiveTypePrefix);
+
+const char kSelectorJoinDelimeter[] = "&";
+const int kSelectorJoinDelimeterLength = strlen(kSelectorJoinDelimeter);
 
 const char kTypeCssSelector[] = "CssSelector";
 

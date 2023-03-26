@@ -1,12 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {assert, assertInstanceof, assertNumber} from '../../assert.js';
 import * as dom from '../../dom.js';
 import {reportError} from '../../error.js';
+import * as expert from '../../expert.js';
 import * as h264 from '../../h264.js';
-import * as state from '../../state.js';
 import {
   ErrorLevel,
   ErrorType,
@@ -15,24 +15,22 @@ import {
 import * as util from '../../util.js';
 
 /**
- * Precondition states to toggle custom video encoder parameters.
- */
-const preconditions = [
-  state.State.EXPERT,
-  state.State.CUSTOM_VIDEO_PARAMETERS,
-];
-
-/**
  * Creates a controller for expert mode video encoder options of Camera view.
  */
 export class VideoEncoderOptions {
   private readonly videoProfile = dom.get('#video-profile', HTMLSelectElement);
+
   private readonly bitrateSlider = dom.get('#bitrate-slider', HTMLDivElement);
+
   private readonly bitrateMultiplierInput: HTMLInputElement;
+
   private readonly bitrateMultiplerText =
       dom.get('#bitrate-multiplier', HTMLDivElement);
+
   private readonly bitrateText = dom.get('#bitrate-number', HTMLDivElement);
+
   private resolution: Resolution|null = null;
+
   private fps: number|null = null;
 
   /**
@@ -45,7 +43,7 @@ export class VideoEncoderOptions {
   }
 
   private get enable(): boolean {
-    return preconditions.every((s) => state.get(s)) &&
+    return expert.isEnabled(expert.ExpertOption.CUSTOM_VIDEO_PARAMETERS) &&
         this.resolution !== null && this.fps !== null;
   }
 
@@ -100,7 +98,7 @@ export class VideoEncoderOptions {
     const profile = this.selectedProfile;
     assert(profile !== null);
 
-    const maxLevel = h264.Levels[h264.Levels.length - 1];
+    const maxLevel = h264.LEVELS[h264.LEVELS.length - 1];
     if (!h264.checkLevelLimits(maxLevel, fps, resolution)) {
       reportError(
           ErrorType.NO_AVAILABLE_LEVEL, ErrorLevel.WARNING,
@@ -153,9 +151,9 @@ export class VideoEncoderOptions {
     this.initVideoProfile();
     this.initBitrateSlider();
 
-    for (const s of preconditions) {
-      state.addObserver(s, () => this.updateBitrateRange());
-    }
+    expert.addObserver(
+        expert.ExpertOption.CUSTOM_VIDEO_PARAMETERS,
+        () => this.updateBitrateRange());
   }
 
   updateValues(resolution: Resolution, fps: number): void {

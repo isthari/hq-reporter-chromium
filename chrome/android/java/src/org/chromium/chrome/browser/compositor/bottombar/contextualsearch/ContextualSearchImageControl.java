@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 package org.chromium.chrome.browser.compositor.bottombar.contextualsearch;
@@ -11,7 +11,6 @@ import android.view.animation.Interpolator;
 import androidx.core.view.animation.PathInterpolatorCompat;
 
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.compositor.bottombar.OverlayPanel;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayPanelAnimation;
 import org.chromium.chrome.browser.layouts.animation.CompositorAnimator;
 
@@ -23,7 +22,7 @@ public class ContextualSearchImageControl {
     /** The {@link ContextualSearchPanel} that this class belongs to. */
     private final ContextualSearchPanel mPanel;
 
-    /** The percentage tha the image is visible that is based upon the panel position. */
+    /** The percentage that the image is visible that is based upon the panel position. */
     private float mVisibilityPercentageBasedOnPanelPosition;
 
     public ContextualSearchImageControl(ContextualSearchPanel panel) {
@@ -35,29 +34,9 @@ public class ContextualSearchImageControl {
      * @param percentage The percentage to the more opened state.
      */
     public void onUpdateFromPeekToExpand(float percentage) {
-        updateVisibilityForState(OverlayPanel.PanelState.EXPANDED, percentage);
-    }
-
-    /**
-     * Updates the Bar image when in transition between expanded and maximized states.
-     * @param percentage The percentage to the more opened state.
-     */
-    public void onUpdateFromExpandToMaximize(float percentage) {
-        updateVisibilityForState(OverlayPanel.PanelState.MAXIMIZED, percentage);
-    }
-
-    /**
-     * Updates the visibility based on the panel state that we're moving to and the percent moved.
-     * @param toState The Panel state we are moving to.
-     * @param percentage The fraction from 0 to 1 that represents how close we are to that state.
-     */
-    void updateVisibilityForState(@OverlayPanel.PanelState int toState, float percentage) {
-        if (mPanel.isDelayedIntelligenceActive()
-                == (toState == OverlayPanel.PanelState.MAXIMIZED)) {
-            if (mCardIconVisible || mThumbnailVisible) {
-                mCustomImageVisibilityPercentage = 1.f - percentage;
-                mVisibilityPercentageBasedOnPanelPosition = percentage;
-            }
+        if (mCardIconVisible || mThumbnailVisible) {
+            mCustomImageVisibilityPercentage = 1.f - percentage;
+            mVisibilityPercentageBasedOnPanelPosition = percentage;
         }
     }
 
@@ -78,7 +57,7 @@ public class ContextualSearchImageControl {
     /**
      * @param resId The resource id of the card icon to display.
      */
-    public void setCardIconResourceId(int resId) {
+    void setCardIconResourceId(int resId) {
         mCardIconResourceId = resId;
         mCardIconVisible = true;
         animateCustomImageVisibility(true);

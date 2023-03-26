@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,13 +15,11 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.net.Uri;
-import android.os.Build;
 import android.provider.Browser;
 import android.text.TextUtils;
 
 import androidx.browser.customtabs.CustomTabsIntent;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.IntentUtils;
 import org.chromium.base.SysUtils;
@@ -31,7 +29,6 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider.CustomTabsUiType;
 import org.chromium.chrome.browser.customtabs.CustomTabIntentDataProvider;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.ui.util.ColorUtils;
 
 import java.util.Locale;
@@ -105,7 +102,7 @@ public class MediaViewerUtils {
         } else {
             backgroundRes = R.color.media_viewer_bg;
         }
-        int mediaColor = ApiCompatibilityUtils.getColor(context.getResources(), backgroundRes);
+        int mediaColor = context.getColor(backgroundRes);
 
         // Build up the Intent further.
         Intent intent = builder.build().intent;
@@ -237,9 +234,8 @@ public class MediaViewerUtils {
     }
 
     private static boolean shouldEnableMediaLauncherActivity() {
-        return sIsMediaLauncherActivityForceEnabledForTest
-                || ((SysUtils.isAndroidGo() || isEnterpriseManaged())
-                        && ChromeFeatureList.isEnabled(ChromeFeatureList.HANDLE_MEDIA_INTENTS));
+        return sIsMediaLauncherActivityForceEnabledForTest || SysUtils.isAndroidGo()
+                || isEnterpriseManaged();
     }
 
     private static boolean shouldEnableAudioLauncherActivity() {
@@ -277,9 +273,6 @@ public class MediaViewerUtils {
 
     private static boolean willExposeFileUri(Uri uri) {
         assert uri != null && !uri.equals(Uri.EMPTY) : "URI is not successfully generated.";
-
-        // On Android N and later, an Exception is thrown if we try to expose a file:// URI.
-        return uri.getScheme().equals(ContentResolver.SCHEME_FILE)
-                && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N;
+        return uri.getScheme().equals(ContentResolver.SCHEME_FILE);
     }
 }

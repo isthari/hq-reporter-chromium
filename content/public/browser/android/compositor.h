@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,8 @@
 #define CONTENT_PUBLIC_BROWSER_ANDROID_COMPOSITOR_H_
 
 #include "base/android/scoped_java_ref.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/weak_ptr.h"
 #include "cc/resources/ui_resource_bitmap.h"
 #include "cc/trees/layer_tree_host_client.h"
 #include "content/common/content_export.h"
@@ -23,12 +24,12 @@ class Layer;
 namespace gpu {
 struct ContextCreationAttribs;
 struct SharedMemoryLimits;
-}
+}  // namespace gpu
 
 namespace ui {
 class ResourceManager;
 class UIResourceProvider;
-}
+}  // namespace ui
 
 namespace viz {
 class ContextProvider;
@@ -92,7 +93,7 @@ class CONTENT_EXPORT Compositor {
   virtual void SetNeedsRedraw() = 0;
 
   // Returns the UI resource provider associated with the compositor.
-  virtual ui::UIResourceProvider& GetUIResourceProvider() = 0;
+  virtual base::WeakPtr<ui::UIResourceProvider> GetUIResourceProvider() = 0;
 
   // Returns the resource manager associated with the compositor.
   virtual ui::ResourceManager& GetResourceManager() = 0;
@@ -109,13 +110,24 @@ class CONTENT_EXPORT Compositor {
   // destruction.
   virtual void PreserveChildSurfaceControls() = 0;
 
-  // Registers a callback that is run when the next frame successfully makes it
-  // to the screen (it's entirely possible some frames may be dropped between
-  // the time this is called and the callback is run).
+  // Registers a callback that is run when the presentation feedback for the
+  // next submitted frame is received (it's entirely possible some frames may be
+  // dropped between the time this is called and the callback is run).
+  // Note that since this might be called on failed presentations, it is
+  // deprecated in favor of `RequestSuccessfulPresentationTimeForNextFrame()`
+  // which will be called only after a successful presentation.
   using PresentationTimeCallback =
       base::OnceCallback<void(const gfx::PresentationFeedback&)>;
   virtual void RequestPresentationTimeForNextFrame(
       PresentationTimeCallback callback) = 0;
+
+  // Registers a callback that is run when the next frame successfully makes it
+  // to the screen (it's entirely possible some frames may be dropped between
+  // the time this is called and the callback is run).
+  using SuccessfulPresentationTimeCallback =
+      base::OnceCallback<void(base::TimeTicks)>;
+  virtual void RequestSuccessfulPresentationTimeForNextFrame(
+      SuccessfulPresentationTimeCallback callback) = 0;
 
   // Control whether `CompositorClient::DidSwapBuffers` should be called. The
   // default is false. Note this is asynchronous. Any pending callbacks may

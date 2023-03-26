@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -149,7 +149,7 @@ void LoadingPredictorTabHelperTest::
   NavigateAndCommitInFrame(url, main_rfh());
 
   EXPECT_EQ(ukm_source_id,
-            web_contents()->GetMainFrame()->GetPageUkmSourceId());
+            web_contents()->GetPrimaryMainFrame()->GetPageUkmSourceId());
   GURL gurl(url);
   EXPECT_EQ(gurl, main_frame_url);
   EXPECT_EQ(gurl, old_main_frame_url);
@@ -202,7 +202,7 @@ TEST_F(LoadingPredictorTabHelperTest, MainFrameNavigationWithRedirects) {
       RecordFinishNavigation(_, main_frame_url, expected_main_frame_url, _));
   navigation->Commit();
 
-  EXPECT_EQ(web_contents()->GetMainFrame()->GetPageUkmSourceId(),
+  EXPECT_EQ(web_contents()->GetPrimaryMainFrame()->GetPageUkmSourceId(),
             ukm_source_id);
 }
 
@@ -241,7 +241,7 @@ TEST_F(LoadingPredictorTabHelperTest, MainFrameNavigationFailed) {
 
   EXPECT_EQ(ukm_source_id,
 
-            web_contents()->GetMainFrame()->GetPageUkmSourceId());
+            web_contents()->GetPrimaryMainFrame()->GetPageUkmSourceId());
 }
 
 // Tests that a same document navigation is not recorded.
@@ -401,11 +401,12 @@ TEST_F(LoadingPredictorTabHelperOptimizationGuideDeciderTest,
   absl::optional<OptimizationGuidePrediction> prediction =
       OptimizationGuidePrediction();
   prediction->decision = optimization_guide::OptimizationGuideDecision::kTrue;
-  url::Origin main_frame_origin = url::Origin::Create(GURL("http://test.org"));
+  net::SchemefulSite main_frame_site =
+      net::SchemefulSite(GURL("http://test.org"));
   PreconnectPrediction preconnect_prediction = CreatePreconnectPrediction(
       "", false,
       {{url::Origin::Create(GURL("http://other.org")), 1,
-        net::NetworkIsolationKey(main_frame_origin, main_frame_origin)}});
+        net::NetworkAnonymizationKey(main_frame_site, main_frame_site)}});
   prediction->preconnect_prediction = preconnect_prediction;
   prediction->predicted_subresources = {GURL("http://test.org/resource1"),
                                         GURL("http://other.org/resource2"),
@@ -455,11 +456,12 @@ TEST_F(LoadingPredictorTabHelperOptimizationGuideDeciderTest,
   absl::optional<OptimizationGuidePrediction> prediction =
       OptimizationGuidePrediction();
   prediction->decision = optimization_guide::OptimizationGuideDecision::kTrue;
-  url::Origin main_frame_origin = url::Origin::Create(GURL("http://test.org"));
+  net::SchemefulSite main_frame_site =
+      net::SchemefulSite(GURL("http://test.org"));
   PreconnectPrediction preconnect_prediction = CreatePreconnectPrediction(
       "", false,
       {{url::Origin::Create(GURL("http://other.org")), 1,
-        net::NetworkIsolationKey(main_frame_origin, main_frame_origin)}});
+        net::NetworkAnonymizationKey(main_frame_site, main_frame_site)}});
   prediction->preconnect_prediction = preconnect_prediction;
   prediction->predicted_subresources = {GURL("http://test.org/resource1"),
                                         GURL("http://other.org/resource2"),
@@ -743,21 +745,25 @@ TEST_F(LoadingPredictorTabHelperOptimizationGuideDeciderWithPrefetchTest,
   absl::optional<OptimizationGuidePrediction> prediction =
       OptimizationGuidePrediction();
   prediction->decision = optimization_guide::OptimizationGuideDecision::kTrue;
-  url::Origin main_frame_origin = url::Origin::Create(GURL("http://test.org"));
-  net::NetworkIsolationKey network_isolation_key(main_frame_origin,
-                                                 main_frame_origin);
+  net::SchemefulSite main_frame_site =
+      net::SchemefulSite(GURL("http://test.org"));
+  net::NetworkAnonymizationKey network_anonymization_key(main_frame_site,
+                                                         main_frame_site);
   network::mojom::RequestDestination destination =
       network::mojom::RequestDestination::kEmpty;
   PreconnectPrediction preconnect_prediction = CreatePreconnectPrediction(
       "", false,
       {{url::Origin::Create(GURL("http://preconnectonly.com/")), 1,
-        network_isolation_key}});
+        network_anonymization_key}});
   preconnect_prediction.prefetch_requests.emplace_back(
-      GURL("http://test.org/resource1"), network_isolation_key, destination);
+      GURL("http://test.org/resource1"), network_anonymization_key,
+      destination);
   preconnect_prediction.prefetch_requests.emplace_back(
-      GURL("http://other.org/resource1"), network_isolation_key, destination);
+      GURL("http://other.org/resource1"), network_anonymization_key,
+      destination);
   preconnect_prediction.prefetch_requests.emplace_back(
-      GURL("http://other.org/resource2"), network_isolation_key, destination);
+      GURL("http://other.org/resource2"), network_anonymization_key,
+      destination);
   prediction->preconnect_prediction = preconnect_prediction;
   prediction->predicted_subresources = {
       GURL("http://test.org/resource1"), GURL("http://other.org/resource2"),
@@ -885,9 +891,10 @@ TEST_F(LoadingPredictorTabHelperTestCollectorFencedFramesTest,
   // Navigate a fenced frame.
   GURL fenced_frame_url = GURL("https://fencedframe.com");
   std::unique_ptr<content::NavigationSimulator> navigation_simulator =
-      content::NavigationSimulator::CreateForFencedFrame(fenced_frame_url,
-                                                         fenced_frame_root);
+      content::NavigationSimulator::CreateRendererInitiated(fenced_frame_url,
+                                                            fenced_frame_root);
   navigation_simulator->Commit();
+  fenced_frame_root = navigation_simulator->GetFinalRenderFrameHost();
 
   EXPECT_EQ(0u, test_collector_->count_resource_loads_completed());
 

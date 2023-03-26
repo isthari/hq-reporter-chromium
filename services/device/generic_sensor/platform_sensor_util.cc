@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,11 @@ namespace device {
 
 namespace {
 
+// Check that each rounding multiple is positive number.
 static_assert(kAccelerometerRoundingMultiple > 0.0,
+              "Rounding multiple must be positive.");
+
+static_assert(kAlsRoundingMultiple > 0,
               "Rounding multiple must be positive.");
 
 static_assert(kGyroscopeRoundingMultiple > 0.0,
@@ -25,6 +29,10 @@ static_assert(kOrientationEulerRoundingMultiple > 0.0,
 
 static_assert(kOrientationQuaternionRoundingMultiple > 0.0,
               "Rounding multiple must be positive.");
+
+// Check that threshold value is at least half of rounding multiple.
+static_assert(kAlsSignificanceThreshold >= (kAlsRoundingMultiple / 2),
+              "Threshold must be at least half of rounding multiple.");
 
 template <typename T>
 T square(T x) {
@@ -135,31 +143,6 @@ void RoundSensorReading(SensorReading* reading, mojom::SensorType sensor_type) {
     case mojom::SensorType::PROXIMITY:
       break;
   }
-}
-
-bool IsSignificantlyDifferent(const SensorReading& lhs,
-                              const SensorReading& rhs,
-                              mojom::SensorType sensor_type) {
-  switch (sensor_type) {
-    case mojom::SensorType::AMBIENT_LIGHT:
-      return std::fabs(lhs.als.value - rhs.als.value) >=
-             kAlsSignificanceThreshold;
-
-    case mojom::SensorType::ACCELEROMETER:
-    case mojom::SensorType::GRAVITY:
-    case mojom::SensorType::LINEAR_ACCELERATION:
-    case mojom::SensorType::GYROSCOPE:
-    case mojom::SensorType::ABSOLUTE_ORIENTATION_EULER_ANGLES:
-    case mojom::SensorType::RELATIVE_ORIENTATION_EULER_ANGLES:
-    case mojom::SensorType::ABSOLUTE_ORIENTATION_QUATERNION:
-    case mojom::SensorType::RELATIVE_ORIENTATION_QUATERNION:
-    case mojom::SensorType::MAGNETOMETER:
-    case mojom::SensorType::PRESSURE:
-    case mojom::SensorType::PROXIMITY:
-      return !base::ranges::equal(lhs.raw.values, rhs.raw.values);
-  }
-  NOTREACHED();
-  return false;
 }
 
 }  // namespace device

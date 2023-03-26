@@ -1,10 +1,12 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#import <CoreImage/CoreImage.h>
+
 #import "ios/chrome/common/ui/util/image_util.h"
 
-#include "ui/gfx/image/resize_image_dimensions.h"
+#import "ui/gfx/image/resize_image_dimensions.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -40,7 +42,7 @@ UIImage* ResizeImage(UIImage* image,
 }
 
 UIImage* ResizeImageForSearchByImage(UIImage* image) {
-  // Check |image|.
+  // Check `image`.
   if (!image) {
     return nil;
   }
@@ -159,4 +161,21 @@ void CalculateProjection(CGSize originalSize,
   CGRect integralRect = CGRectZero;
   integralRect.size = targetSize;
   targetSize = CGRectIntegral(integralRect).size;
+}
+
+UIImage* BlurredImageWithImage(UIImage* image, CGFloat blurRadius) {
+  CIImage* inputImage = [CIImage imageWithCGImage:image.CGImage];
+
+  // Blur the UIImage with a CIFilter
+  CIFilter* filter = [CIFilter filterWithName:@"CIGaussianBlur"];
+  [filter setValue:inputImage forKey:kCIInputImageKey];
+  [filter setValue:[NSNumber numberWithFloat:blurRadius] forKey:@"inputRadius"];
+
+  CIImage* outputImage = filter.outputImage;
+  CGFloat scale = 1 / image.scale;
+  outputImage = [outputImage
+      imageByApplyingTransform:CGAffineTransformMakeScale(scale, scale)];
+  UIImage* blurredImage = [UIImage imageWithCIImage:outputImage];
+  return
+      [blurredImage imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
 }

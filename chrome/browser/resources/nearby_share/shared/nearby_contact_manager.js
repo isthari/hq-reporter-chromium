@@ -1,59 +1,42 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// clang-format off
-// #import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
-// #import 'chrome://resources/mojo/url/mojom/url.mojom-lite.js'
-// #import {addSingletonGetter} from 'chrome://resources/js/cr.m.js';
-// #import '/mojo/nearby_share_settings.mojom-lite.js';
-// clang-format on
+import {ContactManager, ContactManagerInterface, DownloadContactsObserverInterface, DownloadContactsObserverReceiver, DownloadContactsObserverRemote} from 'chrome://resources/mojo/chromeos/ash/services/nearby/public/mojom/nearby_share_settings.mojom-webui.js';
 
-cr.define('nearby_share', function() {
-  /** @type {?nearbyShare.mojom.ContactManagerInterface} */
-  let contactManager = null;
-  /** @type {boolean} */
-  let isTesting = false;
-  /**
-   * @param {!nearbyShare.mojom.ContactManagerInterface}
-   *     testContactManager A test contactManager impl.
-   */
-  /* #export */ function setContactManagerForTesting(testContactManager) {
-    contactManager = testContactManager;
-    isTesting = true;
+/** @type {?ContactManagerInterface} */
+let contactManager = null;
+/** @type {boolean} */
+let isTesting = false;
+/**
+ * @param {!ContactManagerInterface} testContactManager A test impl.
+ */
+export function setContactManagerForTesting(testContactManager) {
+  contactManager = testContactManager;
+  isTesting = true;
+}
+/**
+ * @return {!ContactManagerInterface} the contactManager interface
+ */
+export function getContactManager() {
+  if (!contactManager) {
+    contactManager = ContactManager.getRemote();
   }
-  /**
-   * @return {!nearbyShare.mojom.ContactManagerInterface}
-   *     the contactManager interface
-   */
-  /* #export */ function getContactManager() {
-    if (!contactManager) {
-      contactManager = nearbyShare.mojom.ContactManager.getRemote();
-    }
-    return contactManager;
-  }
-  /**
-   * @param {!nearbyShare.mojom.DownloadContactsObserverInterface} observer
-   * @return {?nearbyShare.mojom.DownloadContactsObserverReceiver} The mojo
-   *     receiver or null when testing.
-   */
-  /* #export */ function observeContactManager(observer) {
-    if (isTesting) {
-      getContactManager().addDownloadContactsObserver(
-          /** @type {!nearbyShare.mojom.DownloadContactsObserverRemote} */ (
-              observer));
-      return null;
-    }
-    const receiver =
-        new nearbyShare.mojom.DownloadContactsObserverReceiver(observer);
+  return contactManager;
+}
+/**
+ * @param {!DownloadContactsObserverInterface} observer
+ * @return {?DownloadContactsObserverReceiver} The mojo receiver or null
+ *   when testing.
+ */
+export function observeContactManager(observer) {
+  if (isTesting) {
     getContactManager().addDownloadContactsObserver(
-        receiver.$.bindNewPipeAndPassRemote());
-    return receiver;
+        /** @type {!DownloadContactsObserverRemote} */ (observer));
+    return null;
   }
-  // #cr_define_end
-  return {
-    setContactManagerForTesting,
-    getContactManager,
-    observeContactManager,
-  };
-});
+  const receiver = new DownloadContactsObserverReceiver(observer);
+  getContactManager().addDownloadContactsObserver(
+      receiver.$.bindNewPipeAndPassRemote());
+  return receiver;
+}

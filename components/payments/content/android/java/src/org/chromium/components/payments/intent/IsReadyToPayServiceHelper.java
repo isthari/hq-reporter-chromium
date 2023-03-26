@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@ import android.os.RemoteException;
 import org.chromium.IsReadyToPayService;
 import org.chromium.IsReadyToPayServiceCallback;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.components.payments.PrePurchaseQuery;
 
 /** A helper to query the payment app's IsReadyToPay service. */
 public class IsReadyToPayServiceHelper
@@ -104,6 +105,8 @@ public class IsReadyToPayServiceHelper
             return;
         }
 
+        RecordHistogram.recordEnumeratedHistogram("PaymentRequest.PrePurchaseQuery",
+                PrePurchaseQuery.ANDROID_INTENT, PrePurchaseQuery.MAX_VALUE);
         mIsReadyToPayQueried = true;
         try {
             isReadyToPayService.isReadyToPay(/*callback=*/this);

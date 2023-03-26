@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -62,6 +62,7 @@ class CONTENT_EXPORT DevToolsAgentHostImpl : public DevToolsAgentHost {
   void DisconnectWebContents() override;
   void ConnectWebContents(WebContents* wc) override;
   RenderProcessHost* GetProcessHost() override;
+  void ForceDetachAllSessions() override;
 
   struct NetworkLoaderFactoryParamsAndInfo {
     NetworkLoaderFactoryParamsAndInfo();
@@ -79,6 +80,8 @@ class CONTENT_EXPORT DevToolsAgentHostImpl : public DevToolsAgentHost {
   // requests.
   virtual NetworkLoaderFactoryParamsAndInfo
   CreateNetworkFactoryParamsForDevTools();
+
+  virtual DevToolsSession::Mode GetSessionMode();
 
   bool Inspect();
 
@@ -101,6 +104,7 @@ class CONTENT_EXPORT DevToolsAgentHostImpl : public DevToolsAgentHost {
   cross_origin_opener_policy(const std::string& id);
 
   virtual protocol::TargetAutoAttacher* auto_attacher();
+  virtual std::string GetSubtype();
 
  protected:
   explicit DevToolsAgentHostImpl(const std::string& id);
@@ -116,7 +120,6 @@ class CONTENT_EXPORT DevToolsAgentHostImpl : public DevToolsAgentHost {
   void NotifyCreated();
   void NotifyNavigated();
   void NotifyCrashed(base::TerminationStatus status);
-  void ForceDetachAllSessions();
   void ForceDetachRestrictedSessions(
       const std::vector<DevToolsSession*>& restricted_sessions);
   DevToolsIOContext* GetIOContext() { return &io_context_; }

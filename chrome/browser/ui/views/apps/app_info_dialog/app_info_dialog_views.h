@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,6 +53,9 @@ class AppInfoDialog : public views::View,
   void StartObservingExtensionRegistry();
   void StopObservingExtensionRegistry();
 
+  // views::View:
+  void OnThemeChanged() override;
+
   // Overridden from extensions::ExtensionRegistryObserver:
   void OnExtensionUnloaded(content::BrowserContext* browser_context,
                            const extensions::Extension* extension,
@@ -68,7 +71,7 @@ class AppInfoDialog : public views::View,
   raw_ptr<views::View> dialog_footer_ = nullptr;
   raw_ptr<views::View> arc_app_info_links_ = nullptr;
 
-  raw_ptr<Profile> profile_;
+  raw_ptr<Profile, DanglingUntriaged> profile_;
   std::string app_id_;
   raw_ptr<extensions::ExtensionRegistry> extension_registry_ = nullptr;
 };

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,9 @@
 #include "ash/components/arc/session/arc_service_manager.h"
 #include "base/command_line.h"
 #include "base/scoped_observation.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/debug_daemon/fake_debug_daemon_client.h"
-#include "chromeos/dbus/upstart/fake_upstart_client.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/dbus/debug_daemon/debug_daemon_client.h"
+#include "chromeos/ash/components/dbus/upstart/fake_upstart_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace arc {
@@ -31,15 +30,13 @@ class ArcClientAdapterTest : public testing::Test,
   void ArcInstanceStopped(bool is_system_shutdown) override {}
 
   void SetUp() override {
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::DBusThreadManager::GetSetterForTesting()->SetDebugDaemonClient(
-        std::make_unique<chromeos::FakeDebugDaemonClient>());
-    chromeos::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
-    chromeos::UpstartClient::InitializeFake();
+    ash::DebugDaemonClient::InitializeFake();
+    ash::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
+    ash::UpstartClient::InitializeFake();
   }
   void TearDown() override {
-    chromeos::ConciergeClient::Shutdown();
-    chromeos::DBusThreadManager::Shutdown();
+    ash::ConciergeClient::Shutdown();
+    ash::DebugDaemonClient::Shutdown();
   }
 
  private:

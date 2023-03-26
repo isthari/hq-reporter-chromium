@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,18 @@
  * the settings page.
  */
 
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
-import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
 import '../i18n_setup.js';
-import '../settings_shared_css.js';
-import './passwords_shared_css.js';
+import '../settings_shared.css.js';
+import './passwords_shared.css.js';
 
-import {I18nMixin} from '//resources/js/i18n_mixin.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {I18nMixin} from '//resources/cr_elements/i18n_mixin.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {loadTimeData} from '../i18n_setup.js';
+
+import {getTemplate} from './credit_card_list_entry.html.js';
 
 const SettingsCreditCardListEntryElementBase = I18nMixin(PolymerElement);
 
@@ -25,17 +29,41 @@ class SettingsCreditCardListEntryElement extends
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
     return {
       /** A saved credit card. */
       creditCard: Object,
+
+      /**
+       * Whether the expiration date should be shown as secondary label.
+       */
+      showExpirationAsSecondaryLabelEnabled_: {
+        type: Boolean,
+        value() {
+          return loadTimeData.getBoolean('removeCardExpirationAndTypeTitles');
+        },
+        readOnly: true,
+      },
+
+      /**
+       * Whether virtual card enrollment management on settings page is enabled.
+       */
+      virtualCardEnrollmentEnabled_: {
+        type: Boolean,
+        value() {
+          return loadTimeData.getBoolean('virtualCardEnrollmentEnabled');
+        },
+        readOnly: true,
+      },
     };
   }
 
   creditCard: chrome.autofillPrivate.CreditCardEntry;
+  private readonly showExpirationAsSecondaryLabelEnabled_: boolean;
+  private readonly virtualCardEnrollmentEnabled_: boolean;
 
   /**
    * Opens the credit card action menu.
@@ -47,7 +75,7 @@ class SettingsCreditCardListEntryElement extends
       detail: {
         creditCard: this.creditCard,
         anchorElement: this.shadowRoot!.querySelector('#creditCardMenu'),
-      }
+      },
     }));
   }
 
@@ -86,12 +114,82 @@ class SettingsCreditCardListEntryElement extends
   }
 
   /**
-   * The 3-dot menu should not be shown if the card is entirely remote.
+   * The 3-dot menu should be shown if the card is not a masked server card or
+   * if the card is eligble for virtual card enrollment.
    */
   private showDots_(): boolean {
     return !!(
         this.creditCard.metadata!.isLocal ||
-        this.creditCard.metadata!.isCached);
+        this.creditCard.metadata!.isCached ||
+        this.isVirtualCardEnrollmentEligible_());
+  }
+
+  private isVirtualCardEnrollmentEligible_(): boolean {
+    return this.virtualCardEnrollmentEnabled_ &&
+        this.creditCard.metadata!.isVirtualCardEnrollmentEligible!;
+  }
+
+  private isVirtualCardEnrolled_(): boolean {
+    return this.virtualCardEnrollmentEnabled_ &&
+        this.creditCard.metadata!.isVirtualCardEnrolled!;
+  }
+
+  private shouldShowVirtualCardLabel_(): boolean {
+    return this.isVirtualCardEnrolled_() &&
+        !this.showExpirationAsSecondaryLabelEnabled_;
+  }
+
+  /**
+   * Returns a string of combination of expiration date and virtual card info if
+   * the card is eligible for enrollment or has already enrolled, or cardholder
+   * name otherwise.
+   * E.g., 11/2023 | Virtual card turned on
+   */
+  private getSummarySublabel_(): string {
+    let expirationDateString = '';
+    if (!!this.creditCard.expirationMonth && !!this.creditCard.expirationYear) {
+      expirationDateString = this.creditCard.expirationMonth.toString() + '/' +
+          this.creditCard.expirationYear.toString();
+    }
+
+    const secondarySubLabel = this.getSecondarySublabel_();
+    const verticalBar =
+        !!expirationDateString && !!secondarySubLabel ? '\u00a0|\u00a0' : '';
+
+    return expirationDateString + verticalBar + secondarySubLabel;
+  }
+
+  private shouldShowVirtualCardSecondarySublabel_(): boolean {
+    return this.creditCard.metadata!.summarySublabel!.trim() !== '' ||
+        this.isVirtualCardEnrolled_() ||
+        this.isVirtualCardEnrollmentEligible_();
+  }
+
+  private getSecondarySublabel_(): string {
+    if (this.isVirtualCardEnrolled_()) {
+      return this.i18n('virtualCardTurnedOn');
+    }
+    if (this.isVirtualCardEnrollmentEligible_()) {
+      return this.i18n('virtualCardAvailable');
+    }
+    return this.creditCard.metadata!.summarySublabel!;
+  }
+
+  private shouldShowPaymentsLabel_(): boolean {
+    return !this.creditCard.metadata!.isLocal &&
+        !this.showExpirationAsSecondaryLabelEnabled_;
+  }
+
+  private shouldShowPaymentsIndicator_(): boolean {
+    return !this.creditCard.metadata!.isLocal &&
+        this.showExpirationAsSecondaryLabelEnabled_;
+  }
+
+  private getPaymentsLabel_(): string {
+    if (this.creditCard.metadata!.isCached) {
+      return this.i18n('googlePaymentsCached');
+    }
+    return this.i18n('googlePayments');
   }
 }
 

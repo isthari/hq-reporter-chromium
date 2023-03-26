@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,8 +58,10 @@ public class ChromeMessageAutodismissDurationProvider
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
                 && ChromeAccessibilityUtil.get().isAccessibilityEnabled()) {
-            return ChromeAccessibilityUtil.get().getRecommendedTimeoutMillis((int) nonA11yDuration,
-                    FLAG_CONTENT_ICONS | FLAG_CONTENT_CONTROLS | FLAG_CONTENT_TEXT);
+            // crbug.com/1312548: To have a minimum duration even if the system has a default value.
+            return Math.max(mAutodismissDurationWithA11yMs,
+                    ChromeAccessibilityUtil.get().getRecommendedTimeoutMillis((int) nonA11yDuration,
+                            FLAG_CONTENT_ICONS | FLAG_CONTENT_CONTROLS | FLAG_CONTENT_TEXT));
         }
         return ChromeAccessibilityUtil.get().isAccessibilityEnabled()
                 ? Math.max(mAutodismissDurationWithA11yMs, nonA11yDuration)

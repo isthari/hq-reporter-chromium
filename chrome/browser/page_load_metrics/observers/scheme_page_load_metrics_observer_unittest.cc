@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <memory>
 
-#include "base/cxx17_backports.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/page_load_metrics/observers/page_load_metrics_observer_test_harness.h"
@@ -135,7 +134,7 @@ class SchemePageLoadMetricsObserverTest
         base::Milliseconds(GetRecordedMetricValue(fcp_histogram_name));
 
     for (size_t index = 0;
-         index < base::size(kUnderStatRecordingIntervalsSeconds); ++index) {
+         index < std::size(kUnderStatRecordingIntervalsSeconds); ++index) {
       base::TimeDelta threshold(
           base::Seconds(kUnderStatRecordingIntervalsSeconds[index]));
       if (recorded_fcp_value <= threshold) {
@@ -153,7 +152,7 @@ class SchemePageLoadMetricsObserverTest
     // of the same name in scheme_page_load_metrics_observer.cc.
     tester()->histogram_tester().ExpectBucketCount(
         fcp_understat_histogram_name,
-        base::size(kUnderStatRecordingIntervalsSeconds) + 1, 0);
+        std::size(kUnderStatRecordingIntervalsSeconds) + 1, 0);
   }
 
   raw_ptr<SchemePageLoadMetricsObserver> observer_;
@@ -161,12 +160,12 @@ class SchemePageLoadMetricsObserverTest
 
 TEST_F(SchemePageLoadMetricsObserverTest, HTTPNavigation) {
   SimulateNavigation(url::kHttpScheme);
-  CheckHistograms(5, url::kHttpScheme);
+  CheckHistograms(4, url::kHttpScheme);
 }
 
 TEST_F(SchemePageLoadMetricsObserverTest, HTTPSNavigation) {
   SimulateNavigation(url::kHttpsScheme);
-  CheckHistograms(5, url::kHttpsScheme);
+  CheckHistograms(4, url::kHttpsScheme);
 }
 
 // Make sure no metrics are recorded for an unobserved scheme.
@@ -177,10 +176,10 @@ TEST_F(SchemePageLoadMetricsObserverTest, WebUINavigation) {
 
 TEST_F(SchemePageLoadMetricsObserverTest, HTTPForwardBackNavigation) {
   SimulateNavigation(url::kHttpScheme, ui::PAGE_TRANSITION_FORWARD_BACK);
-  CheckHistograms(5, url::kHttpScheme, false /* new_navigation */);
+  CheckHistograms(4, url::kHttpScheme, false /* new_navigation */);
 }
 
 TEST_F(SchemePageLoadMetricsObserverTest, HTTPSReloadNavigation) {
   SimulateNavigation(url::kHttpsScheme, ui::PAGE_TRANSITION_RELOAD);
-  CheckHistograms(5, url::kHttpsScheme, false /* new_navigation */);
+  CheckHistograms(4, url::kHttpsScheme, false /* new_navigation */);
 }

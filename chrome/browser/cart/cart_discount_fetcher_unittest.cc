@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,10 @@
 #include "base/test/mock_callback.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/cart/fetch_discount_worker.h"
-#include "chrome/browser/endpoint_fetcher/endpoint_fetcher.h"
-#include "chrome/browser/persisted_state_db/profile_proto_db.h"
+#include "components/commerce/core/commerce_feature_list.h"
+#include "components/endpoint_fetcher/mock_endpoint_fetcher.h"
 #include "components/search/ntp_features.h"
+#include "components/session_proto_db/session_proto_db.h"
 #include "content/public/test/browser_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
@@ -33,7 +34,7 @@ cart_db::ChromeCartContentProto BuildProto(
   return proto;
 }
 using ShoppingCarts =
-    std::vector<ProfileProtoDB<cart_db::ChromeCartContentProto>::KeyAndValue>;
+    std::vector<SessionProtoDB<cart_db::ChromeCartContentProto>::KeyAndValue>;
 
 const char kMockMerchantA[] = "foo.com";
 const char kMockMerchantCartURLA[] = "https://www.foo.com/cart";
@@ -81,19 +82,6 @@ const char kEndpointResponse[] =
     "} ";
 
 }  // namespace
-
-class MockEndpointFetcher : public EndpointFetcher {
- public:
-  explicit MockEndpointFetcher(
-      const net::NetworkTrafficAnnotationTag& annotation_tag)
-      : EndpointFetcher(annotation_tag) {}
-
-  MOCK_METHOD(void,
-              PerformRequest,
-              (EndpointFetcherCallback endpoint_fetcher_callback,
-               const char* key),
-              (override));
-};
 
 class CartDiscountFetcherTest {
  public:
@@ -159,7 +147,7 @@ TEST(CartDiscountFetcherTest, TestGeneratePostData) {
 
 TEST(CartDiscountFetcherTest, TestOnDiscountsAvailableParsing) {
   std::unique_ptr<EndpointFetcher> mock_endpoint_fetcher =
-      std::make_unique<MockEndpointFetcher>(TRAFFIC_ANNOTATION_FOR_TESTS);
+      std::make_unique<MockEndpointFetcher>();
 
   base::MockCallback<CartDiscountFetcher::CartDiscountFetcherCallback>
       mock_callback;
@@ -177,7 +165,7 @@ TEST(CartDiscountFetcherTest, TestOnDiscountsAvailableParsing) {
 
 TEST(CartDiscountFetcherTest, TestHighestDiscounts) {
   std::unique_ptr<EndpointFetcher> mock_endpoint_fetcher =
-      std::make_unique<MockEndpointFetcher>(TRAFFIC_ANNOTATION_FOR_TESTS);
+      std::make_unique<MockEndpointFetcher>();
 
   base::MockCallback<CartDiscountFetcher::CartDiscountFetcherCallback>
       mock_callback;
@@ -201,7 +189,7 @@ TEST(CartDiscountFetcherTest, TestHighestDiscounts) {
 
 TEST(CartDiscountFetcherTest, TestRawMaerchantOffersIsOptional) {
   std::unique_ptr<EndpointFetcher> mock_endpoint_fetcher =
-      std::make_unique<MockEndpointFetcher>(TRAFFIC_ANNOTATION_FOR_TESTS);
+      std::make_unique<MockEndpointFetcher>();
 
   base::MockCallback<CartDiscountFetcher::CartDiscountFetcherCallback>
       mock_callback;
@@ -247,7 +235,7 @@ TEST(CartDiscountFetcherTest, TestRawMaerchantOffersIsOptional) {
 
 TEST(CartDiscountFetcherTest, TestExternalTesterDiscount) {
   std::unique_ptr<EndpointFetcher> mock_endpoint_fetcher =
-      std::make_unique<MockEndpointFetcher>(TRAFFIC_ANNOTATION_FOR_TESTS);
+      std::make_unique<MockEndpointFetcher>();
 
   base::MockCallback<CartDiscountFetcher::CartDiscountFetcherCallback>
       mock_callback;
@@ -295,7 +283,7 @@ TEST(CartDiscountFetcherTest, TestExternalTesterDiscount) {
 
 TEST(CartDiscountFetcherTest, TestNoRuleDiscounts) {
   std::unique_ptr<EndpointFetcher> mock_endpoint_fetcher =
-      std::make_unique<MockEndpointFetcher>(TRAFFIC_ANNOTATION_FOR_TESTS);
+      std::make_unique<MockEndpointFetcher>();
 
   base::MockCallback<CartDiscountFetcher::CartDiscountFetcherCallback>
       mock_callback;
@@ -329,7 +317,7 @@ TEST(CartDiscountFetcherTest, TestNoRuleDiscounts) {
 
 TEST(CartDiscountFetcherTest, TestOverallDiscountText) {
   std::unique_ptr<EndpointFetcher> mock_endpoint_fetcher =
-      std::make_unique<MockEndpointFetcher>(TRAFFIC_ANNOTATION_FOR_TESTS);
+      std::make_unique<MockEndpointFetcher>();
 
   base::MockCallback<CartDiscountFetcher::CartDiscountFetcherCallback>
       mock_callback;
@@ -366,7 +354,7 @@ TEST(CartDiscountFetcherTest, TestOverallDiscountText) {
 
 TEST(CartDiscountFetcherTest, TestOverallDiscountTextWithRuleDiscounts) {
   std::unique_ptr<EndpointFetcher> mock_endpoint_fetcher =
-      std::make_unique<MockEndpointFetcher>(TRAFFIC_ANNOTATION_FOR_TESTS);
+      std::make_unique<MockEndpointFetcher>();
 
   base::MockCallback<CartDiscountFetcher::CartDiscountFetcherCallback>
       mock_callback;
@@ -409,6 +397,62 @@ TEST(CartDiscountFetcherTest, TestOverallDiscountTextWithRuleDiscounts) {
   EXPECT_EQ(cart_discount_map.size(), 1u);
   EXPECT_EQ(cart_discount_map.at(kMockMerchantCartURLA).highest_discount_string,
             "20% off");
+}
+
+TEST(CartDiscountFetcherTest, TestCodeBasedRuleDiscount) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeaturesAndParameters(
+      {{commerce::kCodeBasedRBD,
+        {{commerce::kCodeBasedRuleDiscountParam, "true"}}}},
+      {});
+
+  std::unique_ptr<EndpointFetcher> mock_endpoint_fetcher =
+      std::make_unique<MockEndpointFetcher>();
+
+  base::MockCallback<CartDiscountFetcher::CartDiscountFetcherCallback>
+      mock_callback;
+
+  auto fake_responses = std::make_unique<EndpointResponse>();
+
+  fake_responses->response = R"(
+    {
+      "discounts": [
+        {
+          "merchantIdentifier": {
+            "cartUrl": "https://www.foo.com/cart",
+            "merchantId": "0"
+          },
+          "couponDiscounts": [
+            {
+              "type": "RBD_WITH_CODE",
+              "description": {
+                "title": "Save $10 on Running shoes.",
+                "languageCode": "en-US"
+              },
+              "couponCode": "SAVE$10",
+              "couponId": "1",
+              "expiryTimeSec": 1635204292
+            }
+          ]
+        }
+      ]
+    }
+  )";
+
+  CartDiscountFetcher::CartDiscountMap cart_discount_map;
+  EXPECT_CALL(mock_callback, Run(testing::_, testing::_))
+      .WillOnce(testing::SaveArg<0>(&cart_discount_map));
+
+  CartDiscountFetcherTest::OnDiscountsAvailable(
+      std::move(mock_endpoint_fetcher), mock_callback.Get(),
+      std::move(fake_responses));
+
+  ASSERT_EQ(cart_discount_map.size(), 1u);
+  EXPECT_EQ(cart_discount_map.at(kMockMerchantCartURLA).rule_discounts.size(),
+            0u);
+  EXPECT_EQ(cart_discount_map.at(kMockMerchantCartURLA).coupon_discounts.size(),
+            1u);
+  EXPECT_TRUE(cart_discount_map.at(kMockMerchantCartURLA).has_coupons);
 }
 
 class CartDiscountFetcherConfigurableEndpointTest : public testing::Test {

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "components/media_message_center/media_notification_view.h"
+#include "components/media_message_center/notification_theme.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/metadata/metadata_header_macros.h"
@@ -30,14 +31,6 @@ namespace media_message_center {
 class MediaNotificationBackground;
 class MediaNotificationContainer;
 class MediaNotificationItem;
-
-struct COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) NotificationTheme {
-  SkColor primary_text_color = 0;
-  SkColor secondary_text_color = 0;
-  SkColor enabled_icon_color = 0;
-  SkColor disabled_icon_color = 0;
-  SkColor separator_color = 0;
-};
 
 class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationViewImpl
     : public MediaNotificationView {
@@ -94,7 +87,7 @@ class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationViewImpl
       const media_session::MediaPosition& position) override {}
   void UpdateWithMediaArtwork(const gfx::ImageSkia& image) override;
   void UpdateWithFavicon(const gfx::ImageSkia& icon) override;
-  void UpdateWithVectorIcon(const gfx::VectorIcon& vector_icon) override;
+  void UpdateWithVectorIcon(const gfx::VectorIcon* vector_icon) override;
   void UpdateDeviceSelectorAvailability(bool availability) override;
   void UpdateWithMuteStatus(bool mute) override {}
   void UpdateWithVolume(float volume) override {}
@@ -178,10 +171,6 @@ class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationViewImpl
 
   // Set of enabled actions.
   base::flat_set<media_session::mojom::MediaSessionAction> enabled_actions_;
-
-  // Stores the text to be read by screen readers describing the notification.
-  // Contains the title, artist and album separated by hyphens.
-  std::u16string accessible_name_;
 
   // Container views directly attached to this view.
   raw_ptr<message_center::NotificationHeaderView> header_row_ = nullptr;

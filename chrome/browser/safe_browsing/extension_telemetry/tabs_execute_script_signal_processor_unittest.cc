@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,9 +45,8 @@ TEST_F(TabsExecuteScriptSignalProcessorTest, NoDataPresentInitially) {
 
 TEST_F(TabsExecuteScriptSignalProcessorTest, StoresDataAfterProcessingSignal) {
   // Process a signal.
-  auto signal = std::make_unique<TabsExecuteScriptSignal>(kExtensionId[0],
-                                                          script_data_[0].code);
-  processor_.ProcessSignal(std::move(signal));
+  auto signal = TabsExecuteScriptSignal(kExtensionId[0], script_data_[0].code);
+  processor_.ProcessSignal(signal);
 
   // Verify that processor now has some data to report.
   EXPECT_TRUE(processor_.HasDataToReportForTest());
@@ -61,22 +60,22 @@ TEST_F(TabsExecuteScriptSignalProcessorTest, ReportsSignalInfoCorrectly) {
   // Process 3 signals for the first extension, each corresponding to the
   // execution of the first test script.
   for (int i = 0; i < 3; i++) {
-    auto signal = std::make_unique<TabsExecuteScriptSignal>(
-        kExtensionId[0], script_data_[0].code);
-    processor_.ProcessSignal(std::move(signal));
+    auto signal =
+        TabsExecuteScriptSignal(kExtensionId[0], script_data_[0].code);
+    processor_.ProcessSignal(signal);
   }
 
   // Process 3 signals for second extension. Two signal corresponds to the
   // execution of first script, the third to the execution of the second script.
   for (int i = 0; i < 2; i++) {
-    auto signal = std::make_unique<TabsExecuteScriptSignal>(
-        kExtensionId[1], script_data_[0].code);
-    processor_.ProcessSignal(std::move(signal));
+    auto signal =
+        TabsExecuteScriptSignal(kExtensionId[1], script_data_[0].code);
+    processor_.ProcessSignal(signal);
   }
   {
-    auto signal = std::make_unique<TabsExecuteScriptSignal>(
-        kExtensionId[1], script_data_[1].code);
-    processor_.ProcessSignal(std::move(signal));
+    auto signal =
+        TabsExecuteScriptSignal(kExtensionId[1], script_data_[1].code);
+    processor_.ProcessSignal(signal);
   }
 
   // Retrieve signal info for first extension.
@@ -125,6 +124,43 @@ TEST_F(TabsExecuteScriptSignalProcessorTest, ReportsSignalInfoCorrectly) {
       EXPECT_EQ(script_info.execution_count(), static_cast<uint32_t>(1));
     }
   }
+}
+
+TEST_F(TabsExecuteScriptSignalProcessorTest, EnforcesMaxScriptHashesLimit) {
+  // Set script hashes limit to 1 for testing.
+  processor_.SetMaxScriptHashesForTest(1);
+
+  // Process 3 signals for same extension:
+  // - signals 1,2 each have the same script hash.
+  // - signals 3 has a different script hash.
+  auto signal1 = TabsExecuteScriptSignal(kExtensionId[0], script_data_[0].code);
+  auto signal2 = TabsExecuteScriptSignal(kExtensionId[0], script_data_[0].code);
+  auto signal3 = TabsExecuteScriptSignal(kExtensionId[0], script_data_[1].code);
+  processor_.ProcessSignal(signal1);
+  processor_.ProcessSignal(signal2);
+  processor_.ProcessSignal(signal3);
+
+  // Verify that processor now has some data to report.
+  EXPECT_TRUE(processor_.HasDataToReportForTest());
+
+  // Retrieve signal info.
+  std::unique_ptr<SignalInfo> extension_signal_info =
+      processor_.GetSignalInfoForReport(kExtensionId[0]);
+  ASSERT_NE(extension_signal_info, nullptr);
+
+  // Verify signal info contents for the extension.
+  // - there should be only 1 script hash with execution count of 2.
+  // - signal3 is ignored because of the max script hash limit of 1, the max
+  //   exceeded count should be 1.
+  const TabsExecuteScriptInfo& tabs_execute_script_info =
+      extension_signal_info->tabs_execute_script_info();
+
+  ASSERT_EQ(tabs_execute_script_info.scripts_size(), 1);
+  const ScriptInfo& script_info = tabs_execute_script_info.scripts(0);
+  EXPECT_EQ(script_info.hash(), script_data_[0].hash);
+  EXPECT_EQ(script_info.execution_count(), static_cast<uint32_t>(2));
+  EXPECT_EQ(tabs_execute_script_info.max_exceeded_script_count(),
+            static_cast<uint32_t>(1));
 }
 
 }  // namespace

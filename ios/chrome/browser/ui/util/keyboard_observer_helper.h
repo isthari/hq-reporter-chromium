@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,38 +7,25 @@
 
 #import <UIKit/UIKit.h>
 
-@protocol EdgeLayoutGuideProvider;
-
-// Struct to track the current keyboard state.
-typedef struct {
-  // Is YES if the keyboard is visible or becoming visible.
-  BOOL isVisible;
-  // Is YES if keyboard is or becoming undocked from bottom of screen.
-  BOOL isUndocked;
-  // Is YES if a hardware keyboard is in use and only the top part of the
-  // software keyboard is showing.
-  BOOL isHardware;
-} KeyboardState;
-
-// Delegate informed about the visible/hidden state of the keyboard.
-@protocol KeyboardObserverHelperConsumer <NSObject>
-
-// Indicates that the keyboard state changed, at least on one of the
-// |KeyboardState| aspects.
-- (void)keyboardWillChangeToState:(KeyboardState)keyboardState;
-
-@end
-
 // Helper to observe the keyboard and report updates.
 @interface KeyboardObserverHelper : NSObject
 
-// Flag that indicates if the keyboard is on screen.
-// TODO(crbug.com/974226): look into deprecating keyboardOnScreen for
-// isKeyboardVisible.
-@property(nonatomic, readonly, getter=isKeyboardOnScreen) BOOL keyboardOnScreen;
+// Singleton for KeyboardObserverHelper.
++ (instancetype)sharedKeyboardObserver;
 
-// The consumer to inform of the keyboard state changes.
-@property(nonatomic, weak) id<KeyboardObserverHelperConsumer> consumer;
+- (instancetype)init NS_UNAVAILABLE;
+
+// Flag that indicates if the docked software keyboard is visible. Undocked,
+// floating and split keyboard are considered hidden even if they are on the
+// screen. Note: The hardware keyboard is considered visible when a text field
+// becomes first responder. If the software keyboard is shown then hidden, the
+// hardware keyboard is considered hidden.
+@property(nonatomic, readonly, getter=isKeyboardVisible) BOOL keyboardVisible;
+
+// Returns keyboard's height if it's docked, otherwise returns 0. Note: This
+// includes the keyboard accessory's height, with an exception on iPad with
+// stage manager enabled. (cf. keyboardViewInWindow)
++ (CGFloat)keyboardHeightInWindow:(UIWindow*)window;
 
 @end
 

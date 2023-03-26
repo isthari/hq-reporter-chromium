@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,7 +43,7 @@ import java.util.Set;
      */
     /* package */ MockPaymentApp(String identifier, @Nullable String name, Drawable icon,
             String[] supportedMethodNames, @Nullable SupportedDelegations supportedDelegations) {
-        super(identifier, name == null ? "" : name, "test@bobpay.com", icon);
+        super(identifier, name == null ? "" : name, "test@bobpay.test", icon);
         mSupportedMethodNames = new HashSet<>(Arrays.asList(supportedMethodNames));
         mSupportedDelegations = supportedDelegations;
     }

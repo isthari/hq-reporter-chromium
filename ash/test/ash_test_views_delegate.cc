@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "ash/accelerators/accelerator_controller_impl.h"
 #include "ash/shell.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chromeos/ui/frame/frame_utils.h"
 
 namespace ash {
@@ -38,7 +39,7 @@ views::TestViewsDelegate::ProcessMenuAcceleratorResult
 AshTestViewsDelegate::ProcessAcceleratorWhileMenuShowing(
     const ui::Accelerator& accelerator) {
   if (ash::AcceleratorController::Get()->OnMenuAccelerator(accelerator)) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(ProcessAcceleratorNow, accelerator));
     return views::ViewsDelegate::ProcessMenuAcceleratorResult::CLOSE_MENU;
   }

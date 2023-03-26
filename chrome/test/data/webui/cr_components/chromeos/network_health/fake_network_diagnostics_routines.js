@@ -1,29 +1,27 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
-import 'chrome://resources/mojo/chromeos/services/network_health/public/mojom/network_diagnostics.mojom-lite.js';
+import {NetworkDiagnosticsRoutinesInterface, RoutineResult, RoutineVerdict} from 'chrome://resources/mojo/chromeos/services/network_health/public/mojom/network_diagnostics.mojom-webui.js';
 
-import {assertNotReached} from '../../../chai_assert.js';
+import {assertNotReached} from '../../../chromeos/chai_assert.js';
 
 import {createResult} from './network_health_test_utils.js';
 
 /**
  * @typedef {{
- *            result: !chromeos.networkDiagnostics.mojom.RoutineResult,
+ *            result: !RoutineResult,
  *          }}
  */
-var RunRoutineResponse;
+let RunRoutineResponse;
 
 /**
- * @implements
- *     {chromeos.networkDiagnostics.mojom.NetworkDiagnosticsRoutinesInterface}
+ * @implements {NetworkDiagnosticsRoutinesInterface}
  */
 export class FakeNetworkDiagnostics {
   constructor() {
-    /** @private {!chromeos.networkDiagnostics.mojom.RoutineVerdict} */
-    this.verdict_ = chromeos.networkDiagnostics.mojom.RoutineVerdict.kNoProblem;
+    /** @private {!RoutineVerdict} */
+    this.verdict_ = RoutineVerdict.kNoProblem;
 
     /** @private {?number} */
     this.problem_ = null;
@@ -36,11 +34,11 @@ export class FakeNetworkDiagnostics {
    * Sets the RoutineVerdict to be used by all routines in the
    * FakeNetworkDiagnostics service. Problems will be added automatically if the
    * verdict is kProblem.
-   * @param {!chromeos.networkDiagnostics.mojom.RoutineVerdict} verdict
+   * @param {!RoutineVerdict} verdict
    */
   setFakeVerdict(verdict) {
     this.verdict_ = verdict;
-    if (verdict === chromeos.networkDiagnostics.mojom.RoutineVerdict.kProblem) {
+    if (verdict === RoutineVerdict.kProblem) {
       this.problem_ = 0;
     }
   }
@@ -61,7 +59,7 @@ export class FakeNetworkDiagnostics {
    * @returns {!Promise<!RunRoutineResponse>}
    */
   wrapResult_(problemField) {
-    let result = createResult(this.verdict_);
+    const result = createResult(this.verdict_);
     result.problems[problemField] =
         this.problem_ !== null ? [this.problem_] : [];
     const response = {

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,15 +33,15 @@ TEST_F(GraphImplTest, GetSystemNodeImpl) {
 }
 
 TEST_F(GraphImplTest, GetProcessNodeByPid) {
-  TestNodeWrapper<ProcessNodeImpl> process =
-      TestNodeWrapper<ProcessNodeImpl>::Create(graph());
+  TestNodeWrapper<ProcessNodeImpl> process = CreateNode<ProcessNodeImpl>();
   EXPECT_EQ(base::kNullProcessId, process->process_id());
   EXPECT_FALSE(process->process().IsValid());
 
   const base::Process self = base::Process::Current();
 
   EXPECT_EQ(nullptr, graph()->GetProcessNodeByPid(self.Pid()));
-  process->SetProcess(self.Duplicate(), base::Time::Now());
+  process->SetProcess(self.Duplicate(),
+                      /* launch_time=*/base::TimeTicks::Now());
   EXPECT_TRUE(process->process().IsValid());
   EXPECT_EQ(self.Pid(), process->process_id());
   EXPECT_EQ(process.get(), graph()->GetProcessNodeByPid(self.Pid()));
@@ -63,12 +63,11 @@ TEST_F(GraphImplTest, PIDReuse) {
   // PID has been reused for a new process.
   static base::Process self = base::Process::Current();
 
-  TestNodeWrapper<ProcessNodeImpl> process1 =
-      TestNodeWrapper<ProcessNodeImpl>::Create(graph());
-  TestNodeWrapper<ProcessNodeImpl> process2 =
-      TestNodeWrapper<ProcessNodeImpl>::Create(graph());
+  TestNodeWrapper<ProcessNodeImpl> process1 = CreateNode<ProcessNodeImpl>();
+  TestNodeWrapper<ProcessNodeImpl> process2 = CreateNode<ProcessNodeImpl>();
 
-  process1->SetProcess(self.Duplicate(), base::Time::Now());
+  process1->SetProcess(self.Duplicate(),
+                       /* launch_time=*/base::TimeTicks::Now());
   EXPECT_EQ(process1.get(), graph()->GetProcessNodeByPid(self.Pid()));
 
   // First process exits, but hasn't been deleted yet.
@@ -76,7 +75,8 @@ TEST_F(GraphImplTest, PIDReuse) {
   EXPECT_EQ(process1.get(), graph()->GetProcessNodeByPid(self.Pid()));
 
   // The second registration for the same PID should override the first one.
-  process2->SetProcess(self.Duplicate(), base::Time::Now());
+  process2->SetProcess(self.Duplicate(),
+                       /* launch_time=*/base::TimeTicks::Now());
   EXPECT_EQ(process2.get(), graph()->GetProcessNodeByPid(self.Pid()));
 
   // The destruction of the first process node shouldn't clear the PID
@@ -121,7 +121,7 @@ using testing::Invoke;
 }  // namespace
 
 TEST_F(GraphImplTest, ObserverWorks) {
-  std::unique_ptr<GraphImpl> graph = base::WrapUnique(new GraphImpl());
+  std::unique_ptr<GraphImpl> graph = std::make_unique<GraphImpl>();
   Graph* raw_graph = graph.get();
 
   MockObserver obs;
@@ -164,13 +164,13 @@ class Foo : public GraphOwned {
 TEST_F(GraphImplTest, GraphOwned) {
   int destructor_count = 0;
 
-  std::unique_ptr<Foo> foo1 = base::WrapUnique(new Foo(&destructor_count));
-  std::unique_ptr<Foo> foo2 = base::WrapUnique(new Foo(&destructor_count));
+  std::unique_ptr<Foo> foo1 = std::make_unique<Foo>(&destructor_count);
+  std::unique_ptr<Foo> foo2 = std::make_unique<Foo>(&destructor_count);
   auto* raw1 = foo1.get();
   auto* raw2 = foo2.get();
 
   // Pass both objects to the graph.
-  std::unique_ptr<GraphImpl> graph = base::WrapUnique(new GraphImpl());
+  std::unique_ptr<GraphImpl> graph = std::make_unique<GraphImpl>();
   EXPECT_EQ(0u, graph->GraphOwnedCountForTesting());
   EXPECT_FALSE(raw1->passed_to_called());
   graph->PassToGraph(std::move(foo1));
@@ -206,38 +206,38 @@ class TestNodeDataDescriber : public NodeDataDescriber {
   explicit TestNodeDataDescriber(base::StringPiece name) : name_(name) {}
 
   base::Value DescribeFrameNodeData(const FrameNode* node) const override {
-    base::Value list(base::Value::Type::LIST);
+    base::Value::List list;
     list.Append(name_);
     list.Append("FrameNode");
-    return list;
+    return base::Value(std::move(list));
   }
 
   base::Value DescribePageNodeData(const PageNode* node) const override {
-    base::Value list(base::Value::Type::LIST);
+    base::Value::List list;
     list.Append(name_);
     list.Append("PageNode");
-    return list;
+    return base::Value(std::move(list));
   }
 
   base::Value DescribeProcessNodeData(const ProcessNode* node) const override {
-    base::Value list(base::Value::Type::LIST);
+    base::Value::List list;
     list.Append(name_);
     list.Append("ProcessNode");
-    return list;
+    return base::Value(std::move(list));
   }
 
   base::Value DescribeSystemNodeData(const SystemNode* node) const override {
-    base::Value list(base::Value::Type::LIST);
+    base::Value::List list;
     list.Append(name_);
     list.Append("SystemNode");
-    return list;
+    return base::Value(std::move(list));
   }
 
   base::Value DescribeWorkerNodeData(const WorkerNode* node) const override {
-    base::Value list(base::Value::Type::LIST);
+    base::Value::List list;
     list.Append(name_);
     list.Append("WorkerNode");
-    return list;
+    return base::Value(std::move(list));
   }
 
  private:
@@ -252,7 +252,7 @@ void AssertDictValueContainsListKey(const base::Value& descr,
   const base::Value* v = descr.FindListKey(key);
   ASSERT_NE(nullptr, v);
 
-  const auto list = v->GetList();
+  const auto& list = v->GetList();
   ASSERT_EQ(2u, list.size());
   ASSERT_EQ(list[0], base::Value(s1));
   ASSERT_EQ(list[1], base::Value(s2));

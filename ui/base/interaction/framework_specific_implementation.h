@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,11 @@
 #define UI_BASE_INTERACTION_FRAMEWORK_SPECIFIC_IMPLEMENTATION_H_
 
 #include <memory>
+#include <ostream>
+#include <string>
 
-#include "base/callback.h"
+#include "base/component_export.h"
+#include "base/functional/callback.h"
 #include "ui/base/interaction/element_identifier.h"
 
 namespace ui {
@@ -77,6 +80,12 @@ class COMPONENT_EXPORT(UI_BASE) FrameworkSpecificImplementation {
                : nullptr;
   }
 
+  // Gets the class name of the implementation.
+  virtual const char* GetImplementationName() const = 0;
+
+  // Gets a string representation of this element.
+  virtual std::string ToString() const;
+
  protected:
   // Use DECLARE/DEFINE_FRAMEWORK_SPECIFIC_METADATA() - see below - to
   // implement this method in your framework-specific derived classes.
@@ -86,9 +95,13 @@ class COMPONENT_EXPORT(UI_BASE) FrameworkSpecificImplementation {
 // These macros can be used to help define platform-specific subclasses of
 // base classes derived from FrameworkSpecificImplementation.
 #define DECLARE_FRAMEWORK_SPECIFIC_METADATA()          \
+  const char* GetImplementationName() const override;  \
   static FrameworkIdentifier GetFrameworkIdentifier(); \
   FrameworkIdentifier GetInstanceFrameworkIdentifier() const override;
 #define DEFINE_FRAMEWORK_SPECIFIC_METADATA(ClassName)                \
+  const char* ClassName::GetImplementationName() const {             \
+    return #ClassName;                                               \
+  }                                                                  \
   ui::FrameworkSpecificImplementation::FrameworkIdentifier           \
   ClassName::GetFrameworkIdentifier() {                              \
     DEFINE_LOCAL_ELEMENT_IDENTIFIER_VALUE(k##ClassName##Identifier); \
@@ -157,18 +170,31 @@ class FrameworkSpecificRegistrationList {
   }
 
   // Adds an instance of `DerivedClass` if it is not already present.
-  template <class DerivedClass>
-  void MaybeRegister() {
+  // Additional arguments in `params` will only be consumed if the class needs
+  // to be added, so do not allocate resources that are not scoped and movable
+  // (i.e. pass a std::unique_ptr rather than "new X", so the object will be
+  // properly cleaned up if it is not used).
+  template <class DerivedClass, typename... Args>
+  void MaybeRegister(Args&&... args) {
     for (const auto& instance : instances_) {
       if (instance->template IsA<DerivedClass>())
         return;
     }
-    instances_.push_back(std::make_unique<DerivedClass>());
+    instances_.push_back(
+        std::make_unique<DerivedClass>(std::forward<Args>(args)...));
   }
 
  private:
   ListType instances_;
 };
+
+COMPONENT_EXPORT(UI_BASE)
+extern void PrintTo(const FrameworkSpecificImplementation& impl,
+                    std::ostream* os);
+
+COMPONENT_EXPORT(UI_BASE)
+extern std::ostream& operator<<(std::ostream& os,
+                                const FrameworkSpecificImplementation& impl);
 
 }  // namespace ui
 

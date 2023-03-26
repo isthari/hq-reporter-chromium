@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -105,9 +105,6 @@ class AccessibilityFocusHighlight : public ui::LayerDelegate,
 
   // The most recent time the layer was updated because focus moved.
   base::TimeTicks focus_last_changed_time_;
-
-  // The default color used for the highlight.
-  static SkColor default_color_;
 
   // Whether to skip fade in/fade out for testing.
   static bool no_fade_for_testing_;

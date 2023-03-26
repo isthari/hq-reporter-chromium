@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,10 @@ class EventGenerator;
 
 namespace ash {
 
+class CloseButton;
 class DeskActivationAnimation;
+class DeskMiniView;
+class DesksBarView;
 
 constexpr int kNumFingersForHighlight = 3;
 constexpr int kNumFingersForDesksSwitch = 4;
@@ -36,15 +39,7 @@ class DeskSwitchAnimationWaiter : public DesksController::Observer {
   void Wait();
 
   // DesksController::Observer:
-  void OnDeskAdded(const Desk* desk) override;
-  void OnDeskRemoved(const Desk* desk) override;
-  void OnDeskReordered(int old_index, int new_index) override;
-  void OnDeskActivationChanged(const Desk* activated,
-                               const Desk* deactivated) override;
-  void OnDeskSwitchAnimationLaunching() override;
   void OnDeskSwitchAnimationFinished() override;
-  void OnDeskNameChanged(const Desk* desk,
-                         const std::u16string& new_name) override;
 
  private:
   base::RunLoop run_loop_;
@@ -57,9 +52,11 @@ void ActivateDesk(const Desk* desk);
 // Creates a desk through keyboard.
 void NewDesk();
 
-// Removes the given |desk| and waits for the desk-removal animation to finish
+// Removes the given `desk` and waits for the desk-removal animation to finish
 // if one would launch.
-void RemoveDesk(const Desk* desk);
+// If `close_windows` is set to true, the windows in `desk` are closed as well.
+void RemoveDesk(const Desk* desk,
+                DeskCloseType close_type = DeskCloseType::kCombineDesks);
 
 // Returns the active desk.
 const Desk* GetActiveDesk();
@@ -73,6 +70,28 @@ void ScrollToSwitchDesks(bool scroll_left,
 
 // Wait until `animation`'s ending screenshot has been taken.
 void WaitUntilEndingScreenshotTaken(DeskActivationAnimation* animation);
+
+// Returns the desk bar view for the primary display.
+const DesksBarView* GetPrimaryRootDesksBarView();
+
+// Returns the legacy close button if `features::kDesksCloseAll` is not enabled,
+// and otherwise returns the available button in the `desk_action_view` that
+// performs the same action (i.e. the combine desks button if it is available,
+// and otherwise the close-all button).
+const CloseButton* GetCloseDeskButtonForMiniView(const DeskMiniView* mini_view);
+
+// Returns the visibility state of the desk action interface for the mini view
+// (i.e. `desk_action_view` if `features::kDesksCloseAll` is enabled,
+// `close_desk_button` otherwise).
+bool GetDeskActionVisibilityForMiniView(const DeskMiniView* mini_view);
+
+// Wait for `milliseconds` to be finished.
+void WaitForMilliseconds(int milliseconds);
+
+// Long press at `screen_location` through a touch pressed event.
+void LongGestureTap(const gfx::Point& screen_location,
+                    ui::test::EventGenerator* event_generator,
+                    bool release_touch = true);
 
 }  // namespace ash
 

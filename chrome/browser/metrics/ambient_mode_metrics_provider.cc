@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,7 +34,7 @@ AmbientModeMetricsProvider::~AmbientModeMetricsProvider() = default;
 
 void AmbientModeMetricsProvider::ProvideCurrentSessionData(
     metrics::ChromeUserMetricsExtension* uma_proto_unused) {
-  if (!chromeos::features::IsAmbientModeEnabled())
+  if (!ash::features::IsAmbientModeEnabled())
     return;
 
   auto* ambient_client = ash::AmbientClient::Get();

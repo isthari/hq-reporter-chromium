@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,10 @@
 // Please run the closure compiler before committing changes.
 // See https://chromium.googlesource.com/chromium/src/+/main/docs/closure_compilation.md
 
-/** @fileoverview Externs generated from namespace: autofillPrivate */
+/**
+ * @fileoverview Externs generated from namespace: autofillPrivate
+ * @externs
+ */
 
 /** @const */
 chrome.autofillPrivate = {};
@@ -31,12 +34,23 @@ chrome.autofillPrivate.AddressField = {
 };
 
 /**
+ * @enum {string}
+ */
+chrome.autofillPrivate.AddressSource = {
+  LOCAL_OR_SYNCABLE: 'LOCAL_OR_SYNCABLE',
+  ACCOUNT: 'ACCOUNT',
+};
+
+/**
  * @typedef {{
  *   summaryLabel: string,
  *   summarySublabel: (string|undefined),
+ *   source: (!chrome.autofillPrivate.AddressSource|undefined),
  *   isLocal: (boolean|undefined),
  *   isCached: (boolean|undefined),
- *   isMigratable: (boolean|undefined)
+ *   isMigratable: (boolean|undefined),
+ *   isVirtualCardEnrollmentEligible: (boolean|undefined),
+ *   isVirtualCardEnrolled: (boolean|undefined)
  * }}
  */
 chrome.autofillPrivate.AutofillMetadata;
@@ -104,10 +118,21 @@ chrome.autofillPrivate.AddressComponents;
  *   expirationYear: (string|undefined),
  *   nickname: (string|undefined),
  *   network: (string|undefined),
+ *   imageSrc: (string|undefined),
  *   metadata: (!chrome.autofillPrivate.AutofillMetadata|undefined)
  * }}
  */
 chrome.autofillPrivate.CreditCardEntry;
+
+/**
+ * @typedef {{
+ *   guid: (string|undefined),
+ *   value: (string|undefined),
+ *   nickname: (string|undefined),
+ *   metadata: (!chrome.autofillPrivate.AutofillMetadata|undefined)
+ * }}
+ */
+chrome.autofillPrivate.IbanEntry;
 
 /**
  * @typedef {{
@@ -158,6 +183,13 @@ chrome.autofillPrivate.getAddressList = function(callback) {};
 chrome.autofillPrivate.saveCreditCard = function(card) {};
 
 /**
+ * Saves the given IBAN. If `iban` has an empty string as its ID, it will be
+ * assigned a new one and added as a new entry.
+ * @param {!chrome.autofillPrivate.IbanEntry} iban The IBAN entry to save.
+ */
+chrome.autofillPrivate.saveIban = function(iban) {};
+
+/**
  * Removes the entry (address or credit card) with the given ID.
  * @param {string} guid ID of the entry to remove.
  */
@@ -180,6 +212,13 @@ chrome.autofillPrivate.validatePhoneNumbers = function(params, callback) {};
  *     callback Callback which will be called with the list of credit cards.
  */
 chrome.autofillPrivate.getCreditCardList = function(callback) {};
+
+/**
+ * Gets the list of IBANs.
+ * @param {function(!Array<!chrome.autofillPrivate.IbanEntry>): void} callback
+ *     Callback which will be called with the list of IBANs.
+ */
+chrome.autofillPrivate.getIbanList = function(callback) {};
 
 /**
  * Clears the data associated with a wallet card which was saved locally so that
@@ -210,6 +249,22 @@ chrome.autofillPrivate.setCreditCardFIDOAuthEnabledState = function(enabled) {};
  *     called with the list of UPI IDs.
  */
 chrome.autofillPrivate.getUpiIdList = function(callback) {};
+
+/**
+ * Enrolls a credit card into virtual cards.
+ * @param {string} cardId The server side id of the credit card to be enrolled.
+ *     Note it refers to the legacy server id of credit cards, not the
+ *     instrument ids.
+ */
+chrome.autofillPrivate.addVirtualCard = function(cardId) {};
+
+/**
+ * Unenrolls a credit card from virtual cards.
+ * @param {string} cardId The server side id of the credit card to be
+ *     unenrolled. Note it refers to the legacy server id of credit cards, not
+ *     the instrument ids.
+ */
+chrome.autofillPrivate.removeVirtualCard = function(cardId) {};
 
 /**
  * Fired when the personal data has changed, meaning that an entry has been

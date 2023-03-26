@@ -1,9 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/browsing_data/browsing_data_lifetime_policy_handler.h"
+
 #include "base/strings/utf_string_conversions.h"
+#include "base/values.h"
 #include "components/browsing_data/core/pref_names.h"
 #include "components/policy/core/browser/policy_error_map.h"
 #include "components/policy/core/common/policy_map.h"
@@ -19,7 +21,8 @@ TEST(BrowsingDataLifetimePolicyHandler, SyncDisabledNotSet) {
 
   policy_map.Set(policy::key::kBrowsingDataLifetime,
                  policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_MACHINE,
-                 policy::POLICY_SOURCE_CLOUD, base::ListValue(), nullptr);
+                 policy::POLICY_SOURCE_CLOUD,
+                 base::Value(base::Value::Type::LIST), nullptr);
 
   BrowsingDataLifetimePolicyHandler handler(
       policy::key::kBrowsingDataLifetime,
@@ -27,7 +30,7 @@ TEST(BrowsingDataLifetimePolicyHandler, SyncDisabledNotSet) {
       policy::Schema::Wrap(policy::GetChromeSchemaData()));
 
   handler.CheckPolicySettings(policy_map, &errors);
-  EXPECT_EQ(errors.GetErrors(policy::key::kBrowsingDataLifetime),
+  EXPECT_EQ(errors.GetErrorMessages(policy::key::kBrowsingDataLifetime),
             l10n_util::GetStringFUTF16(
                 IDS_POLICY_DEPENDENCY_ERROR,
                 base::UTF8ToUTF16(policy::key::kSyncDisabled), u"true"));
@@ -39,7 +42,8 @@ TEST(BrowsingDataLifetimePolicyHandler, SyncDisabledFalse) {
 
   policy_map.Set(policy::key::kBrowsingDataLifetime,
                  policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_MACHINE,
-                 policy::POLICY_SOURCE_CLOUD, base::ListValue(), nullptr);
+                 policy::POLICY_SOURCE_CLOUD,
+                 base::Value(base::Value::Type::LIST), nullptr);
   policy_map.Set(policy::key::kSyncDisabled, policy::POLICY_LEVEL_MANDATORY,
                  policy::POLICY_SCOPE_MACHINE, policy::POLICY_SOURCE_CLOUD,
                  base::Value(false), nullptr);
@@ -50,7 +54,7 @@ TEST(BrowsingDataLifetimePolicyHandler, SyncDisabledFalse) {
       policy::Schema::Wrap(policy::GetChromeSchemaData()));
 
   handler.CheckPolicySettings(policy_map, &errors);
-  EXPECT_EQ(errors.GetErrors(policy::key::kBrowsingDataLifetime),
+  EXPECT_EQ(errors.GetErrorMessages(policy::key::kBrowsingDataLifetime),
             l10n_util::GetStringFUTF16(
                 IDS_POLICY_DEPENDENCY_ERROR,
                 base::UTF8ToUTF16(policy::key::kSyncDisabled), u"true"));
@@ -62,7 +66,8 @@ TEST(BrowsingDataLifetimePolicyHandler, SyncDisabledTrue) {
 
   policy_map.Set(policy::key::kBrowsingDataLifetime,
                  policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_MACHINE,
-                 policy::POLICY_SOURCE_CLOUD, base::ListValue(), nullptr);
+                 policy::POLICY_SOURCE_CLOUD,
+                 base::Value(base::Value::Type::LIST), nullptr);
   policy_map.Set(policy::key::kSyncDisabled, policy::POLICY_LEVEL_MANDATORY,
                  policy::POLICY_SCOPE_MACHINE, policy::POLICY_SOURCE_CLOUD,
                  base::Value(true), nullptr);

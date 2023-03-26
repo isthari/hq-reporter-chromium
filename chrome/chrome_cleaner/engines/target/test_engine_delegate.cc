@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,14 +11,13 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/string_piece.h"
-#include "base/task/task_runner_util.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/win/scoped_handle.h"
 #include "chrome/chrome_cleaner/constants/uws_id.h"
 #include "chrome/chrome_cleaner/engines/common/engine_result_codes.h"
@@ -255,7 +254,7 @@ void TestEngineDelegate::Initialize(
   work_thread_ = std::make_unique<base::Thread>("TestEngineDelegate");
   uint32_t result = work_thread_->Start() ? EngineResultCode::kSuccess
                                           : EngineResultCode::kEngineInternal;
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(done_callback), result));
 }
 
@@ -267,8 +266,8 @@ uint32_t TestEngineDelegate::StartScan(
     scoped_refptr<EngineRequestsProxy> privileged_scan_calls,
     scoped_refptr<EngineScanResultsProxy> report_result_calls) {
   DCHECK(work_thread_);
-  base::PostTaskAndReplyWithResult(
-      work_thread_->task_runner().get(), FROM_HERE,
+  work_thread_->task_runner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&ScanForUwS, enabled_uws, enabled_trace_locations,
                      include_details, privileged_file_calls,
                      report_result_calls),
@@ -284,8 +283,8 @@ uint32_t TestEngineDelegate::StartCleanup(
     scoped_refptr<CleanerEngineRequestsProxy> privileged_removal_calls,
     scoped_refptr<EngineCleanupResultsProxy> report_result_calls) {
   DCHECK(work_thread_);
-  base::PostTaskAndReplyWithResult(
-      work_thread_->task_runner().get(), FROM_HERE,
+  work_thread_->task_runner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&CleanUwS, enabled_uws, privileged_file_calls,
                      privileged_removal_calls),
       base::BindOnce(&CleanupDone, privileged_file_calls, privileged_scan_calls,

@@ -1,4 +1,4 @@
-// Copyright 2017 The Crashpad Authors. All rights reserved.
+// Copyright 2017 The Crashpad Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,10 +16,10 @@
 
 #include <unistd.h>
 
+#include <iterator>
 #include <vector>
 
 #include "base/check_op.h"
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "build/build_config.h"
 
@@ -130,7 +130,7 @@ bool IsSignalInSet(int sig, const int* set, size_t set_size) {
 struct sigaction* Signals::OldActions::ActionForSignal(int sig) {
   DCHECK_GT(sig, 0);
   const size_t slot = sig - 1;
-  DCHECK_LT(slot, base::size(actions_));
+  DCHECK_LT(slot, std::size(actions_));
   return &actions_[slot];
 }
 
@@ -147,6 +147,25 @@ bool Signals::InstallHandler(int sig,
     PLOG(ERROR) << "sigaction " << sig;
     return false;
   }
+
+// Sanitizers can prevent the installation of signal handlers, but sigaction
+// does not report this as failure. Attempt to detect this by checking the
+// currently installed signal handler.
+#if defined(ADDRESS_SANITIZER) || defined(MEMORY_SANITIZER) || \
+    defined(THREAD_SANITIZER) || defined(LEAK_SANITIZER) ||    \
+    defined(UNDEFINED_SANITIZER)
+  struct sigaction installed_handler;
+  CHECK_EQ(sigaction(sig, nullptr, &installed_handler), 0);
+  // If the installed handler does not point to the just installed handler, then
+  // the allow_user_segv_handler sanitizer flag is (probably) disabled.
+  if (installed_handler.sa_sigaction != handler) {
+    LOG(WARNING)
+        << "sanitizers are preventing signal handler installation (sig " << sig
+        << ")";
+    return false;
+  }
+#endif
+
   return true;
 }
 
@@ -165,8 +184,7 @@ bool Signals::InstallCrashHandlers(Handler handler,
                                    OldActions* old_actions,
                                    const std::set<int>* unhandled_signals) {
   return InstallHandlers(
-      std::vector<int>(kCrashSignals,
-                       kCrashSignals + base::size(kCrashSignals)),
+      std::vector<int>(kCrashSignals, kCrashSignals + std::size(kCrashSignals)),
       handler,
       flags,
       old_actions,
@@ -179,7 +197,7 @@ bool Signals::InstallTerminateHandlers(Handler handler,
                                        OldActions* old_actions) {
   return InstallHandlers(
       std::vector<int>(kTerminateSignals,
-                       kTerminateSignals + base::size(kTerminateSignals)),
+                       kTerminateSignals + std::size(kTerminateSignals)),
       handler,
       flags,
       old_actions,
@@ -324,12 +342,12 @@ void Signals::RestoreHandlerAndReraiseSignalOnReturn(
 
 // static
 bool Signals::IsCrashSignal(int sig) {
-  return IsSignalInSet(sig, kCrashSignals, base::size(kCrashSignals));
+  return IsSignalInSet(sig, kCrashSignals, std::size(kCrashSignals));
 }
 
 // static
 bool Signals::IsTerminateSignal(int sig) {
-  return IsSignalInSet(sig, kTerminateSignals, base::size(kTerminateSignals));
+  return IsSignalInSet(sig, kTerminateSignals, std::size(kTerminateSignals));
 }
 
 }  // namespace crashpad

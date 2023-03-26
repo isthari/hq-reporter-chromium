@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -203,10 +203,6 @@ class GpuMemoryBufferImplGbm : public gfx::GpuMemoryBuffer {
     return handle;
   }
 
-  ClientBuffer AsClientBuffer() override {
-    return reinterpret_cast<ClientBuffer>(this);
-  }
-
   void OnMemoryDump(
       base::trace_event::ProcessMemoryDump* pmd,
       const base::trace_event::MemoryAllocatorDumpGuid& buffer_dump_guid,
@@ -281,10 +277,6 @@ LocalGpuMemoryBufferManager::CreateGpuMemoryBuffer(
 
   return std::make_unique<GpuMemoryBufferImplGbm>(format, buffer_object);
 }
-
-void LocalGpuMemoryBufferManager::SetDestructionSyncToken(
-    gfx::GpuMemoryBuffer* buffer,
-    const gpu::SyncToken& sync_token) {}
 
 void LocalGpuMemoryBufferManager::CopyGpuMemoryBufferAsync(
     gfx::GpuMemoryBufferHandle buffer_handle,

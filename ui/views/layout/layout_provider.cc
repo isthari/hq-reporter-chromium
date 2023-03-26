@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "base/logging.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/gfx/font_list.h"
 #include "ui/views/style/typography.h"
 #include "ui/views/views_delegate.h"
@@ -47,25 +48,25 @@ gfx::Insets LayoutProvider::GetInsetsMetric(int metric) const {
   switch (metric) {
     case InsetsMetric::INSETS_DIALOG:
     case InsetsMetric::INSETS_DIALOG_SUBSECTION:
-      return gfx::Insets(13, 13);
+      return gfx::Insets(13);
     case InsetsMetric::INSETS_DIALOG_BUTTON_ROW: {
       const gfx::Insets dialog_insets = GetInsetsMetric(INSETS_DIALOG);
-      return gfx::Insets(0, dialog_insets.left(), dialog_insets.bottom(),
-                         dialog_insets.right());
+      return gfx::Insets::TLBR(0, dialog_insets.left(), dialog_insets.bottom(),
+                               dialog_insets.right());
     }
     case InsetsMetric::INSETS_DIALOG_TITLE: {
       const gfx::Insets dialog_insets = GetInsetsMetric(INSETS_DIALOG);
-      return gfx::Insets(dialog_insets.top(), dialog_insets.left(), 0,
-                         dialog_insets.right());
+      return gfx::Insets::TLBR(dialog_insets.top(), dialog_insets.left(), 0,
+                               dialog_insets.right());
     }
     case InsetsMetric::INSETS_TOOLTIP_BUBBLE:
       return gfx::Insets(8);
     case InsetsMetric::INSETS_CHECKBOX_RADIO_BUTTON:
-      return gfx::Insets(5, 6);
+      return gfx::Insets::VH(5, 6);
     case InsetsMetric::INSETS_VECTOR_IMAGE_BUTTON:
       return gfx::Insets(4);
     case InsetsMetric::INSETS_LABEL_BUTTON:
-      return gfx::Insets(5, 6);
+      return gfx::Insets::VH(5, 6);
   }
   NOTREACHED();
   return gfx::Insets();
@@ -85,7 +86,7 @@ int LayoutProvider::GetDistanceMetric(int metric) const {
     case DISTANCE_CLOSE_BUTTON_MARGIN:
       return 4;
     case DISTANCE_CONTROL_VERTICAL_TEXT_PADDING:
-      return 8;
+      return features::IsChromeRefresh2023() ? 10 : 8;
     case DISTANCE_DIALOG_BUTTON_MINIMUM_WIDTH:
       // Minimum label size plus padding.
       return 32 + 2 * GetDistanceMetric(DISTANCE_BUTTON_HORIZONTAL_PADDING);
@@ -116,7 +117,7 @@ int LayoutProvider::GetDistanceMetric(int metric) const {
     case DISTANCE_TABLE_CELL_HORIZONTAL_MARGIN:
       return 12;
     case DISTANCE_TEXTFIELD_HORIZONTAL_TEXT_PADDING:
-      return 8;
+      return features::IsChromeRefresh2023() ? 10 : 8;
     case DISTANCE_UNRELATED_CONTROL_VERTICAL:
       return 16;
     case VIEWS_DISTANCE_END:
@@ -157,8 +158,8 @@ gfx::Insets LayoutProvider::GetDialogInsetsForContentType(
           ? GetDistanceMetric(DISTANCE_DIALOG_CONTENT_MARGIN_BOTTOM_CONTROL)
           : GetDistanceMetric(DISTANCE_DIALOG_CONTENT_MARGIN_BOTTOM_TEXT);
   const gfx::Insets dialog_insets = GetInsetsMetric(INSETS_DIALOG);
-  return gfx::Insets(top_margin, dialog_insets.left(), bottom_margin,
-                     dialog_insets.right());
+  return gfx::Insets::TLBR(top_margin, dialog_insets.left(), bottom_margin,
+                           dialog_insets.right());
 }
 
 int LayoutProvider::GetCornerRadiusMetric(Emphasis emphasis,

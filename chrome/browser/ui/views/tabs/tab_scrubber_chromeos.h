@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,10 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/browser/ui/views/tabs/tab_strip_observer.h"
 #include "ui/events/event_handler.h"
@@ -96,9 +98,9 @@ class TabScrubberChromeOS : public ui::EventHandler,
   bool scrubbing_ = false;
   // The last browser we used for scrubbing, NULL if |scrubbing_| is false and
   // there is no pending work.
-  Browser* browser_ = nullptr;
+  raw_ptr<Browser> browser_ = nullptr;
   // The TabStrip of the active browser we're scrubbing.
-  TabStrip* tab_strip_ = nullptr;
+  raw_ptr<TabStrip> tab_strip_ = nullptr;
   // The current accumulated x and y positions of a swipe, in the coordinates
   // of the TabStrip of |browser_|.
   float swipe_x_ = -1;

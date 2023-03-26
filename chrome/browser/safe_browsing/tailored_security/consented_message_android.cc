@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include "chrome/browser/android/android_theme_resources.h"
 #include "chrome/browser/android/resource_mapper.h"
 #include "chrome/browser/safe_browsing/android/safe_browsing_settings_launcher_android.h"
-#include "chrome/browser/safe_browsing/tailored_security/tailored_security_outcome.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/messages/android/message_dispatcher_bridge.h"
+#include "components/safe_browsing/core/browser/tailored_security_service/tailored_security_outcome.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -69,7 +69,7 @@ TailoredSecurityConsentedModalAndroid::TailoredSecurityConsentedModalAndroid(
   message_->SetIconResourceId(icon_resource_id);
   message_->SetSecondaryIconResourceId(
       ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_MESSAGE_SETTINGS));
-  message_->SetSecondaryActionCallback(base::BindOnce(
+  message_->SetSecondaryActionCallback(base::BindRepeating(
       &TailoredSecurityConsentedModalAndroid::HandleSettingsClicked,
       base::Unretained(this)));
 

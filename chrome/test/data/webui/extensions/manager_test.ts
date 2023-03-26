@@ -1,11 +1,9 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {ChromeEvent} from '/tools/typescript/definitions/chrome_event.js';
-import {navigation, Page, Service} from 'chrome://extensions/extensions.js';
-import {ExtensionsManagerElement} from 'chrome://extensions/extensions.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {ExtensionsManagerElement, navigation, Page, Service} from 'chrome://extensions/extensions.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {eventToPromise} from 'chrome://webui-test/test_util.js';
@@ -39,7 +37,7 @@ suite(extension_manager_tests.suiteName, function() {
   }
 
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     manager = document.createElement('extensions-manager');
     document.body.appendChild(manager);
 
@@ -61,7 +59,7 @@ suite(extension_manager_tests.suiteName, function() {
   }
 
   test(
-      assert(extension_manager_tests.TestNames.ItemListVisibility), function() {
+      extension_manager_tests.TestNames.ItemListVisibility, function() {
         function getExtensionByName(name: string):
             chrome.developerPrivate.ExtensionInfo|null {
           return getExtensions().find(el => el.name === name) || null;
@@ -97,7 +95,7 @@ suite(extension_manager_tests.suiteName, function() {
         assertTrue(listHasItemWithName('My extension 1'));
       });
 
-  test(assert(extension_manager_tests.TestNames.SplitItems), function() {
+  test(extension_manager_tests.TestNames.SplitItems, function() {
     function hasExtensionWithName(name: string): boolean {
       return getExtensions().some(el => el.name === name);
     }
@@ -113,7 +111,7 @@ suite(extension_manager_tests.suiteName, function() {
     assertTrue(hasAppWithName('Packaged App Test'));
   });
 
-  test(assert(extension_manager_tests.TestNames.ChangePages), function() {
+  test(extension_manager_tests.TestNames.ChangePages, function() {
     manager.shadowRoot!.querySelector('extensions-toolbar')!.shadowRoot!
         .querySelector('cr-toolbar')!.shadowRoot!
         .querySelector<HTMLElement>('#menuButton')!.click();
@@ -155,7 +153,7 @@ suite(extension_manager_tests.suiteName, function() {
     assertViewActive('extensions-item-list');
   });
 
-  test(assert(extension_manager_tests.TestNames.PageTitleUpdate), function() {
+  test(extension_manager_tests.TestNames.PageTitleUpdate, function() {
     assertEquals('Extensions', document.title);
 
     // Open details view with a valid ID.
@@ -171,7 +169,7 @@ suite(extension_manager_tests.suiteName, function() {
   });
 
   test(
-      assert(extension_manager_tests.TestNames.NavigateToSitePermissionsFail),
+      extension_manager_tests.TestNames.NavigateToSitePermissionsFail,
       function() {
         assertFalse(manager.enableEnhancedSiteControls);
 
@@ -182,11 +180,17 @@ suite(extension_manager_tests.suiteName, function() {
         // Should be re-routed to the main page with enableEnhancedSiteControls
         // set to false.
         assertViewActive('extensions-item-list');
+
+        // Try to open the site permissions all-sites page.
+        navigation.navigateTo({page: Page.SITE_PERMISSIONS_ALL_SITES});
+        flush();
+
+        // Should be re-routed to the main page.
+        assertViewActive('extensions-item-list');
       });
 
   test(
-      assert(
-          extension_manager_tests.TestNames.NavigateToSitePermissionsSuccess),
+      extension_manager_tests.TestNames.NavigateToSitePermissionsSuccess,
       function() {
         // Set the enableEnhancedSiteControls flag to true.
         manager.enableEnhancedSiteControls = true;
@@ -197,5 +201,11 @@ suite(extension_manager_tests.suiteName, function() {
         navigation.navigateTo({page: Page.SITE_PERMISSIONS});
         flush();
         assertViewActive('extensions-site-permissions');
+
+        // Try to open the site permissions all-sites page. The navigation
+        // should succeed.
+        navigation.navigateTo({page: Page.SITE_PERMISSIONS_ALL_SITES});
+        flush();
+        assertViewActive('extensions-site-permissions-by-site');
       });
 });

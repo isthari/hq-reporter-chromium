@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,7 +48,7 @@ class ArcDocumentsProviderRootMap : public KeyedService {
   // Returns an instance for the browser context associated with ARC, or nullptr
   // if ARC is not allowed.
   // TODO(nya): Remove this function when we support multi-user ARC. For now,
-  // it is okay to call this function only from chromeos::FileSystemBackend and
+  // it is okay to call this function only from ash::FileSystemBackend and
   // its delegates.
   static ArcDocumentsProviderRootMap* GetForArcBrowserContext();
 

@@ -1,10 +1,11 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_NACL_BROWSER_NACL_PROCESS_HOST_H_
 #define COMPONENTS_NACL_BROWSER_NACL_PROCESS_HOST_H_
 
+#include "base/memory/raw_ptr.h"
 #include "build/build_config.h"
 
 #include <stddef.h>
@@ -216,7 +217,7 @@ class NaClProcessHost : public content::BrowserChildProcessHostDelegate {
   // The reply message to send. We must always send this message when the
   // sub-process either succeeds or fails to unblock the renderer waiting for
   // the reply. NULL when there is no reply to send.
-  IPC::Message* reply_msg_;
+  raw_ptr<IPC::Message, DanglingUntriaged> reply_msg_;
 #if BUILDFLAG(IS_WIN)
   bool debug_exception_handler_requested_;
   std::unique_ptr<IPC::Message> attach_debug_exception_handler_reply_msg_;

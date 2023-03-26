@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.drawable.Icon;
-import android.os.Build;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.IntentUtils;
@@ -40,7 +39,6 @@ import java.util.HashMap;
 public class DisplayAgent {
     private static final String TAG = "DisplayAgent";
     private static final String DISPLAY_AGENT_TAG = "NotificationSchedulerDisplayAgent";
-    private static final int DISPLAY_AGENT_NOTIFICATION_ID = 0;
 
     private static final String EXTRA_INTENT_TYPE =
             "org.chromium.chrome.browser.notifications.scheduler.EXTRA_INTENT_TYPE";
@@ -214,8 +212,16 @@ public class DisplayAgent {
         }
     }
 
-    private static AndroidNotificationData toAndroidNotificationData(NotificationData data) {
-        return new AndroidNotificationData(ChannelId.BROWSER, SystemNotificationType.UNKNOWN);
+    private static AndroidNotificationData toAndroidNotificationData(SystemData systemData) {
+        @ChannelId
+        String channel =
+                systemData.type == SchedulerClientType.FEATURE_GUIDE ? ChannelId.CHROME_TIPS
+                                                                     : ChannelId.BROWSER;
+        @SystemNotificationType
+        int systemNotificationType = systemData.type == SchedulerClientType.FEATURE_GUIDE
+                ? SystemNotificationType.CHROME_TIPS
+                : SystemNotificationType.UNKNOWN;
+        return new AndroidNotificationData(channel, systemNotificationType);
     }
 
     private static Intent buildIntent(Context context,
@@ -229,7 +235,7 @@ public class DisplayAgent {
 
     @CalledByNative
     private static void showNotification(NotificationData notificationData, SystemData systemData) {
-        AndroidNotificationData platformData = toAndroidNotificationData(notificationData);
+        AndroidNotificationData platformData = toAndroidNotificationData(systemData);
         // TODO(xingliu): Plumb platform specific data from native.
         // mode and provide correct notification id. Support buttons.
         Context context = ContextUtils.getApplicationContext();
@@ -244,8 +250,7 @@ public class DisplayAgent {
 
         boolean hasSmallIcon = notificationData.icons.containsKey(IconType.SMALL_ICON);
 
-        if (hasSmallIcon && notificationData.icons.get(IconType.SMALL_ICON).bitmap != null
-                && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        if (hasSmallIcon && notificationData.icons.get(IconType.SMALL_ICON).bitmap != null) {
             // Use bitmap as small icon.
             Icon smallIcon =
                     Icon.createWithBitmap(notificationData.icons.get(IconType.SMALL_ICON).bitmap);

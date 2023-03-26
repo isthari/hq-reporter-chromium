@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,16 +18,12 @@ namespace ash {
 class AppListFolderItem;
 class FolderHeaderViewDelegate;
 
-namespace test {
-class FolderHeaderViewTest;
-}
-
 // FolderHeaderView contains an editable folder name field.
 class ASH_EXPORT FolderHeaderView : public views::View,
                                     public views::TextfieldController,
                                     public AppListItemObserver {
  public:
-  explicit FolderHeaderView(FolderHeaderViewDelegate* delegate);
+  FolderHeaderView(FolderHeaderViewDelegate* delegate, bool tablet_mode);
 
   FolderHeaderView(const FolderHeaderView&) = delete;
   FolderHeaderView& operator=(const FolderHeaderView&) = delete;
@@ -39,7 +35,6 @@ class ASH_EXPORT FolderHeaderView : public views::View,
   bool HasTextFocus() const;
   void SetTextFocus();
   bool is_tablet_mode() const { return is_tablet_mode_; }
-  void set_tablet_mode(bool started) { is_tablet_mode_ = started; }
 
   // views::View:
   gfx::Size CalculatePreferredSize() const override;
@@ -52,7 +47,7 @@ class ASH_EXPORT FolderHeaderView : public views::View,
 
  private:
   class FolderNameView;
-  friend class test::FolderHeaderViewTest;
+  friend class FolderHeaderViewTest;
   friend class PopulatedAppListTest;
 
   // Updates UI.
@@ -100,7 +95,7 @@ class ASH_EXPORT FolderHeaderView : public views::View,
 
   bool folder_name_visible_;
 
-  bool is_tablet_mode_;
+  const bool is_tablet_mode_;
 
   // Used to restore the folder name when the user presses the escape key.
   std::u16string previous_folder_name_;

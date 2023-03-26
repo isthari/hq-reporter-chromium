@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,20 +41,11 @@ message DataTypeProgressMarker {
   // items ever sent to the client.  Servers shouldn't do this.)
   optional bytes token = 2;
 
-  // Clients that previously downloaded updates synced using the timestamp based
-  // progress tracking mechanism, but which wish to switch over to the opaque
-  // token mechanism can set this field in a GetUpdatesMessage.  The server
-  // will perform a get updates operation as normal from the indicated
-  // timestamp, and return only an opaque progress token.
-  optional int64 timestamp_token_for_migration = 3 [deprecated = true];
+  reserved 3;
+  reserved "timestamp_token_for_migration";
 
-  // An opaque-to-the-client string of bytes, received through a notification,
-  // that the server may interpret as a hint about the location of the latest
-  // version of the data for this type.
-  //
-  // Deprecated in M29.  We should use the repeated field version in the
-  // PerClientTypeState instead.
-  optional string notification_hint = 4 [deprecated = true];
+  reserved 4;
+  reserved "notification_hint";
 
   // This field will be included only in GetUpdates with origin GU_TRIGGER.
   optional GetUpdateTriggers get_update_triggers = 5;
@@ -81,7 +72,7 @@ message GarbageCollectionDirective {
   enum Type {
     UNKNOWN = 0;
     VERSION_WATERMARK = 1;
-    AGE_WATERMARK = 2;
+    DEPRECATED_AGE_WATERMARK = 2 [deprecated = true];
     DEPRECATED_MAX_ITEM_COUNT = 3 [deprecated = true];
   }
 
@@ -96,10 +87,8 @@ message GarbageCollectionDirective {
   // the client will delete ALL data, regardless of its value.
   optional int64 version_watermark = 2;
 
-  // This field specifies the watermark in terms of age in days.  The client
-  // should purge all sync entities which are older than this specific value
-  // based on last modified time.
-  optional int32 age_watermark_in_days = 3;
+  reserved 3;
+  reserved "age_watermark_in_days";
 
   reserved 4;
   reserved "max_number_of_items";
@@ -113,12 +102,7 @@ message GetUpdateTriggers {
   // An opaque-to-the-client string of bytes, received through a notification,
   // that the server may interpret as a hint about the location of the latest
   // version of the data for this type.
-  //
-  // Note that this will eventually replace the 'optional' field of the same
-  // name defined in the progress marker, but the client and server should
-  // support both until it's safe to deprecate the old one.
-  //
-  // This field was introduced in M29.
+  // Introduced in M29.
   repeated string notification_hint = 1;
 
   // This flag is set if the client was forced to drop hints because the number

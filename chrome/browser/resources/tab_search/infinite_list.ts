@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,11 +19,12 @@
 import 'chrome://resources/polymer/v3_0/iron-selector/iron-selector.js';
 
 import {assert} from 'chrome://resources/js/assert_ts.js';
-import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
+import {getDeepActiveElement} from 'chrome://resources/js/util_ts.js';
 import {IronSelectorElement} from 'chrome://resources/polymer/v3_0/iron-selector/iron-selector.js';
-import {calculateSplices, html, PolymerElement, TemplateInstanceBase, templatize} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {calculateSplices, PolymerElement, TemplateInstanceBase, templatize} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {BiMap} from './bimap.js';
+import {getTemplate} from './infinite_list.html.js';
 
 export const NO_SELECTION: number = -1;
 
@@ -48,7 +49,7 @@ export class InfiniteList extends PolymerElement {
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -67,7 +68,7 @@ export class InfiniteList extends PolymerElement {
   }
 
   maxHeight: number;
-  items: Array<Object>;
+  items: Object[];
   private instanceConstructors_:
       Map<string,
           new(args: {item: Object, index?: number}) =>
@@ -104,7 +105,7 @@ export class InfiniteList extends PolymerElement {
     this.selectableIndexToItemIndex_ = null;
   }
 
-  ready() {
+  override ready() {
     super.ready();
     this.ensureTemplatized_();
     this.addEventListener('scroll', () => this.onScroll_());
@@ -125,6 +126,15 @@ export class InfiniteList extends PolymerElement {
         this.updateHeight_();
       }
     }
+  }
+
+  scrollIndexIntoView(index: number) {
+    assert(
+        index >= 0 && index < this.selectableIndexToItemIndex_!.size(),
+        'Index is out of range.');
+    this.ensureSelectableDomItemAvailable_(index);
+    this.getSelectableDomItem_(index)!.scrollIntoView(
+        {behavior: 'smooth', block: 'nearest'});
   }
 
   /**
@@ -160,7 +170,7 @@ export class InfiniteList extends PolymerElement {
     }
   }
 
-  ensureTemplatized_() {
+  private ensureTemplatized_() {
     // The user provided light-dom template(s) to use when stamping DOM items.
     const templates = this.querySelectorAll('template');
     assert(templates.length > 0, 'At least one template must be provided');
@@ -251,15 +261,7 @@ export class InfiniteList extends PolymerElement {
 
   private getDomItem_(index: number): HTMLElement|undefined {
     const instance = this.instances_[index];
-    if (instance === undefined) {
-      // TODO(crbug.com/1225247): Remove this after we root cause the issue.
-      console.error(`Unexpected call to non-existing instance index: ${
-          index}. Instance count: ${this.instances_.length}. Item count: ${
-          this.items.length}`);
-      return undefined;
-    }
-
-    return instance.children[0] as HTMLElement;
+    return instance!.children[0] as HTMLElement;
   }
 
   private getSelectableDomItem_(selectableItemIndex: number): HTMLElement
@@ -364,7 +366,7 @@ export class InfiniteList extends PolymerElement {
    * needed to fill the current scroll position view are added to the DOM, thus
    * improving rendering performance.
    */
-  private onItemsChanged_(newItems: Array<any>, oldItems: Array<any>) {
+  private onItemsChanged_(newItems: any[], oldItems: any[]) {
     if (this.instanceConstructors_.size === 0) {
       return;
     }
@@ -437,7 +439,7 @@ export class InfiniteList extends PolymerElement {
     }
   }
 
-  private updateDomItems_(newItems: Array<any>, oldItems: Array<any>) {
+  private updateDomItems_(newItems: any[], oldItems: any[]) {
     // Identify the differences between the original and new list of items.
     // These are represented as splice objects containing removed and added
     // item information at a given index. We leverage these splices to change

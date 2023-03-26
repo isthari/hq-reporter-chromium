@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,7 +27,7 @@ namespace downgrade {
 
 SnapshotItemDetails::SnapshotItemDetails(base::FilePath path,
                                          ItemType item_type,
-                                         int data_types,
+                                         uint64_t data_types,
                                          SnapshotItemId id)
     : path(std::move(path)),
       is_directory(item_type == ItemType::kDirectory),
@@ -55,12 +55,13 @@ std::vector<SnapshotItemDetails> CollectUserDataItems() {
 // Returns a list of items to snapshot that should be under a profile directory.
 std::vector<SnapshotItemDetails> CollectProfileItems() {
   // Data mask to delete the pref files if any of the following types is
-  // deleted. When cookies are deleted, the kZeroSuggestCachedResults pref has
-  // to be reset. When history and isolated origins are deleted, the
-  // kPrefLastLaunchTime and kUserTriggeredIsolatedOrigins prefs have to be
-  // reset. When data type content is deleted, blocklisted sites are deleted
-  // from the translation prefs.
-  int pref_data_type =
+  // deleted. When cookies are deleted, the kZeroSuggestCachedResults and
+  // kZeroSuggestCachedResultsWithURL prefs have to be reset. When history and
+  // isolated origins are deleted, the kPrefLastLaunchTime and
+  // kUserTriggeredIsolatedOrigins prefs have to be reset. When data type
+  // content is deleted, blocklisted sites are deleted from the translation
+  // prefs.
+  uint64_t pref_data_type =
       content::BrowsingDataRemover::DATA_TYPE_COOKIES |
       chrome_browsing_data_remover::DATA_TYPE_ISOLATED_ORIGINS |
       chrome_browsing_data_remover::DATA_TYPE_HISTORY |

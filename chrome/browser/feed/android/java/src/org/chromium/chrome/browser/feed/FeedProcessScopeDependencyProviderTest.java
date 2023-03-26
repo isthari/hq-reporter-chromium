@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -51,6 +51,10 @@ public final class FeedProcessScopeDependencyProviderTest {
             return true;
         }
         @Override
+        public boolean isUsageAndCrashReportingPermittedByPolicy() {
+            return true;
+        }
+        @Override
         public boolean isUsageAndCrashReportingPermittedByUser() {
             return true;
         }
@@ -64,10 +68,6 @@ public final class FeedProcessScopeDependencyProviderTest {
         }
         @Override
         public void setMetricsReportingEnabled(boolean enabled) {}
-        @Override
-        public boolean isMetricsReportingDisabledByPolicy() {
-            return false;
-        }
     };
 
     @Before

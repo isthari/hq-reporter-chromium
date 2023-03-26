@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,17 @@
 #include <memory>
 #include <utility>
 
-#include "ash/components/fwupd/firmware_update_manager.h"
-#include "ash/grit/ash_firmware_update_app_resources.h"
-#include "ash/grit/ash_firmware_update_app_resources_map.h"
 #include "ash/webui/firmware_update_ui/mojom/firmware_update.mojom.h"
 #include "ash/webui/firmware_update_ui/url_constants.h"
+#include "ash/webui/grit/ash_firmware_update_app_resources.h"
+#include "ash/webui/grit/ash_firmware_update_app_resources_map.h"
+#include "chromeos/ash/components/fwupd/firmware_update_manager.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "services/network/public/mojom/content_security_policy.mojom.h"
-#include "ui/resources/grit/webui_generated_resources.h"
 #include "ui/resources/grit/webui_resources.h"
 #include "ui/webui/mojo_web_ui_controller.h"
 
@@ -31,7 +30,7 @@ void SetUpWebUIDataSource(content::WebUIDataSource* source,
                           int default_resource) {
   source->AddResourcePaths(resources);
   source->SetDefaultResource(default_resource);
-  source->AddResourcePath("test_loader.html", IDR_WEBUI_HTML_TEST_LOADER_HTML);
+  source->AddResourcePath("test_loader.html", IDR_WEBUI_TEST_LOADER_HTML);
   source->AddResourcePath("test_loader.js", IDR_WEBUI_JS_TEST_LOADER_JS);
   source->AddResourcePath("test_loader_util.js",
                           IDR_WEBUI_JS_TEST_LOADER_UTIL_JS);
@@ -61,7 +60,8 @@ void AddFirmwareUpdateAppStrings(content::WebUIDataSource* source) {
       {"restartingFooterText", IDS_FIRMWARE_RESTARTING_FOOTER_TEXT},
       {"restartingTitleText", IDS_FIRMWARE_RESTARTING_TITLE_TEXT},
       {"upToDate", IDS_FIRMWARE_UP_TO_DATE_TEXT},
-      {"versionText", IDS_FIRMWARE_VERSION_TEXT}};
+      {"versionText", IDS_FIRMWARE_VERSION_TEXT},
+      {"proceedConfirmationText", IDS_FIRMWARE_PROCEED_UPDATE_CONFIRMATION}};
 
   source->AddLocalizedStrings(kLocalizedStrings);
   source->UseStringsJs();
@@ -71,22 +71,21 @@ void AddFirmwareUpdateAppStrings(content::WebUIDataSource* source) {
 
 FirmwareUpdateAppUI::FirmwareUpdateAppUI(content::WebUI* web_ui)
     : ui::MojoWebDialogUI(web_ui) {
-  auto source = base::WrapUnique(
-      content::WebUIDataSource::Create(kChromeUIFirmwareUpdateAppHost));
+  content::WebUIDataSource* source = content::WebUIDataSource::CreateAndAdd(
+      web_ui->GetWebContents()->GetBrowserContext(),
+      kChromeUIFirmwareUpdateAppHost);
   source->OverrideContentSecurityPolicy(
       network::mojom::CSPDirectiveName::ScriptSrc,
-      "script-src chrome://resources chrome://test 'self';");
+      "script-src chrome://resources chrome://test chrome://webui-test "
+      "'self';");
   source->DisableTrustedTypesCSP();
 
   const auto resources = base::make_span(kAshFirmwareUpdateAppResources,
                                          kAshFirmwareUpdateAppResourcesSize);
-  SetUpWebUIDataSource(source.get(), resources,
+  SetUpWebUIDataSource(source, resources,
                        IDR_ASH_FIRMWARE_UPDATE_APP_INDEX_HTML);
 
-  AddFirmwareUpdateAppStrings(source.get());
-
-  auto* browser_context = web_ui->GetWebContents()->GetBrowserContext();
-  content::WebUIDataSource::Add(browser_context, source.release());
+  AddFirmwareUpdateAppStrings(source);
 }
 
 FirmwareUpdateAppUI::~FirmwareUpdateAppUI() = default;

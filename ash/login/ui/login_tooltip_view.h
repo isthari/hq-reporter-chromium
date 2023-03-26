@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,8 @@ namespace ash {
 
 class LoginTooltipView : public LoginBaseBubbleView {
  public:
-  LoginTooltipView(const std::u16string& message, views::View* anchor_view);
+  LoginTooltipView(const std::u16string& message,
+                   base::WeakPtr<views::View> anchor_view);
 
   LoginTooltipView(const LoginTooltipView&) = delete;
   LoginTooltipView& operator=(const LoginTooltipView&) = delete;

@@ -1,12 +1,12 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/modules/file_system_access/file_system_directory_iterator.h"
 
 #include "third_party/blink/public/platform/task_type.h"
+#include "third_party/blink/renderer/bindings/core/v8/iterable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_iterator_result_value.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/fileapi/file_error.h"
 #include "third_party/blink/renderer/modules/file_system_access/file_system_access_error.h"
@@ -29,6 +29,12 @@ FileSystemDirectoryIterator::FileSystemDirectoryIterator(
 }
 
 ScriptPromise FileSystemDirectoryIterator::next(ScriptState* script_state) {
+  // TODO(crbug.com/1087157): The bindings layer should implement async
+  // iterable. Until it gets implemented, this class (and especially this
+  // member function) implements the behavior of async iterable in its own way.
+  // Use of bindings internal code (use of bindings:: internal namespace) should
+  // be gone once https://crbug.com/1087157 gets resolved.
+
   if (error_) {
     auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
     auto result = resolver->Promise();
@@ -36,25 +42,29 @@ ScriptPromise FileSystemDirectoryIterator::next(ScriptState* script_state) {
     return result;
   }
 
-  if (!entries_.IsEmpty()) {
+  if (!entries_.empty()) {
     FileSystemHandle* handle = entries_.TakeFirst();
-    ScriptValue result;
+    v8::Local<v8::Value> result;
     switch (mode_) {
       case Mode::kKey:
-        result = V8IteratorResult(script_state, handle->name());
+        result = bindings::ESCreateIterResultObject(
+            script_state, false,
+            ToV8Traits<IDLString>::ToV8(script_state, handle->name())
+                .ToLocalChecked());
         break;
       case Mode::kValue:
-        result = V8IteratorResult(script_state, handle);
+        result = bindings::ESCreateIterResultObject(
+            script_state, false,
+            ToV8Traits<FileSystemHandle>::ToV8(script_state, handle)
+                .ToLocalChecked());
         break;
       case Mode::kKeyValue:
-        HeapVector<ScriptValue, 2> keyvalue;
-        keyvalue.push_back(ScriptValue(
-            script_state->GetIsolate(),
-            ToV8Traits<IDLString>::ToV8(script_state, handle->name())));
-        keyvalue.push_back(ScriptValue(
-            script_state->GetIsolate(),
-            ToV8Traits<FileSystemHandle>::ToV8(script_state, handle)));
-        result = V8IteratorResult(script_state, keyvalue);
+        result = bindings::ESCreateIterResultObject(
+            script_state, false,
+            ToV8Traits<IDLString>::ToV8(script_state, handle->name())
+                .ToLocalChecked(),
+            ToV8Traits<FileSystemHandle>::ToV8(script_state, handle)
+                .ToLocalChecked());
         break;
     }
     return ScriptPromise::Cast(script_state, result);
@@ -66,7 +76,10 @@ ScriptPromise FileSystemDirectoryIterator::next(ScriptState* script_state) {
     return pending_next_->Promise();
   }
 
-  return ScriptPromise::Cast(script_state, V8IteratorResultDone(script_state));
+  return ScriptPromise::Cast(
+      script_state,
+      bindings::ESCreateIterResultObject(
+          script_state, true, v8::Undefined(script_state->GetIsolate())));
 }
 
 bool FileSystemDirectoryIterator::HasPendingActivity() const {

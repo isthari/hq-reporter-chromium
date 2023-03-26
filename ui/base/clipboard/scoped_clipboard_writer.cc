@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 
 #include "base/json/json_writer.h"
 #include "base/pickle.h"
+#include "base/strings/escape.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
-#include "net/base/escape.h"
 #include "ui/base/clipboard/clipboard_constants.h"
 #include "ui/base/clipboard/clipboard_format_type.h"
 #include "ui/base/clipboard/clipboard_metrics.h"
@@ -32,13 +32,13 @@ ScopedClipboardWriter::~ScopedClipboardWriter() {
   // write to the clipboard.
   if (!registered_formats_.empty()) {
     std::string custom_format_json;
-    base::Value registered_formats_value(base::Value::Type::DICTIONARY);
+    base::Value::Dict registered_formats_value;
     for (const auto& item : registered_formats_)
-      registered_formats_value.SetStringKey(item.first, item.second);
+      registered_formats_value.Set(item.first, item.second);
     base::JSONWriter::Write(registered_formats_value, &custom_format_json);
     Clipboard::ObjectMapParams parameters;
-    parameters.push_back(Clipboard::ObjectMapParam(custom_format_json.begin(),
-                                                   custom_format_json.end()));
+    parameters.emplace_back(custom_format_json.begin(),
+                            custom_format_json.end());
     objects_[Clipboard::PortableFormat::kWebCustomFormatMap] = parameters;
   }
   if (!objects_.empty() || !platform_representations_.empty()) {
@@ -131,9 +131,9 @@ void ScopedClipboardWriter::WriteHyperlink(const std::u16string& anchor_text,
 
   // Construct the hyperlink.
   std::string html = "<a href=\"";
-  html += net::EscapeForHTML(url);
+  html += base::EscapeForHTML(url);
   html += "\">";
-  html += net::EscapeForHTML(base::UTF16ToUTF8(anchor_text));
+  html += base::EscapeForHTML(base::UTF16ToUTF8(anchor_text));
   html += "</a>";
   WriteHTML(base::UTF8ToUTF16(html), std::string());
 }

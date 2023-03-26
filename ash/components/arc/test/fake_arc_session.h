@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,8 +38,9 @@ class FakeArcSession : public ArcSession {
                    const std::string& serial_number) override;
   void SetDemoModeDelegate(
       ArcClientAdapter::DemoModeDelegate* delegate) override;
-  void TrimVmMemory(TrimVmMemoryCallback callback) override;
+  void TrimVmMemory(TrimVmMemoryCallback callback, int page_limit) override;
   void SetDefaultDeviceScaleFactor(float scale_factor) override;
+  void SetUseVirtioBlkData(bool use_virtio_blk_data) override;
 
   // To emulate unexpected stop, such as crash.
   void StopWithReason(ArcStopReason reason);
@@ -63,6 +64,15 @@ class FakeArcSession : public ArcSession {
   // Returns an upgrade parameter passed to the session.
   std::string upgrade_locale_param() const { return upgrade_locale_param_; }
 
+  int trim_vm_memory_count() const { return trim_vm_memory_count_; }
+  int last_trim_vm_page_limit() const { return last_trim_vm_page_limit_; }
+
+  // Set values passed to the callback of TrimVmMemory, for testing.
+  void set_trim_result(bool success, const std::string& reason) {
+    trim_success_ = success;
+    trim_fail_reason = reason;
+  }
+
   // Returns FakeArcSession instance. This can be used for a factory
   // in ArcBridgeServiceImpl.
   static std::unique_ptr<ArcSession> Create();
@@ -76,6 +86,10 @@ class FakeArcSession : public ArcSession {
   bool running_ = false;
   bool stop_requested_ = false;
   std::string upgrade_locale_param_;
+  int trim_vm_memory_count_ = 0;
+  int last_trim_vm_page_limit_ = arc::ArcSession::kNoPageLimit;
+  bool trim_success_ = true;
+  std::string trim_fail_reason;
 };
 
 }  // namespace arc

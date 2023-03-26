@@ -1,15 +1,16 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_system_notification_observer.h"
 
-#include <memory>
+#import <memory>
 
-#include "base/check.h"
+#import "base/check.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_controller.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_mediator.h"
 #import "ios/chrome/browser/ui/fullscreen/scoped_fullscreen_disabler.h"
+#import "ios/public/provider/chrome/browser/find_in_page/find_in_page_api.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -26,10 +27,10 @@
 // The FullscreenMediator through which foreground events are propagated to
 // FullscreenControllerObservers.
 @property(nonatomic, readonly, nonnull) FullscreenMediator* mediator;
-// Creates or destroys |_voiceOverDisabler| depending on whether VoiceOver is
+// Creates or destroys `_voiceOverDisabler` depending on whether VoiceOver is
 // enabled.
 - (void)voiceOverStatusChanged;
-// Called when the keyboard is shown/hidden to reset |_keyboardDisabler|.
+// Called when the keyboard is shown/hidden to reset `_keyboardDisabler`.
 - (void)keyboardWillShow;
 - (void)keyboardDidHide;
 // Called when the application is foregrounded.
@@ -80,7 +81,7 @@
 }
 
 - (void)dealloc {
-  // |-disconnect| should be called before deallocation.
+  // `-disconnect` should be called before deallocation.
   DCHECK(!_controller);
 }
 
@@ -101,6 +102,12 @@
 }
 
 - (void)keyboardWillShow {
+  if (ios::provider::IsNativeFindInPageWithSystemFindPanel()) {
+    // If Native Find in Page with system Find panel is active, then triggering
+    // Find in Page will show the keyboard AND make Chrome enter full screen
+    // mode.
+    return;
+  }
   _keyboardDisabler =
       std::make_unique<ScopedFullscreenDisabler>(self.controller);
 }

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,10 +26,12 @@
 #include "chrome/browser/ash/settings/scoped_cros_settings_test_helper.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
-#include "chromeos/dbus/concierge/fake_concierge_client.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/dlcservice/fake_dlcservice_client.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/dbus/concierge/fake_concierge_client.h"
+#include "chromeos/ash/components/dbus/debug_daemon/debug_daemon_client.h"
+#include "chromeos/ash/components/dbus/dlcservice/fake_dlcservice_client.h"
+#include "chromeos/ash/components/dbus/spaced/fake_spaced_client.h"
+#include "chromeos/ash/components/dbus/vm_plugin_dispatcher/vm_plugin_dispatcher_client.h"
 #include "components/account_id/account_id.h"
 #include "components/download/public/background_service/test/test_download_service.h"
 #include "components/drive/service/dummy_drive_service.h"
@@ -74,7 +76,6 @@ const char kHashUppercase[] =
 const char kHash2[] =
     "02f06421ae27144aacdc598aebcd345a5e2e634405e8578300173628fe1574bd";
 // File size set in test_download_service.
-const int kDownloadedPluginVmImageSizeInMb = 123456789u / (1024 * 1024);
 const int64_t kDefaultRequiredFreeDiskSpaceGB = 20LL;
 const int kRequiredFreeDiskSpaceGB = 40;
 const int64_t kBytesPerGigabyte = 1024 * 1024 * 1024;
@@ -164,8 +165,9 @@ class PluginVmInstallerTestBase : public testing::Test {
 
  protected:
   void SetUp() override {
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
+    ash::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
+    ash::DebugDaemonClient::InitializeFake();
+    ash::VmPluginDispatcherClient::InitializeFake();
 
     ASSERT_TRUE(profiles_dir_.CreateUniqueTempDir());
     CreateProfile();
@@ -184,11 +186,12 @@ class PluginVmInstallerTestBase : public testing::Test {
 
     SetDefaultExpectations();
 
-    fake_concierge_client_ = chromeos::FakeConciergeClient::Get();
+    fake_concierge_client_ = ash::FakeConciergeClient::Get();
 
-    chromeos::DlcserviceClient::InitializeFake();
-    fake_dlcservice_client_ = static_cast<chromeos::FakeDlcserviceClient*>(
-        chromeos::DlcserviceClient::Get());
+    ash::DlcserviceClient::InitializeFake();
+    fake_dlcservice_client_ =
+        static_cast<ash::FakeDlcserviceClient*>(ash::DlcserviceClient::Get());
+    ash::FakeSpacedClient::InitializeFake();
   }
 
   void TearDown() override {
@@ -197,16 +200,18 @@ class PluginVmInstallerTestBase : public testing::Test {
     profile_.reset();
     observer_.reset();
 
-    chromeos::ConciergeClient::Shutdown();
-    chromeos::DBusThreadManager::Shutdown();
-    chromeos::DlcserviceClient::Shutdown();
+    ash::VmPluginDispatcherClient::Shutdown();
+    ash::DebugDaemonClient::Shutdown();
+    ash::ConciergeClient::Shutdown();
+    ash::DlcserviceClient::Shutdown();
+    ash::FakeSpacedClient::Shutdown();
   }
 
   void SetPluginVmImagePref(std::string url, std::string hash) {
-    DictionaryPrefUpdate update(profile_->GetPrefs(), prefs::kPluginVmImage);
-    base::Value* plugin_vm_image = update.Get();
-    plugin_vm_image->SetStringKey("url", url);
-    plugin_vm_image->SetStringKey("hash", hash);
+    ScopedDictPrefUpdate update(profile_->GetPrefs(), prefs::kPluginVmImage);
+    base::Value::Dict& plugin_vm_image = update.Get();
+    plugin_vm_image.Set("url", url);
+    plugin_vm_image.Set("hash", hash);
   }
 
   void SetRequiredFreeDiskSpaceGBPref(int required_free_disk_space) {
@@ -274,9 +279,9 @@ class PluginVmInstallerTestBase : public testing::Test {
 
   // A pointer to a singleton object which is valid until
   // ConciergeClient::Shutdown() is called.
-  chromeos::FakeConciergeClient* fake_concierge_client_;
-  // Owned by chromeos::DBusThreadManager
-  chromeos::FakeDlcserviceClient* fake_dlcservice_client_;
+  ash::FakeConciergeClient* fake_concierge_client_;
+  // Owned by ash::DBusThreadManager
+  ash::FakeDlcserviceClient* fake_dlcservice_client_;
 
  private:
   void CreateProfile() {
@@ -520,8 +525,8 @@ TEST_F(PluginVmInstallerDownloadServiceTest, OnlyOneImageIsProcessedTest) {
 
   EXPECT_FALSE(installer_->IsProcessing());
 
-  histogram_tester_->ExpectUniqueSample(kPluginVmImageDownloadedSizeHistogram,
-                                        kDownloadedPluginVmImageSizeInMb, 1);
+  histogram_tester_->ExpectUniqueSample(kPluginVmSetupResultHistogram,
+                                        PluginVmSetupResult::kSuccess, 1);
 }
 
 TEST_F(PluginVmInstallerDownloadServiceTest,
@@ -541,8 +546,6 @@ TEST_F(PluginVmInstallerDownloadServiceTest,
   installer_->SetDownloadedImageForTesting(CreateZipFile());
   StartAndRunToCompletion();
 
-  histogram_tester_->ExpectUniqueSample(kPluginVmImageDownloadedSizeHistogram,
-                                        kDownloadedPluginVmImageSizeInMb, 2);
   histogram_tester_->ExpectUniqueSample(kPluginVmSetupResultHistogram,
                                         PluginVmSetupResult::kSuccess, 2);
 }
@@ -567,8 +570,6 @@ TEST_F(PluginVmInstallerDownloadServiceTest,
 
   StartAndRunToCompletion();
 
-  histogram_tester_->ExpectUniqueSample(kPluginVmImageDownloadedSizeHistogram,
-                                        kDownloadedPluginVmImageSizeInMb, 1);
   histogram_tester_->ExpectBucketCount(kPluginVmSetupResultHistogram,
                                        PluginVmSetupResult::kError, 1);
   histogram_tester_->ExpectBucketCount(kPluginVmSetupResultHistogram,
@@ -583,7 +584,6 @@ TEST_F(PluginVmInstallerDownloadServiceTest, CancelledDownloadTest) {
   installer_->Cancel();
   task_environment_.RunUntilIdle();
 
-  histogram_tester_->ExpectTotalCount(kPluginVmImageDownloadedSizeHistogram, 0);
   histogram_tester_->ExpectTotalCount(kFailureReasonHistogram, 0);
   histogram_tester_->ExpectUniqueSample(
       kPluginVmSetupResultHistogram,
@@ -598,9 +598,6 @@ TEST_F(PluginVmInstallerDownloadServiceTest, ImportNonExistingImageTest) {
 
   installer_->SetDownloadedImageForTesting(base::FilePath());
   StartAndRunToCompletion();
-
-  histogram_tester_->ExpectUniqueSample(kPluginVmImageDownloadedSizeHistogram,
-                                        kDownloadedPluginVmImageSizeInMb, 1);
 }
 
 TEST_F(PluginVmInstallerDownloadServiceTest, ImportFailedOutOfSpaceTest) {
@@ -639,7 +636,6 @@ TEST_F(PluginVmInstallerDownloadServiceTest, EmptyPluginVmImageUrlTest) {
   EXPECT_CALL(*observer_, OnError(FailureReason::INVALID_IMAGE_URL));
   StartAndRunToCompletion();
 
-  histogram_tester_->ExpectTotalCount(kPluginVmImageDownloadedSizeHistogram, 0);
   histogram_tester_->ExpectUniqueSample(kFailureReasonHistogram,
                                         FailureReason::INVALID_IMAGE_URL, 1);
 }

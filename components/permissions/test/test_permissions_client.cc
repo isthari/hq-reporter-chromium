@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/permissions/permission_actions_history.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
-#include "components/ukm/content/source_url_recorder.h"
+#include "content/public/browser/web_contents.h"
 
 namespace permissions {
 namespace {
@@ -17,7 +17,7 @@ scoped_refptr<HostContentSettingsMap> CreateSettingsMap(
   HostContentSettingsMap::RegisterProfilePrefs(prefs->registry());
   return base::MakeRefCounted<HostContentSettingsMap>(
       prefs, false /* is_off_the_record */, false /* store_last_modified */,
-      false /* restore_session */);
+      false /* restore_session */, false /* should_record_metrics */);
 }
 
 }  // namespace
@@ -50,6 +50,12 @@ bool TestPermissionsClient::IsSubresourceFilterActivated(
   return false;
 }
 
+OriginKeyedPermissionActionService*
+TestPermissionsClient::GetOriginKeyedPermissionActionService(
+    content::BrowserContext* browser_context) {
+  return &origin_keyed_permission_action_service_;
+}
+
 PermissionActionsHistory* TestPermissionsClient::GetPermissionActionsHistory(
     content::BrowserContext* browser_context) {
   return &permission_actions_history_;
@@ -61,11 +67,6 @@ TestPermissionsClient::GetPermissionDecisionAutoBlocker(
   return &autoblocker_;
 }
 
-PermissionManager* TestPermissionsClient::GetPermissionManager(
-    content::BrowserContext* browser_context) {
-  return nullptr;
-}
-
 ObjectPermissionContextBase* TestPermissionsClient::GetChooserContext(
     content::BrowserContext* browser_context,
     ContentSettingsType type) {
@@ -74,12 +75,12 @@ ObjectPermissionContextBase* TestPermissionsClient::GetChooserContext(
 
 void TestPermissionsClient::GetUkmSourceId(
     content::BrowserContext* browser_context,
-    const content::WebContents* web_contents,
+    content::WebContents* web_contents,
     const GURL& requesting_origin,
     GetUkmSourceIdCallback callback) {
   if (web_contents) {
     ukm::SourceId source_id =
-        ukm::GetSourceIdForWebContentsDocument(web_contents);
+        web_contents->GetPrimaryMainFrame()->GetPageUkmSourceId();
     std::move(callback).Run(source_id);
   } else {
     std::move(callback).Run(absl::nullopt);

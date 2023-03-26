@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,6 +42,10 @@ interface Remoter {
   // invoked, the source may then make calls to SendMessageToSink() and expect
   // messages from the remote via RemotingSource.OnMessageFromSink().
   Start();
+
+  // Same as `Start()` except that Remoting will start without asking for users'
+  // permission.
+  StartWithPermissionAlreadyGranted();
 
   // Starts remoting the media data streams. This is called after Start() to
   // provide data pipes from which the audio/video bitstream data is consumed

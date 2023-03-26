@@ -1,17 +1,17 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include "chrome/test/chromedriver/key_converter.h"
 
 #include <stddef.h>
 
 #include <string>
 
-#include "base/cxx17_backports.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/test/chromedriver/chrome/status.h"
 #include "chrome/test/chromedriver/chrome/ui_events.h"
-#include "chrome/test/chromedriver/key_converter.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/events/test/keyboard_layout.h"
 
@@ -324,7 +324,7 @@ TEST(KeyConverter, AllSpecialWebDriverKeysOnEnglishKeyboard) {
         << "Index: " << i;
     if (i == 0) {
       EXPECT_EQ(0u, events.size()) << "Index: " << i;
-    } else if (i >= base::size(kTextForKeys) || kTextForKeys[i] == 0) {
+    } else if (i >= std::size(kTextForKeys) || kTextForKeys[i] == 0) {
       EXPECT_EQ(2u, events.size()) << "Index: " << i;
     } else {
       ASSERT_EQ(3u, events.size()) << "Index: " << i;
@@ -379,4 +379,22 @@ TEST(KeyConverter, ReleaseModifiers) {
   std::u16string keys = u"\uE008\uE009";
 
   CheckEvents(keys, key_events, true /* release_modifiers */, 0);
+}
+
+TEST(KeyConverter, CommandA) {
+  // This is a regression test for chromedriver:4263
+  ui::ScopedKeyboardLayout keyboard_layout(ui::KEYBOARD_LAYOUT_ENGLISH_US);
+  std::vector<KeyEvent> key_events;
+  KeyEventBuilder meta_builder;
+  key_events.push_back(meta_builder.SetType(kRawKeyDownEventType)
+                           ->SetKeyCode(ui::VKEY_COMMAND)
+                           ->SetModifiers(kMetaKeyModifierMask)
+                           ->Build());
+  KeyEventBuilder builder;
+  builder.SetModifiers(kMetaKeyModifierMask);
+  builder.SetKeyCode(ui::VKEY_A)->SetText("a", "a")->Generate(&key_events);
+  key_events.push_back(
+      meta_builder.SetType(kKeyUpEventType)->SetModifiers(0)->Build());
+  std::u16string keys = u"\uE03Da";
+  CheckEventsReleaseModifiers(keys, key_events);
 }

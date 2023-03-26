@@ -1,11 +1,11 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_NACL_COMMON_NACL_DEBUG_EXCEPTION_HANDLER_WIN_H_
 #define COMPONENTS_NACL_COMMON_NACL_DEBUG_EXCEPTION_HANDLER_WIN_H_
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/process/process.h"
 #include "base/task/single_thread_task_runner.h"

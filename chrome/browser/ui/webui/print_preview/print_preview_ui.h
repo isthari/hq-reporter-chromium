@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,14 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/webui/constrained_web_dialog_ui.h"
 #include "chrome/services/printing/public/mojom/pdf_nup_converter.mojom.h"
 #include "components/printing/common/print.mojom.h"
@@ -28,6 +29,10 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
+
+#if BUILDFLAG(ENABLE_OOP_PRINTING)
+#include "chrome/browser/printing/print_backend_service_manager.h"
+#endif
 
 namespace base {
 class FilePath;
@@ -69,7 +74,8 @@ class PrintPreviewUI : public ConstrainedWebDialogUI,
   void PrintPreviewCancelled(int32_t document_cookie,
                              int32_t request_id) override;
   void PrinterSettingsInvalid(int32_t document_cookie,
-                              int32_t request_id) override;
+                              int32_t request_id,
+                              const std::string& details) override;
   void DidGetDefaultPageLayout(mojom::PageSizeMarginsPtr page_layout_in_points,
                                const gfx::Rect& printable_area_in_points,
                                bool has_custom_page_size_style,
@@ -84,7 +90,9 @@ class PrintPreviewUI : public ConstrainedWebDialogUI,
 
   const std::u16string& initiator_title() const { return initiator_title_; }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   bool source_is_arc() const { return source_is_arc_; }
+#endif
 
   bool source_is_modifiable() const { return source_is_modifiable_; }
 
@@ -247,6 +255,8 @@ class PrintPreviewUI : public ConstrainedWebDialogUI,
                             mojom::PrintCompositor::Status status,
                             base::ReadOnlySharedMemoryRegion region);
 
+  WEB_UI_CONTROLLER_TYPE_DECL();
+
   base::TimeTicks initial_preview_start_time_;
 
   // The unique ID for this class instance. Stored here to avoid calling
@@ -255,14 +265,16 @@ class PrintPreviewUI : public ConstrainedWebDialogUI,
 
 #if BUILDFLAG(ENABLE_OOP_PRINTING)
   // This UI's client ID with the print backend service manager.
-  uint32_t service_manager_client_id_;
+  PrintBackendServiceManager::ClientId service_manager_client_id_;
 #endif
 
   // Weak pointer to the WebUI handler.
   const raw_ptr<PrintPreviewHandler> handler_;
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Indicates whether the source document is from ARC.
   bool source_is_arc_ = false;
+#endif
 
   // Indicates whether the source document can be modified.
   bool source_is_modifiable_ = true;

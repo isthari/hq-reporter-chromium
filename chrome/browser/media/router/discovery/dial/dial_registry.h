@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,9 +14,11 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/media/router/discovery/dial/dial_service.h"
 #include "services/network/public/cpp/network_connection_tracker.h"
@@ -33,8 +35,9 @@ class NetLog;
 namespace media_router {
 
 // Keeps track of devices that have responded to discovery requests and notifies
-// the client with the current device list.  All APIs should be called on the
-// sequence bound to |task_runner_|.
+// the client with the current device list. It is indirectly owned by a
+// singleton that is never freed. All APIs should be called on the sequence
+// bound to |task_runner_|.
 class DialRegistry
     : public DialService::Client,
       public network::NetworkConnectionTracker::NetworkConnectionObserver {
@@ -156,7 +159,7 @@ class DialRegistry
   std::string NextLabel();
 
   // Unowned reference to the DialRegistry::Client.
-  Client& client_;
+  const raw_ref<Client> client_;
 
   // Task runner for the DialRegistry.
   scoped_refptr<base::SequencedTaskRunner> task_runner_;

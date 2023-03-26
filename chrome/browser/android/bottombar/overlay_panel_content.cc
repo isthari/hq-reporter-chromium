@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,10 @@
 #include <set>
 
 #include "base/android/jni_string.h"
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "cc/input/browser_controls_state.h"
 #include "chrome/android/chrome_jni_headers/OverlayPanelContent_jni.h"
@@ -125,7 +126,12 @@ void OverlayPanelContent::DestroyWebContents(
     JNIEnv* env,
     const JavaParamRef<jobject>& jobj) {
   DCHECK(web_contents_.get());
-  web_contents_.reset();
+  // At the time this is called we may be deeply nested in a callback from
+  // WebContents. WebContents does not support being deleted from a callback
+  // (crashes). To avoid this problem DeleteSoon() is used. See
+  // https://crbug.com/1262098.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(
+      FROM_HERE, web_contents_.release());
   // |web_contents_delegate_| may already be NULL at this point.
   web_contents_delegate_.reset();
 }

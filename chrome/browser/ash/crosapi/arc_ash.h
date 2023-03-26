@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,6 +49,8 @@ class ArcAsh : public mojom::Arc, public arc::ArcIntentHelperObserver {
   void HandleIntent(mojom::IntentInfoPtr intent,
                     mojom::ActivityNamePtr activity) override;
   void AddPreferredPackage(const std::string& package_name) override;
+  void IsInstallable(const std::string& package_name,
+                     IsInstallableCallback callback) override;
 
   // arc::ArcIntentHelperObserver:
   void OnIconInvalidated(const std::string& package_name) override;

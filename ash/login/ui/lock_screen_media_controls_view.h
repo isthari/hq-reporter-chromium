@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -237,10 +237,6 @@ class ASH_EXPORT LockScreenMediaControlsView
   // an empty artwork.
   std::unique_ptr<base::OneShotTimer> hide_artwork_timer_ =
       std::make_unique<base::OneShotTimer>();
-
-  // Caches the text to be read by screen readers describing the media controls
-  // view.
-  std::u16string accessible_name_;
 
   // Set of enabled actions.
   base::flat_set<media_session::mojom::MediaSessionAction> enabled_actions_;

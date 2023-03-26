@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "ash/components/arc/mojom/input_method_manager.mojom-forward.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "ui/base/ime/ash/input_method_descriptor.h"
 
 namespace arc {

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/metrics/field_trial.h"
 #include "base/no_destructor.h"
 #include "base/sequence_checker.h"
+#include "base/time/time.h"
 #include "components/embedder_support/android/metrics/android_metrics_service_client.h"
 #include "components/metrics/enabled_state_provider.h"
 #include "components/metrics/metrics_log_uploader.h"
@@ -24,6 +25,7 @@ namespace android_webview {
 
 namespace prefs {
 extern const char kMetricsAppPackageNameLoggingRule[];
+extern const char kAppPackageNameLoggingRuleLastUpdateTime[];
 }  // namespace prefs
 
 // These values are persisted to logs. Entries should not be renumbered and
@@ -36,6 +38,12 @@ enum class BackfillInstallDate {
   kPersistedPackageManagerInstallDate = 2,
   kMaxValue = kPersistedPackageManagerInstallDate,
 };
+
+// The amount of delay before calculating and recording the app data directory
+// size, intended for avoiding IO contention when an app is initializing.
+//
+// Visible for testing.
+extern const base::TimeDelta kRecordAppDataDirectorySizeDelay;
 
 // AwMetricsServiceClient is a singleton which manages WebView metrics
 // collection.
@@ -146,7 +154,7 @@ class AwMetricsServiceClient : public ::metrics::AndroidMetricsServiceClient,
 
   static void RegisterMetricsPrefs(PrefRegistrySimple* registry);
 
-  AwMetricsServiceClient(std::unique_ptr<Delegate> delegate);
+  explicit AwMetricsServiceClient(std::unique_ptr<Delegate> delegate);
 
   AwMetricsServiceClient(const AwMetricsServiceClient&) = delete;
   AwMetricsServiceClient& operator=(const AwMetricsServiceClient&) = delete;
@@ -195,6 +203,11 @@ class AwMetricsServiceClient : public ::metrics::AndroidMetricsServiceClient,
   // `SetAppPackageNameLoggingRule` if any.
   absl::optional<AppPackageNameLoggingRule>
   GetCachedAppPackageNameLoggingRule();
+
+  // The last time the apps package name allowlist was queried from the
+  // component update service, regardless if it was successful or not.
+  base::Time GetAppPackageNameLoggingRuleLastUpdateTime() const;
+  void SetAppPackageNameLoggingRuleLastUpdateTime(base::Time update_time);
 
  protected:
   // Restrict usage of the inherited AndroidMetricsServiceClient::RegisterPrefs,

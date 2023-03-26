@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,9 @@
 #include <string>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/containers/queue.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/test/task_environment.h"
 #include "content/browser/service_worker/service_worker_test_utils.h"
@@ -169,7 +168,7 @@ class ServiceWorkerCacheWriterTest : public ::testing::Test {
     auto response_head = network::mojom::URLResponseHead::New();
     const char data[] = "HTTP/1.1 200 OK\0\0";
     response_head->headers = base::MakeRefCounted<net::HttpResponseHeaders>(
-        std::string(data, base::size(data)));
+        std::string(data, std::size(data)));
     response_head->content_length = len;
     net::Error error = cache_writer_->MaybeWriteHeaders(
         std::move(response_head), CreateWriteCallback());
@@ -235,6 +234,10 @@ TEST_F(ServiceWorkerCacheWriterTest, PassthroughDataAsync) {
   EXPECT_EQ(net::ERR_IO_PENDING, error);
   writer->CompletePendingWrite();
   EXPECT_TRUE(write_complete_);
+  // SHA256 hash for "abcdefghijklmno"
+  EXPECT_EQ("41C7760C50EFDE99BF574ED8FFFC7A6DD3405D546D3DA929B214C8945ACF8A97",
+            cache_writer_->GetSha256Checksum());
+
   EXPECT_EQ(net::OK, last_error_);
   EXPECT_TRUE(writer->AllExpectedWritesDone());
 }

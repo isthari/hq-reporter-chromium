@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/notreached.h"
 #include "cc/layers/painted_overlay_scrollbar_layer.h"
 #include "cc/layers/painted_scrollbar_layer.h"
 #include "cc/layers/scrollbar_layer_impl_base.h"
@@ -62,7 +63,6 @@ scoped_refptr<ScrollbarLayerBase> ScrollbarLayerBase::CreateOrReuse(
 }
 
 void ScrollbarLayerBase::SetScrollElementId(ElementId element_id) {
-  DCHECK(IsMutationAllowed());
   if (element_id == scroll_element_id_.Read(*this))
     return;
 

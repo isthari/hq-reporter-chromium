@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,8 +29,9 @@ bool LoadResources(const std::string& pref_locale) {
     base::mac::SetOverrideFrameworkBundlePath(path);
 
     // Override the locale with the value from Cocoa.
-    if (pref_locale.empty())
+    if (pref_locale.empty()) {
       l10n_util::OverrideLocaleWithCocoaLocale();
+    }
 
     ui::ResourceBundle::InitSharedInstanceWithLocale(
         pref_locale, NULL, ui::ResourceBundle::DO_NOT_LOAD_COMMON_RESOURCES);

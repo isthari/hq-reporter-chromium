@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,6 @@ import org.chromium.base.Callback;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.UserData;
 import org.chromium.chrome.browser.browser_controls.BrowserStateBrowserControlsVisibilityDelegate;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.paint_preview.services.PaintPreviewTabService;
 import org.chromium.chrome.browser.paint_preview.services.PaintPreviewTabServiceFactory;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
@@ -113,11 +112,6 @@ public class TabbedPaintPreview implements UserData {
         getService().captureTab(mTab, successCallback);
     }
 
-    private boolean shouldCompressBitmaps() {
-        return ChromeFeatureList.getFieldTrialParamByFeatureAsBoolean(
-                ChromeFeatureList.PAINT_PREVIEW_SHOW_ON_STARTUP, "compress_bitmaps", true);
-    }
-
     /**
      * Shows a Paint Preview for the provided tab if it exists.
      * @param listener An interface used for notifying events originated from the player.
@@ -126,6 +120,12 @@ public class TabbedPaintPreview implements UserData {
     public boolean maybeShow(@NonNull PlayerManager.Listener listener) {
         if (mIsAttachedToTab) return true;
         TraceEvent.begin("TabbedPaintPreview.maybeShow");
+
+        boolean allowedToShow = PaintPreviewTabService.tabAllowedForPaintPreview(mTab);
+        if (!allowedToShow) {
+            TraceEvent.end("TabbedPaintPreview.maybeShow");
+            return false;
+        }
 
         // Check if a capture exists. This is a quick check using a cache.
         boolean hasCapture = getService().hasCaptureForTab(mTab.getId());
@@ -140,7 +140,7 @@ public class TabbedPaintPreview implements UserData {
         mPlayerManager = new PlayerManager(mTab.getUrl(), mTab.getContext(), getService(),
                 String.valueOf(mTab.getId()), listener,
                 ChromeColors.getPrimaryBackgroundColor(mTab.getContext(), false),
-                /*ignoreInitialScrollOffset=*/false, shouldCompressBitmaps());
+                /*ignoreInitialScrollOffset=*/false);
 
         // TODO(crbug/1230021): Consider deferring/post tasking. Locally this appears to be slow.
         TraceEvent.begin("TabbedPaintPreview.maybeShow addTabViewProvider");
@@ -216,6 +216,8 @@ public class TabbedPaintPreview implements UserData {
                         mFadingOut = false;
                     }
                 });
+        // Ensure the progress update occur during the animation.
+        setProgressPreventionNeeded(false);
 
         if (mProgressSimulatorNeededCallback != null) mProgressSimulatorNeededCallback.run();
         TraceEvent.end("TabbedPaintPreview.remove");

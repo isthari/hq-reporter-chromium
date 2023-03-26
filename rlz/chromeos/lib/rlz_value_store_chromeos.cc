@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,12 @@
 #include <tuple>
 
 #include "base/base_paths.h"
-#include "base/bind.h"
 #include "base/containers/contains.h"
 #include "base/containers/cxx20_erase.h"
 #include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
 #include "base/files/important_file_writer.h"
+#include "base/functional/bind.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/lazy_instance.h"
@@ -24,10 +24,10 @@
 #include "base/strings/string_piece.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/values.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/debug_daemon/debug_daemon_client.h"
-#include "chromeos/system/factory_ping_embargo_check.h"
-#include "chromeos/system/statistics_provider.h"
+#include "chromeos/ash/components/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/debug_daemon/debug_daemon_client.h"
+#include "chromeos/ash/components/system/factory_ping_embargo_check.h"
+#include "chromeos/ash/components/system/statistics_provider.h"
 #include "dbus/bus.h"
 #include "rlz/lib/lib_values.h"
 #include "rlz/lib/recursive_cross_process_lock_posix.h"
@@ -126,10 +126,8 @@ void OnSetRlzPingSent(int retry_count, bool success);
 void SetRlzPingSent(int retry_count) {
   // GetSystemBus() could return null in tests.
   base::SequencedTaskRunner* const origin_task_runner =
-      chromeos::DBusThreadManager::Get()->GetSystemBus()
-          ? chromeos::DBusThreadManager::Get()
-                ->GetSystemBus()
-                ->GetOriginTaskRunner()
+      ash::DBusThreadManager::Get()->GetSystemBus()
+          ? ash::DBusThreadManager::Get()->GetSystemBus()->GetOriginTaskRunner()
           : nullptr;
   if (origin_task_runner && !origin_task_runner->RunsTasksInCurrentSequence()) {
     origin_task_runner->PostTask(FROM_HERE,
@@ -137,7 +135,7 @@ void SetRlzPingSent(int retry_count) {
     return;
   }
 
-  chromeos::DBusThreadManager::Get()->GetDebugDaemonClient()->SetRlzPingSent(
+  ash::DebugDaemonClient::Get()->SetRlzPingSent(
       base::BindOnce(&OnSetRlzPingSent, retry_count + 1));
 }
 
@@ -150,7 +148,7 @@ void OnSetRlzPingSent(int retry_count, bool success) {
 
   if (retry_count >= RlzValueStoreChromeOS::kMaxRetryCount) {
     UMA_HISTOGRAM_BOOLEAN("Rlz.SetRlzPingSent", false);
-    LOG(ERROR) << "Setting " << chromeos::system::kShouldSendRlzPingKey
+    LOG(ERROR) << "Setting " << ash::system::kShouldSendRlzPingKey
                << " failed after " << RlzValueStoreChromeOS::kMaxRetryCount
                << " attempts.";
     return;
@@ -162,37 +160,37 @@ void OnSetRlzPingSent(int retry_count, bool success) {
 // Copy |value| without empty children.
 absl::optional<base::Value> CopyWithoutEmptyChildren(const base::Value& value) {
   switch (value.type()) {
-    case base::Value::Type::DICTIONARY: {
-      base::Value::DictStorage storage;
+    case base::Value::Type::DICT: {
+      base::Value::Dict dict;
+      const base::Value::Dict& dict_in = value.GetDict();
 
-      for (const auto key_value_pair : value.DictItems()) {
+      for (auto it = dict_in.begin(); it != dict_in.end(); ++it) {
         absl::optional<base::Value> item_copy =
-            CopyWithoutEmptyChildren(key_value_pair.second);
+            CopyWithoutEmptyChildren(it->second);
         if (item_copy)
-          storage.insert(
-              std::make_pair(key_value_pair.first, std::move(*item_copy)));
+          dict.Set(it->first, std::move(*item_copy));
       }
 
-      if (storage.empty())
+      if (dict.empty())
         return absl::nullopt;
 
-      return base::Value(std::move(storage));
+      return base::Value(std::move(dict));
     }
 
     case base::Value::Type::LIST: {
-      base::Value::ListStorage storage;
-      storage.reserve(value.GetList().size());
+      base::Value::List list;
+      list.reserve(value.GetList().size());
 
       for (const base::Value& item : value.GetList()) {
         absl::optional<base::Value> item_copy = CopyWithoutEmptyChildren(item);
         if (item_copy)
-          storage.push_back(std::move(*item_copy));
+          list.Append(std::move(*item_copy));
       }
 
-      if (storage.empty())
+      if (list.empty())
         return absl::nullopt;
 
-      return base::Value(std::move(storage));
+      return base::Value(std::move(list));
     }
 
     default:
@@ -379,20 +377,19 @@ bool RlzValueStoreChromeOS::IsStatefulEvent(Product product,
       GetKeyName(kStatefulEventKey, product), base::Value(event_rlz));
 
   if (strcmp(event_rlz, "CAF") == 0) {
-    chromeos::system::StatisticsProvider* stats =
-        chromeos::system::StatisticsProvider::GetInstance();
-    std::string should_send_rlz_ping_value;
-    if (stats->GetMachineStatistic(chromeos::system::kShouldSendRlzPingKey,
-                                   &should_send_rlz_ping_value)) {
+    ash::system::StatisticsProvider* stats =
+        ash::system::StatisticsProvider::GetInstance();
+    if (const absl::optional<base::StringPiece> should_send_rlz_ping_value =
+            stats->GetMachineStatistic(ash::system::kShouldSendRlzPingKey)) {
       if (should_send_rlz_ping_value ==
-          chromeos::system::kShouldSendRlzPingValueFalse) {
+          ash::system::kShouldSendRlzPingValueFalse) {
         return true;
       } else if (should_send_rlz_ping_value !=
-                 chromeos::system::kShouldSendRlzPingValueTrue) {
-        LOG(WARNING) << chromeos::system::kShouldSendRlzPingKey
+                 ash::system::kShouldSendRlzPingValueTrue) {
+        LOG(WARNING) << ash::system::kShouldSendRlzPingKey
                      << " has an unexpected value: "
-                     << should_send_rlz_ping_value << ". Treat it as "
-                     << chromeos::system::kShouldSendRlzPingValueFalse
+                     << should_send_rlz_ping_value.value() << ". Treat it as "
+                     << ash::system::kShouldSendRlzPingValueFalse
                      << " to avoid sending duplicate rlz ping.";
         return true;
       }
@@ -421,10 +418,10 @@ void RlzValueStoreChromeOS::CollectGarbage() {
 
 // static
 bool RlzValueStoreChromeOS::HasRlzEmbargoEndDatePassed() {
-  chromeos::system::StatisticsProvider* statistics_provider =
-      chromeos::system::StatisticsProvider::GetInstance();
-  return chromeos::system::GetRlzPingEmbargoState(statistics_provider) !=
-         chromeos::system::FactoryPingEmbargoState::kNotPassed;
+  ash::system::StatisticsProvider* statistics_provider =
+      ash::system::StatisticsProvider::GetInstance();
+  return ash::system::GetRlzPingEmbargoState(statistics_provider) !=
+         ash::system::FactoryPingEmbargoState::kNotPassed;
 }
 
 void RlzValueStoreChromeOS::ReadStore() {
@@ -464,40 +461,39 @@ void RlzValueStoreChromeOS::WriteStore() {
 
 bool RlzValueStoreChromeOS::AddValueToList(const std::string& list_name,
                                            base::Value value) {
-  base::Value* list_value = rlz_store_.FindListPath(list_name);
-  if (!list_value) {
-    list_value =
-        rlz_store_.SetPath(list_name, base::Value(base::Value::Type::LIST));
+  base::Value::List* list =
+      rlz_store_.GetDict().FindListByDottedPath(list_name);
+  if (!list) {
+    list = &rlz_store_.SetPath(list_name, base::Value(base::Value::Type::LIST))
+                ->GetList();
   }
-  if (!base::Contains(list_value->GetList(), value)) {
-    list_value->Append(std::move(value));
+  if (!base::Contains(*list, value)) {
+    list->Append(std::move(value));
   }
   return true;
 }
 
 bool RlzValueStoreChromeOS::RemoveValueFromList(const std::string& list_name,
                                                 const base::Value& to_remove) {
-  base::Value* list_value = rlz_store_.FindListPath(list_name);
-  if (!list_value)
+  base::Value::List* list =
+      rlz_store_.GetDict().FindListByDottedPath(list_name);
+  if (!list)
     return false;
 
-  base::Value::ListStorage storage =
-      std::move(*list_value).TakeListDeprecated();
-  base::EraseIf(storage, [&to_remove](const base::Value& value) {
-    return value == to_remove;
-  });
-  *list_value = base::Value(std::move(storage));
+  list->EraseIf(
+      [&to_remove](const base::Value& value) { return value == to_remove; });
 
   return true;
 }
 
 bool RlzValueStoreChromeOS::ListContainsValue(const std::string& list_name,
                                               const base::Value& value) const {
-  const base::Value* list_value = rlz_store_.FindListPath(list_name);
-  if (!list_value)
+  const base::Value::List* list =
+      rlz_store_.GetDict().FindListByDottedPath(list_name);
+  if (!list)
     return false;
 
-  return base::Contains(list_value->GetList(), value);
+  return base::Contains(*list, value);
 }
 
 bool RlzValueStoreChromeOS::HasAccessPointRlz(AccessPoint access_point) const {

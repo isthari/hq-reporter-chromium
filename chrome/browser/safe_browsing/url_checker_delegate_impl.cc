@@ -1,15 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/safe_browsing/url_checker_delegate_impl.h"
 
-#include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
+#include "base/ranges/algorithm.h"
 #include "build/build_config.h"
 #include "chrome/browser/android/customtabs/client_data_header_web_contents_observer.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/prefetch/no_state_prefetch/chrome_no_state_prefetch_contents_delegate.h"
+#include "chrome/browser/preloading/prefetch/no_state_prefetch/chrome_no_state_prefetch_contents_delegate.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_io_data.h"
 #include "chrome/browser/safe_browsing/user_interaction_observer.h"
@@ -146,10 +147,10 @@ bool UrlCheckerDelegateImpl::ShouldSkipRequestCheck(
     bool originated_from_service_worker) {
   // Check for whether the URL matches the Safe Browsing allowlist domains
   // (a.k. a prefs::kSafeBrowsingAllowlistDomains).
-  return std::find_if(allowlist_domains_.begin(), allowlist_domains_.end(),
-                      [&original_url](const std::string& domain) {
-                        return original_url.DomainIs(domain);
-                      }) != allowlist_domains_.end();
+  return base::ranges::any_of(allowlist_domains_,
+                              [&original_url](const std::string& domain) {
+                                return original_url.DomainIs(domain);
+                              });
 }
 
 void UrlCheckerDelegateImpl::NotifySuspiciousSiteDetected(
@@ -170,6 +171,29 @@ SafeBrowsingDatabaseManager* UrlCheckerDelegateImpl::GetDatabaseManager() {
 
 BaseUIManager* UrlCheckerDelegateImpl::GetUIManager() {
   return ui_manager_.get();
+}
+
+void UrlCheckerDelegateImpl::CheckLookupMechanismExperimentEligibility(
+    const security_interstitials::UnsafeResource& resource,
+    base::OnceCallback<void(bool)> callback,
+    scoped_refptr<base::SequencedTaskRunner> callback_task_runner) {
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &SafeBrowsingUIManager::CheckLookupMechanismExperimentEligibility,
+          ui_manager_, resource, std::move(callback), callback_task_runner));
+}
+
+void UrlCheckerDelegateImpl::CheckExperimentEligibilityAndStartBlockingPage(
+    const security_interstitials::UnsafeResource& resource,
+    base::OnceCallback<void(bool)> callback,
+    scoped_refptr<base::SequencedTaskRunner> callback_task_runner) {
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
+      base::BindOnce(&SafeBrowsingUIManager::
+                         CheckExperimentEligibilityAndStartBlockingPage,
+                     ui_manager_, resource, std::move(callback),
+                     callback_task_runner));
 }
 
 }  // namespace safe_browsing

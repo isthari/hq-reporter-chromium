@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,8 +49,6 @@ class EditAddressProfileViewTest : public ChromeViewsTestBase {
   void CreateViewAndShow();
 
   void SetUp() override {
-    feature_list_.InitAndEnableFeature(
-        features::kAutofillAddressProfileSavePrompt);
     ChromeViewsTestBase::SetUp();
 
     address_profile_to_edit_ = test::GetFullProfile();

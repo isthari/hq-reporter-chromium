@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,12 +20,13 @@
 - (void)setMessage:(NSString*)message;
 
 // Sets the text field configurations for this alert. One text field will be
-// created for each |TextFieldConfiguration|.
+// created for each `TextFieldConfiguration`.
 - (void)setTextFieldConfigurations:
     (NSArray<TextFieldConfiguration*>*)textFieldConfigurations;
 
-// Sets the actions for this alert.
-- (void)setActions:(NSArray<AlertAction*>*)actions;
+// Sets the actions for this alert. The double array of actions would be
+// represented visually with each sub-array being a row of buttons.
+- (void)setActions:(NSArray<NSArray<AlertAction*>*>*)actions;
 
 // Sets the accessibility identifier for the alert view.
 - (void)setAlertAccessibilityIdentifier:(NSString*)identifier;

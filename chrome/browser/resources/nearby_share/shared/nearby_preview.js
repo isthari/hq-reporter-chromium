@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,31 +7,59 @@
  * sent to a remote device. The data might be some plain text, a URL or a file.
  */
 
-Polymer({
-  is: 'nearby-preview',
+import 'chrome://resources/cr_elements/cr_shared_style.css.js';
+import 'chrome://resources/cr_elements/cr_icons.css.js';
+import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
+import './nearby_shared_icons.html.js';
+import './nearby_shared_share_type_icons.html.js';
 
-  behaviors: [I18nBehavior],
+import {PayloadPreview} from '/mojo/nearby_share.mojom-webui.js';
+import {ShareType} from '/mojo/nearby_share_share_type.mojom-webui.js';
+import {assertNotReached} from 'chrome://resources/ash/common/assert.js';
+import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/ash/common/i18n_behavior.js';
+import {mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-  properties: {
-    /**
-     * Preview info for the file(s) to send. Expected to start
-     * as null, then change to a valid object before this component is shown.
-     * @type {?nearbyShare.mojom.PayloadPreview}
-     */
-    payloadPreview: {
-      type: Object,
-      value: null,
-    },
+import {getTemplate} from './nearby_preview.html.js';
 
-    /**
-     * Controls whether the icon should be greyed out.
-     * @type {boolean}
-     */
-    disabled: {
-      type: Boolean,
-      value: false,
-    },
-  },
+/**
+ * @constructor
+ * @extends {PolymerElement}
+ * @implements {I18nBehaviorInterface}
+ */
+const NearbyPreviewElementBase = mixinBehaviors([I18nBehavior], PolymerElement);
+
+/** @polymer */
+export class NearbyPreviewElement extends NearbyPreviewElementBase {
+  static get is() {
+    return 'nearby-preview';
+  }
+
+  static get template() {
+    return getTemplate();
+  }
+
+  static get properties() {
+    return {
+      /**
+       * Preview info for the file(s) to send. Expected to start
+       * as null, then change to a valid object before this component is shown.
+       * @type {?PayloadPreview}
+       */
+      payloadPreview: {
+        type: Object,
+        value: null,
+      },
+
+      /**
+       * Controls whether the icon should be greyed out.
+       * @type {boolean}
+       */
+      disabled: {
+        type: Boolean,
+        value: false,
+      },
+    };
+  }
 
   /**
    * @return {string} the preview text to display
@@ -50,7 +78,7 @@ Polymer({
     } else {
       return '';
     }
-  },
+  }
 
   /**
    * @return {string} the identifier for the iron icon
@@ -63,37 +91,39 @@ Polymer({
     }
 
     switch (this.payloadPreview.shareType) {
-      case nearbyShare.mojom.ShareType.kUnknownFile:
+      case ShareType.kUnknownFile:
         return 'nearbysharetype68:unknown-file';
-      case nearbyShare.mojom.ShareType.kMultipleFiles:
+      case ShareType.kMultipleFiles:
         return 'nearbysharetype68:multiple-file';
-      case nearbyShare.mojom.ShareType.kImageFile:
-      case nearbyShare.mojom.ShareType.kVideoFile:
+      case ShareType.kImageFile:
+      case ShareType.kVideoFile:
         return 'nearbysharetype68:image-video-file';
-      case nearbyShare.mojom.ShareType.kAudioFile:
+      case ShareType.kAudioFile:
         return 'nearbysharetype68:audio-file';
-      case nearbyShare.mojom.ShareType.kPdfFile:
+      case ShareType.kPdfFile:
         return 'nearbysharetype68:pdf-file';
-      case nearbyShare.mojom.ShareType.kGoogleDocsFile:
+      case ShareType.kGoogleDocsFile:
         return 'nearbysharetype68:google-docs-file';
-      case nearbyShare.mojom.ShareType.kGoogleSheetsFile:
+      case ShareType.kGoogleSheetsFile:
         return 'nearbysharetype68:google-sheets-file';
-      case nearbyShare.mojom.ShareType.kGoogleSlidesFile:
+      case ShareType.kGoogleSlidesFile:
         return 'nearbysharetype68:google-slides-file';
-      case nearbyShare.mojom.ShareType.kText:
+      case ShareType.kText:
         return 'nearbysharetype68:text';
-      case nearbyShare.mojom.ShareType.kUrl:
+      case ShareType.kUrl:
         return 'nearbysharetype68:url';
-      case nearbyShare.mojom.ShareType.kAddress:
+      case ShareType.kAddress:
         return 'nearbysharetype68:address';
-      case nearbyShare.mojom.ShareType.kPhone:
+      case ShareType.kPhone:
         return 'nearbysharetype68:phone';
+      case ShareType.kWifiCredentials:
+        return 'nearbysharetype68:wifi-credentials';
       default:
         assertNotReached(
             'No icon defined for share type ' + this.payloadPreview.shareType);
         return 'nearbysharetype68:unknown-file';
     }
-  },
+  }
 
   /**
    * @return {string} The css class to be applied to the icon.
@@ -104,5 +134,7 @@ Polymer({
       return 'disabled';
     }
     return '';
-  },
-});
+  }
+}
+
+customElements.define(NearbyPreviewElement.is, NearbyPreviewElement);

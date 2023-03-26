@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "third_party/blink/renderer/core/layout/layout_box.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_theme.h"
-#include "third_party/blink/renderer/core/layout/svg/layout_svg_foreign_object.h"
 #include "third_party/blink/renderer/core/paint/background_image_geometry.h"
 #include "third_party/blink/renderer/core/paint/box_decoration_data.h"
 #include "third_party/blink/renderer/core/paint/box_model_object_painter.h"
@@ -47,8 +46,9 @@ void BoxPainter::PaintChildren(const PaintInfo& paint_info) {
   PaintInfo child_info(paint_info);
   for (LayoutObject* child = layout_box_.SlowFirstChild(); child;
        child = child->NextSibling()) {
-    if (auto* foreign_object = DynamicTo<LayoutSVGForeignObject>(*child)) {
-      SVGForeignObjectPainter(*foreign_object).PaintLayer(paint_info);
+    if (child->IsSVGForeignObjectIncludingNG()) {
+      SVGForeignObjectPainter(To<LayoutBlockFlow>(*child))
+          .PaintLayer(paint_info);
     } else {
       child->Paint(child_info);
     }
@@ -320,8 +320,22 @@ void BoxPainter::RecordScrollHitTestData(
     // instead of the contents properties so that the scroll hit test is not
     // clipped or scrolled.
     auto& paint_controller = paint_info.context.GetPaintController();
-    DCHECK_EQ(fragment->LocalBorderBoxProperties(),
-              paint_controller.CurrentPaintChunkProperties());
+#if DCHECK_IS_ON()
+    // TODO(crbug.com/1256990): This should be
+    // DCHECK_EQ(fragment->LocalBorderBoxProperties(),
+    //           paint_controller.CurrentPaintChunkProperties());
+    // but we have problems about the effect node with CompositingReason::
+    // kTransform3DSceneLeaf on non-stacking-context elements.
+    auto border_box_properties = fragment->LocalBorderBoxProperties();
+    auto current_properties = paint_controller.CurrentPaintChunkProperties();
+    DCHECK_EQ(&border_box_properties.Transform(),
+              &current_properties.Transform())
+        << border_box_properties.Transform().ToTreeString().Utf8()
+        << current_properties.Transform().ToTreeString().Utf8();
+    DCHECK_EQ(&border_box_properties.Clip(), &current_properties.Clip())
+        << border_box_properties.Clip().ToTreeString().Utf8()
+        << current_properties.Clip().ToTreeString().Utf8();
+#endif
     paint_controller.RecordScrollHitTestData(
         background_client, DisplayItem::kScrollHitTest,
         properties->ScrollTranslation(), VisualRect(fragment->PaintOffset()));

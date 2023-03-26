@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,8 +29,8 @@ class PrintJobReportingService : public KeyedService,
   ~PrintJobReportingService() override = default;
 
   // PrintJobHistoryService::Observer:
-  void OnPrintJobFinished(const chromeos::printing::proto::PrintJobInfo&
-                              print_job_info) override = 0;
+  void OnPrintJobFinished(
+      const printing::proto::PrintJobInfo& print_job_info) override = 0;
 };
 
 }  // namespace ash

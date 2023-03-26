@@ -1,13 +1,13 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <utility>
 
 #include "base/base_switches.h"
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -115,9 +115,10 @@ IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, Reload) {
   ASSERT_TRUE(ui_test_utils::GetCurrentTabTitle(browser(),
                                                 &title_after_crash));
   EXPECT_NE(title_before_crash, title_after_crash);
-  ASSERT_TRUE(GetActiveWebContents()->GetMainFrame()->GetView()->IsShowing());
+  ASSERT_TRUE(
+      GetActiveWebContents()->GetPrimaryMainFrame()->GetView()->IsShowing());
   ASSERT_FALSE(GetActiveWebContents()
-                   ->GetMainFrame()
+                   ->GetPrimaryMainFrame()
                    ->GetProcess()
                    ->IsProcessBackgrounded());
 }

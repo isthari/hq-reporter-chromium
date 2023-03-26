@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include <vector>
 
 #include "base/barrier_closure.h"
-#include "base/bind.h"
 #include "base/check.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
@@ -61,8 +61,7 @@ bool SystemNotificationsEnabled(Profile* profile) {
   if (profile) {
     // Prefs take precedence over flags.
     PrefService* prefs = profile->GetPrefs();
-    if (!prefs->GetBoolean(prefs::kAllowNativeNotifications) ||
-        !prefs->GetBoolean(prefs::kAllowSystemNotifications)) {
+    if (!prefs->GetBoolean(prefs::kAllowSystemNotifications)) {
       return false;
     }
   }

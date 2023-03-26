@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <stddef.h>
 
 #include "ash/public/cpp/ash_public_export.h"
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/observer_list.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/keyboard_codes.h"
@@ -27,6 +27,8 @@ enum AcceleratorAction {
   BRIGHTNESS_UP,
   CYCLE_BACKWARD_MRU,
   CYCLE_FORWARD_MRU,
+  CYCLE_SAME_APP_WINDOWS_BACKWARD,
+  CYCLE_SAME_APP_WINDOWS_FORWARD,
   DESKS_ACTIVATE_DESK_LEFT,
   DESKS_ACTIVATE_DESK_RIGHT,
   DESKS_MOVE_ACTIVE_ITEM_LEFT,
@@ -44,6 +46,7 @@ enum AcceleratorAction {
   DESKS_TOGGLE_ASSIGN_TO_ALL_DESKS,
   DISABLE_CAPS_LOCK,
   EXIT,
+  FOCUS_CAMERA_PREVIEW,
   FOCUS_NEXT_PANE,
   FOCUS_PREVIOUS_PANE,
   FOCUS_SHELF,
@@ -84,6 +87,9 @@ enum AcceleratorAction {
   OPEN_FEEDBACK_PAGE,
   OPEN_FILE_MANAGER,
   OPEN_GET_HELP,
+  // Similar to TOGGLE_CLIPBOARD_HISTORY but is used to paste plain text only
+  // when clipboard history menu is already open.
+  PASTE_CLIPBOARD_HISTORY_PLAIN_TEXT,
   POWER_PRESSED,
   POWER_RELEASED,
   PRINT_UI_HIERARCHIES,
@@ -112,7 +118,7 @@ enum AcceleratorAction {
   TAKE_SCREENSHOT,
   TAKE_WINDOW_SCREENSHOT,
   TOGGLE_APP_LIST,
-  TOGGLE_APP_LIST_FULLSCREEN,
+  TOGGLE_CALENDAR,
   TOGGLE_CAPS_LOCK,
   TOGGLE_CLIPBOARD_HISTORY,
   TOGGLE_DICTATION,
@@ -124,7 +130,9 @@ enum AcceleratorAction {
   TOGGLE_MAXIMIZED,
   TOGGLE_MESSAGE_CENTER_BUBBLE,
   TOGGLE_MIRROR_MODE,
+  TOGGLE_MULTITASK_MENU,
   TOGGLE_OVERVIEW,
+  TOGGLE_PROJECTOR_MARKER,
   TOGGLE_RESIZE_LOCK_MENU,
   TOGGLE_SPOKEN_FEEDBACK,
   TOGGLE_SYSTEM_TRAY_BUBBLE,
@@ -142,18 +150,27 @@ enum AcceleratorAction {
 
   // Debug accelerators are intentionally at the end, so that if you remove one
   // you don't need to update tests which check hashes of the ids.
+  DEBUG_DUMP_CALENDAR_MODEL,
   DEBUG_KEYBOARD_BACKLIGHT_TOGGLE,
   DEBUG_MICROPHONE_MUTE_TOGGLE,
   DEBUG_PRINT_LAYER_HIERARCHY,
   DEBUG_PRINT_VIEW_HIERARCHY,
   DEBUG_PRINT_WINDOW_HIERARCHY,
   DEBUG_SHOW_TOAST,
+  DEBUG_SYSTEM_UI_STYLE_VIEWER,
+  // TODO(crbug.com/1336836): Remove fling accelerators after float is released.
+  DEBUG_TUCK_FLOATED_WINDOW_LEFT,
+  DEBUG_TUCK_FLOATED_WINDOW_RIGHT,
+  DEBUG_TOGGLE_DARK_MODE,
+  DEBUG_TOGGLE_DYNAMIC_COLOR,
+  DEBUG_TOGGLE_GLANCEABLES,
   DEBUG_TOGGLE_SHOW_DEBUG_BORDERS,
   DEBUG_TOGGLE_SHOW_FPS_COUNTER,
   DEBUG_TOGGLE_SHOW_PAINT_RECTS,
   DEBUG_TOGGLE_TOUCH_PAD,
   DEBUG_TOGGLE_TOUCH_SCREEN,
   DEBUG_TOGGLE_TABLET_MODE,
+  DEBUG_TOGGLE_VIDEO_CONFERENCE_CAMERA_TRAY_ICON,
   DEBUG_TOGGLE_WALLPAPER_MODE,
   DEBUG_TRIGGER_CRASH,  // Intentionally crash the ash process.
   DEBUG_TOGGLE_HUD_DISPLAY,
@@ -201,6 +218,18 @@ ASH_PUBLIC_EXPORT extern const AcceleratorData
     kEnabledWithImprovedDesksKeyboardShortcutsAcceleratorData[];
 ASH_PUBLIC_EXPORT extern const size_t
     kEnabledWithImprovedDesksKeyboardShortcutsAcceleratorDataLength;
+
+// Accelerators that are enabled with same app window cycling experiment.
+ASH_PUBLIC_EXPORT extern const AcceleratorData
+    kEnableWithSameAppWindowCycleAcceleratorData[];
+ASH_PUBLIC_EXPORT extern const size_t
+    kEnableWithSameAppWindowCycleAcceleratorDataLength;
+
+// Accelerators that are enabled with the floating windows feature.
+ASH_PUBLIC_EXPORT extern const AcceleratorData
+    kEnableWithFloatWindowAcceleratorData[];
+ASH_PUBLIC_EXPORT extern const size_t
+    kEnableWithFloatWindowAcceleratorDataLength;
 
 // The public-facing interface for accelerator handling, which is Ash's duty to
 // implement.

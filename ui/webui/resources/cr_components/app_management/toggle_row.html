@@ -1,4 +1,4 @@
-<style include="app-management-shared-css">
+<style include="app-management-shared-style">
   :host {
     align-items: center;
     display: flex;
@@ -39,6 +39,9 @@
   <cr-toggle id="toggle"
       checked="[[value]]"
       disabled$="[[managed]]"
-      aria-label$="[[label]]">
+      role="button"
+      tabindex="0"
+      aria-pressed="[[value]]"
+      aria-label="[[label]]">
   </cr-toggle>
 </div>

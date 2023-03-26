@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,24 +6,25 @@ import 'chrome://webui-test/mojo_webui_test_support.js';
 
 import {MostVisitedBrowserProxy} from 'chrome://resources/cr_components/most_visited/browser_proxy.js';
 import {MostVisitedElement} from 'chrome://resources/cr_components/most_visited/most_visited.js';
-import {MostVisitedPageCallbackRouter, MostVisitedPageHandlerRemote, MostVisitedTile} from 'chrome://resources/cr_components/most_visited/most_visited.mojom-webui.js';
+import {MostVisitedPageCallbackRouter, MostVisitedPageHandlerRemote, MostVisitedPageRemote, MostVisitedTile} from 'chrome://resources/cr_components/most_visited/most_visited.mojom-webui.js';
 import {MostVisitedWindowProxy} from 'chrome://resources/cr_components/most_visited/window_proxy.js';
-import {CrButtonElement} from 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import {CrInputElement} from 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
-import {isMac} from 'chrome://resources/js/cr.m.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {CrButtonElement} from 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import {CrInputElement} from 'chrome://resources/cr_elements/cr_input/cr_input.js';
+import {isMac} from 'chrome://resources/js/platform.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {TextDirection} from 'chrome://resources/mojo/mojo/public/mojom/base/text_direction.mojom-webui.js';
 import {assertDeepEquals, assertEquals, assertFalse, assertNotEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
 import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
-import {eventToPromise, flushTasks} from 'chrome://webui-test/test_util.js';
+import {eventToPromise} from 'chrome://webui-test/test_util.js';
 
 import {$$, assertNotStyle, assertStyle, keydown} from './most_visited_test_support.js';
 
 let mostVisited: MostVisitedElement;
 let windowProxy: MostVisitedWindowProxy&TestBrowserProxy;
 let handler: MostVisitedPageHandlerRemote&TestBrowserProxy;
-let callbackRouterRemote: MostVisitedPageCallbackRouter;
+let callbackRouterRemote: MostVisitedPageRemote;
 let mediaListenerWideWidth: FakeMediaQueryList;
 let mediaListenerMediumWidth: FakeMediaQueryList;
 let mediaListener: Function;
@@ -146,7 +147,7 @@ function leaveUrlInput() {
 
 suite('General', () => {
   setup(() => {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
 
     createBrowserProxy();
     createWindowProxy();
@@ -456,7 +457,7 @@ suite('Modification', () => {
   });
 
   setup(() => {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
 
     createBrowserProxy();
     createWindowProxy();
@@ -1004,7 +1005,7 @@ suite('Modification', () => {
 
 suite('Theming', () => {
   setup(() => {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
 
     createBrowserProxy();
     createWindowProxy();

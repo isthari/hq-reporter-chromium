@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include "content/public/browser/web_ui_controller.h"
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "chrome/browser/signin/dice_web_signin_interceptor.h"
 
 namespace content {

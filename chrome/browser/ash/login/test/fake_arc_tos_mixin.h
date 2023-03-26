@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,9 +33,6 @@ class FakeArcTosMixin : public InProcessBrowserTestMixin {
 
   const std::string& GetArcTosContent() { return kArcTosContent; }
   const std::string& GetPrivacyPolicyContent() { return kPrivacyPolicyContent; }
-  void set_serve_tos_with_privacy_policy_footer(bool serve_with_footer) {
-    serve_tos_with_privacy_policy_footer_ = serve_with_footer;
-  }
 
  private:
   std::unique_ptr<HttpResponse> HandleRequest(const HttpRequest& request);
@@ -43,7 +40,6 @@ class FakeArcTosMixin : public InProcessBrowserTestMixin {
   const std::string kArcTosContent = "ARC TOS for test.";
   const std::string kPrivacyPolicyContent = "ARC Privacy Policy for test.";
   net::EmbeddedTestServer* test_server_;
-  bool serve_tos_with_privacy_policy_footer_ = true;
 };
 
 }  // namespace ash

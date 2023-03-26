@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,9 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/observer_list.h"
 #include "base/scoped_observation.h"
+#include "base/values.h"
 #include "chrome/browser/background/background_contents.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "extensions/browser/extension_host_registry.h"
@@ -30,7 +32,6 @@ class Profile;
 
 namespace base {
 class CommandLine;
-class Value;
 }  // namespace base
 
 namespace content {
@@ -108,7 +109,7 @@ class BackgroundContentsService
   void AddWebContents(std::unique_ptr<content::WebContents> new_contents,
                       const GURL& target_url,
                       WindowOpenDisposition disposition,
-                      const gfx::Rect& initial_rect,
+                      const blink::mojom::WindowFeatures& window_features,
                       bool* was_blocked) override;
   void OnBackgroundContentsNavigated(BackgroundContents* contents) override;
   void OnBackgroundContentsTerminated(BackgroundContents* contents) override;
@@ -184,7 +185,7 @@ class BackgroundContentsService
   // Load a BackgroundContent; the settings are read from the provided
   // dictionary.
   void LoadBackgroundContentsFromDictionary(const std::string& extension_id,
-                                            const base::Value* contents);
+                                            const base::Value::Dict& contents);
 
   // Load the manifest-specified BackgroundContents for all apps for the
   // profile.

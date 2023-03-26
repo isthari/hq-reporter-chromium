@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "base/no_destructor.h"
 #include "chrome/browser/notifications/notification_display_service.h"
@@ -56,7 +57,8 @@ void PasswordChangeSuccessNotification::Show(Profile* profile) {
 
   // NotifierId for histogram reporting.
   static const base::NoDestructor<NotifierId> kNotifierId(
-      NotifierType::SYSTEM_COMPONENT, kNotificationId);
+      NotifierType::SYSTEM_COMPONENT, kNotificationId,
+      NotificationCatalogName::kPasswordChange);
 
   // Leaving this empty means the notification is attributed to the system -
   // ie "Chromium OS" or similar.
@@ -76,7 +78,7 @@ void PasswordChangeSuccessNotification::Show(Profile* profile) {
   const scoped_refptr<NotificationDelegate> delegate =
       base::MakeRefCounted<NotificationDelegate>();
 
-  std::unique_ptr<Notification> notification = CreateSystemNotification(
+  Notification notification = CreateSystemNotification(
       kNotificationType, kNotificationId, title, body, *kEmptyDisplaySource,
       *kEmptyOriginUrl, *kNotifierId, rich_notification_data, delegate, kIcon,
       kWarningLevel);
@@ -86,7 +88,7 @@ void PasswordChangeSuccessNotification::Show(Profile* profile) {
   // Calling close before display ensures that the notification pops up again
   // even if it is already shown.
   nds->Close(kNotificationHandlerType, kNotificationId);
-  nds->Display(kNotificationHandlerType, *notification, /*metadata=*/nullptr);
+  nds->Display(kNotificationHandlerType, notification, /*metadata=*/nullptr);
 }
 
 }  // namespace ash

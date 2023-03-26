@@ -1,10 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.password_manager;
 
+import android.accounts.Account;
+
 import org.chromium.base.Callback;
+
+import java.util.Date;
+import java.util.Optional;
 
 /**
  * Interface to send backend requests to a downstream implementation to fulfill password store
@@ -44,95 +49,93 @@ public interface PasswordStoreAndroidBackend {
     /**
      * Triggers an async list call to retrieve all logins.
      *
+     * @param syncingAccount Account used to sync passwords. If the syncingAccount is empty local
+     *         account will be used.
      * @param loginsReply Callback that is called on success with serialized {@link
-     *         org.chromium.components.sync.protocol.ListPasswordsResult} data.
+     *         org.chromium.components.password_manager.core.browser.proto.ListPasswordsResult}
+     * data.
      * @param failureCallback A callback that is called on failure for any reason. May return sync.
-     *
-     * @deprecated use {@link #getAllLogins(@PasswordStoreOperationTarget int,
-            Callback<byte[]>, Callback<Exception>)}.
      */
-    @Deprecated
-    default void getAllLogins(Callback<byte[]> loginsReply, Callback<Exception> failureCallback) {
-        getAllLogins(PasswordStoreOperationTarget.DEFAULT, loginsReply, failureCallback);
-    };
+    void getAllLogins(Optional<Account> syncingAccount, Callback<byte[]> loginsReply,
+            Callback<Exception> failureCallback);
 
     /**
-     * Triggers an async list call to retrieve all logins.
+     * Triggers an async list call to retrieve all logins withing given time frame.
      *
-     * @param target enum {@link StoreOperationTarget} to decide which storage to use.
+     * @param createdAfter Filters for passwords that were created after this date.
+     * @param createdBefore Filters for passwords that were created before this date.
+     * @param syncingAccount Account used to sync passwords. If the syncingAccount is empty local
+     *         account will be used.
      * @param loginsReply Callback that is called on success with serialized {@link
      *         org.chromium.components.sync.protocol.ListPasswordsResult} data.
      * @param failureCallback A callback that is called on failure for any reason. May return sync.
      */
-    void getAllLogins(@PasswordStoreOperationTarget int target, Callback<byte[]> loginsReply,
+    void getAllLoginsBetween(Date createdAfter, Date createdBefore,
+            Optional<Account> syncingAccount, Callback<byte[]> loginsReply,
             Callback<Exception> failureCallback);
 
     /**
      * Triggers an async list call to retrieve autofillable logins.
      *
+     * @param syncingAccount Account used to sync passwords. If the syncingAccount is empty local
+     *         account will be used.
      * @param loginsReply Callback that is called on success with serialized {@link
-     *         org.chromium.components.sync.protocol.ListPasswordsResult} data.
+     *         org.chromium.components.password_manager.core.browser.proto.ListPasswordsResult}
+     * data.
      * @param failureCallback A callback that is called on failure for any reason. May return sync.
      */
-    void getAutofillableLogins(Callback<byte[]> loginsReply, Callback<Exception> failureCallback);
+    void getAutofillableLogins(Optional<Account> syncingAccount, Callback<byte[]> loginsReply,
+            Callback<Exception> failureCallback);
 
     /**
      * Triggers an async list call to retrieve logins with matching signon realm.
      *
      * @param signonRealm Signon realm string matched by a substring match. The returned results
      * must be validated (e.g matching "sample.com" also returns logins for "not-sample.com").
+     * @param syncingAccount Account used to sync passwords. If the syncingAccount is empty local
+     *         account will be used.
      * @param loginsReply Callback that is called on success with serialized {@link
-     *         org.chromium.components.sync.protocol.ListPasswordsResult} data.
+     *         org.chromium.components.password_manager.core.browser.proto.ListPasswordsResult}
+     * data.
      * @param failureCallback A callback that is called on failure for any reason. May return sync.
      */
-    void getLoginsForSignonRealm(
-            String signonRealm, Callback<byte[]> loginsReply, Callback<Exception> failureCallback);
+    void getLoginsForSignonRealm(String signonRealm, Optional<Account> syncingAccount,
+            Callback<byte[]> loginsReply, Callback<Exception> failureCallback);
 
     /**
      * Triggers an async call to add a login to the store.
      *
-     * @param pwdWithLocalData Serialized PasswordWithLocalData identifying the login to be added.
+     * @param pwdWithLocalData Serialized PasswordWithLocalData to be added.
+     * @param syncingAccount Account used to sync passwords. If Nullopt was provided local account
+     *         will be used.
      * @param successCallback Callback that is called on success.
      * @param failureCallback A callback that is called on failure for any reason. May return sync.
      */
-    void addLogin(
-            byte[] pwdWithLocalData, Runnable successCallback, Callback<Exception> failureCallback);
+    void addLogin(byte[] pwdWithLocalData, Optional<Account> syncingAccount,
+            Runnable successCallback, Callback<Exception> failureCallback);
 
     /**
      * Triggers an async call to update a login in the store.
      *
-     * @param pwdWithLocalData Serialized PasswordWithLocalData identifying the login to be updated.
+     * @param pwdWithLocalData Serialized PasswordWithLocalData replacing a login with the same
+     *         unique key.
+     * @param syncingAccount Account used to sync passwords. If Nullopt was provided local account
+     *         will be used.
      * @param successCallback Callback that is called on success.
      * @param failureCallback A callback that is called on failure for any reason. May return sync.
      */
-    void updateLogin(
-            byte[] pwdWithLocalData, Runnable successCallback, Callback<Exception> failureCallback);
+    void updateLogin(byte[] pwdWithLocalData, Optional<Account> syncingAccount,
+            Runnable successCallback, Callback<Exception> failureCallback);
 
     /**
      * Triggers an async call to remove a login from store.
      *
      * @param pwdSpecificsData Serialized PasswordSpecificsData identifying the login to be deleted.
-     * @param successCallback Callback that is called on success.
-     * @param failureCallback A callback that is called on failure for any reason. May return sync.
-     *
-     * * @deprecated use use {@link #removeLogin(byte[], @PasswordStoreOperationTarget int,
-            Runnable, Callback<Exception>)}.
-     */
-    @Deprecated
-    default void removeLogin(byte[] pwdSpecificsData, Runnable successCallback,
-            Callback<Exception> failureCallback) {
-        removeLogin(pwdSpecificsData, PasswordStoreOperationTarget.DEFAULT, successCallback,
-                failureCallback);
-    };
-
-    /**
-     * Triggers an async call to remove a login from store.
-     *
-     * @param pwdSpecificsData Serialized PasswordSpecificsData identifying the login to be deleted.
-     * @param target enum {@link StoreOperationTarget} to decide which storage to use.
+     * @param syncingAccount Account used to sync passwords. If Nullopt was provided local account
+     *         will be used.
      * @param successCallback Callback that is called on success.
      * @param failureCallback A callback that is called on failure for any reason. May return sync.
      */
-    void removeLogin(byte[] pwdSpecificsData, @PasswordStoreOperationTarget int target,
+    void removeLogin(byte[] pwdSpecificsData, Optional<Account> syncingAccount,
             Runnable successCallback, Callback<Exception> failureCallback);
 }

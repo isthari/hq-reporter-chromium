@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,12 @@
   BindingsTestRunner.overrideNetworkModificationTime(
       {'http://127.0.0.1:8000/devtools/persistence/resources/sourcemap-name-clash/out.js': null});
 
-  Promise.all([getResourceContent('out.js'), getResourceContent('out.js? [sm]')]).then(onResourceContents);
+  Promise
+      .all([
+        getResourceContent('out.js', Common.resourceTypes.Script),
+        getResourceContent('out.js', Common.resourceTypes.SourceMapScript),
+      ])
+      .then(onResourceContents);
 
   function onResourceContents(contents) {
     var fs = new BindingsTestRunner.TestFileSystem('/var/www');
@@ -30,10 +35,10 @@
     automappingTest.waitUntilMappingIsStabilized().then(TestRunner.completeTest.bind(TestRunner));
   }
 
-  function getResourceContent(name) {
+  function getResourceContent(name, contentType) {
     var fulfill;
     var promise = new Promise(x => fulfill = x);
-    SourcesTestRunner.waitForScriptSource(name, onSource);
+    SourcesTestRunner.waitForScriptSource(name, onSource, contentType);
     return promise;
 
     function onSource(uiSourceCode) {

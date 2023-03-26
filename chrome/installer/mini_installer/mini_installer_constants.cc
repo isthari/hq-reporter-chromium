@@ -1,10 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/installer/mini_installer/mini_installer_constants.h"
 
 #include "build/branding_buildflags.h"
+#include "chrome/browser/chrome_for_testing/buildflags.h"
 
 namespace mini_installer {
 
@@ -17,11 +18,7 @@ const wchar_t kChromeArchivePrefix[] = L"chrome";
 const wchar_t kSetupPrefix[] = L"setup";
 
 // Command line switch names for setup.exe.
-#if defined(SKIP_ARCHIVE_COMPRESSION)
-const wchar_t kCmdUncompressedArchive[] = L"uncompressed-archive";
-#else
 const wchar_t kCmdInstallArchive[] = L"install-archive";
-#endif
 const wchar_t kCmdUpdateSetupExe[] = L"update-setup-exe";
 const wchar_t kCmdNewSetupExe[] = L"new-setup-exe";
 const wchar_t kCmdPreviousVersion[] = L"previous-version";
@@ -67,6 +64,15 @@ const wchar_t kClientStateKeyBase[] =
     L"Software\\Google\\Update\\ClientState\\";
 // The path to the key in which kCleanupRegistryValue is found.
 const wchar_t kCleanupRegistryKey[] = L"Software\\Google";
+#elif BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
+// The path to the key containing each app's Clients registry key.
+// No trailing slash on this one because the app's GUID is not appended.
+const wchar_t kClientsKeyBase[] = L"Software\\Chrome for Testing";
+// The path to the key containing each app's Client State registry key.
+// No trailing slash on this one because the app's GUID is not appended.
+const wchar_t kClientStateKeyBase[] = L"Software\\Chrome for Testing";
+// The path to the key in which kCleanupRegistryValue is found.
+const wchar_t kCleanupRegistryKey[] = L"Software\\Chrome for Testing";
 #else
 // The path to the key containing each app's Clients registry key.
 // No trailing slash on this one because the app's GUID is not appended.

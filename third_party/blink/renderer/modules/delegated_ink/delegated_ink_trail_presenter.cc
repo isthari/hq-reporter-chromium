@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -137,10 +137,16 @@ void DelegatedInkTrailPresenter::updateInkTrailStartPoint(
           point, diameter_in_physical_pixels, color.Rgb(),
           evt->PlatformTimeStamp(), area, is_hovering);
 
-  TRACE_EVENT_INSTANT1(
-      "blink", "DelegatedInkTrailPresenter::updateInkTrailStartPoint",
-      TRACE_EVENT_SCOPE_THREAD, "ink metadata", metadata->ToString());
+  TRACE_EVENT_WITH_FLOW1("delegated_ink_trails",
+                         "DelegatedInkTrailPresenter::updateInkTrailStartPoint",
+                         TRACE_ID_GLOBAL(metadata->trace_id()),
+                         TRACE_EVENT_FLAG_FLOW_OUT, "metadata",
+                         metadata->ToString());
 
+  if (last_delegated_ink_metadata_timestamp_ == metadata->timestamp())
+    return;
+
+  last_delegated_ink_metadata_timestamp_ = metadata->timestamp();
   Page* page = local_frame_->GetPage();
   page->GetChromeClient().SetDelegatedInkMetadata(local_frame_,
                                                   std::move(metadata));

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -92,7 +92,7 @@ TEST_F(DriveServiceTest, PassesDataOnSuccess) {
                 "mimeType": "application/vnd.google-apps.spreadsheet"
               },
               "justification": {
-                "displayText": {
+                "unstructuredJustificationDescription": {
                   "textSegment": [
                     {
                       "text": "Foo foo"
@@ -109,7 +109,7 @@ TEST_F(DriveServiceTest, PassesDataOnSuccess) {
                 "mimeType": "application/vnd.google-apps.document"
               },
               "justification": {
-                "displayText": {
+                "unstructuredJustificationDescription": {
                   "textSegment": [
                     {
                       "text": "Foo "
@@ -203,7 +203,7 @@ TEST_F(DriveServiceTest, PassesDataToMultipleRequestsToDriveService) {
                 "mimeType": "application/vnd.google-apps.spreadsheet"
               },
               "justification": {
-                "displayText": {
+                "unstructuredJustificationDescription": {
                   "textSegment": [
                     {
                       "text": "Foo foo"
@@ -259,7 +259,7 @@ TEST_F(DriveServiceTest, PassesCachedDataIfRequested) {
                 "mimeType": "application/vnd.google-apps.spreadsheet"
               },
               "justification": {
-                "displayText": {
+                "unstructuredJustificationDescription": {
                   "textSegment": [
                     {
                       "text": "Foo foo"
@@ -584,7 +584,7 @@ TEST_F(DriveServiceModulesRedesignedTest, IgnoresDismiss) {
                 "mimeType": "application/vnd.google-apps.document"
               },
               "justification": {
-                "displayText": {
+                "unstructuredJustificationDescription": {
                   "textSegment": [
                     {
                       "text": "Foo "

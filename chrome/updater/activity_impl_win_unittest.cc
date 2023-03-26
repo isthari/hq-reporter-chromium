@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,16 @@
 #include <string>
 #include <tuple>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/strings/strcat.h"
 #include "base/win/registry.h"
 #include "base/win/windows_types.h"
 #include "chrome/updater/test_scope.h"
 #include "chrome/updater/updater_scope.h"
+#include "chrome/updater/util/win_util.h"
 #include "chrome/updater/win/user_info.h"
 #include "chrome/updater/win/win_constants.h"
-#include "chrome/updater/win/win_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace updater {

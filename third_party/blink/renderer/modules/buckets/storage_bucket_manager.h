@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,9 +29,7 @@ class MODULES_EXPORT StorageBucketManager final
   static const char kSupplementName[];
 
   // Web-exposed as navigator.storageBuckets
-  static StorageBucketManager* storageBuckets(ScriptState* script_state,
-                                              NavigatorBase& navigator,
-                                              ExceptionState& exception_state);
+  static StorageBucketManager* storageBuckets(NavigatorBase& navigator);
 
   explicit StorageBucketManager(NavigatorBase& navigator);
   ~StorageBucketManager() override = default;
@@ -60,6 +58,8 @@ class MODULES_EXPORT StorageBucketManager final
   void DidDelete(ScriptPromiseResolver* resolver, bool success);
 
   HeapMojoRemote<mojom::blink::BucketManagerHost> manager_remote_;
+
+  Member<NavigatorBase> navigator_base_;
 };
 
 }  // namespace blink

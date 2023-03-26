@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
 #include "components/favicon/core/test/mock_favicon_service.h"
 #include "components/favicon_base/favicon_callback.h"
@@ -158,7 +159,7 @@ TEST_F(FaviconHelperTest, GetComposedFaviconImageOrderMatchesInput) {
                    favicon_base::FaviconRawBitmapCallback callback,
                    base::CancelableTaskTracker* tracker) {
         tracker->PostTask(
-            base::ThreadTaskRunnerHandle::Get().get(), FROM_HERE,
+            base::SingleThreadTaskRunner::GetCurrentDefault().get(), FROM_HERE,
             base::BindOnce(
                 [](favicon_base::FaviconRawBitmapCallback callback, GURL url,
                    int size) {

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,11 @@
 #include <memory>
 #include <string>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/cxx17_backports.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
@@ -104,10 +103,10 @@ static scoped_refptr<extensions::Extension> CreateExtension(
     const std::string& name,
     const std::string& id,
     extensions::mojom::ManifestLocation location) {
-  base::DictionaryValue manifest;
-  manifest.SetString(extensions::manifest_keys::kVersion, "1.0.0.0");
-  manifest.SetInteger(extensions::manifest_keys::kManifestVersion, 2);
-  manifest.SetString(extensions::manifest_keys::kName, name);
+  base::Value::Dict manifest;
+  manifest.SetByDottedPath(extensions::manifest_keys::kVersion, "1.0.0.0");
+  manifest.SetByDottedPath(extensions::manifest_keys::kManifestVersion, 2);
+  manifest.SetByDottedPath(extensions::manifest_keys::kName, name);
   std::string error;
   scoped_refptr<extensions::Extension> extension =
       extensions::Extension::Create(
@@ -239,7 +238,7 @@ TEST_F(ProfileSigninConfirmationHelperTest,
   profile_->SetIsNewProfile(true);
   char buf[18];
   for (int i = 0; i < 10; i++) {
-    base::snprintf(buf, base::size(buf), "http://foo.com/%d", i);
+    base::snprintf(buf, std::size(buf), "http://foo.com/%d", i);
     history->AddPage(GURL(std::string(buf)), base::Time::Now(), nullptr, 1,
                      GURL(), history::RedirectList(), ui::PAGE_TRANSITION_LINK,
                      history::SOURCE_BROWSED, false, false);

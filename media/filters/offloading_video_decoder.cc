@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,14 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/synchronization/atomic_flag.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "media/base/bind_to_current_loop.h"
+#include "media/base/cdm_context.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/video_frame.h"
 
@@ -95,8 +96,7 @@ void OffloadingVideoDecoder::Initialize(const VideoDecoderConfig& config,
   const bool disable_offloading =
       config.is_encrypted() ||
       config.coded_size().width() < min_offloading_width_ ||
-      std::find(supported_codecs_.begin(), supported_codecs_.end(),
-                config.codec()) == supported_codecs_.end();
+      !base::Contains(supported_codecs_, config.codec());
 
   if (initialized_) {
     initialized_ = false;

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Copyright 2013 The Chromium Authors. All rights reserved.
+# Copyright 2013 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -187,6 +187,8 @@ ERRORPRONE_WARNINGS_TO_DISABLE = [
     # The only time we trigger this is when it is better to be explicit in a
     # list of unicode characters, e.g. FindAddress.java
     'UnicodeEscape',
+    # Nice to have.
+    'AlreadyChecked',
 ]
 
 # Full list of checks: https://errorprone.info/bugpatterns
@@ -240,6 +242,34 @@ def ProcessJavacOutput(output, target_name):
   lines = output_processor.Process(lines)
 
   return '\n'.join(lines)
+
+
+def CreateJarFile(jar_path,
+                  classes_dir,
+                  service_provider_configuration_dir=None,
+                  additional_jar_files=None,
+                  extra_classes_jar=None):
+  """Zips files from compilation into a single jar."""
+  logging.info('Start creating jar file: %s', jar_path)
+  with build_utils.AtomicOutput(jar_path) as f:
+    with zipfile.ZipFile(f.name, 'w') as z:
+      build_utils.ZipDir(z, classes_dir)
+      if service_provider_configuration_dir:
+        config_files = build_utils.FindInDirectory(
+            service_provider_configuration_dir)
+        for config_file in config_files:
+          zip_path = os.path.relpath(config_file,
+                                     service_provider_configuration_dir)
+          build_utils.AddToZipHermetic(z, zip_path, src_path=config_file)
+
+      if additional_jar_files:
+        for src_path, zip_path in additional_jar_files:
+          build_utils.AddToZipHermetic(z, zip_path, src_path=src_path)
+      if extra_classes_jar:
+        build_utils.MergeZips(
+            z, [extra_classes_jar],
+            path_transform=lambda p: p if p.endswith('.class') else None)
+  logging.info('Completed jar file: %s', jar_path)
 
 
 def _ParsePackageAndClassNames(java_file):
@@ -364,26 +394,6 @@ class _InfoFileContext:
     logging.info('Completed info file: %s', output_path)
 
 
-def _CreateJarFile(jar_path, service_provider_configuration_dir,
-                   additional_jar_files, classes_dir):
-  logging.info('Start creating jar file: %s', jar_path)
-  with build_utils.AtomicOutput(jar_path) as f:
-    with zipfile.ZipFile(f.name, 'w') as z:
-      build_utils.ZipDir(z, classes_dir)
-      if service_provider_configuration_dir:
-        config_files = build_utils.FindInDirectory(
-            service_provider_configuration_dir)
-        for config_file in config_files:
-          zip_path = os.path.relpath(config_file,
-                                     service_provider_configuration_dir)
-          build_utils.AddToZipHermetic(z, zip_path, src_path=config_file)
-
-      if additional_jar_files:
-        for src_path, zip_path in additional_jar_files:
-          build_utils.AddToZipHermetic(z, zip_path, src_path=src_path)
-  logging.info('Completed jar file: %s', jar_path)
-
-
 def _OnStaleMd5(changes, options, javac_cmd, javac_args, java_files):
   logging.info('Starting _OnStaleMd5')
   if options.enable_kythe_annotations:
@@ -469,7 +479,7 @@ def _RunCompiler(changes,
 
   # Use jar_path's directory to ensure paths are relative (needed for goma).
   temp_dir = jar_path + '.staging'
-  shutil.rmtree(temp_dir, True)
+  build_utils.DeleteDirectory(temp_dir)
   os.makedirs(temp_dir)
   info_file_context = None
   try:
@@ -500,7 +510,7 @@ def _RunCompiler(changes,
           # Reuse old .info file.
           save_info_file = False
 
-          build_utils.ExtractAll(jar_path, classes_dir)
+          build_utils.ExtractAll(jar_path, classes_dir, pattern='*.class')
 
     if save_info_file:
       info_file_context = _InfoFileContext(options.chromium_code,
@@ -565,8 +575,8 @@ def _RunCompiler(changes,
       end = time.time() - start
       logging.info('Java compilation took %ss', end)
 
-    _CreateJarFile(jar_path, service_provider_configuration,
-                   options.additional_jar_files, classes_dir)
+    CreateJarFile(jar_path, classes_dir, service_provider_configuration,
+                  options.additional_jar_files, options.kotlin_jar_path)
 
     if save_info_file:
       info_file_context.Commit(jar_info_path)
@@ -598,15 +608,6 @@ def _ParseOptions(argv):
       '--generated-dir',
       help='Subdirectory within target_gen_dir to place extracted srcjars and '
       'annotation processor output for codesearch to find.')
-  parser.add_option(
-      '--bootclasspath',
-      action='append',
-      default=[],
-      help='Boot classpath for javac. If this is specified multiple times, '
-      'they will all be appended to construct the classpath.')
-  parser.add_option(
-      '--java-version',
-      help='Java language version to use in -source and -target args to javac.')
   parser.add_option('--classpath', action='append', help='Classpath to use.')
   parser.add_option(
       '--processorpath',
@@ -660,11 +661,14 @@ def _ParseOptions(argv):
       '--header-jar',
       help='This is the header jar for the current target that contains '
       'META-INF/services/* files to be included in the output jar.')
+  parser.add_option(
+      '--kotlin-jar-path',
+      help='Kotlin jar to be merged into the output jar. This contains the '
+      ".class files from this target's .kt files.")
 
   options, args = parser.parse_args(argv)
   build_utils.CheckOptions(options, parser, required=('jar_path', ))
 
-  options.bootclasspath = build_utils.ParseGnList(options.bootclasspath)
   options.classpath = build_utils.ParseGnList(options.classpath)
   options.processorpath = build_utils.ParseGnList(options.processorpath)
   options.java_srcjars = build_utils.ParseGnList(options.java_srcjars)
@@ -677,13 +681,18 @@ def _ParseOptions(argv):
     additional_jar_files.append((filepath, jar_filepath))
   options.additional_jar_files = additional_jar_files
 
-  java_files = []
+  files = []
   for arg in args:
     # Interpret a path prefixed with @ as a file containing a list of sources.
     if arg.startswith('@'):
-      java_files.extend(build_utils.ReadSourcesList(arg[1:]))
+      files.extend(build_utils.ReadSourcesList(arg[1:]))
     else:
-      java_files.append(arg)
+      files.append(arg)
+
+  # The target's .sources file contains both Java and Kotlin files. We use
+  # compile_kt.py to compile the Kotlin files to .class and header jars. Javac
+  # is run only on .java files.
+  java_files = [f for f in files if f.endswith('.java')]
 
   return options, java_files
 
@@ -708,6 +717,10 @@ def main(argv):
 
   javac_args = [
       '-g',
+      # We currently target JDK 11 everywhere, since Mockito is broken by JDK17.
+      # See crbug.com/1409661 for more details.
+      '--release',
+      '11',
       # Chromium only allows UTF8 source files.  Being explicit avoids
       # javac pulling a default encoding from the user's environment.
       '-encoding',
@@ -716,6 +729,9 @@ def main(argv):
       # See: http://blog.ltgt.net/most-build-tools-misuse-javac/
       '-sourcepath',
       ':',
+      # protobuf-generated files fail this check (javadoc has @deprecated,
+      # but method missing @Deprecated annotation).
+      '-Xlint:-dep-ann',
   ]
 
   if options.enable_errorprone:
@@ -737,6 +753,22 @@ def main(argv):
           '-XepPatchChecks:,' + ','.join(ERRORPRONE_CHECKS_TO_APPLY)
       ]
 
+    # These are required to use JDK 16, and are taken directly from
+    # https://errorprone.info/docs/installation
+    javac_args += [
+        '-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED',
+        '-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED',
+        '-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED',
+        '-J--add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED',
+        '-J--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED',
+        '-J--add-exports=jdk.compiler/com.sun.tools.javac.processing='
+        'ALL-UNNAMED',
+        '-J--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED',
+        '-J--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED',
+        '-J--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED',
+        '-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED',
+    ]
+
     javac_args += ['-XDcompilePolicy=simple', ' '.join(errorprone_flags)]
 
     # This flag quits errorprone after checks and before code generation, since
@@ -745,25 +777,11 @@ def main(argv):
     if not ERRORPRONE_CHECKS_TO_APPLY:
       javac_args += ['-XDshould-stop.ifNoError=FLOW']
 
-  if options.java_version:
-    javac_args.extend([
-        '-source',
-        options.java_version,
-        '-target',
-        options.java_version,
-    ])
-  if options.java_version == '1.8':
-    # Android's boot jar doesn't contain all java 8 classes.
-    options.bootclasspath.append(build_utils.RT_JAR_PATH)
-
   # This effectively disables all annotation processors, even including
   # annotation processors in service provider configuration files named
   # META-INF/. See the following link for reference:
   #     https://docs.oracle.com/en/java/javase/11/tools/javac.html
   javac_args.extend(['-proc:none'])
-
-  if options.bootclasspath:
-    javac_args.extend(['-bootclasspath', ':'.join(options.bootclasspath)])
 
   if options.processorpath:
     javac_args.extend(['-processorpath', ':'.join(options.processorpath)])
@@ -773,8 +791,7 @@ def main(argv):
 
   javac_args.extend(options.javac_arg)
 
-  classpath_inputs = (
-      options.bootclasspath + options.classpath + options.processorpath)
+  classpath_inputs = options.classpath + options.processorpath
 
   depfile_deps = classpath_inputs
   # Files that are already inputs in GN should go in input_paths.

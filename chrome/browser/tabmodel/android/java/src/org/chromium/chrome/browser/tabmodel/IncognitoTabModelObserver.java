@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,17 +9,21 @@ package org.chromium.chrome.browser.tabmodel;
  */
 public interface IncognitoTabModelObserver {
     /**
-     * A delegate to control whether to show or hide the Incognito reauth dialog.
+     * A delegate to control whether to show or hide the Incognito re-auth dialog.
      */
     interface IncognitoReauthDialogDelegate {
         /**
-         * An event which is fired to control the visibility of the Incognito re-authentication
-         * dialog.
-         *
-         * @param oldModel The previous {@link TabModel} which was active.
-         * @param newModel The new {@link TabModel} which is now active.
+         * An event which is fired the last when the {@link TabModel} changed to regular in order
+         * to ensure we hide the re-auth dialog in the end, to avoid leaking any trace from the
+         * previous Incognito {@link TabModel}
          */
-        void onAfterTabModelSelected(TabModel oldModel, TabModel newModel);
+        void onAfterRegularTabModelChanged();
+
+        /**
+         * An event which is fired the earliest when the {@link TabModel} is selected to incognito
+         * in order to ensure we show the re-auth dialog fast.
+         */
+        void onBeforeIncognitoTabModelSelected();
     }
 
     /**

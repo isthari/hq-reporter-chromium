@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -183,8 +183,9 @@ std::unique_ptr<MediaCodecBridge> MediaCodecBridgeImpl::CreateAudioDecoder(
   DVLOG(2) << __func__ << ": " << config.AsHumanReadableString()
            << " media_crypto:" << media_crypto.obj();
 
-  const std::string mime =
-      MediaCodecUtil::CodecToAndroidMimeType(config.codec());
+  const std::string mime = MediaCodecUtil::CodecToAndroidMimeType(
+      config.codec(), config.target_output_sample_format());
+
   if (mime.empty())
     return nullptr;
 
@@ -280,12 +281,6 @@ std::unique_ptr<MediaCodecBridge> MediaCodecBridgeImpl::CreateVideoEncoder(
 
 // static
 void MediaCodecBridgeImpl::SetupCallbackHandlerForTesting() {
-  // Callback APIs are only available on M+, so do nothing if below that.
-  if (base::android::BuildInfo::GetInstance()->sdk_int() <
-      base::android::SDK_VERSION_MARSHMALLOW) {
-    return;
-  }
-
   JNIEnv* env = AttachCurrentThread();
   Java_MediaCodecBridge_createCallbackHandlerForTesting(env);
 }
@@ -303,9 +298,6 @@ MediaCodecBridgeImpl::MediaCodecBridgeImpl(
 
   if (!on_buffers_available_cb_)
     return;
-
-  DCHECK_GE(base::android::BuildInfo::GetInstance()->sdk_int(),
-            base::android::SDK_VERSION_MARSHMALLOW);
 
   // Note this should be done last since setBuffersAvailableListener() may
   // immediately invoke the callback if buffers came in during construction.
@@ -448,22 +440,19 @@ MediaCodecStatus MediaCodecBridgeImpl::GetOutputColorSpace(
   return MEDIA_CODEC_OK;
 }
 
-MediaCodecStatus MediaCodecBridgeImpl::GetInputFormatStride(int* stride) {
+MediaCodecStatus MediaCodecBridgeImpl::GetInputFormat(int* stride,
+                                                      int* slice_height,
+                                                      gfx::Size* encoded_size) {
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jobject> result =
       Java_MediaCodecBridge_getInputFormat(env, j_bridge_);
   MediaCodecStatus status = result ? MEDIA_CODEC_OK : MEDIA_CODEC_ERROR;
-  if (status == MEDIA_CODEC_OK)
+  if (status == MEDIA_CODEC_OK) {
     *stride = Java_MediaFormatWrapper_stride(env, result);
-  return status;
-}
-MediaCodecStatus MediaCodecBridgeImpl::GetInputFormatYPlaneHeight(int* height) {
-  JNIEnv* env = AttachCurrentThread();
-  ScopedJavaLocalRef<jobject> result =
-      Java_MediaCodecBridge_getInputFormat(env, j_bridge_);
-  MediaCodecStatus status = result ? MEDIA_CODEC_OK : MEDIA_CODEC_ERROR;
-  if (status == MEDIA_CODEC_OK)
-    *height = Java_MediaFormatWrapper_yPlaneHeight(env, result);
+    *slice_height = Java_MediaFormatWrapper_yPlaneHeight(env, result);
+    *encoded_size = gfx::Size(Java_MediaFormatWrapper_width(env, result),
+                              Java_MediaFormatWrapper_height(env, result));
+  }
   return status;
 }
 
@@ -673,8 +662,6 @@ std::string MediaCodecBridgeImpl::GetName() {
 }
 
 bool MediaCodecBridgeImpl::SetSurface(const JavaRef<jobject>& surface) {
-  DCHECK_GE(base::android::BuildInfo::GetInstance()->sdk_int(),
-            base::android::SDK_VERSION_MARSHMALLOW);
   JNIEnv* env = AttachCurrentThread();
   return Java_MediaCodecBridge_setSurface(env, j_bridge_, surface);
 }

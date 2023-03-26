@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@ package org.chromium.chrome.browser.omaha;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.os.Build;
 import android.text.format.DateUtils;
 
 import androidx.annotation.IntDef;
@@ -101,8 +100,6 @@ public class OmahaBase {
     static final String PREF_TIMESTAMP_OF_INSTALL = "timestampOfInstall";
     static final String PREF_TIMESTAMP_OF_REQUEST = "timestampOfRequest";
 
-    static final int MIN_API_JOB_SCHEDULER = Build.VERSION_CODES.M;
-
     private static final int UNKNOWN_DATE = -2;
 
     /** Whether or not the Omaha server should really be contacted. */
@@ -178,7 +175,7 @@ public class OmahaBase {
     public @UpdateStatus int checkForUpdates() {
         // Since this update check is synchronous and blocking on the network
         // connection, it should not be run on the UI thread.
-        assert !ThreadUtils.runningOnUiThread();
+        ThreadUtils.assertOnBackgroundThread();
         Log.i(TAG,
                 "OmahaBase::checkForUpdates(): Current version String: \"" + getInstalledVersion()
                         + "\"");
@@ -230,7 +227,7 @@ public class OmahaBase {
             return;
         }
 
-        restoreState(getContext());
+        restoreState();
 
         long nextTimestamp = Long.MAX_VALUE;
         if (mDelegate.isChromeBeingUsed()) {
@@ -254,7 +251,7 @@ public class OmahaBase {
             mDelegate.scheduleService(currentTimestamp, nextTimestamp);
         }
 
-        saveState(getContext());
+        saveState();
     }
 
     /**
@@ -319,7 +316,7 @@ public class OmahaBase {
      * @return version currently installed on the device.
      */
     protected String getInstalledVersion() {
-        return VersionNumberGetter.getInstance().getCurrentlyUsedVersion(getContext());
+        return VersionNumberGetter.getInstance().getCurrentlyUsedVersion();
     }
 
     protected boolean generateAndPostRequest(long currentTimestamp, String sessionID) {
@@ -483,7 +480,7 @@ public class OmahaBase {
      * Reads the data back from the file it was saved to.  Uses SharedPreferences to handle I/O.
      * Sanity checks are performed on the timestamps to guard against clock changing.
      */
-    private void restoreState(Context context) {
+    private void restoreState() {
         if (mStateHasBeenRestored) return;
 
         String installSource =
@@ -538,7 +535,7 @@ public class OmahaBase {
     /**
      * Writes out the current state to a file.
      */
-    private void saveState(Context context) {
+    private void saveState() {
         SharedPreferences prefs = OmahaBase.getSharedPreferences();
         SharedPreferences.Editor editor = prefs.edit();
         editor.putBoolean(OmahaBase.PREF_SEND_INSTALL_EVENT, mSendInstallEvent);
@@ -557,10 +554,6 @@ public class OmahaBase {
         mDelegate.onSaveStateDone(mTimestampForNewRequest, mTimestampForNextPostAttempt);
     }
 
-    private Context getContext() {
-        return mDelegate.getContext();
-    }
-
     private RequestGenerator getRequestGenerator() {
         return mDelegate.getRequestGenerator();
     }
@@ -570,13 +563,13 @@ public class OmahaBase {
     }
 
     /** Begin communicating with the Omaha Update Server. */
-    public static void onForegroundSessionStart(Context context) {
+    public static void onForegroundSessionStart() {
         if (!VersionInfo.isOfficialBuild() || isDisabled()) return;
-        OmahaService.startServiceImmediately(context);
+        OmahaService.startServiceImmediately();
     }
 
     /** Checks whether Chrome has ever tried contacting Omaha before. */
-    public static boolean isProbablyFreshInstall(Context context) {
+    public static boolean isProbablyFreshInstall() {
         SharedPreferences prefs = getSharedPreferences();
         return prefs.getLong(PREF_TIMESTAMP_OF_INSTALL, -1) == -1;
     }

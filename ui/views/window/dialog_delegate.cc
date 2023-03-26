@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/observer_list.h"
 #include "build/build_config.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -30,10 +31,6 @@
 #include "ui/views/window/dialog_client_view.h"
 #include "ui/views/window/dialog_observer.h"
 
-#if BUILDFLAG(IS_WIN)
-#include "ui/base/win/shell.h"
-#endif
-
 namespace views {
 
 // Debug information for https://crbug.com/1215247.
@@ -52,8 +49,6 @@ DialogDelegate::DialogDelegate() {
 
   WidgetDelegate::RegisterWindowWillCloseCallback(
       base::BindOnce(&DialogDelegate::WindowWillClose, base::Unretained(this)));
-  UMA_HISTOGRAM_BOOLEAN("Dialog.DialogDelegate.Create", true);
-  creation_time_ = base::TimeTicks::Now();
 }
 
 // static
@@ -83,11 +78,6 @@ bool DialogDelegate::CanSupportCustomFrame(gfx::NativeView parent) {
   // The new style doesn't support unparented dialogs on Linux desktop.
   return parent != nullptr;
 #else
-#if BUILDFLAG(IS_WIN)
-  // The new style doesn't support unparented dialogs on Windows Classic themes.
-  if (!ui::win::IsAeroGlassEnabled())
-    return parent != nullptr;
-#endif
   return true;
 #endif
 }
@@ -252,9 +242,8 @@ std::unique_ptr<NonClientFrameView> DialogDelegate::CreateDialogFrameView(
       provider->GetInsetsMetric(INSETS_DIALOG_TITLE), gfx::Insets());
 
   const BubbleBorder::Shadow kShadow = BubbleBorder::DIALOG_SHADOW;
-  std::unique_ptr<BubbleBorder> border = std::make_unique<BubbleBorder>(
-      BubbleBorder::FLOAT, kShadow, gfx::kPlaceholderColor);
-  border->set_use_theme_background_color(true);
+  std::unique_ptr<BubbleBorder> border =
+      std::make_unique<BubbleBorder>(BubbleBorder::FLOAT, kShadow);
   DialogDelegate* delegate = widget->widget_delegate()->AsDialogDelegate();
   if (delegate) {
     if (delegate->GetParams().round_corners)
@@ -275,12 +264,8 @@ const DialogClientView* DialogDelegate::GetDialogClientView() const {
 }
 
 DialogClientView* DialogDelegate::GetDialogClientView() {
-  if (!GetWidget())
-    return nullptr;
-  views::View* client_view = GetWidget()->client_view();
-  return client_view->GetClassName() == DialogClientView::kViewClassName
-             ? static_cast<DialogClientView*>(client_view)
-             : nullptr;
+  return const_cast<DialogClientView*>(
+      const_cast<const DialogDelegate*>(this)->GetDialogClientView());
 }
 
 BubbleFrameView* DialogDelegate::GetBubbleFrameView() const {
@@ -336,6 +321,10 @@ void DialogDelegate::RemoveObserver(DialogObserver* observer) {
 void DialogDelegate::DialogModelChanged() {
   for (DialogObserver& observer : observer_list_)
     observer.OnDialogChanged();
+}
+
+void DialogDelegate::TriggerInputProtection() {
+  GetDialogClientView()->TriggerInputProtection();
 }
 
 void DialogDelegate::SetDefaultButton(int button) {
@@ -437,8 +426,6 @@ void DialogDelegate::CancelDialog() {
 }
 
 DialogDelegate::~DialogDelegate() {
-  UMA_HISTOGRAM_LONG_TIMES("Dialog.DialogDelegate.Duration",
-                           base::TimeTicks::Now() - creation_time_);
   --g_instance_count;
 }
 
@@ -468,7 +455,6 @@ std::unique_ptr<View> DialogDelegate::DisownFootnoteView() {
 
 DialogDelegateView::DialogDelegateView() {
   SetOwnedByWidget(true);
-  UMA_HISTOGRAM_BOOLEAN("Dialog.DialogDelegateView.Create", true);
 }
 
 DialogDelegateView::~DialogDelegateView() = default;

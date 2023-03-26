@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,9 +27,6 @@ class DownloadTask;
 // Download Manager supports only one download task at a time. Set to null when
 // stop method is called.
 @property(nonatomic) web::DownloadTask* downloadTask;
-
-// Controls the height of the bottom margin.
-@property(nonatomic) NSLayoutDimension* bottomMarginHeightAnchor;
 
 // Underlying UIViewController presented by this coordinator.
 @property(nonatomic, readonly) UIViewController* viewController;

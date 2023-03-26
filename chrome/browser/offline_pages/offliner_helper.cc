@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,8 +22,9 @@ bool AreThirdPartyCookiesBlocked(content::BrowserContext* browser_context) {
 
 bool IsNetworkPredictionDisabled(content::BrowserContext* browser_context) {
   DCHECK(Profile::FromBrowserContext(browser_context)->GetPrefs());
-  return !prefetch::IsSomePreloadingEnabled(
-      *Profile::FromBrowserContext(browser_context)->GetPrefs());
+  return prefetch::IsSomePreloadingEnabled(
+             *Profile::FromBrowserContext(browser_context)->GetPrefs()) !=
+         content::PreloadingEligibility::kEligible;
 }
 
 }  // namespace offline_pages

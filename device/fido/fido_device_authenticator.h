@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/memory/weak_ptr.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "device/fido/authenticator_get_assertion_response.h"
 #include "device/fido/ctap2_device_operation.h"
 #include "device/fido/fido_authenticator.h"
 #include "device/fido/fido_constants.h"
@@ -56,7 +57,6 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoDeviceAuthenticator
   void GetAssertion(CtapGetAssertionRequest request,
                     CtapGetAssertionOptions options,
                     GetAssertionCallback callback) override;
-  void GetNextAssertion(GetAssertionCallback callback) override;
   void GetTouch(base::OnceClosure callback) override;
   void GetPinRetries(GetRetriesCallback callback) override;
   void GetPINToken(std::string pin,
@@ -114,13 +114,16 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoDeviceAuthenticator
                        std::vector<uint8_t> template_id,
                        BioEnrollmentCallback) override;
   void WriteLargeBlob(
-      const std::vector<uint8_t>& large_blob,
+      LargeBlob large_blob,
       const LargeBlobKey& large_blob_key,
       absl::optional<pin::TokenResponse> pin_uv_auth_token,
       base::OnceCallback<void(CtapDeviceResponseCode)> callback) override;
   void ReadLargeBlob(const std::vector<LargeBlobKey>& large_blob_keys,
                      absl::optional<pin::TokenResponse> pin_uv_auth_token,
                      LargeBlobReadCallback callback) override;
+  void GarbageCollectLargeBlob(
+      const pin::TokenResponse& pin_uv_auth_token,
+      base::OnceCallback<void(CtapDeviceResponseCode)> callback) override;
 
   absl::optional<base::span<const int32_t>> GetAlgorithms() override;
   bool DiscoverableCredentialStorageFull() const override;
@@ -133,32 +136,14 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoDeviceAuthenticator
   bool SupportsHMACSecretExtension() const override;
   bool SupportsEnterpriseAttestation() const override;
   bool SupportsCredBlobOfSize(size_t num_bytes) const override;
+  bool SupportsDevicePublicKey() const override;
+  bool SupportsLargeBlobs() const override;
   const absl::optional<AuthenticatorSupportedOptions>& Options() const override;
   absl::optional<FidoTransportProtocol> AuthenticatorTransport() const override;
-  bool IsInPairingMode() const override;
-  bool IsPaired() const override;
-  bool RequiresBlePairingPin() const override;
-#if BUILDFLAG(IS_WIN)
-  bool IsWinNativeApiAuthenticator() const override;
-#endif  // BUILDFLAG(IS_WIN)
-#if BUILDFLAG(IS_MAC)
-  bool IsTouchIdAuthenticator() const override;
-#endif  // BUILDFLAG(IS_MAC)
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  bool IsChromeOSAuthenticator() const override;
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   base::WeakPtr<FidoAuthenticator> GetWeakPtr() override;
 
   FidoDevice* device() { return device_.get(); }
   void SetTaskForTesting(std::unique_ptr<FidoTask> task);
-
- protected:
-  void OnCtapMakeCredentialResponseReceived(
-      MakeCredentialCallback callback,
-      absl::optional<std::vector<uint8_t>> response_data);
-  void OnCtapGetAssertionResponseReceived(
-      GetAssertionCallback callback,
-      absl::optional<std::vector<uint8_t>> response_data);
 
  private:
   using GetEphemeralKeyCallback =
@@ -169,6 +154,12 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoDeviceAuthenticator
   void DoGetAssertion(CtapGetAssertionRequest request,
                       CtapGetAssertionOptions options,
                       GetAssertionCallback callback);
+  void OnHaveNextAssertion(
+      CtapGetAssertionRequest request,
+      std::vector<AuthenticatorGetAssertionResponse> responses,
+      GetAssertionCallback callback,
+      CtapDeviceResponseCode status,
+      absl::optional<AuthenticatorGetAssertionResponse> response);
   void OnHaveEphemeralKeyForGetAssertion(
       CtapGetAssertionRequest request,
       CtapGetAssertionOptions options,
@@ -223,8 +214,14 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoDeviceAuthenticator
       base::OnceCallback<void(CtapDeviceResponseCode)> callback,
       CtapDeviceResponseCode status,
       absl::optional<LargeBlobsResponse> response);
+  void OnCredentialsEnumeratedForGarbageCollect(
+      const pin::TokenResponse& pin_uv_auth_token,
+      base::OnceCallback<void(CtapDeviceResponseCode)> callback,
+      CtapDeviceResponseCode status,
+      absl::optional<std::vector<AggregatedEnumerateCredentialsResponse>>
+          credentials);
   void OnHaveLargeBlobArrayForWrite(
-      const std::vector<uint8_t>& large_blob,
+      LargeBlob large_blob,
       const LargeBlobKey& large_blob_key,
       absl::optional<pin::TokenResponse> pin_uv_auth_token,
       base::OnceCallback<void(CtapDeviceResponseCode)> callback,
@@ -233,6 +230,12 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoDeviceAuthenticator
   void OnHaveLargeBlobArrayForRead(
       const std::vector<LargeBlobKey>& large_blob_keys,
       LargeBlobReadCallback callback,
+      CtapDeviceResponseCode status,
+      absl::optional<LargeBlobArrayReader> large_blob_array_reader);
+  void OnHaveLargeBlobArrayForGarbageCollect(
+      std::vector<AggregatedEnumerateCredentialsResponse> credentials,
+      const pin::TokenResponse& pin_uv_auth_token,
+      base::OnceCallback<void(CtapDeviceResponseCode)> callback,
       CtapDeviceResponseCode status,
       absl::optional<LargeBlobArrayReader> large_blob_array_reader);
 

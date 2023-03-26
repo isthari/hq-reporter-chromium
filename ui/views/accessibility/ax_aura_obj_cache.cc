@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/containers/contains.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/string_util.h"
 #include "ui/accessibility/ax_enums.mojom.h"
@@ -74,6 +75,11 @@ AXAuraObjWrapper* AXAuraObjCache::GetOrCreate(View* view) {
   // Avoid problems with transient focus events. https://crbug.com/729449
   if (!view->GetWidget())
     return nullptr;
+
+  DCHECK(view_to_id_map_.find(view) != view_to_id_map_.end() ||
+         // This is either a new view or we're erroneously here during ~View.
+         view->life_cycle_state() == View::LifeCycleState::kAlive);
+
   return CreateInternal<AXViewObjWrapper>(view, &view_to_id_map_);
 }
 
@@ -195,10 +201,14 @@ AXAuraObjCache::AXAuraObjCache()
     : a11y_override_window_observer_(
           std::make_unique<A11yOverrideWindowObserver>(this)) {}
 
-// Never runs because object is leaked.
 AXAuraObjCache::~AXAuraObjCache() {
-  if (!root_windows_.empty() && GetFocusClient(*root_windows_.begin()))
-    GetFocusClient(*root_windows_.begin())->RemoveObserver(this);
+  // Remove all focus observers from |root_windows_|.
+  for (aura::Window* window : root_windows_) {
+    aura::client::FocusClient* focus_client = GetFocusClient(window);
+    if (focus_client)
+      focus_client->RemoveObserver(this);
+  }
+  root_windows_.clear();
 
   for (auto& entry : virtual_view_to_id_map_)
     entry.first->set_cache(nullptr);
@@ -280,11 +290,17 @@ void AXAuraObjCache::OnWindowFocused(aura::Window* gained_focus,
 void AXAuraObjCache::OnRootWindowObjCreated(aura::Window* window) {
   if (root_windows_.empty() && GetFocusClient(window))
     GetFocusClient(window)->AddObserver(this);
-  root_windows_.insert(window);
+
+  // Do not allow duplicate entries.
+  if (!base::Contains(root_windows_, window)) {
+    root_windows_.push_back(window);
+  }
 }
 
 void AXAuraObjCache::OnRootWindowObjDestroyed(aura::Window* window) {
-  root_windows_.erase(window);
+  base::EraseIf(root_windows_, [window](aura::Window* current_window) {
+    return current_window == window;
+  });
   if (root_windows_.empty() && GetFocusClient(window))
     GetFocusClient(window)->RemoveObserver(this);
 
@@ -311,6 +327,12 @@ AXAuraObjWrapper* AXAuraObjCache::CreateInternal(
 
   auto wrapper = std::make_unique<AuraViewWrapper>(this, aura_view);
   ui::AXNodeID id = wrapper->GetUniqueId();
+
+  // Ensure this |AuraView| is not already in the cache. This must happen after
+  // |GetUniqueId|, as that can alter the cache such that the |find| call above
+  // may have missed.
+  DCHECK(aura_view_to_id_map->find(aura_view) == aura_view_to_id_map->end());
+
   (*aura_view_to_id_map)[aura_view] = id;
   cache_[id] = std::move(wrapper);
   return cache_[id].get();

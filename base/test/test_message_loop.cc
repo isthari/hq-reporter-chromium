@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,13 +29,12 @@ test::SingleThreadTaskEnvironment::MainThreadType GetMainThreadType(
     case MessagePumpType::JAVA:
 #elif BUILDFLAG(IS_APPLE)
     case MessagePumpType::NS_RUNLOOP:
-#elif BUILDFLAG(IS_WIN)
-    case MessagePumpType::UI_WITH_WM_QUIT_SUPPORT:
 #endif
       NOTREACHED();
       return test::SingleThreadTaskEnvironment::MainThreadType::DEFAULT;
   }
 }
+
 }  // namespace
 
 TestMessageLoop::TestMessageLoop() = default;

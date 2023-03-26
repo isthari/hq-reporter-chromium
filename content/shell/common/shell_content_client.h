@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,7 @@ class ShellContentClient : public ContentClient {
       int resource_id,
       ui::ResourceScaleFactor scale_factor) override;
   base::RefCountedMemory* GetDataResourceBytes(int resource_id) override;
+  std::string GetDataResourceString(int resource_id) override;
   gfx::Image& GetNativeImageNamed(int resource_id) override;
   blink::OriginTrialPolicy* GetOriginTrialPolicy() override;
   void AddAdditionalSchemes(Schemes* schemes) override;

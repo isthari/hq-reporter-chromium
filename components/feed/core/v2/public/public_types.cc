@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,12 +49,12 @@ WebFeedPageInformation& WebFeedPageInformation::operator=(
 WebFeedPageInformation& WebFeedPageInformation::operator=(
     WebFeedPageInformation&&) = default;
 void WebFeedPageInformation::SetUrl(const GURL& url) {
-  url::Replacements<char> clear_ref;
+  GURL::Replacements clear_ref;
   clear_ref.ClearRef();
   url_ = url.ReplaceComponents(clear_ref);
 }
 void WebFeedPageInformation::SetCanonicalUrl(const GURL& url) {
-  url::Replacements<char> clear_ref;
+  GURL::Replacements clear_ref;
   clear_ref.ClearRef();
   canonical_url_ = url.ReplaceComponents(clear_ref);
 }
@@ -121,6 +121,23 @@ std::ostream& operator<<(std::ostream& out,
     case WebFeedSubscriptionRequestStatus::
         kAbortWebFeedSubscriptionPendingClearAll:
       return out << "kAbortWebFeedSubscriptionPendingClearAll";
+  }
+}
+
+std::ostream& operator<<(std::ostream& out, WebFeedQueryRequestStatus value) {
+  switch (value) {
+    case WebFeedQueryRequestStatus::kUnknown:
+      return out << "kUnknown";
+    case WebFeedQueryRequestStatus::kSuccess:
+      return out << "kSuccess";
+    case WebFeedQueryRequestStatus::kFailedOffline:
+      return out << "kFailedOffline";
+    case WebFeedQueryRequestStatus::kFailedUnknownError:
+      return out << "kFailedUnknownError";
+    case WebFeedQueryRequestStatus::kFailedInvalidUrl:
+      return out << "kFailedInvalidUrl";
+    case WebFeedQueryRequestStatus::kAbortWebFeedQueryPendingClearAll:
+      return out << "kAbortWebFeedQueryPendingClearAll";
   }
 }
 

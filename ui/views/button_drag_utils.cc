@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -51,7 +51,7 @@ class ScopedWidget {
   views::Widget* get() const { return widget_; }
 
  private:
-  raw_ptr<views::Widget> widget_;
+  raw_ptr<views::Widget, DanglingUntriaged> widget_;
 };
 
 void SetURLAndDragImage(const GURL& url,
@@ -107,6 +107,11 @@ void SetDragImage(const GURL& url,
   }
 
   gfx::Size size(button->GetPreferredSize());
+  // drag_widget's size must be set to show the drag image in RTL.
+  // However, on Windows, calling Widget::SetSize() resets
+  // the LabelButton's bounds via OnNativeWidgetSizeChanged().
+  // Therefore, call button->SetBoundsRect() after drag_widget->SetSize().
+  drag_widget->SetSize(size);
   button->SetBoundsRect(gfx::Rect(size));
 
   gfx::Vector2d press_point;

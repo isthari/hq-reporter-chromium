@@ -36,10 +36,7 @@
 #include "third_party/blink/renderer/platform/text/tab_size.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/hash_map.h"
-#include "third_party/blink/renderer/platform/wtf/hash_set.h"
-#include "third_party/blink/renderer/platform/wtf/math_extras.h"
-#include "third_party/blink/renderer/platform/wtf/text/character_names.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier.h"
 
 // To avoid conflicts with the DrawText macro from the Windows SDK...
 #undef DrawText
@@ -89,26 +86,20 @@ class PLATFORM_EXPORT Font {
     kUseFallbackIfFontNotReady
   };
 
-  // TODO(layout-dev): Once zoom-for-dsf launches on Mac the device_scale_factor
-  // parameter can be removed from all of these methods.
-  // https://crbug.com/716231
   void DrawText(cc::PaintCanvas*,
                 const TextRunPaintInfo&,
                 const gfx::PointF&,
-                float device_scale_factor,
                 const cc::PaintFlags&,
                 DrawType = DrawType::kGlyphsOnly) const;
   void DrawText(cc::PaintCanvas*,
                 const TextRunPaintInfo&,
                 const gfx::PointF&,
-                float device_scale_factor,
                 cc::NodeId node_id,
                 const cc::PaintFlags&,
                 DrawType = DrawType::kGlyphsOnly) const;
   void DrawText(cc::PaintCanvas*,
                 const NGTextFragmentPaintInfo&,
                 const gfx::PointF&,
-                float device_scale_factor,
                 cc::NodeId node_id,
                 const cc::PaintFlags&,
                 DrawType = DrawType::kGlyphsOnly) const;
@@ -116,20 +107,17 @@ class PLATFORM_EXPORT Font {
                     const TextRunPaintInfo&,
                     const gfx::PointF&,
                     CustomFontNotReadyAction,
-                    float device_scale_factor,
                     const cc::PaintFlags&,
                     DrawType = DrawType::kGlyphsOnly) const;
   void DrawEmphasisMarks(cc::PaintCanvas*,
                          const TextRunPaintInfo&,
                          const AtomicString& mark,
                          const gfx::PointF&,
-                         float device_scale_factor,
                          const cc::PaintFlags&) const;
   void DrawEmphasisMarks(cc::PaintCanvas*,
                          const NGTextFragmentPaintInfo&,
                          const AtomicString& mark,
                          const gfx::PointF&,
-                         float device_scale_factor,
                          const cc::PaintFlags&) const;
 
   gfx::RectF TextInkBounds(const NGTextFragmentPaintInfo&) const;
@@ -145,12 +133,10 @@ class PLATFORM_EXPORT Font {
   // a line crossing through the text, parallel to the baseline.
   // TODO(drott): crbug.com/655154 Fix this for upright in vertical.
   void GetTextIntercepts(const TextRunPaintInfo&,
-                         float device_scale_factor,
                          const cc::PaintFlags&,
                          const std::tuple<float, float>& bounds,
                          Vector<TextIntercept>&) const;
   void GetTextIntercepts(const NGTextFragmentPaintInfo&,
-                         float device_scale_factor,
                          const cc::PaintFlags&,
                          const std::tuple<float, float>& bounds,
                          Vector<TextIntercept>&) const;
@@ -252,6 +238,12 @@ class PLATFORM_EXPORT Font {
     return EnsureFontFallbackList()->ShouldSkipDrawing();
   }
 
+  bool HasCustomFont() const {
+    if (!font_fallback_list_)
+      return false;
+    return EnsureFontFallbackList()->HasCustomFont();
+  }
+
  private:
   // TODO(xiaochengh): The function not only initializes null FontFallbackList,
   // but also syncs invalid FontFallbackList. Rename it for better readability.
@@ -280,5 +272,15 @@ inline float Font::TabWidth(const SimpleFontData* font_data,
 }
 
 }  // namespace blink
+
+namespace WTF {
+
+template <>
+struct CrossThreadCopier<blink::Font>
+    : public CrossThreadCopierPassThrough<blink::Font> {
+  STATIC_ONLY(CrossThreadCopier);
+};
+
+}  // namespace WTF
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_FONT_H_

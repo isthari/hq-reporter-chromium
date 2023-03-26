@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/thread_annotations.h"
+#include "components/cronet/cronet_context.h"
 #include "components/cronet/cronet_url_request.h"
-#include "components/cronet/cronet_url_request_context.h"
 #include "components/cronet/native/generated/cronet.idl_impl_interface.h"
 
 namespace net {
@@ -26,7 +26,7 @@ namespace cronet {
 class Cronet_EngineImpl;
 class Cronet_UploadDataSinkImpl;
 
-// Implementation of Cronet_UrlRequest that uses CronetURLRequestContext.
+// Implementation of Cronet_UrlRequest that uses CronetContext.
 class Cronet_UrlRequestImpl : public Cronet_UrlRequest {
  public:
   Cronet_UrlRequestImpl();

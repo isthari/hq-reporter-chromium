@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
-import android.os.Build;
 import android.support.test.InstrumentationRegistry;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,7 +22,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.test.util.CommandLineFlags;
@@ -74,9 +72,7 @@ public class WebappSplashScreenTest {
         ViewGroup splashScreen = mActivityTestRule.startWebappActivityAndWaitForSplashScreen();
         ColorDrawable background = (ColorDrawable) splashScreen.getBackground();
 
-        Assert.assertEquals(
-                ApiCompatibilityUtils.getColor(
-                        mActivityTestRule.getActivity().getResources(), R.color.webapp_default_bg),
+        Assert.assertEquals(mActivityTestRule.getActivity().getColor(R.color.webapp_default_bg),
                 background.getColor());
     }
 
@@ -87,11 +83,8 @@ public class WebappSplashScreenTest {
     public void testThemeColorWhenNotSpecified() {
         mActivityTestRule.startWebappActivityAndWaitForSplashScreen();
 
-        // Status bar color should be white on M+ to match CCTs and WebAPK shell.
+        // Status bar color should be white to match CCTs and WebAPK shell.
         int expectedColor = Color.WHITE;
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            expectedColor = Color.BLACK;
-        }
         Assert.assertEquals(
                 expectedColor, mActivityTestRule.getActivity().getWindow().getStatusBarColor());
     }

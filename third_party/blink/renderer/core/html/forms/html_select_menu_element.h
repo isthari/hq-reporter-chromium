@@ -1,10 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_HTML_SELECT_MENU_ELEMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_HTML_SELECT_MENU_ELEMENT_H_
 
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/native_event_listener.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_control_element_with_state.h"
@@ -35,6 +36,8 @@ class CORE_EXPORT HTMLSelectMenuElement final
   HTMLOptionElement* selectedOption() const;
   String value() const;
   void setValue(const String&, bool send_events = false);
+  String valueForBinding() const { return value(); }
+  void setValueForBinding(const String&);
   bool open() const;
 
   // For ValidityState
@@ -59,7 +62,9 @@ class CORE_EXPORT HTMLSelectMenuElement final
 
   PartType AssignedPartType(Node* node) const;
 
-  Element* ButtonPart() const { return button_part_; }
+  HTMLElement* ButtonPart() const { return button_part_; }
+
+  bool IsRichlyEditableForAccessibility() const override { return false; }
 
  private:
   class SelectMutationCallback;
@@ -70,9 +75,9 @@ class CORE_EXPORT HTMLSelectMenuElement final
   void CloseListbox();
 
   HTMLOptionElement* FirstOptionPart() const;
-  Element* FirstValidButtonPart() const;
-  Element* FirstValidListboxPart() const;
-  Element* FirstValidSelectedValuePart() const;
+  HTMLElement* FirstValidButtonPart() const;
+  HTMLElement* FirstValidListboxPart() const;
+  HTMLElement* FirstValidSelectedValuePart() const;
   void EnsureButtonPartIsValid();
   void EnsureSelectedValuePartIsValid();
   void EnsureListboxPartIsValid();
@@ -81,14 +86,14 @@ class CORE_EXPORT HTMLSelectMenuElement final
   void SelectPreviousOption();
   void UpdateSelectedValuePartContents();
 
-  void ButtonPartInserted(Element*);
-  void ButtonPartRemoved(Element*);
+  void ButtonPartInserted(HTMLElement*);
+  void ButtonPartRemoved(HTMLElement*);
   void UpdateButtonPart();
-  void SelectedValuePartInserted(Element*);
-  void SelectedValuePartRemoved(Element*);
+  void SelectedValuePartInserted(HTMLElement*);
+  void SelectedValuePartRemoved(HTMLElement*);
   void UpdateSelectedValuePart();
-  void ListboxPartInserted(Element*);
-  void ListboxPartRemoved(Element*);
+  void ListboxPartInserted(HTMLElement*);
+  void ListboxPartRemoved(HTMLElement*);
   void UpdateListboxPart();
   void OptionPartInserted(HTMLOptionElement*);
   void OptionPartRemoved(HTMLOptionElement*);
@@ -103,8 +108,9 @@ class CORE_EXPORT HTMLSelectMenuElement final
   bool IsValidListboxPart(const Node* node, bool show_warning) const;
   bool IsValidOptionPart(const Node* node, bool show_warning) const;
 
-  void SetButtonPart(Element* new_button_part);
-  void SetListboxPart(HTMLPopupElement* new_listbox_part);
+  void SetButtonPart(HTMLElement* new_button_part);
+  // Returns true if the listbox part actually changed to something different.
+  bool SetListboxPart(HTMLElement* new_listbox_part);
 
   bool IsRequiredFormControl() const override;
   bool IsOptionalFormControl() const override;
@@ -159,9 +165,9 @@ class CORE_EXPORT HTMLSelectMenuElement final
 
   Member<SelectMutationCallback> select_mutation_callback_;
 
-  Member<Element> button_part_;
-  Member<Element> selected_value_part_;
-  Member<HTMLPopupElement> listbox_part_;
+  Member<HTMLElement> button_part_;
+  Member<HTMLElement> selected_value_part_;
+  Member<HTMLElement> listbox_part_;
   HeapLinkedHashSet<Member<HTMLOptionElement>> option_parts_;
   Member<HTMLSlotElement> button_slot_;
   Member<HTMLSlotElement> listbox_slot_;

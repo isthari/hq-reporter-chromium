@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,29 @@
  * @fileoverview guest tos screen implementation.
  */
 
-/* #js_imports_placeholder */
+import '//resources/cr_elements/cr_shared_style.css.js';
+import '//resources/cr_elements/cr_toggle/cr_toggle.js';
+import '//resources/js/action_link.js';
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '../../components/common_styles/oobe_common_styles.css.js';
+import '../../components/common_styles/oobe_dialog_host_styles.css.js';
+import '../../components/oobe_icons.html.js';
+import '../../components/dialogs/oobe_loading_dialog.js';
+import '../../components/dialogs/oobe_modal_dialog.js';
+
+import {html, mixinBehaviors, Polymer, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.js';
+import {MultiStepBehavior, MultiStepBehaviorInterface} from '../../components/behaviors/multi_step_behavior.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
+import {OobeBackButton} from '../../components/buttons/oobe_back_button.js';
+import {OobeNextButton} from '../../components/buttons/oobe_next_button.js';
+import {OobeTextButton} from '../../components/buttons/oobe_text_button.js';
+import {OobeAdaptiveDialog} from '../../components/dialogs/oobe_adaptive_dialog.js';
+import {OOBE_UI_STATE} from '../../components/display_manager_types.js';
+import {ContentType, WebViewHelper} from '../../components/web_view_helper.js';
+import {WebViewLoader} from '../../components/web_view_loader.js';
+
 
 // Enum that describes the current state of the Guest ToS screen
 const GuestTosScreenState = {
@@ -23,15 +45,20 @@ const GuestTosScreenState = {
 const GUEST_TOS_EULA_TERMS_URL = 'chrome://terms';
 
 /**
+ * Timeout to load online ToS.
+ * @type {number}
+ */
+const GUEST_TOS_ONLINE_LOAD_TIMEOUT_IN_MS = 10000;
+
+/**
  * @constructor
  * @extends {PolymerElement}
  * @implements {LoginScreenBehaviorInterface}
  * @implements {OobeI18nBehaviorInterface}
  * @implements {MultiStepBehaviorInterface}
  */
-const GuestTosScreenElementBase = Polymer.mixinBehaviors(
-    [OobeI18nBehavior, MultiStepBehavior, LoginScreenBehavior],
-    Polymer.Element);
+const GuestTosScreenElementBase = mixinBehaviors(
+    [OobeI18nBehavior, MultiStepBehavior, LoginScreenBehavior], PolymerElement);
 
 /**
  * @polymer
@@ -41,7 +68,9 @@ class GuestTos extends GuestTosScreenElementBase {
     return 'guest-tos-element';
   }
 
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   static get properties() {
     return {
@@ -50,11 +79,6 @@ class GuestTos extends GuestTosScreenElementBase {
         value: true,
       },
     };
-  }
-
-  constructor() {
-    super();
-    this.usageChecked = true;
   }
 
   /** @override */
@@ -70,9 +94,7 @@ class GuestTos extends GuestTosScreenElementBase {
   /** @override */
   ready() {
     super.ready();
-    this.initializeLoginScreen('GuestTosScreen', {
-      resetAllowed: true,
-    });
+    this.initializeLoginScreen('GuestTosScreen');
     this.updateLocalizedContent();
   }
 
@@ -81,9 +103,14 @@ class GuestTos extends GuestTosScreenElementBase {
     const crosEulaUrl = data['crosEulaUrl'];
 
     this.loadEulaWebview_(
-        this.$.googleEulaWebview, googleEulaUrl, false /* clear_anchors */);
+        this.$.guestTosGoogleEulaWebview, googleEulaUrl,
+        false /* clear_anchors */);
     this.loadEulaWebview_(
-        this.$.crosEulaWebview, crosEulaUrl, true /* clear_anchors */);
+        this.$.guestTosCrosEulaWebview, crosEulaUrl, true /* clear_anchors */);
+
+    // Call updateLocalizedContent() to ensure that the listeners of the click
+    // events on the ToS links are added.
+    this.updateLocalizedContent();
   }
 
   /** Initial UI State for screen */
@@ -101,11 +128,12 @@ class GuestTos extends GuestTosScreenElementBase {
   loadEulaWebview_(webview, online_tos_url, clear_anchors) {
     const loadFailureCallback = () => {
       WebViewHelper.loadUrlContentToWebView(
-          webview, GUEST_TOS_EULA_TERMS_URL, WebViewHelper.ContentType.HTML);
+          webview, GUEST_TOS_EULA_TERMS_URL, ContentType.HTML);
     };
 
     const tosLoader = new WebViewLoader(
-        webview, loadFailureCallback, clear_anchors, true /* inject_css */);
+        webview, GUEST_TOS_ONLINE_LOAD_TIMEOUT_IN_MS, loadFailureCallback,
+        clear_anchors, true /* inject_css */);
     tosLoader.setUrl(online_tos_url);
   }
 
@@ -130,12 +158,10 @@ class GuestTos extends GuestTosScreenElementBase {
 
   onGoogleEulaLinkClick_() {
     this.setUIStep(GuestTosScreenState.GOOGLE_EULA);
-    this.$.googleEulaOkButton.focus();
   }
 
   onCrosEulaLinkClick_() {
     this.setUIStep(GuestTosScreenState.CROS_EULA);
-    this.$.crosEulaOkButton.focus();
   }
 
   onGoogleEulaContentLoad_() {
@@ -150,11 +176,10 @@ class GuestTos extends GuestTosScreenElementBase {
 
   onTermsStepOkClick_() {
     this.setUIStep(GuestTosScreenState.LOADED);
-    this.$.acceptButton.focus();
   }
 
   onAcceptClick_() {
-    chrome.send('GuestToSAccept', [this.usageChecked]);
+    this.userActed(['guest-tos-accept', this.usageChecked]);
   }
 
   onBackClick_() {

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -554,7 +554,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, BigString) {
 
 // Search Back and Forward on a single occurrence.
 // TODO(crbug.com/1119361): Test is flaky on ChromeOS.
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_MAC)
 #define MAYBE_SingleOccurrence DISABLED_SingleOccurrence
 #else
 #define MAYBE_SingleOccurrence SingleOccurrence
@@ -965,11 +965,8 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest,
   EXPECT_TRUE(fully_visible);
 
   // Reload and make sure the find window goes away.
-  content::WindowedNotificationObserver observer(
-      content::NOTIFICATION_LOAD_STOP,
-      content::Source<NavigationController>(
-          &browser()->tab_strip_model()->GetActiveWebContents()->
-              GetController()));
+  content::LoadStopObserver observer(
+      browser()->tab_strip_model()->GetActiveWebContents());
   chrome::Reload(browser(), WindowOpenDisposition::CURRENT_TAB);
   observer.Wait();
   EXPECT_TRUE(GetFindBarWindowInfo(&position, &fully_visible));
@@ -1455,9 +1452,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, ActivateLinkNavigatesPage) {
   EXPECT_EQ(ordinal, 1);
 
   // End the find session, click on the link.
-  content::WindowedNotificationObserver observer(
-      content::NOTIFICATION_LOAD_STOP,
-      content::Source<NavigationController>(&web_contents->GetController()));
+  content::LoadStopObserver observer(web_contents);
   find_tab_helper->StopFinding(find_in_page::SelectionAction::kActivate);
   observer.Wait();
 }
@@ -1481,8 +1476,15 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, FitWindow) {
             popup->window()->GetBounds().width());
 }
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+// TODO(crbug.com/1341599): Flakily crashes on Lacros.
+#define MAYBE_FindMovesOnTabClose_Issue1343052 \
+  DISABLED_FindMovesOnTabClose_Issue1343052
+#else
+#define MAYBE_FindMovesOnTabClose_Issue1343052 FindMovesOnTabClose_Issue1343052
+#endif
 IN_PROC_BROWSER_TEST_F(FindInPageControllerTest,
-                       FindMovesOnTabClose_Issue1343052) {
+                       MAYBE_FindMovesOnTabClose_Issue1343052) {
   EnsureFindBoxOpen();
   content::RunAllPendingInMessageLoop();  // Needed on Linux.
 

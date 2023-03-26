@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,13 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/browser_features.h"
 #include "chrome/browser/devtools/chrome_devtools_session.h"
 #include "chrome/browser/devtools/device/android_device_manager.h"
 #include "chrome/browser/devtools/device/tcp_device_provider.h"
@@ -47,7 +48,6 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/constants/ash_switches.h"
-#include "base/command_line.h"
 #endif
 
 using content::DevToolsAgentHost;
@@ -61,16 +61,17 @@ namespace {
 bool GetExtensionInfo(content::WebContents* wc,
                       std::string* name,
                       std::string* type) {
-  Profile* profile = Profile::FromBrowserContext(wc->GetBrowserContext());
-  if (!profile)
+  auto* process_manager =
+      extensions::ProcessManager::Get(wc->GetBrowserContext());
+  if (!process_manager) {
     return false;
+  }
   const extensions::Extension* extension =
-      extensions::ProcessManager::Get(profile)->GetExtensionForWebContents(wc);
+      process_manager->GetExtensionForWebContents(wc);
   if (!extension)
     return false;
   extensions::ExtensionHost* extension_host =
-      extensions::ProcessManager::Get(profile)->GetBackgroundHostForExtension(
-          extension->id());
+      process_manager->GetBackgroundHostForExtension(extension->id());
   if (extension_host && extension_host->host_contents() == wc) {
     *name = extension->name();
     *type = ChromeDevToolsManagerDelegate::kTypeBackgroundPage;
@@ -98,7 +99,7 @@ ChromeDevToolsManagerDelegate::ChromeDevToolsManagerDelegate() {
   DCHECK(!g_instance);
   g_instance = this;
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
+#if !BUILDFLAG(IS_CHROMEOS)
   // Only create and hold keep alive for automation test for non ChromeOS.
   // ChromeOS automation test (aka tast) manages chrome instance via session
   // manager daemon. The extra keep alive is not needed and makes ChromeOS
@@ -167,8 +168,11 @@ bool ChromeDevToolsManagerDelegate::AllowInspectingRenderFrameHost(
     content::RenderFrameHost* rfh) {
   Profile* profile =
       Profile::FromBrowserContext(rfh->GetProcess()->GetBrowserContext());
-  return AllowInspection(profile, extensions::ProcessManager::Get(profile)
-                                      ->GetExtensionForRenderFrameHost(rfh));
+  auto* process_manager = extensions::ProcessManager::Get(profile);
+  return AllowInspection(
+      profile, process_manager
+                   ? process_manager->GetExtensionForRenderFrameHost(rfh)
+                   : nullptr);
 }
 
 // static
@@ -177,10 +181,10 @@ bool ChromeDevToolsManagerDelegate::AllowInspection(
     content::WebContents* web_contents) {
   const extensions::Extension* extension = nullptr;
   if (web_contents) {
-    extension =
-        extensions::ProcessManager::Get(
-            Profile::FromBrowserContext(web_contents->GetBrowserContext()))
-            ->GetExtensionForWebContents(web_contents);
+    if (auto* process_manager = extensions::ProcessManager::Get(
+            web_contents->GetBrowserContext())) {
+      extension = process_manager->GetExtensionForWebContents(web_contents);
+    }
   }
   return AllowInspection(profile, extension);
 }
@@ -238,21 +242,19 @@ void ChromeDevToolsManagerDelegate::ClientDetached(
   sessions_.erase(channel);
 }
 
-scoped_refptr<DevToolsAgentHost>
-ChromeDevToolsManagerDelegate::CreateNewTarget(const GURL& url) {
+scoped_refptr<DevToolsAgentHost> ChromeDevToolsManagerDelegate::CreateNewTarget(
+    const GURL& url,
+    bool for_tab) {
   NavigateParams params(ProfileManager::GetLastUsedProfile(), url,
                         ui::PAGE_TRANSITION_AUTO_TOPLEVEL);
   params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
   Navigate(&params);
   if (!params.navigated_or_inserted_contents)
     return nullptr;
-  return DevToolsAgentHost::GetOrCreateFor(
-      params.navigated_or_inserted_contents);
-}
-
-std::string ChromeDevToolsManagerDelegate::GetDiscoveryPageHTML() {
-  return ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
-      IDR_DEVTOOLS_DISCOVERY_PAGE_HTML);
+  return for_tab ? DevToolsAgentHost::GetOrCreateForTab(
+                       params.navigated_or_inserted_contents)
+                 : DevToolsAgentHost::GetOrCreateFor(
+                       params.navigated_or_inserted_contents);
 }
 
 std::vector<content::BrowserContext*>

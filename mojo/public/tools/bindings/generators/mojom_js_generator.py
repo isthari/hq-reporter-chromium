@@ -1,4 +1,4 @@
-# Copyright 2013 The Chromium Authors. All rights reserved.
+# Copyright 2013 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """Generates JavaScript source files from a mojom.Module."""
@@ -8,12 +8,9 @@ import mojom.generate.module as mojom
 import mojom.generate.pack as pack
 import os
 import sys
+import urllib.request
 from mojom.generate.template_expander import UseJinja
 
-if sys.version_info.major == 2:
-  import urllib as urllib_request
-else:
-  import urllib.request as urllib_request
 
 _kind_to_javascript_default_value = {
     mojom.BOOL: "false",
@@ -250,7 +247,7 @@ def GetArrayExpectedDimensionSizes(kind):
 
 
 def GetRelativeUrl(module, base_module):
-  return urllib_request.pathname2url(
+  return urllib.request.pathname2url(
       os.path.relpath(module.path, os.path.dirname(base_module.path)))
 
 
@@ -294,8 +291,6 @@ class Generator(generator.Generator):
         self.module.enums,
         "for_bindings_internals":
         self.disallow_native_types,
-        "html_imports":
-        self._GenerateHtmlImports(),
         "imports":
         self.module.imports,
         "interfaces":
@@ -306,8 +301,6 @@ class Generator(generator.Generator):
         self.module.kinds,
         "module":
         self.module,
-        "mojom_filename":
-        os.path.basename(self.module.path),
         "mojom_namespace":
         self.module.mojom_namespace,
         "structs":
@@ -402,10 +395,6 @@ class Generator(generator.Generator):
   def _GenerateAMDModule(self):
     return self._GetParameters()
 
-  @UseJinja("lite/mojom.html.tmpl")
-  def _GenerateLiteHtml(self):
-    return self._GetParameters()
-
   @UseJinja("lite/mojom-lite.js.tmpl")
   def _GenerateLiteBindings(self):
     return self._GetParameters()
@@ -434,21 +423,18 @@ class Generator(generator.Generator):
     self._SetUniqueNameForImports()
 
     self.WriteWithComment(self._GenerateAMDModule(), "%s.js" % self.module.path)
-    if self.js_bindings_mode == "new":
-      self.WriteWithComment(self._GenerateLiteHtml(),
-                            "%s.html" % self.module.path)
-      self.WriteWithComment(self._GenerateLiteBindings(),
-                            "%s-lite.js" % self.module.path)
-      self.WriteWithComment(self._GenerateLiteBindingsForCompile(),
-                            "%s-lite-for-compile.js" % self.module.path)
-      self.WriteWithComment(self._GenerateJsModule(),
-                            "%s.m.js" % self.module.path)
-      if _GetWebUiModulePath(self.module) is not None:
-        self.WriteWithComment(self._GenerateWebUiModule(),
-                              "mojom-webui/%s-webui.js" % self.module.path)
+    self.WriteWithComment(self._GenerateLiteBindings(),
+                          "%s-lite.js" % self.module.path)
+    self.WriteWithComment(self._GenerateLiteBindingsForCompile(),
+                          "%s-lite-for-compile.js" % self.module.path)
+    self.WriteWithComment(self._GenerateJsModule(),
+                          "%s.m.js" % self.module.path)
+    if _GetWebUiModulePath(self.module) is not None:
+      self.WriteWithComment(self._GenerateWebUiModule(),
+                            "mojom-webui/%s-webui.js" % self.module.path)
 
   def _GetRelativePath(self, path):
-    relpath = urllib_request.pathname2url(
+    relpath = urllib.request.pathname2url(
         os.path.relpath(path, os.path.dirname(self.module.path)))
     if relpath.startswith('.') or relpath.startswith('/'):
       return relpath
@@ -1008,13 +994,6 @@ class Generator(generator.Generator):
   def _GetConstantValueInJsModule(self, constant):
     return self._GetConstantValue(constant, for_module=True)
 
-  def _GenerateHtmlImports(self):
-    result = []
-    for full_import in self.module.imports:
-      result.append(
-          os.path.relpath(full_import.path, os.path.dirname(self.module.path)))
-    return result
-
   def _GetJsModuleImports(self, for_webui_module=False):
     this_module_path = _GetWebUiModulePath(self.module)
     this_module_is_shared = bool(
@@ -1059,7 +1038,7 @@ class Generator(generator.Generator):
               return s[len(prefix):]
             return s
 
-          import_path = urllib_request.pathname2url(
+          import_path = urllib.request.pathname2url(
               os.path.relpath(
                   strip_prefix(import_path, _SHARED_MODULE_PREFIX),
                   strip_prefix(this_module_path, _SHARED_MODULE_PREFIX)))

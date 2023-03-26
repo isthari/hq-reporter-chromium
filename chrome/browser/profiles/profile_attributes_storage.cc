@@ -1,25 +1,26 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 
-#include <algorithm>
 #include <unordered_set>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/check.h"
 #include "base/containers/contains.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/i18n/number_formatting.h"
 #include "base/i18n/string_compare.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/ref_counted_memory.h"
+#include "base/observer_list.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
-#include "base/task/task_runner_util.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/values.h"
@@ -31,13 +32,13 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/account_id/account_id.h"
-#include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/profile_metrics/state.h"
 #include "components/signin/public/base/persistent_repeating_timer.h"
 #include "components/signin/public/base/signin_pref_names.h"
+#include "components/signin/public/identity_manager/account_managed_status_finder.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "third_party/icu/source/i18n/unicode/coll.h"
@@ -106,7 +107,7 @@ gfx::Image ReadBitmap(const base::FilePath& image_path) {
   }
 
   gfx::Image image = gfx::Image::CreateFrom1xPNGBytes(
-      base::RefCountedString::TakeString(&image_data));
+      base::MakeRefCounted<base::RefCountedString>(std::move(image_data)));
   if (image.IsEmpty())
     LOG(ERROR) << "Failed to decode PNG file.";
 
@@ -176,7 +177,7 @@ class ProfileAttributesSortComparator {
     return entry->GetName();
   }
 
-  icu::Collator* collator_;
+  raw_ptr<icu::Collator> collator_;
   bool use_local_name_;
 };
 
@@ -186,10 +187,8 @@ MultiProfileUserType GetMultiProfileUserType(
   if (entries.size() == 1u)
     return MultiProfileUserType::kSingleProfile;
 
-  int active_count = std::count_if(
-      entries.begin(), entries.end(), [](ProfileAttributesEntry* entry) {
-        return ProfileMetrics::IsProfileActive(entry);
-      });
+  int active_count =
+      base::ranges::count_if(entries, &ProfileMetrics::IsProfileActive);
 
   if (active_count <= 1)
     return MultiProfileUserType::kLatentMultiProfile;
@@ -234,8 +233,10 @@ profile_metrics::UnconsentedPrimaryAccountType GetUnconsentedPrimaryAccountType(
   // TODO(crbug.com/1060113): Replace this check by
   // !entry->GetHostedDomain().has_value() in M84 (once the attributes storage
   // gets reasonably well populated).
-  if (policy::BrowserPolicyConnector::IsNonEnterpriseUser(
-          base::UTF16ToUTF8(entry->GetUserName()))) {
+  if (signin::AccountManagedStatusFinder::IsEnterpriseUserBasedOnEmail(
+          base::UTF16ToUTF8(entry->GetUserName())) ==
+      signin::AccountManagedStatusFinder::EmailEnterpriseStatus::
+          kKnownNonEnterprise) {
     return profile_metrics::UnconsentedPrimaryAccountType::kConsumer;
   }
   // TODO(crbug.com/1060113): Figure out how to distinguish EDU accounts from
@@ -268,9 +269,9 @@ ProfileAttributesStorage::ProfileAttributesStorage(
            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})),
       user_data_dir_(user_data_dir) {
   // Populate the attributes storage.
-  DictionaryPrefUpdate update(prefs_, prefs::kProfileAttributes);
-  base::Value* attributes = update.Get();
-  for (auto kv : attributes->DictItems()) {
+  ScopedDictPrefUpdate update(prefs_, prefs::kProfileAttributes);
+  base::Value::Dict& attributes = update.Get();
+  for (auto kv : attributes) {
     base::Value& info = kv.second;
     std::string* name = info.FindStringKey(ProfileAttributesEntry::kNameKey);
 
@@ -344,8 +345,8 @@ void ProfileAttributesStorage::RegisterPrefs(PrefRegistrySimple* registry) {
 
 void ProfileAttributesStorage::AddProfile(ProfileAttributesInitParams params) {
   std::string key = StorageKeyFromProfilePath(params.profile_path);
-  DictionaryPrefUpdate update(prefs_, prefs::kProfileAttributes);
-  base::Value* attributes = update.Get();
+  ScopedDictPrefUpdate update(prefs_, prefs::kProfileAttributes);
+  base::Value::Dict& attributes = update.Get();
 
   base::Value info(base::Value::Type::DICTIONARY);
   info.SetStringKey(ProfileAttributesEntry::kNameKey, params.profile_name);
@@ -377,7 +378,7 @@ void ProfileAttributesStorage::AddProfile(ProfileAttributesInitParams params) {
                       params.account_id.GetAccountIdKey());
   info.SetBoolKey(prefs::kSignedInWithCredentialProvider,
                   params.is_signed_in_with_credential_provider);
-  attributes->SetKey(key, std::move(info));
+  attributes.Set(key, std::move(info));
 
   ProfileAttributesEntry* entry = InitEntryWithKey(key, params.is_omitted);
   entry->InitializeLastNameToDisplay();
@@ -427,10 +428,10 @@ void ProfileAttributesStorage::RemoveProfile(
   for (auto& observer : observer_list_)
     observer.OnProfileWillBeRemoved(profile_path);
 
-  DictionaryPrefUpdate update(prefs_, prefs::kProfileAttributes);
-  base::Value* attributes = update.Get();
+  ScopedDictPrefUpdate update(prefs_, prefs::kProfileAttributes);
+  base::Value::Dict& attributes = update.Get();
   std::string key = StorageKeyFromProfilePath(profile_path);
-  attributes->RemoveKey(key);
+  attributes.Remove(key);
   profile_attributes_entries_.erase(profile_path.value());
 
   // `OnProfileWasRemoved()` must be the first observer method being called
@@ -480,7 +481,7 @@ ProfileAttributesStorage::GetAllProfilesAttributesSortedByName() const {
 }
 
 std::vector<ProfileAttributesEntry*>
-ProfileAttributesStorage::GetAllProfilesAttributesSortedByLocalProfilName()
+ProfileAttributesStorage::GetAllProfilesAttributesSortedByLocalProfileName()
     const {
   return GetAllProfilesAttributesSorted(true);
 }
@@ -528,11 +529,10 @@ std::u16string ProfileAttributesStorage::ChooseNameForNewProfile(
     std::vector<ProfileAttributesEntry*> entries =
         const_cast<ProfileAttributesStorage*>(this)->GetAllProfilesAttributes();
 
-    if (std::none_of(entries.begin(), entries.end(),
-                     [name](ProfileAttributesEntry* entry) {
-                       return entry->GetLocalProfileName() == name ||
-                              entry->GetName() == name;
-                     })) {
+    if (base::ranges::none_of(entries, [name](ProfileAttributesEntry* entry) {
+          return entry->GetLocalProfileName() == name ||
+                 entry->GetName() == name;
+        })) {
       return name;
     }
   }
@@ -562,7 +562,7 @@ bool ProfileAttributesStorage::IsDefaultProfileName(
     return true;
 
   // Check if it's one of the old-style profile names.
-  for (size_t i = 0; i < base::size(kDefaultNames); ++i) {
+  for (size_t i = 0; i < std::size(kDefaultNames); ++i) {
     if (name == l10n_util::GetStringUTF16(kDefaultNames[i]))
       return true;
   }
@@ -600,9 +600,8 @@ const gfx::Image* ProfileAttributesStorage::LoadAvatarPictureFromPath(
     return nullptr;
   cached_avatar_images_loading_[key] = true;
 
-  base::PostTaskAndReplyWithResult(
-      file_task_runner_.get(), FROM_HERE,
-      base::BindOnce(&ReadBitmap, image_path),
+  file_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&ReadBitmap, image_path),
       base::BindOnce(&ProfileAttributesStorage::OnAvatarPictureLoaded,
                      const_cast<ProfileAttributesStorage*>(this)->AsWeakPtr(),
                      profile_path, key));
@@ -846,9 +845,8 @@ void ProfileAttributesStorage::SaveAvatarImageAtPath(
   if (data->empty()) {
     LOG(ERROR) << "Failed to PNG encode the image.";
   } else {
-    base::PostTaskAndReplyWithResult(
-        file_task_runner_.get(), FROM_HERE,
-        base::BindOnce(&SaveBitmap, std::move(data), image_path),
+    file_task_runner_->PostTaskAndReplyWithResult(
+        FROM_HERE, base::BindOnce(&SaveBitmap, std::move(data), image_path),
         base::BindOnce(&ProfileAttributesStorage::OnAvatarPictureSaved,
                        AsWeakPtr(), key, profile_path, std::move(callback)));
   }

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,7 @@ namespace {
 // Clipboard polling interval in milliseconds.
 const int64_t kClipboardPollingIntervalMs = 500;
 
-} // namespace
+}  // namespace
 
 namespace remoting {
 
@@ -72,8 +72,9 @@ void ClipboardMac::Start(
 
 void ClipboardMac::InjectClipboardEvent(const protocol::ClipboardEvent& event) {
   // Currently we only handle UTF-8 text.
-  if (event.mime_type().compare(kMimeTypeTextUtf8) != 0)
+  if (event.mime_type().compare(kMimeTypeTextUtf8) != 0) {
     return;
+  }
   if (!base::IsStringUTF8AllowingNoncharacters(event.data())) {
     LOG(ERROR) << "ClipboardEvent data is not UTF-8 encoded.";
     return;
@@ -98,8 +99,8 @@ void ClipboardMac::CheckClipboardForChanges() {
   }
   current_change_count_ = change_count;
 
-  NSArray* objects =
-      [pasteboard readObjectsForClasses:@[ [NSString class] ] options:0];
+  NSArray* objects = [pasteboard readObjectsForClasses:@[ [NSString class] ]
+                                               options:0];
   if (![objects count]) {
     return;
   }

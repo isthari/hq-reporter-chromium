@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,23 +32,11 @@ const uint8_t kImageColor[] = {0x30, 0x40, 0x10, 0xFF};
 template <gfx::BufferFormat format>
 class GLImageNativePixmapTestDelegate : public GLImageTestDelegateBase {
  public:
-  absl::optional<GLImplementationParts> GetPreferedGLImplementation()
-      const override {
-#if BUILDFLAG(IS_WIN)
-    return absl::optional<GLImplementationParts>(GLImplementationParts(
-        kGLImplementationEGLANGLE, ANGLEImplementation::kNone));
-#else
-    return absl::optional<GLImplementationParts>(
-        GLImplementationParts(kGLImplementationEGLGLES2));
-#endif
-  }
-
-  bool SkipTest() const override {
-    const std::string dmabuf_import_ext = "EGL_MESA_image_dma_buf_export";
-    std::string platform_extensions(DriverEGL::GetPlatformExtensions());
-    gfx::ExtensionSet extensions(gfx::MakeExtensionSet(platform_extensions));
-    if (!gfx::HasExtension(extensions, dmabuf_import_ext)) {
-      LOG(WARNING) << "Skip test, missing extension " << dmabuf_import_ext;
+  bool SkipTest(GLDisplay* display) const override {
+    GLDisplayEGL* display_egl = static_cast<GLDisplayEGL*>(display);
+    if (!display_egl->ext->b_EGL_MESA_image_dma_buf_export) {
+      LOG(WARNING) << "Skip test, missing extension "
+                   << "EGL_MESA_image_dma_buf_export";
       return true;
     }
 
@@ -71,8 +59,9 @@ class GLImageNativePixmapTestDelegate : public GLImageTestDelegateBase {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size.width(), size.height(), 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, pixels.get());
 
-    auto image = base::MakeRefCounted<gl::GLImageNativePixmap>(size, format);
-    EXPECT_TRUE(image->InitializeFromTexture(texture_id));
+    auto image =
+        gl::GLImageNativePixmap::CreateFromTexture(size, format, texture_id);
+    EXPECT_TRUE(image);
 
     glDeleteTextures(1, &texture_id);
     return image;
@@ -95,7 +84,7 @@ TYPED_TEST_SUITE_P(GLImageNativePixmapToDmabufTest);
 
 TYPED_TEST_P_WITH_EXPANSION(GLImageNativePixmapToDmabufTest,
                             MAYBE_GLTexture2DToDmabuf) {
-  if (this->delegate_.SkipTest())
+  if (this->delegate_.SkipTest(this->display_))
     return;
 
   const gfx::Size image_size(64, 64);

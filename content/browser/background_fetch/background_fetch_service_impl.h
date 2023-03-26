@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,7 @@
 #include "third_party/blink/public/mojom/background_fetch/background_fetch.mojom.h"
 
 namespace net {
-class NetworkIsolationKey;
+class NetworkAnonymizationKey;
 }  // namespace net
 
 namespace content {
@@ -32,6 +32,7 @@ class CONTENT_EXPORT BackgroundFetchServiceImpl
       scoped_refptr<BackgroundFetchContext> background_fetch_context,
       blink::StorageKey storage_key,
       net::IsolationInfo isolation_info,
+      RenderProcessHost* rph,
       RenderFrameHostImpl* rfh);
 
   BackgroundFetchServiceImpl(const BackgroundFetchServiceImpl&) = delete;
@@ -79,6 +80,8 @@ class CONTENT_EXPORT BackgroundFetchServiceImpl
   const blink::StorageKey storage_key_;
 
   net::IsolationInfo isolation_info_;
+
+  int rph_id_;
 
   // Identifies the RenderFrameHost that is using this service, if any. May not
   // resolve to a host if the frame has already been destroyed or a worker is

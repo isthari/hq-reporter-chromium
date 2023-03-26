@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,10 @@
 #include <string>
 
 #include "ash/ambient/ui/ambient_view_delegate.h"
+#include "ash/ambient/ui/media_string_view.h"
 #include "ash/ash_export.h"
 #include "ash/public/cpp/ambient/ambient_backend_controller.h"
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_multi_source_observation.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/image_view.h"
@@ -20,6 +22,7 @@
 namespace ash {
 
 class AmbientInfoView;
+class JitterCalculator;
 class MediaStringView;
 
 // AmbientBackgroundImageView--------------------------------------------------
@@ -27,11 +30,14 @@ class MediaStringView;
 // It also handles specific mouse/gesture events to dismiss ambient when user
 // interacts with the background photos.
 class ASH_EXPORT AmbientBackgroundImageView : public views::View,
-                                              public views::ViewObserver {
+                                              public views::ViewObserver,
+                                              public MediaStringView::Delegate {
  public:
   METADATA_HEADER(AmbientBackgroundImageView);
 
-  explicit AmbientBackgroundImageView(AmbientViewDelegate* delegate);
+  AmbientBackgroundImageView(
+      AmbientViewDelegate* delegate,
+      JitterCalculator* glanceable_info_jitter_calculator);
   AmbientBackgroundImageView(const AmbientBackgroundImageView&) = delete;
   AmbientBackgroundImageView& operator=(const AmbientBackgroundImageView&) =
       delete;
@@ -42,6 +48,9 @@ class ASH_EXPORT AmbientBackgroundImageView : public views::View,
 
   // views::ViewObserver:
   void OnViewBoundsChanged(views::View* observed_view) override;
+
+  // MediaStringView::Delegate:
+  MediaStringView::Settings GetSettings() override;
 
   // Updates the display images.
   void UpdateImage(const gfx::ImageSkia& image,
@@ -78,6 +87,8 @@ class ASH_EXPORT AmbientBackgroundImageView : public views::View,
 
   // Owned by |AmbientController| and should always outlive |this|.
   AmbientViewDelegate* delegate_ = nullptr;
+
+  const base::raw_ptr<JitterCalculator> glanceable_info_jitter_calculator_;
 
   // View to display current image(s) on ambient. Owned by the view hierarchy.
   views::View* image_container_ = nullptr;

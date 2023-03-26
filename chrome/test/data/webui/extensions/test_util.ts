@@ -1,10 +1,11 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 /** @fileoverview Common utilities for extension ui tests. */
 import {ItemDelegate} from 'chrome://extensions/extensions.js';
 import {assertDeepEquals, assertEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {FakeChromeEvent} from 'chrome://webui-test/fake_chrome_event.js';
 import {MockController, MockMethod} from 'chrome://webui-test/mock_controller.js';
 import {isChildVisible} from 'chrome://webui-test/test_util.js';
 
@@ -14,26 +15,26 @@ export class ClickMock {
    * Tests clicking on an element and expecting a call.
    * @param element The element to click on.
    * @param callName The function expected to be called.
-   * @param opt_expectedArgs The arguments the function is
+   * @param expectedArgs The arguments the function is
    *     expected to be called with.
-   * @param opt_returnValue The value to return from the function call.
+   * @param returnValue The value to return from the function call.
    */
   testClickingCalls(
-      element: HTMLElement, callName: string, opt_expectedArgs: any[],
-      opt_returnValue?: any) {
+      element: HTMLElement, callName: string, expectedArgs: any[],
+      returnValue?: any) {
     const mock = new MockController();
     const mockMethod = mock.createFunctionMock(this, callName);
-    mockMethod.returnValue = opt_returnValue;
-    MockMethod.prototype.addExpectation.apply(mockMethod, opt_expectedArgs);
+    mockMethod.returnValue = returnValue;
+    MockMethod.prototype.addExpectation.apply(mockMethod, expectedArgs);
     element.click();
     mock.verifyMocks();
   }
 }
 
-type ListenerInfo = {
-  satisfied: boolean,
-  args: any,
-};
+interface ListenerInfo {
+  satisfied: boolean;
+  args: any;
+}
 
 /**
  * A mock to test receiving expected events and verify that they were called
@@ -57,12 +58,12 @@ export class ListenerMock {
 
   /**
    * Adds an expected event.
-   * @param opt_eventArgs If omitted, will check that the details
+   * @param eventArgs If omitted, will check that the details
    *     are empty (i.e., {}).
    */
-  addListener(target: EventTarget, eventName: string, opt_eventArgs: any) {
+  addListener(target: EventTarget, eventName: string, eventArgs: any) {
     assertTrue(!this.listeners_.hasOwnProperty(eventName));
-    this.listeners_[eventName] = {args: opt_eventArgs || {}, satisfied: false};
+    this.listeners_[eventName] = {args: eventArgs || {}, satisfied: false};
     target.addEventListener(eventName, this.onEvent_.bind(this, eventName));
   }
 
@@ -82,6 +83,7 @@ export class ListenerMock {
  * A mock delegate for the item, capable of testing functionality.
  */
 export class MockItemDelegate extends ClickMock implements ItemDelegate {
+  itemStateChangedTarget: FakeChromeEvent = new FakeChromeEvent();
   deleteItem(_id: string) {}
   setItemEnabled(_id: string, _isEnabled: boolean) {}
   setItemAllowedIncognito(_id: string, _isAllowedIncognito: boolean) {}
@@ -113,7 +115,13 @@ export class MockItemDelegate extends ClickMock implements ItemDelegate {
     return Promise.resolve();
   }
 
+  setShowAccessRequestsInToolbar(_id: string, _showRequests: boolean) {}
+
   recordUserAction(_metricName: string) {}
+
+  getItemStateChangedTarget() {
+    return this.itemStateChangedTarget;
+  }
 }
 
 /**
@@ -143,16 +151,16 @@ export function isElementVisible(element: HTMLElement): boolean {
  * @param parentEl The parent element to query for the element.
  * @param selector The selector to find the element.
  * @param expectedVisible Whether the element should be visible.
- * @param opt_expectedText The expected textContent value.
+ * @param expectedText The expected textContent value.
  */
 export function testVisible(
     parentEl: HTMLElement, selector: string, expectedVisible: boolean,
-    opt_expectedText?: string) {
+    expectedText?: string) {
   const visible = isChildVisible(parentEl, selector);
   assertEquals(expectedVisible, visible, selector);
-  if (expectedVisible && visible && opt_expectedText) {
+  if (expectedVisible && visible && expectedText) {
     const element = parentEl.shadowRoot!.querySelector(selector)!;
-    assertEquals(opt_expectedText, element.textContent!.trim(), selector);
+    assertEquals(expectedText, element.textContent!.trim(), selector);
   }
 }
 
@@ -211,6 +219,7 @@ export function createExtensionInfo(
         views: [{url: baseUrl + 'foo.html'}, {url: baseUrl + 'bar.html'}],
         webStoreUrl: '',
         showSafeBrowsingAllowlistWarning: false,
+        showAccessRequestsInToolbar: false,
       },
       properties || {});
 }
@@ -221,11 +230,11 @@ export function createExtensionInfo(
  */
 export function findMatches(
     root: HTMLElement|Document, query: string): HTMLElement[] {
-  let elements = new Set<HTMLElement>();
+  const elements = new Set<HTMLElement>();
   function doSearch(node: Node) {
     if (node.nodeType === Node.ELEMENT_NODE) {
       const matches = (node as Element).querySelectorAll<HTMLElement>(query);
-      for (let match of matches) {
+      for (const match of matches) {
         elements.add(match);
       }
     }

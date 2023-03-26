@@ -1,6 +1,7 @@
 load("@org_tensorflow//tensorflow/lite/core/shims:cc_library_with_tflite.bzl", "cc_library_with_tflite")
 
 package(
+    default_applicable_licenses = ["//tensorflow_lite_support:license"],
     default_visibility = ["//tensorflow_lite_support:internal"],
     licenses = ["notice"],  # Apache 2.0
 )
@@ -64,6 +65,7 @@ cc_library_with_tflite(
 
 cc_library_with_tflite(
     name = "task_api_factory",
+    srcs = ["task_api_factory.cc"],
     hdrs = ["task_api_factory.h"],
     tflite_deps = [
         ":base_task_api",

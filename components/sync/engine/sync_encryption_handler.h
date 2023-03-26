@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,7 +31,6 @@ enum class PassphraseType;
 // and keeps the nigori node up to date.
 // Implementations of this class must be assumed to be non-thread-safe. All
 // methods must be invoked on the sync thread.
-// TODO(crbug.com/1010397): Rename this class.
 class SyncEncryptionHandler {
  public:
   // All Observer methods are done synchronously from within a transaction and
@@ -115,7 +114,9 @@ class SyncEncryptionHandler {
   // and triggers re-encryption as appropriate. If an explicit password has been
   // set previously, we drop subsequent requests to set a passphrase.
   // |passphrase| shouldn't be empty.
-  virtual void SetEncryptionPassphrase(const std::string& passphrase) = 0;
+  virtual void SetEncryptionPassphrase(
+      const std::string& passphrase,
+      const KeyDerivationParams& key_derivation_params) = 0;
 
   // Provides a key for decrypting the user's existing sync data.
   // Notifies observers of the result of the operation via

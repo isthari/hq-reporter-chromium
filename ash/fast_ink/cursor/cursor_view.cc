@@ -1,14 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/fast_ink/cursor/cursor_view.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
-#include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/paint/paint_canvas.h"
 #include "ui/aura/window.h"
@@ -61,7 +60,7 @@ gfx::Vector2dF InterpolateBetween(const gfx::Vector2dF& start,
 CursorView::CursorView(const gfx::Point& initial_location,
                        bool is_motion_blur_enabled)
     : is_motion_blur_enabled_(is_motion_blur_enabled),
-      ui_task_runner_(base::ThreadTaskRunnerHandle::Get()),
+      ui_task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()),
       paint_task_runner_(base::ThreadPool::CreateSingleThreadTaskRunner(
           {base::TaskPriority::USER_BLOCKING,
            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})),
@@ -83,9 +82,8 @@ CursorView::CursorView(const gfx::Point& initial_location,
 
   // Create transform used to convert cursor controller coordinates to screen
   // coordinates.
-  bool inversible = host()->window_to_buffer_transform().GetInverse(
-      &buffer_to_screen_transform_);
-  DCHECK(inversible);
+  buffer_to_screen_transform_ =
+      host()->window_to_buffer_transform().GetCheckedInverse();
 
   ui::CursorController::GetInstance()->AddCursorObserver(this);
 }
@@ -135,8 +133,7 @@ void CursorView::SetCursorImage(const gfx::ImageSkia& cursor_image,
 // ui::CursorController::CursorObserver overrides:
 
 void CursorView::OnCursorLocationChanged(const gfx::PointF& location) {
-  gfx::PointF new_location_f = location;
-  buffer_to_screen_transform_.TransformPoint(&new_location_f);
+  gfx::PointF new_location_f = buffer_to_screen_transform_.MapPoint(location);
   gfx::Point new_location = gfx::ToRoundedPoint(new_location_f);
 
   {
@@ -247,14 +244,14 @@ void CursorView::OnTimerTick() {
       sk_canvas->translate(SkIntToScalar(motion_blur_offset_.x()),
                            SkIntToScalar(motion_blur_offset_.y()));
 
-      sk_canvas->concat(motion_blur_inverse_matrix_);
+      sk_canvas->concat(SkM44(motion_blur_inverse_matrix_));
       SkRect blur_rect = SkRect::MakeWH(SkIntToScalar(cursor_size_.width()),
                                         SkIntToScalar(cursor_size_.height()));
       motion_blur_matrix_.mapRect(&blur_rect);
       cc::PaintFlags flags;
       flags.setImageFilter(motion_blur_filter_);
-      sk_canvas->saveLayer(&blur_rect, &flags);
-      sk_canvas->concat(motion_blur_matrix_);
+      sk_canvas->saveLayer(blur_rect, flags);
+      sk_canvas->concat(SkM44(motion_blur_matrix_));
       paint.canvas().DrawImageInt(cursor_image_, 0, 0);
       sk_canvas->restore();
     } else {

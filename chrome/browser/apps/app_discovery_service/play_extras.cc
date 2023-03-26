@@ -1,8 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/apps/app_discovery_service/play_extras.h"
+
+#include <memory>
 
 namespace apps {
 
@@ -27,7 +29,17 @@ PlayExtras::PlayExtras(const std::string& package_name,
       contains_ads_(contains_ads),
       optimized_for_chrome_(optimized_for_chrome) {}
 
+PlayExtras::PlayExtras(const PlayExtras&) = default;
+
 PlayExtras::~PlayExtras() = default;
+
+std::unique_ptr<SourceExtras> PlayExtras::Clone() {
+  return std::make_unique<PlayExtras>(*this);
+}
+
+PlayExtras* PlayExtras::AsPlayExtras() {
+  return this;
+}
 
 const std::string& PlayExtras::GetPackageName() const {
   return package_name_;
@@ -67,10 +79,6 @@ bool PlayExtras::GetContainsAds() const {
 
 bool PlayExtras::GetOptimizedForChrome() const {
   return optimized_for_chrome_;
-}
-
-PlayExtras* PlayExtras::AsPlayExtras() {
-  return this;
 }
 
 }  // namespace apps

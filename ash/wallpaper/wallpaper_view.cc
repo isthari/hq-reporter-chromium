@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,8 +54,6 @@ class WallpaperWidgetDelegate : public views::WidgetDelegateView {
     window->parent()->StackChildAtBottom(window);
     display::Display display =
         display::Screen::GetScreen()->GetDisplayNearestWindow(window);
-    display::ManagedDisplayInfo info =
-        Shell::Get()->display_manager()->GetDisplayInfo(display.id());
 
     for (auto* child : children()) {
       child->SetBounds(0, 0, display.size().width(), display.size().height());
@@ -179,7 +177,7 @@ void WallpaperView::DrawWallpaper(const gfx::ImageSkia& wallpaper,
   gfx::Canvas filtered_canvas(small_image_->size(),
                               /*image_scale=*/1.f,
                               /*is_opaque=*/false);
-  filtered_canvas.sk_canvas()->saveLayer(nullptr, &filter_flags);
+  filtered_canvas.sk_canvas()->saveLayer(filter_flags);
   filtered_canvas.DrawImageInt(
       *small_image_, 0, 0, small_image_->width(), small_image_->height(), 0, 0,
       small_image_->width(), small_image_->height(), true);

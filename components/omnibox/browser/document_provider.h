@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -17,6 +17,7 @@
 #include "base/feature_list.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/time/time.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/autocomplete_provider_debouncer.h"
@@ -53,7 +54,6 @@ class DocumentProvider : public AutocompleteProvider {
   void Stop(bool clear_cached_results, bool due_to_user_inactivity) override;
   void DeleteMatch(const AutocompleteMatch& match) override;
   void AddProviderInfo(ProvidersInfo* provider_info) const override;
-  void ResetSession() override;
 
   // Registers a client-side preference to enable document suggestions.
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
@@ -78,25 +78,7 @@ class DocumentProvider : public AutocompleteProvider {
   static const GURL GetURLForDeduping(const GURL& url);
 
  private:
-  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, IsDocumentProviderAllowed);
-  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, IsInputLikelyURL);
-  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, ParseDocumentSearchResults);
-  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest,
-                           ProductDescriptionStringsAndAccessibleLabels);
-  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, MatchDescriptionString);
-  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest,
-                           ParseDocumentSearchResultsBreakTies);
-  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest,
-                           ParseDocumentSearchResultsBreakTiesCascade);
-  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest,
-                           ParseDocumentSearchResultsBreakTiesZeroLimit);
-  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest,
-                           ParseDocumentSearchResultsWithBadResponse);
-  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, GenerateLastModifiedString);
-  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, Scoring);
-  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, CachingForAsyncMatches);
-  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, CachingForSyncMatches);
-  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, StartCallsStop);
+  friend class FakeDocumentProvider;
 
   using MatchesCache = base::LRUCache<GURL, AutocompleteMatch>;
 
@@ -178,12 +160,6 @@ class DocumentProvider : public AutocompleteProvider {
                                             const std::string& mimetype,
                                             const std::string& owner);
 
-  // Whether a field trial has triggered for this query and this session,
-  // respectively. Works similarly to BaseSearchProvider, though this class does
-  // not inherit from it.
-  bool field_trial_triggered_;
-  bool field_trial_triggered_in_session_;
-
   // Whether the server has instructed us to backoff for this session (in
   // cases where the corpus is uninteresting).
   bool backoff_for_session_;
@@ -191,15 +167,18 @@ class DocumentProvider : public AutocompleteProvider {
   // Client for accessing TemplateUrlService, prefs, etc.
   raw_ptr<AutocompleteProviderClient> client_;
 
-  // Listener to notify when results are available.
-  raw_ptr<AutocompleteProviderListener> listener_;
-
   // Saved when starting a new autocomplete request so that it can be retrieved
   // when responses return asynchronously.
   AutocompleteInput input_;
 
   // Loader used to retrieve results.
   std::unique_ptr<network::SimpleURLLoader> loader_;
+
+  // The time `Run()` was invoked. Used for histogram logging.
+  base::TimeTicks time_run_invoked_;
+  // The time `OnDocumentSuggestionsLoaderAvailable()` was invoked and the
+  // remote request was sent. Used for histogram logging.
+  base::TimeTicks time_request_sent_;
 
   // Because the drive server is async and may intermittently provide a
   // particular suggestion for consecutive inputs, without caching, doc

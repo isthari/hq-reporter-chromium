@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -87,7 +87,7 @@ class CC_ANIMATION_EXPORT AnimationTimeline
 
   void EraseAnimation(scoped_refptr<Animation> animation);
 
-  int id_;
+  const int id_;
   raw_ptr<AnimationHost> animation_host_;
   bool needs_push_properties_;
 

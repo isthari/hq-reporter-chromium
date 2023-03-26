@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,9 +26,8 @@ class LocalCardMigrationErrorDialogView
       public views::BubbleDialogDelegateView {
  public:
   METADATA_HEADER(LocalCardMigrationErrorDialogView);
-  LocalCardMigrationErrorDialogView(
-      LocalCardMigrationDialogController* controller,
-      content::WebContents* web_contents);
+  explicit LocalCardMigrationErrorDialogView(
+      LocalCardMigrationDialogController* controller);
   LocalCardMigrationErrorDialogView(const LocalCardMigrationErrorDialogView&) =
       delete;
   LocalCardMigrationErrorDialogView& operator=(
@@ -36,17 +35,14 @@ class LocalCardMigrationErrorDialogView
   ~LocalCardMigrationErrorDialogView() override;
 
   // LocalCardMigrationDialog:
-  void ShowDialog() override;
+  void ShowDialog(content::WebContents& web_contents) override;
   void CloseDialog() override;
 
   // views::BubbleDialogDelegateView:
   void Init() override;
-  void WindowClosing() override;
 
  private:
   raw_ptr<LocalCardMigrationDialogController> controller_;
-
-  raw_ptr<content::WebContents> web_contents_;
 };
 
 }  // namespace autofill

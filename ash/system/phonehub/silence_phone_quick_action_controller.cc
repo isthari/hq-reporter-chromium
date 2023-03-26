@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/phonehub/phone_hub_metrics.h"
 #include "ash/system/phonehub/quick_action_item.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/timer/timer.h"
 #include "ui/base/l10n/l10n_util.h"
 

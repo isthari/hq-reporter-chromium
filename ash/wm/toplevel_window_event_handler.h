@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 
 #include "ash/ash_export.h"
 #include "ash/display/window_tree_host_manager.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "ui/aura/window_observer.h"
 #include "ui/display/display_observer.h"
@@ -117,6 +117,8 @@ class ASH_EXPORT ToplevelWindowEventHandler
 
   // Returns true if there is a drag in progress.
   bool is_drag_in_progress() const { return window_resizer_.get() != nullptr; }
+
+  void CompleteDragForTesting(DragResult result) { CompleteDrag(result); }
 
  private:
   class ScopedWindowResizer;

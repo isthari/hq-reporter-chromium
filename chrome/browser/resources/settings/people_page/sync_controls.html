@@ -12,7 +12,7 @@
       }
     </style>
 
-<if expr="chromeos_ash or chromeos_lacros">
+<if expr="is_chromeos">
     <!-- TODO(crbug.com/1231500): Remove this warning after Lacros side-by-side
       rollout stage. -->
     <template is="dom-if" if="[[shouldShowLacrosSideBySideWarning_()]]">
@@ -20,6 +20,12 @@
         $i18n{syncSettingsLacrosSideBySideWarning}
       </div>
     </template>
+    <div class="settings-box first">
+      <localized-link class="secondary"
+          localized-string="$i18n{browserSyncFeatureLabel}"
+          link-url="$i18n{osSyncSettingsUrl}">
+      </localized-link>
+    </div>
 </if>
 
     <div id="sync-data-radio" class="cr-row first">
@@ -77,11 +83,9 @@
         <div id="historyCheckboxLabel">
           $i18n{historyCheckboxLabel}
         </div>
-        <!-- TypedUrls has a special on-change handler to deal with user
-             events. -->
         <cr-toggle id="historyToggle"
             checked="{{syncPrefs.typedUrlsSynced}}"
-            on-change="onTypedUrlsDataTypeChanged_"
+            on-change="onSingleSyncDataTypeChanged_"
             disabled="[[syncPrefs.syncAllDataTypes]]"
             aria-labelledby="historyCheckboxLabel">
         </cr-toggle>
@@ -99,13 +103,13 @@
       </div>
 
       <div class="list-item" hidden="[[!syncPrefs.themesRegistered]]">
-        <div id="themesAndWallpapersCheckboxLabel">
-          $i18n{themesAndWallpapersCheckboxLabel}
+        <div id="themeCheckboxLabel">
+          $i18n{themeCheckboxLabel}
         </div>
         <cr-toggle checked="{{syncPrefs.themesSynced}}"
             on-change="onSingleSyncDataTypeChanged_"
             disabled="[[syncPrefs.syncAllDataTypes]]"
-            aria-labelledby="themesAndWallpapersCheckboxLabel">
+            aria-labelledby="themeCheckboxLabel">
         </cr-toggle>
       </div>
 
@@ -170,7 +174,7 @@
         </cr-toggle>
       </div>
 
-<if expr="chromeos">
+<if expr="chromeos_ash">
       <div class="list-item"
            hidden="[[!syncPrefs.wifiConfigurationsRegistered]]">
         <div id="wifiConfigurationsCheckboxLabel">

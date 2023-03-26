@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -123,7 +123,6 @@ bool CharacterComposer::FilterKeyPressSequenceMode(const KeyEvent& event) {
       compose_buffer_.clear();
       UTF32CharacterToUTF16(composed_character_utf32, &composed_character_);
     }
-    UpdatePreeditStringSequenceMode();
     return true;
   }
   // Key press is not a part of composition.
@@ -150,25 +149,9 @@ bool CharacterComposer::FilterKeyPressSequenceMode(const KeyEvent& event) {
       }
     }
     compose_buffer_.clear();
-    UpdatePreeditStringSequenceMode();
     return true;
   }
   return false;
-}
-
-void CharacterComposer::UpdatePreeditStringSequenceMode() {
-  for (auto key : compose_buffer_) {
-    if (key.IsCharacter()) {
-      base::WriteUnicodeCharacter(key.ToCharacter(), &preedit_string_);
-    } else if (key.IsDeadKey()) {
-      base::WriteUnicodeCharacter(key.ToDeadKeyCombiningCharacter(),
-                                  &preedit_string_);
-    } else if (key.IsComposeKey() && (compose_buffer_.size() == 1)) {
-      // The U+00B7 "middle dot" character is also used by GTK to represent the
-      // compose key in preedit strings.
-      base::WriteUnicodeCharacter(0xB7, &preedit_string_);
-    }
-  }
 }
 
 bool CharacterComposer::FilterKeyPressHexMode(const KeyEvent& event) {
@@ -244,19 +227,19 @@ ComposeChecker::CheckSequenceResult TreeComposeChecker::CheckSequence(
     const ui::CharacterComposer::ComposeBuffer& sequence,
     uint32_t* composed_character) const {
   *composed_character = 0;
-  if (sequence.size() > data_.maximum_sequence_length)
+  if (sequence.size() > data_->maximum_sequence_length)
     return CheckSequenceResult::NO_MATCH;
 
   uint16_t tree_index = 0;
   for (const auto& keystroke : sequence) {
-    DCHECK(tree_index < data_.tree_entries);
+    DCHECK(tree_index < data_->tree_entries);
 
     // If we are looking up a dead key or the Compose key, skip over the
     // character tables.
     int32_t character = -1;
     if (keystroke.IsDeadKey() || keystroke.IsComposeKey()) {
-      tree_index += 2 * data_.tree[tree_index] + 1;  // internal unicode table
-      tree_index += 2 * data_.tree[tree_index] + 1;  // leaf unicode table
+      tree_index += 2 * data_->tree[tree_index] + 1;  // internal unicode table
+      tree_index += 2 * data_->tree[tree_index] + 1;  // leaf unicode table
       // The generate_character_composer_data.py script assigns 0 to the Compose
       // key.
       character = keystroke.IsComposeKey()
@@ -270,7 +253,7 @@ ComposeChecker::CheckSequenceResult TreeComposeChecker::CheckSequence(
 
     // Check the internal subtree table.
     uint16_t result = 0;
-    uint16_t entries = data_.tree[tree_index++];
+    uint16_t entries = data_->tree[tree_index++];
     if (entries &&
         Find(tree_index, entries, static_cast<uint16_t>(character), &result)) {
       tree_index = result;
@@ -279,7 +262,7 @@ ComposeChecker::CheckSequenceResult TreeComposeChecker::CheckSequence(
 
     // Skip over the internal subtree table and check the leaf table.
     tree_index += 2 * entries;
-    entries = data_.tree[tree_index++];
+    entries = data_->tree[tree_index++];
     if (entries &&
         Find(tree_index, entries, static_cast<uint16_t>(character), &result)) {
       *composed_character = result;
@@ -301,7 +284,8 @@ bool TreeComposeChecker::Find(uint16_t index,
       return this->key < other.key;
     }
   };
-  const TableEntry* a = reinterpret_cast<const TableEntry*>(&data_.tree[index]);
+  const TableEntry* a =
+      reinterpret_cast<const TableEntry*>(&data_->tree[index]);
   const TableEntry* z = a + size;
   const TableEntry target = {key, 0};
   const TableEntry* it = std::lower_bound(a, z, target);

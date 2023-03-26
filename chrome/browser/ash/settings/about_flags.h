@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -94,14 +94,5 @@ class FeatureFlagsUpdate {
 
 }  // namespace about_flags
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when Chrome OS code migration is
-// done.
-namespace chromeos {
-namespace about_flags {
-using ::ash::about_flags::OwnerFlagsStorage;
-using ::ash::about_flags::ReadOnlyFlagsStorage;
-}  // namespace about_flags
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_SETTINGS_ABOUT_FLAGS_H_

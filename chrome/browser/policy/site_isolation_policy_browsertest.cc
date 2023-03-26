@@ -1,8 +1,8 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/cxx17_backports.h"
+#include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
@@ -110,6 +110,37 @@ typedef SitePerProcessPolicyBrowserTest<true>
 typedef SitePerProcessPolicyBrowserTest<false>
     SitePerProcessPolicyBrowserTestDisabled;
 
+// Ensure that --disable-site-isolation-trials and/or
+// --disable-site-isolation-for-enterprise-policy do not override policies.
+class NoOverrideSitePerProcessPolicyBrowserTest
+    : public SitePerProcessPolicyBrowserTestEnabled {
+ public:
+  NoOverrideSitePerProcessPolicyBrowserTest(
+      const NoOverrideSitePerProcessPolicyBrowserTest&) = delete;
+  NoOverrideSitePerProcessPolicyBrowserTest& operator=(
+      const NoOverrideSitePerProcessPolicyBrowserTest&) = delete;
+
+ protected:
+  NoOverrideSitePerProcessPolicyBrowserTest() = default;
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    command_line->AppendSwitch(switches::kDisableSiteIsolation);
+#if BUILDFLAG(IS_ANDROID)
+    command_line->AppendSwitch(switches::kDisableSiteIsolationForPolicy);
+#endif
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(SitePerProcessPolicyBrowserTestEnabled, Simple) {
+  Expectations expectations[] = {
+      {"https://foo.com/noodles.html", true},
+      {"http://foo.com/", true},
+      {"http://example.org/pumpkins.html", true},
+  };
+  CheckExpectations(expectations, std::size(expectations));
+}
+
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
+// The policy is not supported on Android
 class IsolateOriginsPolicyBrowserTest : public SiteIsolationPolicyBrowserTest {
  public:
   IsolateOriginsPolicyBrowserTest(const IsolateOriginsPolicyBrowserTest&) =
@@ -141,35 +172,6 @@ class IsolateOriginsPolicyBrowserTest : public SiteIsolationPolicyBrowserTest {
   }
 };
 
-// Ensure that --disable-site-isolation-trials and/or
-// --disable-site-isolation-for-enterprise-policy do not override policies.
-class NoOverrideSitePerProcessPolicyBrowserTest
-    : public SitePerProcessPolicyBrowserTestEnabled {
- public:
-  NoOverrideSitePerProcessPolicyBrowserTest(
-      const NoOverrideSitePerProcessPolicyBrowserTest&) = delete;
-  NoOverrideSitePerProcessPolicyBrowserTest& operator=(
-      const NoOverrideSitePerProcessPolicyBrowserTest&) = delete;
-
- protected:
-  NoOverrideSitePerProcessPolicyBrowserTest() = default;
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(switches::kDisableSiteIsolation);
-#if BUILDFLAG(IS_ANDROID)
-    command_line->AppendSwitch(switches::kDisableSiteIsolationForPolicy);
-#endif
-  }
-};
-
-IN_PROC_BROWSER_TEST_F(SitePerProcessPolicyBrowserTestEnabled, Simple) {
-  Expectations expectations[] = {
-      {"https://foo.com/noodles.html", true},
-      {"http://foo.com/", true},
-      {"http://example.org/pumpkins.html", true},
-  };
-  CheckExpectations(expectations, base::size(expectations));
-}
-
 IN_PROC_BROWSER_TEST_F(IsolateOriginsPolicyBrowserTest, Simple) {
   // Verify that the policy present at browser startup is correctly applied.
   Expectations expectations[] = {
@@ -178,7 +180,7 @@ IN_PROC_BROWSER_TEST_F(IsolateOriginsPolicyBrowserTest, Simple) {
       {"https://policy1.example.org/pumpkins.html", true},
       {"http://policy2.example.com/index.php", true},
   };
-  CheckIsolatedOriginExpectations(expectations, base::size(expectations));
+  CheckIsolatedOriginExpectations(expectations, std::size(expectations));
 
   // Simulate updating the policy at "browser runtime".
   policy::PolicyMap values;
@@ -202,15 +204,16 @@ IN_PROC_BROWSER_TEST_F(IsolateOriginsPolicyBrowserTest, Simple) {
       {"https://policy3.example.org/pumpkins.html", true},
       {"http://policy4.example.com/index.php", true},
   };
-  CheckIsolatedOriginExpectations(expectations2, base::size(expectations2));
+  CheckIsolatedOriginExpectations(expectations2, std::size(expectations2));
 }
+#endif
 
 IN_PROC_BROWSER_TEST_F(NoOverrideSitePerProcessPolicyBrowserTest, Simple) {
   Expectations expectations[] = {
       {"https://foo.com/noodles.html", true},
       {"http://example.org/pumpkins.html", true},
   };
-  CheckExpectations(expectations, base::size(expectations));
+  CheckExpectations(expectations, std::size(expectations));
 }
 
 // After https://crbug.com/910273 was fixed, enterprise policy can only be used
@@ -258,7 +261,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessPolicyBrowserTestFieldTrialTest, Simple) {
       {"https://foo.com/noodles.html", false},
       {"http://example.org/pumpkins.html", false},
   };
-  CheckExpectations(expectations, base::size(expectations));
+  CheckExpectations(expectations, std::size(expectations));
 }
 #endif
 

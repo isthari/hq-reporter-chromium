@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/renderer/core/css/properties/longhands.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/loader/empty_clients.h"
@@ -122,8 +123,9 @@ void TestGreenDiv(DummyPageHolder& page_holder) {
   Element* div = doc.getElementById("div");
   ASSERT_TRUE(div);
   ASSERT_TRUE(div->GetComputedStyle());
-  EXPECT_EQ(MakeRGB(0, 128, 0), div->GetComputedStyle()->VisitedDependentColor(
-                                    GetCSSPropertyColor()));
+  EXPECT_EQ(
+      Color::FromRGB(0, 128, 0),
+      div->GetComputedStyle()->VisitedDependentColor(GetCSSPropertyColor()));
 }
 
 }  // namespace
@@ -221,5 +223,4 @@ TEST_F(LocalFrameTest, CharacterIndexAtPointWithPinchZoom) {
   EXPECT_EQ(waiter.index(), 5ul);
 }
 #endif
-
 }  // namespace blink

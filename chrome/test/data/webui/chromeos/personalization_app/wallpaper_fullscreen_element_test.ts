@@ -1,21 +1,22 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 /** @fileoverview Test suite for wallpaper-fullscreen component.  */
 
-import {CurrentWallpaper, WallpaperLayout, WallpaperType} from 'chrome://personalization/trusted/personalization_app.mojom-webui.js';
-import {DisplayableImage} from 'chrome://personalization/trusted/personalization_reducers.js';
-import {WallpaperFullscreen} from 'chrome://personalization/trusted/wallpaper/wallpaper_fullscreen_element.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import 'chrome://personalization/strings.m.js';
+import 'chrome://webui-test/mojo_webui_test_support.js';
+
+import {CurrentWallpaper, DailyRefreshType, DisplayableImage, WallpaperFullscreen, WallpaperLayout, WallpaperObserver, WallpaperType} from 'chrome://personalization/js/personalization_app.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {flushTasks, waitAfterNextRender} from 'chrome://webui-test/test_util.js';
+import {flushTasks, waitAfterNextRender} from 'chrome://webui-test/polymer_test_util.js';
 
 import {baseSetup, initElement} from './personalization_app_test_utils.js';
 import {TestPersonalizationStore} from './test_personalization_store.js';
 import {TestWallpaperProvider} from './test_wallpaper_interface_provider.js';
 
-export function WallpaperFullscreenTest() {
+suite('WallpaperFullscreenTest', function() {
   let wallpaperFullscreenElement: WallpaperFullscreen|null = null;
   let wallpaperProvider: TestWallpaperProvider;
   let personalizationStore: TestPersonalizationStore;
@@ -25,7 +26,6 @@ export function WallpaperFullscreenTest() {
     layout: WallpaperLayout.kCenter,
     key: 'testing',
     type: WallpaperType.kCustomized,
-    url: {url: 'data://testing'},
   };
 
   const pendingSelectedCustomImage:
@@ -174,23 +174,64 @@ export function WallpaperFullscreenTest() {
     await exitFullscreenPromise;
   });
 
-  test('shows layout options for custom images', async () => {
-    wallpaperFullscreenElement = initElement(WallpaperFullscreen);
-    await waitAfterNextRender(wallpaperFullscreenElement);
+  [{pendingSelectedImage: pendingSelectedCustomImage, shouldShow: true},
+   {pendingSelectedImage: /*Online:*/ {assetId: 0n}, shouldShow: false},
+   {pendingSelectedImage: /*Google Photos:*/ {id: 'test_id'}, shouldShow: true}]
+      .forEach(
+          testCase => test(
+              'shows layout options for custom and Google Photos images',
+              async () => {
+                wallpaperFullscreenElement = initElement(WallpaperFullscreen);
+                await waitAfterNextRender(wallpaperFullscreenElement);
 
-    assertEquals(
-        null,
-        wallpaperFullscreenElement.shadowRoot!.getElementById('layoutButtons'));
+                assertEquals(
+                    null,
+                    wallpaperFullscreenElement.shadowRoot!.getElementById(
+                        'layoutButtons'));
 
-    personalizationStore.data.wallpaper.pendingSelected =
-        pendingSelectedCustomImage;
-    personalizationStore.notifyObservers();
+                // Select a wallpaper in preview mode from a starting state
+                // where the layout buttons have not been created.
+                personalizationStore.data.wallpaper.pendingSelected =
+                    testCase.pendingSelectedImage;
+                personalizationStore.notifyObservers();
+                await waitAfterNextRender(wallpaperFullscreenElement);
 
-    await waitAfterNextRender(wallpaperFullscreenElement);
+                // Verify whether layout buttons are created.
+                let layoutButtonsEl =
+                    wallpaperFullscreenElement.shadowRoot!.getElementById(
+                        'layoutButtons');
+                assertEquals(!!layoutButtonsEl, testCase.shouldShow);
 
-    assertTrue(!!wallpaperFullscreenElement.shadowRoot!.getElementById(
-        'layoutButtons'));
-  });
+                // Select a custom wallpaper to make sure that layout buttons
+                // are shown.
+                personalizationStore.data.wallpaper.pendingSelected =
+                    pendingSelectedCustomImage;
+                personalizationStore.notifyObservers();
+                await waitAfterNextRender(wallpaperFullscreenElement);
+
+                layoutButtonsEl =
+                    wallpaperFullscreenElement.shadowRoot!.getElementById(
+                        'layoutButtons');
+                assertTrue(!!layoutButtonsEl);
+
+                // Select a wallpaper in preview mode from a starting state
+                // where the layout buttons have been created.
+                personalizationStore.data.wallpaper.pendingSelected =
+                    testCase.pendingSelectedImage;
+                personalizationStore.notifyObservers();
+                await waitAfterNextRender(wallpaperFullscreenElement);
+
+                // The layout buttons will still exist from having been added to
+                // the shadow DOM already, so now we test whether they are
+                // actually showing.
+                layoutButtonsEl =
+                    wallpaperFullscreenElement.shadowRoot!.getElementById(
+                        'layoutButtons');
+                assertTrue(!!layoutButtonsEl);
+                assertEquals(
+                    getComputedStyle(layoutButtonsEl).display,
+                    testCase.shouldShow ? 'grid' : 'none');
+              }));
 
   test('clicking layout option selects image with new layout', async () => {
     wallpaperFullscreenElement = initElement(WallpaperFullscreen);
@@ -274,8 +315,10 @@ export function WallpaperFullscreenTest() {
       ...personalizationStore.data.wallpaper.currentSelected,
       type: WallpaperType.kDaily,
     };
-    personalizationStore.data.wallpaper.dailyRefresh.collectionId =
-        wallpaperProvider.collections![0]!.id;
+    personalizationStore.data.wallpaper.dailyRefresh = {
+      id: wallpaperProvider.collections![0]!.id,
+      type: DailyRefreshType.BACKDROP,
+    };
     personalizationStore.data.wallpaper.pendingSelected =
         wallpaperProvider.images![1];
     personalizationStore.notifyObservers();
@@ -289,4 +332,52 @@ export function WallpaperFullscreenTest() {
 
     await wallpaperProvider.whenCalled('confirmPreviewWallpaper');
   });
-}
+
+  test('sets aria label on cr-button', async () => {
+    wallpaperFullscreenElement = initElement(WallpaperFullscreen);
+    mockFullscreenApis();
+    await waitAfterNextRender(wallpaperFullscreenElement);
+
+    assertEquals(
+        loadTimeData.getString('ariaLabelExitFullscreen'),
+        wallpaperFullscreenElement.shadowRoot
+            ?.querySelector('.fullscreen-button')
+            ?.getAttribute('aria-label'),
+        'exit button aria label is set');
+  });
+
+  test('exits fullscreen on popstate', async () => {
+    WallpaperObserver.initWallpaperObserverIfNeeded();
+    wallpaperFullscreenElement = initElement(WallpaperFullscreen);
+    const {requestFullscreenPromise, exitFullscreenPromise} =
+        mockFullscreenApis();
+    await waitAfterNextRender(wallpaperFullscreenElement);
+
+    // Add a history entry to pop later.
+    window.history.pushState(null, '', window.location.href + '#test');
+
+    personalizationStore.data.wallpaper.fullscreen = true;
+    personalizationStore.notifyObservers();
+
+    await requestFullscreenPromise;
+
+    personalizationStore.setReducersEnabled(true);
+    window.history.back();
+
+    // Triggered by popstate.
+    await wallpaperProvider.whenCalled('cancelPreviewWallpaper');
+
+    // Simulate the response from wallpaper controller.
+    wallpaperProvider.wallpaperObserverRemote!.onWallpaperChanged(
+        wallpaperProvider.currentWallpaper);
+    wallpaperProvider.wallpaperObserverRemote!.onWallpaperPreviewEnded();
+    // Second |onWallpaperChanged| is generated by
+    // |personalization_app_wallpaper_provider_impl.cc|.
+    wallpaperProvider.wallpaperObserverRemote!.onWallpaperChanged(
+        wallpaperProvider.currentWallpaper);
+
+    // |exitFullscreenPromise| from wallpaper preview being canceled.
+    await exitFullscreenPromise;
+    WallpaperObserver.shutdown();
+  });
+});

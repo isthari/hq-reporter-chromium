@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,20 +6,20 @@
 
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
-#include "ash/services/ime/public/cpp/suggestions.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/ash/extensions/input_method_api.h"
 #include "chrome/browser/ash/input_method/ui/suggestion_details.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/extensions/input_method_api.h"
 #include "chrome/browser/extensions/api/input_ime/input_ime_api.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/keyboard/chrome_keyboard_controller_client.h"
+#include "chromeos/ash/services/ime/public/cpp/assistive_suggestions.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/browser/ui/label_formatter_utils.h"
@@ -33,9 +33,9 @@ namespace input_method {
 
 namespace {
 
-using ::chromeos::ime::TextSuggestion;
-using ::chromeos::ime::TextSuggestionMode;
-using ::chromeos::ime::TextSuggestionType;
+using ime::AssistiveSuggestion;
+using ime::AssistiveSuggestionMode;
+using ime::AssistiveSuggestionType;
 
 const size_t kMaxConfirmedTextLength = 10;
 constexpr size_t kMaxTextBeforeCursorLength = 50;
@@ -88,23 +88,13 @@ const std::vector<autofill::ServerFieldType>& GetHomeAddressTypes() {
   return *homeAddressTypes;
 }
 
-void RecordTimeToAccept(base::TimeDelta delta) {
-  base::UmaHistogramTimes("InputMethod.Assistive.TimeToAccept.PersonalInfo",
-                          delta);
-}
-
-void RecordTimeToDismiss(base::TimeDelta delta) {
-  base::UmaHistogramTimes("InputMethod.Assistive.TimeToDismiss.PersonalInfo",
-                          delta);
-}
-
 void RecordAssistiveInsufficientData(AssistiveType type) {
   base::UmaHistogramEnumeration("InputMethod.Assistive.InsufficientData", type);
 }
 
-TextSuggestion MapToTextSuggestion(std::u16string candidate_string) {
-  return {.mode = TextSuggestionMode::kPrediction,
-          .type = TextSuggestionType::kAssistivePersonalInfo,
+AssistiveSuggestion MapToAssistiveSuggestion(std::u16string candidate_string) {
+  return {.mode = AssistiveSuggestionMode::kPrediction,
+          .type = AssistiveSuggestionType::kAssistivePersonalInfo,
           .text = base::UTF16ToUTF8(candidate_string)};
 }
 
@@ -178,26 +168,26 @@ PersonalInfoSuggester::PersonalInfoSuggester(
       highlighted_index_(kNoneHighlighted) {
   suggestion_button_.id = ui::ime::ButtonId::kSuggestion;
   suggestion_button_.window_type =
-      ui::ime::AssistiveWindowType::kPersonalInfoSuggestion;
+      ash::ime::AssistiveWindowType::kPersonalInfoSuggestion;
   suggestion_button_.index = 0;
   settings_button_.id = ui::ime::ButtonId::kSmartInputsSettingLink;
   settings_button_.announce_string = kLearnMoreMessage;
   settings_button_.window_type =
-      ui::ime::AssistiveWindowType::kPersonalInfoSuggestion;
+      ash::ime::AssistiveWindowType::kPersonalInfoSuggestion;
 }
 
 PersonalInfoSuggester::~PersonalInfoSuggester() = default;
 
 void PersonalInfoSuggester::OnFocus(int context_id) {
-  context_id_ = context_id;
+  focused_context_id_ = context_id;
 }
 
 void PersonalInfoSuggester::OnBlur() {
-  context_id_ = -1;
+  focused_context_id_ = absl::nullopt;
 }
 
 void PersonalInfoSuggester::OnExternalSuggestionsUpdated(
-    const std::vector<TextSuggestion>& suggestions) {
+    const std::vector<AssistiveSuggestion>& suggestions) {
   // PersonalInfoSuggester doesn't utilize any suggestions produced externally,
   // so ignore this call.
 }
@@ -248,12 +238,13 @@ SuggestionStatus PersonalInfoSuggester::HandleKeyEvent(
   return SuggestionStatus::kNotHandled;
 }
 
-bool PersonalInfoSuggester::Suggest(const std::u16string& text,
-                                    size_t cursor_pos,
-                                    size_t anchor_pos) {
+bool PersonalInfoSuggester::TrySuggestWithSurroundingText(
+    const std::u16string& text,
+    int cursor_pos,
+    int anchor_pos) {
   // |text| could be very long, we get at most |kMaxTextBeforeCursorLength|
   // characters before cursor.
-  int start_pos = cursor_pos >= kMaxTextBeforeCursorLength
+  int start_pos = cursor_pos >= static_cast<int>(kMaxTextBeforeCursorLength)
                       ? cursor_pos - kMaxTextBeforeCursorLength
                       : 0;
   std::u16string text_before_cursor =
@@ -280,6 +271,18 @@ bool PersonalInfoSuggester::Suggest(const std::u16string& text,
     }
     return matched;
   } else {
+    // All these below conditions are required for a personal info suggestion to
+    // be triggered. eg. "my name is |" where '|' denotes cursor position should
+    // trigger a personal info suggestion.
+    int len = static_cast<int>(text.length());
+    if (!(cursor_pos > 0 && cursor_pos <= len &&  // cursor inside text
+          cursor_pos == anchor_pos &&             // no selection
+          text[cursor_pos - 1] == ' ' &&          // space before cursor
+          // cursor at end of line (no or new line char after cursor)
+          (cursor_pos == len || base::IsAsciiWhitespace(text[cursor_pos])))) {
+      return false;
+    }
+
     suggestion_ = GetSuggestion(text_before_cursor);
     if (suggestion_.empty()) {
       if (proposed_action_type_ != AssistiveType::kGenericAction)
@@ -342,6 +345,11 @@ std::u16string PersonalInfoSuggester::GetSuggestion(
 
 void PersonalInfoSuggester::ShowSuggestion(const std::u16string& text,
                                            const size_t confirmed_length) {
+  if (!focused_context_id_.has_value()) {
+    LOG(ERROR) << "Failed to show suggestion. No context id.";
+    return;
+  }
+
   if (ChromeKeyboardControllerClient::Get()->is_keyboard_visible()) {
     const std::vector<std::string> args{base::UTF16ToUTF8(text)};
     suggestion_handler_->OnSuggestionsChanged(args);
@@ -364,7 +372,8 @@ void PersonalInfoSuggester::ShowSuggestion(const std::u16string& text,
       GetPrefValue(kPersonalInfoSuggesterAcceptanceCount) == 0 &&
       GetPrefValue(kPersonalInfoSuggesterShowSettingCount) <
           kMaxShowSettingCount;
-  suggestion_handler_->SetSuggestion(context_id_, details, &error);
+  suggestion_handler_->SetSuggestion(focused_context_id_.value(), details,
+                                     &error);
   if (!error.empty()) {
     LOG(ERROR) << "Fail to show suggestion. " << error;
   }
@@ -380,7 +389,6 @@ void PersonalInfoSuggester::ShowSuggestion(const std::u16string& text,
   if (suggestion_shown_) {
     first_shown_ = false;
   } else {
-    session_start_ = base::TimeTicks::Now();
     first_shown_ = true;
     IncrementPrefValueTilCapped(kPersonalInfoSuggesterShowSettingCount,
                                 kMaxShowSettingCount);
@@ -393,11 +401,11 @@ void PersonalInfoSuggester::ShowSuggestion(const std::u16string& text,
 }
 
 int PersonalInfoSuggester::GetPrefValue(const std::string& pref_name) {
-  DictionaryPrefUpdate update(profile_->GetPrefs(),
+  ScopedDictPrefUpdate update(profile_->GetPrefs(),
                               prefs::kAssistiveInputFeatureSettings);
-  auto value = update->FindIntKey(pref_name);
+  auto value = update->FindInt(pref_name);
   if (!value.has_value()) {
-    update->SetIntKey(pref_name, 0);
+    update->Set(pref_name, 0);
     return 0;
   }
   return *value;
@@ -408,9 +416,9 @@ void PersonalInfoSuggester::IncrementPrefValueTilCapped(
     int max_value) {
   int value = GetPrefValue(pref_name);
   if (value < max_value) {
-    DictionaryPrefUpdate update(profile_->GetPrefs(),
+    ScopedDictPrefUpdate update(profile_->GetPrefs(),
                                 prefs::kAssistiveInputFeatureSettings);
-    update->SetIntKey(pref_name, value + 1);
+    update->Set(pref_name, value + 1);
   }
 }
 
@@ -422,22 +430,26 @@ bool PersonalInfoSuggester::HasSuggestions() {
   return suggestion_shown_;
 }
 
-std::vector<TextSuggestion> PersonalInfoSuggester::GetSuggestions() {
+std::vector<AssistiveSuggestion> PersonalInfoSuggester::GetSuggestions() {
   if (HasSuggestions())
-    return {MapToTextSuggestion(suggestion_)};
+    return {MapToAssistiveSuggestion(suggestion_)};
   return {};
 }
 
 bool PersonalInfoSuggester::AcceptSuggestion(size_t index) {
+  if (!focused_context_id_.has_value()) {
+    LOG(ERROR) << "Failed to accept suggestion. No context id.";
+    return false;
+  }
+
   std::string error;
-  suggestion_handler_->AcceptSuggestion(context_id_, &error);
+  suggestion_handler_->AcceptSuggestion(focused_context_id_.value(), &error);
 
   if (!error.empty()) {
     LOG(ERROR) << "Failed to accept suggestion. " << error;
     return false;
   }
 
-  RecordTimeToAccept(base::TimeTicks::Now() - session_start_);
   IncrementPrefValueTilCapped(kPersonalInfoSuggesterAcceptanceCount,
                               kMaxAcceptanceCount);
   suggestion_shown_ = false;
@@ -447,23 +459,32 @@ bool PersonalInfoSuggester::AcceptSuggestion(size_t index) {
 }
 
 void PersonalInfoSuggester::DismissSuggestion() {
+  if (!focused_context_id_.has_value()) {
+    LOG(ERROR) << "Failed to dismiss suggestion. No context id.";
+    return;
+  }
+
   std::string error;
-  suggestion_handler_->DismissSuggestion(context_id_, &error);
+  suggestion_handler_->DismissSuggestion(focused_context_id_.value(), &error);
   if (!error.empty()) {
     LOG(ERROR) << "Failed to dismiss suggestion. " << error;
     return;
   }
   suggestion_shown_ = false;
-  RecordTimeToDismiss(base::TimeTicks::Now() - session_start_);
   suggestion_handler_->Announce(kDismissPersonalInfoSuggestionMessage);
 }
 
 void PersonalInfoSuggester::SetButtonHighlighted(
     const ui::ime::AssistiveWindowButton& button,
     bool highlighted) {
+  if (!focused_context_id_.has_value()) {
+    LOG(ERROR) << "Failed to set button highlighted. No context id.";
+    return;
+  }
+
   std::string error;
-  suggestion_handler_->SetButtonHighlighted(context_id_, button, highlighted,
-                                            &error);
+  suggestion_handler_->SetButtonHighlighted(focused_context_id_.value(), button,
+                                            highlighted, &error);
   if (!error.empty()) {
     LOG(ERROR) << "Failed to set button highlighted. " << error;
   }

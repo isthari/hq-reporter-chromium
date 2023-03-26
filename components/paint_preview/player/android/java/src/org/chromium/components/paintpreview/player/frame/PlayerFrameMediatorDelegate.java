@@ -1,9 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.paintpreview.player.frame;
 
+import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.graphics.Rect;
 import android.util.Size;
@@ -66,7 +67,7 @@ public interface PlayerFrameMediatorDelegate {
     /**
      * Updates the bitmap matrix in the model.
      */
-    void updateBitmapMatrix(CompressibleBitmap[][] bitmapMatrix);
+    void updateBitmapMatrix(Bitmap[][] bitmapMatrix);
 
     /**
      * Update the model when the bitmap state is swapped.

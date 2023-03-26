@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #import "ios/chrome/browser/ui/infobars/coordinators/infobar_translate_modal_consumer.h"
 
 @protocol InfobarTranslateModalDelegate;
+class PrefService;
 
 // InfobarTranslateTableViewController represents the content for the Translate
 // InfobarModal.
@@ -17,7 +18,9 @@
     : ChromeTableViewController <InfobarTranslateModalConsumer>
 
 - (instancetype)initWithDelegate:
-    (id<InfobarTranslateModalDelegate>)modalDelegate NS_DESIGNATED_INITIALIZER;
+                    (id<InfobarTranslateModalDelegate>)modalDelegate
+                     prefService:(PrefService*)prefService
+    NS_DESIGNATED_INITIALIZER;
 - (instancetype)initWithStyle:(UITableViewStyle)style NS_UNAVAILABLE;
 
 @end

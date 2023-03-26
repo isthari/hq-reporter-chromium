@@ -17,11 +17,14 @@
 #include <cassert>
 #include <cstdint>
 #include <iostream>
+#include <ostream>
 #include <string>
 
 #include "absl/base/attributes.h"
 #include "absl/base/config.h"
 #include "absl/base/internal/raw_logging.h"
+#include "absl/base/optimization.h"
+#include "absl/strings/internal/cord_data_edge.h"
 #include "absl/strings/internal/cord_internal.h"
 #include "absl/strings/internal/cord_rep_consume.h"
 #include "absl/strings/internal/cord_rep_flat.h"
@@ -32,7 +35,9 @@ namespace absl {
 ABSL_NAMESPACE_BEGIN
 namespace cord_internal {
 
-constexpr size_t CordRepBtree::kMaxCapacity;  // NOLINT: needed for c++ < c++17
+#ifdef ABSL_INTERNAL_NEED_REDUNDANT_CONSTEXPR_DECL
+constexpr size_t CordRepBtree::kMaxCapacity;
+#endif
 
 namespace {
 
@@ -52,8 +57,10 @@ inline bool exhaustive_validation() {
 // Prints the entire tree structure or 'rep'. External callers should
 // not specify 'depth' and leave it to its default (0) value.
 // Rep may be a CordRepBtree tree, or a SUBSTRING / EXTERNAL / FLAT node.
-void DumpAll(const CordRep* rep, bool include_contents, std::ostream& stream,
-             int depth = 0) {
+void DumpAll(const CordRep* rep,
+             bool include_contents,
+             std::ostream& stream,
+             size_t depth = 0) {
   // Allow for full height trees + substring -> flat / external nodes.
   assert(depth <= CordRepBtree::kMaxDepth + 2);
   std::string sharing = const_cast<CordRep*>(rep)->refcount.IsOne()
@@ -69,7 +76,7 @@ void DumpAll(const CordRep* rep, bool include_contents, std::ostream& stream,
       // indentation and prefix / labels keeps us within roughly 80-100 wide.
       constexpr size_t kMaxDataLength = 60;
       stream << ", data = \""
-             << CordRepBtree::EdgeData(r).substr(0, kMaxDataLength)
+             << EdgeData(r).substr(0, kMaxDataLength)
              << (r->length > kMaxDataLength ? "\"..." : "\"");
     }
     stream << '\n';
@@ -119,6 +126,7 @@ CordRepSubstring* CreateSubstring(CordRep* rep, size_t offset, size_t n) {
     rep = CordRep::Ref(substring->child);
     CordRep::Unref(substring);
   }
+  assert(rep->IsExternal() || rep->IsFlat());
   CordRepSubstring* substring = new CordRepSubstring();
   substring->length = n;
   substring->tag = SUBSTRING;
@@ -149,7 +157,7 @@ inline CordRep* MakeSubstring(CordRep* rep, size_t offset) {
 CordRep* ResizeEdge(CordRep* edge, size_t length, bool is_mutable) {
   assert(length > 0);
   assert(length <= edge->length);
-  assert(CordRepBtree::IsDataEdge(edge));
+  assert(IsDataEdge(edge));
   if (length >= edge->length) return edge;
 
   if (is_mutable && (edge->tag >= FLAT || edge->tag == SUBSTRING)) {
@@ -206,7 +214,7 @@ void DeleteSubstring(CordRepSubstring* substring) {
 
 // Deletes a leaf node data edge. Requires `IsDataEdge(rep)`.
 void DeleteLeafEdge(CordRep* rep) {
-  assert(CordRepBtree::IsDataEdge(rep));
+  assert(IsDataEdge(rep));
   if (rep->tag >= FLAT) {
     CordRepFlat::Delete(rep->flat());
   } else if (rep->tag == EXTERNAL) {
@@ -279,7 +287,7 @@ struct StackOperations {
       case CordRepBtree::kSelf:
         return result.tree;
     }
-    ABSL_INTERNAL_UNREACHABLE;
+    ABSL_UNREACHABLE();
     return result.tree;
   }
 
@@ -495,7 +503,7 @@ OpResult CordRepBtree::SetEdge(bool owned, CordRep* edge, size_t delta) {
     // open interval [begin, back) or [begin + 1, end) depending on `edge_type`.
     // We conveniently cover both case using a constexpr `shift` being 0 or 1
     // as `end :== back + 1`.
-    result = {CopyRaw(), kCopied};
+    result = {CopyRaw(length), kCopied};
     constexpr int shift = edge_type == kFront ? 1 : 0;
     for (CordRep* r : Edges(begin() + shift, back() + shift)) {
       CordRep::Ref(r);

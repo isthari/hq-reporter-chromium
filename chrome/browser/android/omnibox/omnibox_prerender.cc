@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,10 @@
 #include "chrome/browser/predictors/autocomplete_action_predictor_factory.h"
 #include "chrome/browser/predictors/loading_predictor.h"
 #include "chrome/browser/predictors/loading_predictor_factory.h"
-#include "chrome/browser/prerender/prerender_manager.h"
-#include "chrome/browser/prerender/prerender_utils.h"
+#include "chrome/browser/preloading/prefetch/search_prefetch/search_prefetch_service.h"
+#include "chrome/browser/preloading/prefetch/search_prefetch/search_prefetch_service_factory.h"
+#include "chrome/browser/preloading/prerender/prerender_manager.h"
+#include "chrome/browser/preloading/prerender/prerender_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_android.h"
 #include "chrome/browser/ui/android/omnibox/jni_headers/OmniboxPrerender_jni.h"
@@ -88,6 +90,13 @@ void OmniboxPrerender::PrerenderMaybe(
   if (!profile)
     return;
 
+  // TODO(https://crbug.com/1310147): Consider how to co-work with preconnect.
+  if (SearchPrefetchService* search_prefetch_service =
+          SearchPrefetchServiceFactory::GetForProfile(profile)) {
+    search_prefetch_service->OnResultChanged(web_contents,
+                                             *autocomplete_result);
+  }
+
   auto* default_match = autocomplete_result->default_match();
   if (!default_match)
     return;
@@ -100,7 +109,8 @@ void OmniboxPrerender::PrerenderMaybe(
   action_predictor->
       RegisterTransitionalMatches(url_string, *autocomplete_result);
   AutocompleteActionPredictor::Action recommended_action =
-      action_predictor->RecommendAction(url_string, *default_match);
+      action_predictor->RecommendAction(url_string, *default_match,
+                                        web_contents);
 
   GURL current_url = GURL(current_url_string);
   // Ask for prerendering if the destination URL is different than the
@@ -121,20 +131,6 @@ void OmniboxPrerender::PrerenderMaybe(
       NOTREACHED();
       break;
   }
-
-  if (!prerender_utils::IsSearchSuggestionPrerenderEnabled()) {
-    return;
-  }
-  // If search engine asks to prerender a search result explicitly, prerender
-  // it.
-  // TODO(https://crbug.com/1278634): Consider how to co-work with preconnect
-  // before launching this feature.
-  for (const AutocompleteMatch& match : *autocomplete_result) {
-    if (BaseSearchProvider::ShouldPrerender(match)) {
-      DoPrerender(match, profile, web_contents);
-      break;
-    }
-  }
 }
 
 void OmniboxPrerender::DoPrerender(const AutocompleteMatch& match,
@@ -147,22 +143,16 @@ void OmniboxPrerender::DoPrerender(const AutocompleteMatch& match,
   if (!web_contents)
     return;
 
-  // Treat search hint differently. Since AutocompleteActionPredictor does not
-  // prerender search results, this logic won't take its traffic away.
-  // TODO(https://crbug.com/1278634): Refactor relevant code to reuse common
-  // code, and ensure metrics are correctly recorded.
-  if (AutocompleteMatch::IsSearchType(match.type)) {
-    DCHECK(BaseSearchProvider::ShouldPrerender(match));
-    DCHECK(prerender_utils::IsSearchSuggestionPrerenderEnabled());
-    PrerenderManager::CreateForWebContents(web_contents);
-    auto* prerender_manager = PrerenderManager::FromWebContents(web_contents);
-    prerender_manager->StartPrerenderAutocompleteMatch(match);
-  } else {
-    gfx::Rect container_bounds = web_contents->GetContainerBounds();
-    predictors::AutocompleteActionPredictorFactory::GetForProfile(profile)
-        ->StartPrerendering(match.destination_url, *web_contents,
-                            container_bounds.size());
-  }
+  // AutocompleteActionPredictor does not perform prerendering for search
+  // AutocompleteMatches. See `AutocompleteActionPredictor::RecommendAction` for
+  // more information.
+  // SearchPrefetchService is responsible for handling search
+  // AutocompleteMatches and preloading search result pages when needed.
+  DCHECK(!AutocompleteMatch::IsSearchType(match.type));
+  gfx::Rect container_bounds = web_contents->GetContainerBounds();
+  predictors::AutocompleteActionPredictorFactory::GetForProfile(profile)
+      ->StartPrerendering(match.destination_url, *web_contents,
+                          container_bounds.size());
 }
 
 void OmniboxPrerender::DoPreconnect(const AutocompleteMatch& match,

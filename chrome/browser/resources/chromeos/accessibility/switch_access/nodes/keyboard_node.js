@@ -1,11 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {EventGenerator} from '../../common/event_generator.js';
+import {EventHandler} from '../../common/event_handler.js';
+import {RectUtil} from '../../common/rect_util.js';
 import {AutoScanManager} from '../auto_scan_manager.js';
 import {Navigator} from '../navigator.js';
 import {SwitchAccess} from '../switch_access.js';
-import {SAConstants, SwitchAccessMenuAction} from '../switch_access_constants.js';
+import {ActionResponse, ErrorType} from '../switch_access_constants.js';
 import {SwitchAccessPredicate} from '../switch_access_predicate.js';
 
 import {BackButtonNode} from './back_button_node.js';
@@ -14,6 +17,7 @@ import {GroupNode} from './group_node.js';
 import {SAChildNode, SARootNode} from './switch_access_node.js';
 
 const AutomationNode = chrome.automation.AutomationNode;
+const MenuAction = chrome.accessibilityPrivate.SwitchAccessMenuAction;
 
 /**
  * This class handles the behavior of keyboard nodes directly associated with a
@@ -32,7 +36,7 @@ export class KeyboardNode extends BasicNode {
 
   /** @override */
   get actions() {
-    return [SwitchAccessMenuAction.SELECT];
+    return [MenuAction.SELECT];
   }
 
   // ================= General methods =================
@@ -57,8 +61,8 @@ export class KeyboardNode extends BasicNode {
       // TODO(crbug/1130773): move this code to another location, if possible
       KeyboardNode.resetting = true;
       KeyboardRootNode.ignoreNextExit_ = true;
-      Navigator.byItem.exitKeyboard();
-      Navigator.byItem.enterKeyboard();
+      Navigator.byItem.exitKeyboard().then(
+          () => Navigator.byItem.enterKeyboard());
     }
 
     return false;
@@ -66,22 +70,22 @@ export class KeyboardNode extends BasicNode {
 
   /** @override */
   performAction(action) {
-    if (action !== SwitchAccessMenuAction.SELECT) {
-      return SAConstants.ActionResponse.NO_ACTION_TAKEN;
+    if (action !== MenuAction.SELECT) {
+      return ActionResponse.NO_ACTION_TAKEN;
     }
 
     const keyLocation = this.location;
     if (!keyLocation) {
-      return SAConstants.ActionResponse.NO_ACTION_TAKEN;
+      return ActionResponse.NO_ACTION_TAKEN;
     }
 
     // doDefault() does nothing on Virtual Keyboard buttons, so we must
     // simulate a mouse click.
     const center = RectUtil.center(keyLocation);
     EventGenerator.sendMouseClick(
-        center.x, center.y, {delayMs: SAConstants.VK_KEY_PRESS_DURATION_MS});
+        center.x, center.y, {delayMs: VK_KEY_PRESS_DURATION_MS});
 
-    return SAConstants.ActionResponse.CLOSE_MENU;
+    return ActionResponse.CLOSE_MENU;
   }
 }
 
@@ -144,7 +148,7 @@ export class KeyboardRootNode extends BasicRootNode {
     const keyboard = KeyboardRootNode.getKeyboardObject();
     if (!keyboard) {
       throw SwitchAccess.error(
-          SAConstants.ErrorType.MISSING_KEYBOARD,
+          ErrorType.MISSING_KEYBOARD,
           'Could not find keyboard in the automation tree',
           true /* shouldRecover */);
     }
@@ -185,9 +189,9 @@ export class KeyboardRootNode extends BasicRootNode {
    */
   static isKeyboardVisible_() {
     const keyboardObject = KeyboardRootNode.getKeyboardObject();
-    return !!keyboardObject &&
-        SwitchAccessPredicate.isVisible(keyboardObject) &&
-        !!keyboardObject.find({role: chrome.automation.RoleType.ROOT_WEB_AREA});
+    return Boolean(
+        keyboardObject && SwitchAccessPredicate.isVisible(keyboardObject) &&
+        keyboardObject.find({role: chrome.automation.RoleType.ROOT_WEB_AREA}));
   }
 
   /**
@@ -223,7 +227,7 @@ export class KeyboardRootNode extends BasicRootNode {
    * @private
    */
   static findAndSetChildren_(root) {
-    const childConstructor = (node) => new KeyboardNode(node, root);
+    const childConstructor = node => new KeyboardNode(node, root);
     const interestingChildren =
         root.automationNode.findAll({role: chrome.automation.RoleType.BUTTON});
     /** @type {!Array<!SAChildNode>} */
@@ -261,5 +265,12 @@ export class KeyboardRootNode extends BasicRootNode {
 
 BasicRootNode.builders.push({
   predicate: rootNode => rootNode.role === chrome.automation.RoleType.KEYBOARD,
-  builder: KeyboardRootNode.buildTree
+  builder: KeyboardRootNode.buildTree,
 });
+
+/**
+ * The delay between keydown and keyup events on the virtual keyboard,
+ * allowing the key press animation to display.
+ * @const {number}
+ */
+const VK_KEY_PRESS_DURATION_MS = 100;

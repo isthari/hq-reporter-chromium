@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,8 @@
 #include "sql/database.h"
 
 namespace sql {
+
+enum class SqliteResultCode : int;
 
 // Possible return values from ColumnType in a statement. These should match
 // the values in sqlite3.h.
@@ -62,6 +64,9 @@ class COMPONENT_EXPORT(SQL) Statement {
 
   Statement(const Statement&) = delete;
   Statement& operator=(const Statement&) = delete;
+
+  Statement(Statement&&) = delete;
+  Statement& operator=(Statement&&) = delete;
 
   ~Statement();
 
@@ -149,6 +154,16 @@ class COMPONENT_EXPORT(SQL) Statement {
   //                          then remove the migration details above.
   void BindTime(int param_index, base::Time time);
 
+  // Conforms with base::TimeDelta serialization recommendations.
+  //
+  // This is equivalent to the following snippets, which should be replaced.
+  // * BindInt64(col, delta.ToInternalValue())
+  // * BindInt64(col, delta.InMicroseconds())
+  //
+  // TODO(crbug.com/1402777): Migrate all TimeDelta serialization to this method
+  //                          and remove the migration details above.
+  void BindTimeDelta(int param_index, base::TimeDelta delta);
+
   // Retrieving ----------------------------------------------------------------
 
   // Returns the number of output columns in the result.
@@ -181,6 +196,15 @@ class COMPONENT_EXPORT(SQL) Statement {
   //                          then remove the migration details above.
   base::Time ColumnTime(int column_index);
 
+  // Conforms with base::TimeDelta deserialization recommendations.
+  //
+  // This is equivalent to the following snippets, which should be replaced.
+  // * base::TimeDelta::FromInternalValue(ColumnInt64(column_index))
+  //
+  // TODO(crbug.com/1402777): Migrate all TimeDelta serialization to this method
+  //                          and remove the migration details above.
+  base::TimeDelta ColumnTimeDelta(int column_index);
+
   // Returns a span pointing to a buffer containing the blob data.
   //
   // The span's contents should be copied to a caller-owned buffer immediately.
@@ -197,17 +221,23 @@ class COMPONENT_EXPORT(SQL) Statement {
 
   // Diagnostics --------------------------------------------------------------
 
-  // Returns the original text of sql statement. Do not keep a pointer to it.
-  const char* GetSQLStatement();
+  // Returns the original text of a SQL statement WITHOUT any bound values.
+  // Intended for logging in case of failures. Note that DOES NOT return any
+  // bound values, because that would cause a privacy / PII issue for logging.
+  std::string GetSQLStatement();
 
  private:
   friend class Database;
 
-  // This is intended to check for serious errors and report them to the
-  // Database object. It takes a sqlite error code, and returns the same
-  // code. Currently this function just updates the succeeded flag, but will be
-  // enhanced in the future to do the notification.
-  int CheckError(int err);
+  // Checks SQLite result codes and handles any errors.
+  //
+  // Returns `sqlite_result_code`. This gives callers the convenience of writing
+  // "return CheckSqliteResultCode(sqlite_result_code)" and gives the compiler
+  // the opportunity of doing tail call optimization (TCO) on the code above.
+  //
+  // This method reports error codes to the associated Database, and updates
+  // internal state to reflect whether the statement succeeded or not.
+  SqliteResultCode CheckSqliteResultCode(SqliteResultCode sqlite_result_code);
 
   // Should be called by all mutating methods to check that the statement is
   // valid. Returns true if the statement is valid. DCHECKS and returns false
@@ -225,7 +255,7 @@ class COMPONENT_EXPORT(SQL) Statement {
 
   // Helper for Run() and Step(), calls sqlite3_step() and returns the checked
   // value from it.
-  int StepInternal();
+  SqliteResultCode StepInternal();
 
   // The actual sqlite statement. This may be unique to us, or it may be cached
   // by the Database, which is why it's ref-counted. This pointer is

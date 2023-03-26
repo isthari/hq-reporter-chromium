@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,6 +40,11 @@ extern const char kProcessTypeXSessionChooser[];
 #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 
 extern const char kEvaluateCapabilitySwitchName[];
+
+#if BUILDFLAG(IS_LINUX)
+// Used to record client sessions to utmp/wtmp.
+extern const char kEnableUtempter[];
+#endif
 
 // Values for kEvaluateCapabilitySwitchName.
 #if BUILDFLAG(IS_WIN)

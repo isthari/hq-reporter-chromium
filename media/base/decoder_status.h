@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,9 +28,9 @@ struct DecoderStatusTraits {
     kMalformedBitstream = 104,
     kFailedToGetDecoderBuffer = 107,
     kDecoderStreamInErrorState = 108,
-    kDecoderStreamReinitFailed = 109,
     kDecoderStreamDemuxerError = 110,
     kKeyFrameRequired = 111,
+    kMissingTimestamp = 112,
 
     // Reasons for failing to initialize
     kUnsupportedProfile = 200,
@@ -39,9 +39,10 @@ struct DecoderStatusTraits {
     kUnsupportedEncryptionMode = 203,
     kCantChangeCodec = 204,
     kFailedToCreateDecoder = 205,
+    kTooManyDecoders = 206,
+    kMediaFoundationNotAvailable = 207,
   };
-  static constexpr StatusGroupType Group() { return "DecoderStatusCodes"; }
-  static constexpr Codes DefaultEnumValue() { return Codes::kOk; }
+  static constexpr StatusGroupType Group() { return "DecoderStatus"; }
 };
 
 using DecoderStatus = TypedStatus<DecoderStatusTraits>;

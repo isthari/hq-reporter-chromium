@@ -1,14 +1,12 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.weblayer_private;
 
 import android.os.RemoteException;
-import android.os.SystemClock;
 import android.webkit.WebResourceResponse;
 
-import org.chromium.base.TimeUtilsJni;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
@@ -34,10 +32,6 @@ public final class NavigationControllerImpl extends INavigationController.Stub {
     private final TabImpl mTab;
     private long mNativeNavigationController;
     private INavigationControllerClient mNavigationControllerClient;
-
-    // Conversion between native TimeTicks and SystemClock.uptimeMillis().
-    private long mNativeTickOffsetUs;
-    private boolean mNativeTickOffsetUsComputed;
 
     private Map<Long, PageImpl> mPages = new HashMap<>();
 
@@ -84,15 +78,6 @@ public final class NavigationControllerImpl extends INavigationController.Stub {
         NavigateParamsImpl params = (NavigateParamsImpl) iParams;
         WebResourceResponseInfo responseInfo = null;
         if (params.getResponse() != null) {
-            if (mTab.isActiveTab()) {
-                BrowserImpl browser = mTab.getBrowser();
-                UrlBarControllerImpl urlBarController = browser.getUrlBarControllerImpl();
-                if (urlBarController != null && urlBarController.hasActiveView()) {
-                    throw new IllegalStateException(
-                            "Can't navigate to an InputStream if the stock URL bar is visible.");
-                }
-            }
-
             WebResourceResponse response =
                     ObjectWrapper.unwrap(params.getResponse(), WebResourceResponse.class);
             responseInfo = new WebResourceResponseInfo(response.getMimeType(),
@@ -272,22 +257,20 @@ public final class NavigationControllerImpl extends INavigationController.Stub {
 
     @CalledByNative
     private void onFirstContentfulPaint2(
-            long navigationStartTick, long firstContentfulPaintDurationMs) throws RemoteException {
+            long navigationStartMs, long firstContentfulPaintDurationMs) throws RemoteException {
         if (WebLayerFactoryImpl.getClientMajorVersion() < 88) return;
 
         mNavigationControllerClient.onFirstContentfulPaint2(
-                (navigationStartTick - getNativeTickOffsetUs()) / 1000,
-                firstContentfulPaintDurationMs);
+                navigationStartMs, firstContentfulPaintDurationMs);
     }
 
     @CalledByNative
-    private void onLargestContentfulPaint(long navigationStartTick,
-            long largestContentfulPaintDurationMs) throws RemoteException {
+    private void onLargestContentfulPaint(
+            long navigationStartMs, long largestContentfulPaintDurationMs) throws RemoteException {
         if (WebLayerFactoryImpl.getClientMajorVersion() < 88) return;
 
         mNavigationControllerClient.onLargestContentfulPaint(
-                (navigationStartTick - getNativeTickOffsetUs()) / 1000,
-                largestContentfulPaintDurationMs);
+                navigationStartMs, largestContentfulPaintDurationMs);
     }
 
     @CalledByNative
@@ -300,18 +283,6 @@ public final class NavigationControllerImpl extends INavigationController.Stub {
         if (WebLayerFactoryImpl.getClientMajorVersion() < 93) return;
 
         mNavigationControllerClient.onPageLanguageDetermined(page.getClientPage(), language);
-    }
-
-    private long getNativeTickOffsetUs() {
-        // See logic in CustomTabsConnection.java that this was based on.
-        if (!mNativeTickOffsetUsComputed) {
-            // Compute offset from time ticks to uptimeMillis.
-            mNativeTickOffsetUsComputed = true;
-            long nativeNowUs = TimeUtilsJni.get().getTimeTicksNowUs();
-            long javaNowUs = SystemClock.uptimeMillis() * 1000;
-            mNativeTickOffsetUs = nativeNowUs - javaNowUs;
-        }
-        return mNativeTickOffsetUs;
     }
 
     private static final class NavigateParamsImpl extends INavigateParams.Stub {

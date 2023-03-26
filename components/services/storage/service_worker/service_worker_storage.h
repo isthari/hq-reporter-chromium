@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,10 +14,10 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/containers/circular_deque.h"
 #include "base/containers/flat_map.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/weak_ptr.h"
 #include "components/services/storage/public/mojom/local_storage_control.mojom.h"
@@ -167,6 +167,12 @@ class ServiceWorkerStorage {
                                      const blink::StorageKey& key,
                                      const std::string& value,
                                      DatabaseStatusCallback callback);
+  // Updates the stored fetch handler type to match the value of
+  // the active service worker version's.
+  void UpdateFetchHandlerType(int64_t registration_id,
+                              const blink::StorageKey& key,
+                              blink::mojom::ServiceWorkerFetchHandlerType type,
+                              DatabaseStatusCallback callback);
 
   // Deletes the registration specified by |registration_id|. This should be
   // called only from ServiceWorkerRegistry.

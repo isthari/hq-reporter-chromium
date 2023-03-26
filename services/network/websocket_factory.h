@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <set>
 #include <vector>
 
-#include "base/callback_forward.h"
 #include "base/containers/unique_ptr_adapters.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "services/network/public/mojom/network_context.mojom.h"
@@ -77,8 +77,10 @@ class WebSocketFactory final {
   void Remove(WebSocket* impl);
 
  private:
+  using WebSocketSet =
+      std::set<std::unique_ptr<WebSocket>, base::UniquePtrComparator>;
   // The connections held by this factory.
-  std::set<std::unique_ptr<WebSocket>, base::UniquePtrComparator> connections_;
+  WebSocketSet connections_;
 
   WebSocketThrottler throttler_;
 

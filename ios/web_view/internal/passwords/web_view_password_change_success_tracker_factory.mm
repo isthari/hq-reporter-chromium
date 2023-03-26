@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,7 +45,8 @@ WebViewPasswordChangeSuccessTrackerFactory::
 std::unique_ptr<KeyedService>
 WebViewPasswordChangeSuccessTrackerFactory::BuildServiceInstanceFor(
     web::BrowserState* context) const {
-  return std::make_unique<password_manager::PasswordChangeSuccessTrackerImpl>();
+  return std::make_unique<password_manager::PasswordChangeSuccessTrackerImpl>(
+      WebViewBrowserState::FromBrowserState(context)->GetPrefs());
 }
 
 }  // namespace ios_web_view

@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 The Chromium Authors. All rights reserved.
+ * Copyright 2020 The Chromium Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
@@ -39,7 +39,7 @@ function getTotalFromPaymentResponse(response) {
  * @param {string} totalAmount - The total amount to be charged.
  * @return {Promise<string>} - Either the total amount or an error string.
  */
-async function getTotalAmountFromClientData(credentialId, totalAmount) { // eslint-disable-line no-unused-vars, max-len
+async function getTotalAmountFromClientData(credentialId, totalAmount) {
   try {
     const request = createPaymentRequest(credentialId, totalAmount, false, '');
     const response = await request.show();
@@ -59,7 +59,8 @@ async function getTotalAmountFromClientData(credentialId, totalAmount) { // esli
  * modifier.
  * @return {Promise<string>} - Either the total amount or an error string.
  */
-async function getTotalAmountFromClientDataWithModifier(credentialId, modifiedTotal) { // eslint-disable-line no-unused-vars, max-len
+async function getTotalAmountFromClientDataWithModifier(
+    credentialId, modifiedTotal) {
   try {
     const request = createPaymentRequest(
         credentialId, '0', true, modifiedTotal);
@@ -80,7 +81,8 @@ async function getTotalAmountFromClientDataWithModifier(credentialId, modifiedTo
  * @param {string} finalizedTotal - The finalized amount to be charged.
  * @return {Promise<string>} - Either the total amount or an error string.
  */
-async function getTotalAmountFromClientDataWithShowPromise(credentialId, finalizedTotal) { // eslint-disable-line no-unused-vars, max-len
+async function getTotalAmountFromClientDataWithShowPromise(
+    credentialId, finalizedTotal) {
   try {
     const request = createPaymentRequest(
         credentialId, '0', false, '');
@@ -105,7 +107,8 @@ async function getTotalAmountFromClientDataWithShowPromise(credentialId, finaliz
  * @param {string} finalizedModifierAmount - The finalized amount to be charged.
  * @return {Promise<string>} - Either the total amount or an error string.
  */
-async function getTotalAmountFromClientDataWithModifierAndShowPromise(credentialId, finalizedModifierAmount) { // eslint-disable-line no-unused-vars, max-len
+async function getTotalAmountFromClientDataWithModifierAndShowPromise(
+    credentialId, finalizedModifierAmount) {
   try {
     const request = createPaymentRequest(credentialId, '0', false, '');
     const response = await request.show(new Promise((resolve) => {
@@ -133,21 +136,23 @@ function createPaymentRequest(
     credentialId, totalAmount, withModifier, modifierAmount) {
   const challenge = new TextEncoder().encode('hello world');
   return new PaymentRequest(
-    [{supportedMethods: kPaymentMethodIdentifier,
-      data: {
-       action: 'authenticate',
-       credentialIds: [Uint8Array.from(atob(credentialId),
-                                       (b) => b.charCodeAt(0))],
-       timeout: 6000,
-       payeeOrigin: 'https://example-payee-origin.test',
-       challenge,
-       instrument: {
-        icon: window.location.origin + '/icon.png',
-        displayName: 'My card',
-       },
-     },
-    }],
-    createDetails(totalAmount, withModifier, modifierAmount));
+      [{
+        supportedMethods: kPaymentMethodIdentifier,
+        data: {
+          action: 'authenticate',
+          credentialIds:
+              [Uint8Array.from(atob(credentialId), (b) => b.charCodeAt(0))],
+          timeout: 6000,
+          payeeOrigin: 'https://example-payee-origin.test',
+          challenge,
+          instrument: {
+            icon: window.location.origin + '/icon.png',
+            displayName: 'My card',
+          },
+          rpId: 'a.com',
+        },
+      }],
+      createDetails(totalAmount, withModifier, modifierAmount));
 }
 
 /**

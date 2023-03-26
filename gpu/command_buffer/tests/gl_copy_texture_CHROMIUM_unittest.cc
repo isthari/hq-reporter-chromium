@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "build/build_config.h"
 #include "gpu/command_buffer/tests/gl_manager.h"
@@ -407,26 +406,14 @@ class GLCopyTextureCHROMIUMTest
 
   void TearDown() override { gl_.Destroy(); }
 
-  void CreateBackingForTexture(GLenum target, GLsizei width, GLsizei height) {
-    if (target == GL_TEXTURE_RECTANGLE_ARB) {
-      std::unique_ptr<gfx::GpuMemoryBuffer> buffer(gl_.CreateGpuMemoryBuffer(
-          gfx::Size(width, height), gfx::BufferFormat::RGBA_8888));
-      GLuint image_id = glCreateImageCHROMIUM(buffer->AsClientBuffer(), width,
-                                              height, GL_RGBA);
-      glBindTexImage2DCHROMIUM(target, image_id);
-    } else {
-      glTexImage2D(target, 0, GL_RGBA, width, height, 0, GL_RGBA,
-                   GL_UNSIGNED_BYTE, nullptr);
-    }
-  }
-
   GLuint CreateDrawingTexture(GLenum target, GLsizei width, GLsizei height) {
     GLuint texture = 0;
     glGenTextures(1, &texture);
     glBindTexture(target, texture);
     glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    CreateBackingForTexture(target, width, height);
+    glTexImage2D(target, 0, GL_RGBA, width, height, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, nullptr);
     return texture;
   }
 
@@ -673,6 +660,114 @@ class GLCopyTextureCHROMIUMES3Test : public GLCopyTextureCHROMIUMTest {
     return !supports_rgb10_a2;
   }
 
+  void TestFormatCombinations(
+      const std::initializer_list<FormatType>& src_format_types) {
+    if (ShouldSkipTest()) {
+      return;
+    }
+    if (IsMacArm64()) {
+      LOG(INFO) << "TODO(crbug.com/1135372): fails on Apple DTK. Skipping.";
+      return;
+    }
+    if (gl_.gpu_preferences().use_passthrough_cmd_decoder) {
+      // TODO(geofflang): anglebug.com/1932
+      LOG(INFO)
+          << "Passthrough command decoder expected failure. Skipping test...";
+      return;
+    }
+    if (IsMac() && !gl_.gpu_preferences().use_passthrough_cmd_decoder) {
+      // TODO(crbug.com/1227853): Remove this suppression once this passes on
+      // Mac 11.
+      LOG(INFO) << "Validating decoder on Mac. Skipping.";
+      return;
+    }
+    const CopyType copy_type = GetParam();
+
+    FormatType dest_format_types[] = {
+        // TODO(qiankun.miao@intel.com): ALPHA and LUMINANCE formats have bug on
+        // GL core profile. See crbug.com/577144. Enable these formats after
+        // using workaround in gles2_cmd_copy_tex_image.cc.
+        // {GL_ALPHA, GL_ALPHA, GL_UNSIGNED_BYTE},
+        // {GL_LUMINANCE, GL_LUMINANCE, GL_UNSIGNED_BYTE},
+        // {GL_LUMINANCE_ALPHA, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE},
+
+        {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE},
+        {GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE},
+        {GL_SRGB_EXT, GL_SRGB_EXT, GL_UNSIGNED_BYTE},
+        {GL_SRGB_ALPHA_EXT, GL_SRGB_ALPHA_EXT, GL_UNSIGNED_BYTE},
+        {GL_BGRA_EXT, GL_BGRA_EXT, GL_UNSIGNED_BYTE},
+        {GL_BGRA8_EXT, GL_BGRA_EXT, GL_UNSIGNED_BYTE},
+        {GL_R8, GL_RED, GL_UNSIGNED_BYTE},
+        {GL_R16F, GL_RED, GL_HALF_FLOAT},
+        {GL_R16F, GL_RED, GL_FLOAT},
+        {GL_R32F, GL_RED, GL_FLOAT},
+        {GL_R8UI, GL_RED_INTEGER, GL_UNSIGNED_BYTE},
+        {GL_RG8, GL_RG, GL_UNSIGNED_BYTE},
+        {GL_RG16F, GL_RG, GL_HALF_FLOAT},
+        {GL_RG16F, GL_RG, GL_FLOAT},
+        {GL_RG32F, GL_RG, GL_FLOAT},
+        {GL_RG8UI, GL_RG_INTEGER, GL_UNSIGNED_BYTE},
+        {GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE},
+        {GL_SRGB8, GL_RGB, GL_UNSIGNED_BYTE},
+        {GL_RGB565, GL_RGB, GL_UNSIGNED_BYTE},
+        {GL_R11F_G11F_B10F, GL_RGB, GL_FLOAT},
+        {GL_RGB9_E5, GL_RGB, GL_HALF_FLOAT},
+        {GL_RGB9_E5, GL_RGB, GL_FLOAT},
+        {GL_RGB16F, GL_RGB, GL_HALF_FLOAT},
+        {GL_RGB16F, GL_RGB, GL_FLOAT},
+        {GL_RGB32F, GL_RGB, GL_FLOAT},
+        {GL_RGB8UI, GL_RGB_INTEGER, GL_UNSIGNED_BYTE},
+        {GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE},
+        {GL_SRGB8_ALPHA8, GL_RGBA, GL_UNSIGNED_BYTE},
+        {GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_BYTE},
+        {GL_RGBA4, GL_RGBA, GL_UNSIGNED_BYTE},
+        {GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT},
+        {GL_RGBA16F, GL_RGBA, GL_FLOAT},
+        {GL_RGBA32F, GL_RGBA, GL_FLOAT},
+        {GL_RGBA8UI, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE},
+        {GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV},
+    };
+
+    for (auto src_format_type : src_format_types) {
+      for (auto dest_format_type : dest_format_types) {
+        if ((src_format_type.internal_format == GL_BGRA_EXT ||
+             src_format_type.internal_format == GL_BGRA8_EXT ||
+             dest_format_type.internal_format == GL_BGRA_EXT ||
+             dest_format_type.internal_format == GL_BGRA8_EXT) &&
+            ShouldSkipBGRA()) {
+          continue;
+        }
+        if (gles2::GLES2Util::IsFloatFormat(dest_format_type.internal_format) &&
+            ShouldSkipFloatFormat()) {
+          continue;
+        }
+        if ((dest_format_type.internal_format == GL_SRGB_EXT ||
+             dest_format_type.internal_format == GL_SRGB_ALPHA_EXT) &&
+            ShouldSkipSRGBEXT()) {
+          continue;
+        }
+        if ((src_format_type.internal_format == GL_R16_EXT ||
+             src_format_type.internal_format == GL_RG16_EXT ||
+             src_format_type.internal_format == GL_RGBA16_EXT) &&
+            ShouldSkipNorm16()) {
+          continue;
+        }
+        if (src_format_type.internal_format == GL_RGB10_A2 &&
+            ShouldSkipRGB10A2()) {
+          continue;
+        }
+        if (src_format_type.internal_format == GL_RGBA16_EXT &&
+            dest_format_type.internal_format == GL_RGB10_A2 &&
+            ShouldSkipRGBA16ToRGB10A2()) {
+          continue;
+        }
+
+        RunCopyTexture(GL_TEXTURE_2D, copy_type, src_format_type, 0,
+                       dest_format_type, 0, true);
+      }
+    }
+  }
+
   bool IsMacArm64() const {
     DCHECK(!ShouldSkipTest());
 #if BUILDFLAG(IS_MAC) && defined(ARCH_CPU_ARM_FAMILY)
@@ -747,121 +842,41 @@ TEST_P(GLCopyTextureCHROMIUMES3Test, BigTexture) {
   RunCopyTexture(GL_TEXTURE_2D, copy_type, src_format, 0, dest_format, 0, true);
 }
 
-TEST_P(GLCopyTextureCHROMIUMES3Test, FormatCombinations) {
-  if (ShouldSkipTest())
-    return;
-  if (IsMacArm64()) {
-    LOG(INFO) << "TODO(crbug.com/1135372): fails on Apple DTK. Skipping.";
-    return;
-  }
-  if (gl_.gpu_preferences().use_passthrough_cmd_decoder) {
-    // TODO(geofflang): anglebug.com/1932
-    LOG(INFO)
-        << "Passthrough command decoder expected failure. Skipping test...";
-    return;
-  }
-  if (IsMac() && !gl_.gpu_preferences().use_passthrough_cmd_decoder) {
-    // TODO(crbug.com/1227853): Remove this suppression once this passes on Mac
-    // 11.
-    LOG(INFO) << "Validating decoder on Mac. Skipping.";
-    return;
-  }
-  const CopyType copy_type = GetParam();
-
-  FormatType src_format_types[] = {
+TEST_P(GLCopyTextureCHROMIUMES3Test, FormatCombinationsFromLuminance) {
+  TestFormatCombinations({
       {GL_LUMINANCE, GL_LUMINANCE, GL_UNSIGNED_BYTE},
       {GL_LUMINANCE_ALPHA, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE},
+  });
+}
+
+TEST_P(GLCopyTextureCHROMIUMES3Test, FormatCombinationsFromRGB) {
+  TestFormatCombinations({
       {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE},
       {GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE},
+  });
+}
+
+TEST_P(GLCopyTextureCHROMIUMES3Test, FormatCombinationsFromRGBA) {
+  TestFormatCombinations({
       {GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE},
       {GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE},
+  });
+}
+
+TEST_P(GLCopyTextureCHROMIUMES3Test, FormatCombinationsFromBGRA) {
+  TestFormatCombinations({
       {GL_BGRA_EXT, GL_BGRA_EXT, GL_UNSIGNED_BYTE},
       {GL_BGRA8_EXT, GL_BGRA_EXT, GL_UNSIGNED_BYTE},
+  });
+}
+
+TEST_P(GLCopyTextureCHROMIUMES3Test, FormatCombinationsFromOther) {
+  TestFormatCombinations({
       {GL_R16_EXT, GL_RED, GL_UNSIGNED_SHORT},
       {GL_RG16_EXT, GL_RG, GL_UNSIGNED_SHORT},
       {GL_RGBA16_EXT, GL_RGBA, GL_UNSIGNED_SHORT},
       {GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV},
-  };
-
-  FormatType dest_format_types[] = {
-      // TODO(qiankun.miao@intel.com): ALPHA and LUMINANCE formats have bug on
-      // GL core profile. See crbug.com/577144. Enable these formats after
-      // using workaround in gles2_cmd_copy_tex_image.cc.
-      // {GL_ALPHA, GL_ALPHA, GL_UNSIGNED_BYTE},
-      // {GL_LUMINANCE, GL_LUMINANCE, GL_UNSIGNED_BYTE},
-      // {GL_LUMINANCE_ALPHA, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE},
-
-      {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE},
-      {GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE},
-      {GL_SRGB_EXT, GL_SRGB_EXT, GL_UNSIGNED_BYTE},
-      {GL_SRGB_ALPHA_EXT, GL_SRGB_ALPHA_EXT, GL_UNSIGNED_BYTE},
-      {GL_BGRA_EXT, GL_BGRA_EXT, GL_UNSIGNED_BYTE},
-      {GL_BGRA8_EXT, GL_BGRA_EXT, GL_UNSIGNED_BYTE},
-      {GL_R8, GL_RED, GL_UNSIGNED_BYTE},
-      {GL_R16F, GL_RED, GL_HALF_FLOAT},
-      {GL_R16F, GL_RED, GL_FLOAT},
-      {GL_R32F, GL_RED, GL_FLOAT},
-      {GL_R8UI, GL_RED_INTEGER, GL_UNSIGNED_BYTE},
-      {GL_RG8, GL_RG, GL_UNSIGNED_BYTE},
-      {GL_RG16F, GL_RG, GL_HALF_FLOAT},
-      {GL_RG16F, GL_RG, GL_FLOAT},
-      {GL_RG32F, GL_RG, GL_FLOAT},
-      {GL_RG8UI, GL_RG_INTEGER, GL_UNSIGNED_BYTE},
-      {GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE},
-      {GL_SRGB8, GL_RGB, GL_UNSIGNED_BYTE},
-      {GL_RGB565, GL_RGB, GL_UNSIGNED_BYTE},
-      {GL_R11F_G11F_B10F, GL_RGB, GL_FLOAT},
-      {GL_RGB9_E5, GL_RGB, GL_HALF_FLOAT},
-      {GL_RGB9_E5, GL_RGB, GL_FLOAT},
-      {GL_RGB16F, GL_RGB, GL_HALF_FLOAT},
-      {GL_RGB16F, GL_RGB, GL_FLOAT},
-      {GL_RGB32F, GL_RGB, GL_FLOAT},
-      {GL_RGB8UI, GL_RGB_INTEGER, GL_UNSIGNED_BYTE},
-      {GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE},
-      {GL_SRGB8_ALPHA8, GL_RGBA, GL_UNSIGNED_BYTE},
-      {GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_BYTE},
-      {GL_RGBA4, GL_RGBA, GL_UNSIGNED_BYTE},
-      {GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT},
-      {GL_RGBA16F, GL_RGBA, GL_FLOAT},
-      {GL_RGBA32F, GL_RGBA, GL_FLOAT},
-      {GL_RGBA8UI, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE},
-      {GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV},
-  };
-
-  for (auto src_format_type : src_format_types) {
-    for (auto dest_format_type : dest_format_types) {
-      if ((src_format_type.internal_format == GL_BGRA_EXT ||
-           src_format_type.internal_format == GL_BGRA8_EXT ||
-           dest_format_type.internal_format == GL_BGRA_EXT ||
-           dest_format_type.internal_format == GL_BGRA8_EXT) &&
-          ShouldSkipBGRA()) {
-        continue;
-      }
-      if (gles2::GLES2Util::IsFloatFormat(dest_format_type.internal_format) &&
-          ShouldSkipFloatFormat()) {
-        continue;
-      }
-      if ((dest_format_type.internal_format == GL_SRGB_EXT ||
-           dest_format_type.internal_format == GL_SRGB_ALPHA_EXT) &&
-          ShouldSkipSRGBEXT()) {
-        continue;
-      }
-      if ((src_format_type.internal_format == GL_R16_EXT ||
-           src_format_type.internal_format == GL_RG16_EXT ||
-           src_format_type.internal_format == GL_RGBA16_EXT) &&
-          ShouldSkipNorm16())
-        continue;
-      if (src_format_type.internal_format == GL_RGB10_A2 && ShouldSkipRGB10A2())
-        continue;
-      if (src_format_type.internal_format == GL_RGBA16_EXT &&
-          dest_format_type.internal_format == GL_RGB10_A2 &&
-          ShouldSkipRGBA16ToRGB10A2())
-        continue;
-
-      RunCopyTexture(GL_TEXTURE_2D, copy_type, src_format_type, 0,
-                     dest_format_type, 0, true);
-    }
-  }
+  });
 }
 
 TEST_P(GLCopyTextureCHROMIUMTest, ImmutableTexture) {
@@ -1016,7 +1031,7 @@ TEST_P(GLCopyTextureCHROMIUMTest, InternalFormatNotSupported) {
 
   // Check unsupported format reports error.
   GLint unsupported_dest_formats[] = {GL_RED, GL_RG};
-  for (size_t dest_index = 0; dest_index < base::size(unsupported_dest_formats);
+  for (size_t dest_index = 0; dest_index < std::size(unsupported_dest_formats);
        dest_index++) {
     if (copy_type == TexImage) {
       glCopyTextureCHROMIUM(textures_[0], 0, GL_TEXTURE_2D, textures_[1], 0,
@@ -1056,7 +1071,7 @@ TEST_F(GLCopyTextureCHROMIUMTest, InternalFormatTypeCombinationNotSupported) {
     {GL_RGB, GL_UNSIGNED_SHORT_5_5_5_1},
     {GL_RGBA, GL_UNSIGNED_SHORT_5_6_5},
   };
-  for (size_t dest_index = 0; dest_index < base::size(unsupported_format_types);
+  for (size_t dest_index = 0; dest_index < std::size(unsupported_format_types);
        dest_index++) {
     glCopyTextureCHROMIUM(textures_[0], 0, GL_TEXTURE_2D, textures_[1], 0,
                           unsupported_format_types[dest_index].format,
@@ -1779,99 +1794,6 @@ TEST_F(GLCopyTextureCHROMIUMTest, CopySubTextureOffset) {
 
   glDeleteTextures(2, textures_);
   glDeleteFramebuffers(1, &framebuffer_id_);
-}
-
-TEST_F(GLCopyTextureCHROMIUMTest, CopyTextureBetweenTexture2DAndRectangleArb) {
-  if (!GLTestHelper::HasExtension("GL_ARB_texture_rectangle")) {
-    LOG(INFO) <<
-        "GL_ARB_texture_rectangle not supported. Skipping test...";
-    return;
-  }
-
-  GLenum src_targets[] = {GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_2D};
-  GLenum dest_targets[] = {GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_2D};
-  GLsizei src_width = 30;
-  GLsizei src_height = 14;
-  GLsizei dest_width = 15;
-  GLsizei dest_height = 13;
-  GLsizei copy_region_x = 1;
-  GLsizei copy_region_y = 1;
-  GLsizei copy_region_width = 5;
-  GLsizei copy_region_height = 3;
-  uint8_t red[1 * 4] = {255u, 0u, 0u, 255u};
-  uint8_t blue[1 * 4] = {0u, 0u, 255u, 255u};
-  uint8_t green[1 * 4] = {0u, 255u, 0, 255u};
-  uint8_t white[1 * 4] = {255u, 255u, 255u, 255u};
-  uint8_t grey[1 * 4] = {199u, 199u, 199u, 255u};
-
-  for (size_t src_index = 0; src_index < base::size(src_targets); src_index++) {
-    GLenum src_target = src_targets[src_index];
-    for (size_t dest_index = 0; dest_index < base::size(dest_targets);
-         dest_index++) {
-      GLenum dest_target = dest_targets[dest_index];
-
-      CreateAndBindDestinationTextureAndFBO(dest_target);
-
-      // Allocate source and destination textures.
-      glBindTexture(src_target, textures_[0]);
-      CreateBackingForTexture(src_target, src_width, src_height);
-
-      glBindTexture(dest_target, textures_[1]);
-      CreateBackingForTexture(dest_target, dest_width, dest_height);
-
-      // The bottom left is red, bottom right is blue, top left is green, top
-      // right is white.
-      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, src_target,
-                             textures_[0], 0);
-      glBindTexture(src_target, textures_[0]);
-      for (GLint x = 0; x < src_width; ++x) {
-        for (GLint y = 0; y < src_height; ++y) {
-          uint8_t* data;
-          if (x < src_width / 2) {
-            data = y < src_height / 2 ? red : green;
-          } else {
-            data = y < src_height / 2 ? blue : white;
-          }
-          glTexSubImage2D(src_target, 0, x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE,
-                          data);
-        }
-      }
-
-      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, dest_target,
-                             textures_[1], 0);
-      glBindTexture(dest_target, textures_[1]);
-
-      // Copy the subtexture x=[13,18) y=[6,9) to the destination.
-      glClearColor(grey[0] / 255.f, grey[1] / 255.f, grey[2] / 255.f, 1.0);
-      glClear(GL_COLOR_BUFFER_BIT);
-      glCopySubTextureCHROMIUM(textures_[0], 0, dest_target, textures_[1], 0,
-                               copy_region_x, copy_region_y, 13, 6,
-                               copy_region_width, copy_region_height, false,
-                               false, false);
-      EXPECT_TRUE(GL_NO_ERROR == glGetError());
-
-      for (GLint x = 0; x < dest_width; ++x) {
-        for (GLint y = 0; y < dest_height; ++y) {
-          if (x < copy_region_x || x >= copy_region_x + copy_region_width ||
-              y < copy_region_y || y >= copy_region_y + copy_region_height) {
-            GLTestHelper::CheckPixels(x, y, 1, 1, 0, grey, nullptr);
-            continue;
-          }
-
-          uint8_t* expected_color;
-          if (x < copy_region_x + 2) {
-            expected_color = y < copy_region_y + 1 ? red : green;
-          } else {
-            expected_color = y < copy_region_y + 1 ? blue : white;
-          }
-          GLTestHelper::CheckPixels(x, y, 1, 1, 0, expected_color, nullptr);
-        }
-      }
-
-      glDeleteTextures(2, textures_);
-      glDeleteFramebuffers(1, &framebuffer_id_);
-    }
-  }
 }
 
 }  // namespace gpu

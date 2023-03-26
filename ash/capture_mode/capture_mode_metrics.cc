@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,8 @@ constexpr char kCaptureRegionAdjustmentHistogramName[] =
     "Ash.CaptureModeController.CaptureRegionAdjusted";
 constexpr char kConsecutiveScreenshotHistogramName[] =
     "Ash.CaptureModeController.ConsecutiveScreenshots";
+constexpr char kDemoToolsEnabledOnRecordingStart[] =
+    "Ash.CaptureModeController.DemoToolsEnabledOnRecordingStart";
 constexpr char kEntryHistogramName[] = "Ash.CaptureModeController.EntryPoint";
 constexpr char kQuickActionHistogramName[] =
     "Ash.CaptureModeController.QuickAction";
@@ -44,14 +46,22 @@ constexpr char kProjectorCaptureRegionAdjustmentHistogramName[] =
     "Ash.CaptureModeController.Projector.CaptureRegionAdjusted";
 constexpr char kProjectorRecordTimeHistogramName[] =
     "Ash.CaptureModeController.Projector.ScreenRecordingLength";
-
-// Appends the proper suffix to `prefix` based on whether the user is in tablet
-// mode or not.
-std::string GetCaptureModeHistogramName(std::string prefix) {
-  prefix.append(Shell::Get()->IsInTabletMode() ? ".TabletMode"
-                                               : ".ClamshellMode");
-  return prefix;
-}
+constexpr char kRecordingStartsWithCamera[] =
+    "Ash.CaptureModeController.RecordingStartsWithCamera";
+constexpr char kProjectorDemoToolsEnabledOnRecordingStart[] =
+    "Ash.CaptureModeController.Projector.DemoToolsEnabledOnRecordingStart";
+constexpr char kProjectorRecordingStartsWithCamera[] =
+    "Ash.CaptureModeController.Projector.RecordingStartsWithCamera";
+constexpr char kCameraDisconnectionsDuringRecordings[] =
+    "Ash.CaptureModeController.CameraDisconnectionsDuringRecordings";
+constexpr char kCameraReconnectDuration[] =
+    "Ash.CaptureModeController.CameraReconnectDuration";
+constexpr char kRecordingCameraSizeOnStart[] =
+    "Ash.CaptureModeController.RecordingCameraSizeOnStart";
+constexpr char kRecordingCameraPositionOnStart[] =
+    "Ash.CaptureModeController.RecordingCameraPositionOnStart";
+constexpr char kNumberOfConnectedCameras[] =
+    "Ash.CaptureModeController.NumberOfConnectedCameras";
 
 }  // namespace
 
@@ -163,6 +173,58 @@ CaptureModeConfiguration GetConfiguration(CaptureModeType type,
                  ? CaptureModeConfiguration::kWindowScreenshot
                  : CaptureModeConfiguration::kWindowRecording;
   }
+}
+
+void RecordRecordingStartsWithCamera(bool starts_with_camera,
+                                     bool is_in_projector_mode) {
+  const std::string histogram_name = is_in_projector_mode
+                                         ? kProjectorRecordingStartsWithCamera
+                                         : kRecordingStartsWithCamera;
+  base::UmaHistogramBoolean(GetCaptureModeHistogramName(histogram_name),
+                            starts_with_camera);
+}
+
+void RecordCameraDisconnectionsDuringRecordings(int num_camera_disconnections) {
+  base::UmaHistogramCounts100(
+      GetCaptureModeHistogramName(kCameraDisconnectionsDuringRecordings),
+      num_camera_disconnections);
+}
+
+void RecordNumberOfConnectedCameras(int num_camera_connected) {
+  base::UmaHistogramCounts100(kNumberOfConnectedCameras, num_camera_connected);
+}
+
+void RecordCameraReconnectDuration(int length_in_seconds,
+                                   int grace_period_in_seconds) {
+  base::UmaHistogramCustomCounts(
+      GetCaptureModeHistogramName(kCameraReconnectDuration), length_in_seconds,
+      0, grace_period_in_seconds, grace_period_in_seconds);
+}
+
+void RecordCameraSizeOnStart(CaptureModeCameraSize camera_size) {
+  base::UmaHistogramEnumeration(
+      GetCaptureModeHistogramName(kRecordingCameraSizeOnStart), camera_size);
+}
+
+void RecordCameraPositionOnStart(CameraPreviewSnapPosition camera_position) {
+  base::UmaHistogramEnumeration(
+      GetCaptureModeHistogramName(kRecordingCameraPositionOnStart),
+      camera_position);
+}
+
+void RecordRecordingStartsWithDemoTools(bool demo_tools_enabled,
+                                        bool is_in_projector_mode) {
+  const std::string histogram_name =
+      is_in_projector_mode ? kProjectorDemoToolsEnabledOnRecordingStart
+                           : kDemoToolsEnabledOnRecordingStart;
+  base::UmaHistogramBoolean(GetCaptureModeHistogramName(histogram_name),
+                            demo_tools_enabled);
+}
+
+std::string GetCaptureModeHistogramName(std::string prefix) {
+  prefix.append(Shell::Get()->IsInTabletMode() ? ".TabletMode"
+                                               : ".ClamshellMode");
+  return prefix;
 }
 
 }  // namespace ash

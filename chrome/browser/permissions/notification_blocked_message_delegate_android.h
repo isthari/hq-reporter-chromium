@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include <memory>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/permissions/notification_blocked_dialog_controller_android.h"
 #include "components/content_settings/core/common/content_settings_types.h"
@@ -41,6 +41,8 @@ class NotificationBlockedMessageDelegate
     virtual void Accept();
     virtual void Deny();
     virtual void Closing();
+    virtual void SetManageClicked();
+    virtual void SetLearnMoreClicked();
     virtual bool ShouldUseQuietUI();
     virtual absl::optional<permissions::PermissionUiSelector::QuietUiReason>
     ReasonForUsingQuietUi();
@@ -83,6 +85,7 @@ class NotificationBlockedMessageDelegate
 
   // Whether we should re-show the dialog to users when users return to the tab.
   bool should_reshow_dialog_on_focus_ = false;
+  bool has_interacted_with_dialog_ = false;
 };
 
 #endif  // CHROME_BROWSER_PERMISSIONS_NOTIFICATION_BLOCKED_MESSAGE_DELEGATE_ANDROID_H_

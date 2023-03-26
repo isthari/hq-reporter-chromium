@@ -1,25 +1,25 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <XCTest/XCTest.h>
 
-#include "base/strings/sys_string_conversions.h"
+#import "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#include "components/autofill/core/browser/autofill_test_utils.h"
-#include "components/strings/grit/components_strings.h"
+#import "components/autofill/core/browser/autofill_test_utils.h"
+#import "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/autofill/autofill_app_interface.h"
 #import "ios/chrome/browser/ui/settings/autofill/autofill_constants.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_actions.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/testing/earl_grey/app_launch_manager.h"
-#include "ios/testing/earl_grey/disabled_test_macros.h"
+#import "ios/testing/earl_grey/disabled_test_macros.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -86,7 +86,7 @@ id<GREYMatcher> BottomToolbar() {
   [super tearDown];
 }
 
-// Returns the label for |creditCard| in the settings page for Autofill credit
+// Returns the label for `creditCard` in the settings page for Autofill credit
 // cards.
 - (NSString*)creditCardLabel:(NSString*)lastDigits {
   return [NSString stringWithFormat:kCreditCardLabelTemplate, lastDigits];
@@ -98,7 +98,7 @@ id<GREYMatcher> BottomToolbar() {
   [ChromeEarlGreyUI tapSettingsMenuButton:PaymentMethodsButton()];
 }
 
-// Helper to open the settings page for the Autofill credit card with |label|.
+// Helper to open the settings page for the Autofill credit card with `label`.
 - (void)openEditCreditCard:(NSString*)label {
   [self openCreditCardsSettings];
 
@@ -240,15 +240,9 @@ id<GREYMatcher> BottomToolbar() {
       performAction:chrome_test_util::TurnTableViewSwitchOn(NO)];
 
   // Expect Add Payment Method button to be disabled.
-  if ([ChromeEarlGrey isAddCredentialsInSettingsEnabled]) {
-    [[EarlGrey
-        selectElementWithMatcher:chrome_test_util::SettingsToolbarAddButton()]
-        assertWithMatcher:grey_not(grey_enabled())];
-  } else {
-    [[EarlGrey
-        selectElementWithMatcher:chrome_test_util::AddPaymentMethodButton()]
-        assertWithMatcher:grey_not(grey_enabled())];
-  }
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::SettingsToolbarAddButton()]
+      assertWithMatcher:grey_not(grey_enabled())];
 
   // Toggle the Autofill credit cards switch back on.
   [[EarlGrey
@@ -257,15 +251,9 @@ id<GREYMatcher> BottomToolbar() {
       performAction:chrome_test_util::TurnTableViewSwitchOn(YES)];
 
   // Expect Add Payment Method button to be visible.
-  if ([ChromeEarlGrey isAddCredentialsInSettingsEnabled]) {
-    [[EarlGrey
-        selectElementWithMatcher:chrome_test_util::SettingsToolbarAddButton()]
-        assertWithMatcher:grey_sufficientlyVisible()];
-  } else {
-    [[EarlGrey
-        selectElementWithMatcher:chrome_test_util::AddPaymentMethodButton()]
-        assertWithMatcher:grey_sufficientlyVisible()];
-  }
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::SettingsToolbarAddButton()]
+      assertWithMatcher:grey_sufficientlyVisible()];
 
   [self exitSettingsMenu];
 }
@@ -288,15 +276,9 @@ id<GREYMatcher> BottomToolbar() {
       performAction:grey_tap()];
 
   // Expect Add Payment Method to be removed.
-  if ([ChromeEarlGrey isAddCredentialsInSettingsEnabled]) {
-    [[EarlGrey
-        selectElementWithMatcher:chrome_test_util::SettingsToolbarAddButton()]
-        assertWithMatcher:grey_not(grey_sufficientlyVisible())];
-  } else {
-    [[EarlGrey
-        selectElementWithMatcher:chrome_test_util::AddPaymentMethodButton()]
-        assertWithMatcher:grey_not(grey_sufficientlyVisible())];
-  }
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::SettingsToolbarAddButton()]
+      assertWithMatcher:grey_not(grey_sufficientlyVisible())];
 }
 
 // Checks that the toolbar always appears in edit mode.
@@ -315,26 +297,6 @@ id<GREYMatcher> BottomToolbar() {
                                           [self creditCardLabel:lastDigits])]
       performAction:grey_tap()];
   [[EarlGrey selectElementWithMatcher:BottomToolbar()]
-      assertWithMatcher:grey_sufficientlyVisible()];
-}
-
-// Checks the 'Add Payment Method' button is always visible and directs a user
-// to the Add Payent method view.
-- (void)testToolbarAddPaymentMethodButtonFeatureEnabled {
-  if ([ChromeEarlGrey isAddCredentialsInSettingsEnabled]) {
-    EARL_GREY_TEST_SKIPPED(
-        @"The test is not supported when Add Credentials feature is enabled");
-  }
-  [AutofillAppInterface saveLocalCreditCard];
-  [self openCreditCardListInEditMode];
-
-  [[EarlGrey
-      selectElementWithMatcher:chrome_test_util::AddPaymentMethodButton()]
-      assertWithMatcher:grey_sufficientlyVisible()];
-  [[EarlGrey
-      selectElementWithMatcher:chrome_test_util::AddPaymentMethodButton()]
-      performAction:grey_tap()];
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::AddCreditCardView()]
       assertWithMatcher:grey_sufficientlyVisible()];
 }
 
@@ -378,16 +340,10 @@ id<GREYMatcher> BottomToolbar() {
   [[EarlGrey selectElementWithMatcher:chrome_test_util::
                                           SettingsBottomToolbarDeleteButton()]
       assertWithMatcher:grey_nil()];
-  if ([ChromeEarlGrey isAddCredentialsInSettingsEnabled]) {
-    // If the done button in the nav bar is enabled it is no longer in edit
-    // mode.
-    [[EarlGrey selectElementWithMatcher:SettingsDoneButton()]
-        assertWithMatcher:grey_sufficientlyVisible()];
-  } else {
-    // If the done button is nil it is no longer in edit mode.
-    [[EarlGrey selectElementWithMatcher:SettingsDoneButton()]
-        assertWithMatcher:grey_nil()];
-  }
+  // If the done button in the nav bar is enabled it is no longer in edit
+  // mode.
+  [[EarlGrey selectElementWithMatcher:SettingsDoneButton()]
+      assertWithMatcher:grey_sufficientlyVisible()];
 }
 
 @end

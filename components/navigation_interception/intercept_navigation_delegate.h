@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,9 @@
 #include "base/android/jni_weak_ref.h"
 #include "base/supports_user_data.h"
 #include "components/navigation_interception/intercept_navigation_throttle.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "services/network/public/mojom/url_loader_factory.mojom-forward.h"
+#include "ui/base/page_transition_types.h"
 
 namespace content {
 class NavigationHandle;
@@ -17,9 +20,13 @@ class NavigationThrottle;
 class WebContents;
 }
 
-namespace navigation_interception {
+namespace url {
+class Origin;
+}
 
-class NavigationParams;
+class GURL;
+
+namespace navigation_interception {
 
 // Native side of the InterceptNavigationDelegate Java interface.
 // This is used to create a InterceptNavigationResourceThrottle that calls the
@@ -35,7 +42,7 @@ class NavigationParams;
 class InterceptNavigationDelegate : public base::SupportsUserData::Data {
  public:
   // Pass true for |escape_external_handler_value| to have
-  // net::EscapeExternalHandlerValue() invoked on URLs passed to
+  // base::EscapeExternalHandlerValue() invoked on URLs passed to
   // ShouldIgnoreNavigation() before the navigation is processed.
   InterceptNavigationDelegate(JNIEnv* env,
                               jobject jdelegate,
@@ -63,8 +70,20 @@ class InterceptNavigationDelegate : public base::SupportsUserData::Data {
       content::NavigationHandle* handle,
       navigation_interception::SynchronyMode mode);
 
-  virtual bool ShouldIgnoreNavigation(
-      const NavigationParams& navigation_params);
+  bool ShouldIgnoreNavigation(content::NavigationHandle* navigation_handle);
+
+  // See ContentBrowserClient::HandleExternalProtocol for the semantics around
+  // |out_factory|.
+  virtual void HandleSubframeExternalProtocol(
+      const GURL& url,
+      ui::PageTransition page_transition,
+      bool has_user_gesture,
+      const absl::optional<url::Origin>& initiating_origin,
+      mojo::PendingRemote<network::mojom::URLLoaderFactory>* out_factory);
+
+  // To be called when a main frame requests a resource with a user gesture (eg.
+  // xrh, fetch, etc.)
+  void OnResourceRequestWithGesture();
 
  private:
   JavaObjectWeakGlobalRef weak_jdelegate_;

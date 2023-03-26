@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,10 +20,6 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
-namespace base {
-class DictionaryValue;
-}
-
 namespace settings {
 
 class MetricsReportingHandler : public SettingsPageUIHandler {
@@ -43,16 +39,16 @@ class MetricsReportingHandler : public SettingsPageUIHandler {
  protected:
   // Handler for "getMetricsReporting" message. No arguments. Protected for
   // testing.
-  void HandleGetMetricsReporting(const base::ListValue* args);
+  void HandleGetMetricsReporting(const base::Value::List& args);
 
  private:
-  // Describes the state of metrics reporting in a base::DictionaryValue.
+  // Describes the state of metrics reporting in a `base::Value::Dict`.
   // Friends with ChromeMetricsServiceAccessor.
-  std::unique_ptr<base::DictionaryValue> CreateMetricsReportingDict();
+  base::Value::Dict CreateMetricsReportingDict();
 
   // Handler for "setMetricsReportingEnabled" message. Passed a single,
   // |enabled| boolean argument.
-  void HandleSetMetricsReportingEnabled(const base::ListValue* args);
+  void HandleSetMetricsReportingEnabled(const base::Value::List& args);
 
   // Called when the local state pref controlling metrics reporting changes.
   void OnPrefChanged(const std::string& pref_name);

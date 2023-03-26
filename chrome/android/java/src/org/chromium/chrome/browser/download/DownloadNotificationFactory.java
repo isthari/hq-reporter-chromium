@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,6 @@ import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Build;
 import android.os.Bundle;
 import android.text.TextUtils;
 
@@ -49,7 +48,6 @@ import org.chromium.components.offline_items_collection.ContentId;
 import org.chromium.components.offline_items_collection.LegacyHelpers;
 import org.chromium.components.offline_items_collection.OfflineItem;
 import org.chromium.components.offline_items_collection.PendingState;
-import org.chromium.url.GURL;
 
 /**
  * Creates and updates notifications related to downloads.
@@ -92,8 +90,7 @@ public final class DownloadNotificationFactory {
         // TODO(xingliu): Write a unit test for this class.
         String channelId = ChromeChannelDefinitions.ChannelId.DOWNLOADS;
         if (LegacyHelpers.isLegacyDownload(downloadUpdate.getContentId())
-                && downloadStatus == DownloadNotificationService.DownloadStatus.COMPLETED
-                && ChromeFeatureList.isEnabled(ChromeFeatureList.DOWNLOAD_NOTIFICATION_BADGE)) {
+                && downloadStatus == DownloadNotificationService.DownloadStatus.COMPLETED) {
             channelId = ChromeChannelDefinitions.ChannelId.COMPLETED_DOWNLOADS;
         }
         NotificationWrapperBuilder builder =
@@ -203,7 +200,7 @@ public final class DownloadNotificationFactory {
                         && !LegacyHelpers.isLegacyOfflinePage(downloadUpdate.getContentId())) {
                     String subText = StringUtils.timeLeftForUi(
                             context, downloadUpdate.getTimeRemainingInMillis());
-                    setSubText(builder, subText);
+                    builder.setSubText(subText);
                 }
 
                 if (downloadUpdate.getStartTime() > 0) {
@@ -271,7 +268,8 @@ public final class DownloadNotificationFactory {
                     Intent intent = new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS);
                     intent.setFlags(
                             Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                    builder.setContentIntent(PendingIntent.getActivity(context, 0, intent, 0));
+                    builder.setContentIntent(PendingIntentProvider.getActivity(
+                            context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT));
                 } else if (downloadUpdate.getIsOpenable()) {
                     Intent intent;
                     if (LegacyHelpers.isLegacyDownload(downloadUpdate.getContentId())
@@ -298,7 +296,8 @@ public final class DownloadNotificationFactory {
                         intent.putExtra(NotificationConstants.EXTRA_NOTIFICATION_ID,
                                 downloadUpdate.getNotificationId());
                         MediaViewerUtils.setOriginalUrlAndReferralExtraToIntent(intent,
-                                downloadUpdate.getOriginalUrl(), downloadUpdate.getReferrer());
+                                downloadUpdate.getOriginalUrl().getSpec(),
+                                downloadUpdate.getReferrer().getSpec());
                     } else {
                         intent = buildActionIntent(
                                 context, ACTION_DOWNLOAD_OPEN, downloadUpdate.getContentId(), null);
@@ -358,14 +357,13 @@ public final class DownloadNotificationFactory {
 
         if (downloadUpdate.getIsOffTheRecord()) {
             // A sub text to inform the users that they are using incognito mode.
-            setSubText(builder,
-                    context.getResources().getString(
-                            R.string.download_notification_incognito_subtext));
+            builder.setSubText(context.getResources().getString(
+                    R.string.download_notification_incognito_subtext));
         } else if (downloadUpdate.getShouldPromoteOrigin()) {
             // Always show the origin URL if available (for normal profiles).
             String formattedUrl = DownloadUtils.formatUrlForDisplayInNotification(
-                    new GURL(downloadUpdate.getOriginalUrl()));
-            if (formattedUrl != null) setSubText(builder, formattedUrl);
+                    downloadUpdate.getOriginalUrl());
+            if (formattedUrl != null) builder.setSubText(formattedUrl);
         }
 
         return builder.build();
@@ -380,19 +378,6 @@ public final class DownloadNotificationFactory {
             Context context, Intent intent, int notificationId) {
         return PendingIntentProvider.getService(
                 context, notificationId, intent, PendingIntent.FLAG_UPDATE_CURRENT);
-    }
-
-    /**
-     * Helper method to set the sub text on different versions of Android.
-     * @param builder The builder to build notification.
-     * @param subText A string shown as sub text on the notification.
-     */
-    private static void setSubText(NotificationWrapperBuilder builder, String subText) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            builder.setSubText(subText);
-        } else {
-            builder.setContentInfo(subText);
-        }
     }
 
     /**

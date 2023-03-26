@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,11 +25,18 @@ class CORE_EXPORT StyleRecalcContext {
  public:
   // Using the ancestor chain, build a StyleRecalcContext suitable for
   // resolving the style of the given Element.
+  //
+  // It is valid to pass an Element without a ComputedStyle only when
+  // the shadow-including parent of Element has a ComputedStyle.
   static StyleRecalcContext FromAncestors(Element&);
 
   // If the passed in StyleRecalcContext is nullptr, build a StyleRecalcContext
   // suitable for resolving the style for child elements of the passed in
   // element. Otherwise return the passed in context as a value.
+  //
+  // It is invalid to pass an Element without a ComputedStyle. This means that
+  // if the Element is in display:none, the ComputedStyle must be ensured
+  // before calling this function.
   static StyleRecalcContext FromInclusiveAncestors(Element&);
 
   // When traversing into slotted children, the container is in the shadow-
@@ -48,6 +55,22 @@ class CORE_EXPORT StyleRecalcContext {
   // Set to the nearest container (for container queries), if any.
   // This is used to evaluate container queries in ElementRuleCollector.
   Element* container = nullptr;
+
+  // If true, something about the parent's style (e.g., that it has
+  // modifications to one or more non-independent inherited properties)
+  // forces a full recalculation of this element's style, precluding
+  // any incremental style calculation.
+  //
+  // NOTE: For the base computed style optimization, we do not only
+  // rely on this, but also on the fact that the caller calls
+  // SetAnimationStyleChange(false) directly. This is somewhat out of
+  // legacy reasons.
+  bool parent_forces_recalc = false;
+
+  // True when we're ensuring the style of an element. This can only happen
+  // when regular style can't reach the element (i.e. inside display:none, or
+  // outside the flat tree).
+  bool is_ensuring_style = false;
 };
 
 }  // namespace blink

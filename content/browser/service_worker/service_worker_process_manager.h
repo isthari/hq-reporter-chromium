@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,21 +9,19 @@
 #include <memory>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/lock.h"
 #include "content/browser/service_worker/service_worker_metrics.h"
 #include "content/common/content_export.h"
+#include "services/network/public/mojom/cross_origin_embedder_policy.mojom-forward.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_ancestor_frame_type.mojom.h"
 
 class GURL;
-
-namespace network {
-struct CrossOriginEmbedderPolicy;
-}
 
 namespace content {
 
@@ -80,9 +78,9 @@ class CONTENT_EXPORT ServiceWorkerProcessManager {
   blink::ServiceWorkerStatusCode AllocateWorkerProcess(
       int embedded_worker_id,
       const GURL& script_url,
-      const absl::optional<network::CrossOriginEmbedderPolicy>&
-          cross_origin_embedder_policy,
+      network::mojom::CrossOriginEmbedderPolicyValue coep_value,
       bool can_use_existing_process,
+      blink::mojom::AncestorFrameType ancestor_frame_type,
       AllocatedProcessInfo* out_info);
 
   // Drops a reference to a process that was running a Service Worker, and its

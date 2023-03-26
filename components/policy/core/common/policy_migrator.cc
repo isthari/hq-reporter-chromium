@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/strings/grit/components_strings.h"
@@ -32,7 +32,7 @@ void PolicyMigrator::CopyPolicyIfUnset(PolicyMap& source,
       VLOG(3) << "Legacy policy '" << migration.old_name
               << "' has been copied to '" << migration.new_name << "'.";
       auto new_entry = entry->DeepCopy();
-      migration.transform.Run(new_entry.value());
+      migration.transform.Run(new_entry.value_unsafe());
       new_entry.AddMessage(PolicyMap::MessageType::kWarning,
                            IDS_POLICY_MIGRATED_NEW_POLICY,
                            {base::UTF8ToUTF16(migration.old_name)});

@@ -1,8 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.vr;
+
+import android.content.Context;
 
 import org.chromium.base.BundleUtils;
 import org.chromium.base.annotations.CalledByNative;
@@ -12,10 +14,7 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.modules.ModuleInstallUi;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.components.module_installer.engine.InstallListener;
-import org.chromium.ui.vr.VrModeObserver;
-
-import java.util.ArrayList;
-import java.util.List;
+import org.chromium.ui.base.WindowAndroid;
 
 /**
  * Instantiates the VR delegates. If the VR module is not available this provider will
@@ -24,7 +23,6 @@ import java.util.List;
 @JNINamespace("vr")
 public class VrModuleProvider implements ModuleInstallUi.FailureUiListener {
     private static VrDelegateProvider sDelegateProvider;
-    private static final List<VrModeObserver> sVrModeObservers = new ArrayList<>();
     private static boolean sAlwaysUseFallbackDelegate;
 
     private long mNativeVrModuleProvider;
@@ -56,36 +54,6 @@ public class VrModuleProvider implements ModuleInstallUi.FailureUiListener {
 
     public static VrDelegate getDelegate() {
         return getDelegateProvider().getDelegate();
-    }
-
-    public static VrIntentDelegate getIntentDelegate() {
-        return getDelegateProvider().getIntentDelegate();
-    }
-
-    /**
-     * Registers the given {@link VrModeObserver}.
-     *
-     * @param observer The VrModeObserver to register.
-     */
-    public static void registerVrModeObserver(VrModeObserver observer) {
-        sVrModeObservers.add(observer);
-    }
-
-    /**
-     * Unregisters the given {@link VrModeObserver}.
-     *
-     * @param observer The VrModeObserver to remove.
-     */
-    public static void unregisterVrModeObserver(VrModeObserver observer) {
-        sVrModeObservers.remove(observer);
-    }
-
-    public static void onEnterVr() {
-        for (VrModeObserver observer : sVrModeObservers) observer.onEnterVr();
-    }
-
-    public static void onExitVr() {
-        for (VrModeObserver observer : sVrModeObservers) observer.onExitVr();
     }
 
     /* package */ static void installModule(InstallListener listener) {
@@ -151,7 +119,20 @@ public class VrModuleProvider implements ModuleInstallUi.FailureUiListener {
     @CalledByNative
     private void installModule(Tab tab) {
         mTab = tab;
-        ModuleInstallUi ui = new ModuleInstallUi(mTab, R.string.vr_module_title, this);
+        ModuleInstallUi.Delegate moduleInstallUiDelegate = new ModuleInstallUi.Delegate() {
+            @Override
+            public WindowAndroid getWindowAndroid() {
+                return mTab.getWindowAndroid();
+            }
+
+            @Override
+            public Context getContext() {
+                return mTab.getWindowAndroid() != null ? mTab.getWindowAndroid().getActivity().get()
+                                                       : null;
+            }
+        };
+        ModuleInstallUi ui =
+                new ModuleInstallUi(moduleInstallUiDelegate, R.string.vr_module_title, this);
         ui.showInstallStartUi();
         installModule((success) -> {
             if (mNativeVrModuleProvider != 0) {

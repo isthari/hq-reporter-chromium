@@ -1,9 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.paintpreview.player.frame;
 
+import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.graphics.Point;
 import android.graphics.Rect;
@@ -20,7 +21,7 @@ import java.util.List;
  */
 class PlayerFrameProperties {
     /** A matrix of bitmap tiles that collectively make the entire content. */
-    static final PropertyModel.WritableObjectPropertyKey<CompressibleBitmap[][]> BITMAP_MATRIX =
+    static final PropertyModel.WritableObjectPropertyKey<Bitmap[][]> BITMAP_MATRIX =
             new PropertyModel.WritableObjectPropertyKey<>(true);
     /** The dimensions of each bitmap tile in the current bitmap matrix. */
     static final PropertyModel.WritableObjectPropertyKey<Size> TILE_DIMENSIONS =

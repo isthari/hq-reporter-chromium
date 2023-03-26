@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "third_party/skia/include/core/SkPath.h"
 #include "ui/base/hit_test.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/models/image_model.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/color/color_id.h"
 #include "ui/color/color_provider.h"
@@ -371,15 +372,17 @@ void CustomFrameView::PaintTitleBar(gfx::Canvas* canvas) {
 
   gfx::Rect rect = title_bounds_;
   rect.set_x(GetMirroredXForRect(title_bounds_));
-  canvas->DrawStringRect(delegate->GetWindowTitle(), GetWindowTitleFontList(),
-                         SK_ColorWHITE, rect);
+  canvas->DrawStringRect(
+      delegate->GetWindowTitle(), GetWindowTitleFontList(),
+      GetColorProvider()->GetColor(ui::kColorCustomFrameCaptionForeground),
+      rect);
 }
 
 void CustomFrameView::PaintRestoredClientEdge(gfx::Canvas* canvas) {
   gfx::Rect client_area_bounds = frame_->client_view()->bounds();
   // The shadows have a 1 pixel gap on the inside, so draw them 1 pixel inwards.
   gfx::Rect shadowed_area_bounds = client_area_bounds;
-  shadowed_area_bounds.Inset(gfx::Insets(1, 1, 1, 1));
+  shadowed_area_bounds.Inset(gfx::Insets(1));
   int shadowed_area_top = shadowed_area_bounds.y();
 
   ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
@@ -551,12 +554,15 @@ ImageButton* CustomFrameView::InitWindowCaptionButton(
       AddChildView(std::make_unique<ImageButton>(std::move(callback)));
   button->SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
   button->SetAccessibleName(l10n_util::GetStringUTF16(accessibility_string_id));
-  button->SetImage(Button::STATE_NORMAL,
-                   rb.GetImageNamed(normal_image_id).ToImageSkia());
-  button->SetImage(Button::STATE_HOVERED,
-                   rb.GetImageNamed(hot_image_id).ToImageSkia());
-  button->SetImage(Button::STATE_PRESSED,
-                   rb.GetImageNamed(pushed_image_id).ToImageSkia());
+  button->SetImageModel(
+      Button::STATE_NORMAL,
+      ui::ImageModel::FromImage(rb.GetImageNamed(normal_image_id)));
+  button->SetImageModel(
+      Button::STATE_HOVERED,
+      ui::ImageModel::FromImage(rb.GetImageNamed(hot_image_id)));
+  button->SetImageModel(
+      Button::STATE_PRESSED,
+      ui::ImageModel::FromImage(rb.GetImageNamed(pushed_image_id)));
   return button;
 }
 

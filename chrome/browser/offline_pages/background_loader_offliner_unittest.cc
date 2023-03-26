@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,14 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/scoped_mock_time_message_loop_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/offline_pages/offliner_helper.h"
 #include "chrome/browser/prefetch/prefetch_prefs.h"
 #include "chrome/common/pref_names.h"
@@ -97,7 +97,7 @@ class MockOfflinePageModel : public StubOfflinePageModel {
   void CompleteSavingAsArchiveCreationFailed() {
     DCHECK(mock_saving_);
     mock_saving_ = false;
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(save_page_callback_),
                                   SavePageResult::ARCHIVE_CREATION_FAILED, 0));
   }
@@ -105,7 +105,7 @@ class MockOfflinePageModel : public StubOfflinePageModel {
   void CompleteSavingAsSuccess() {
     DCHECK(mock_saving_);
     mock_saving_ = false;
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(save_page_callback_),
                                   SavePageResult::SUCCESS, 123456));
   }
@@ -113,7 +113,7 @@ class MockOfflinePageModel : public StubOfflinePageModel {
   void CompleteSavingAsAlreadyExists() {
     DCHECK(mock_saving_);
     mock_saving_ = false;
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(save_page_callback_),
                                   SavePageResult::ALREADY_EXISTS, 123456));
   }
@@ -258,7 +258,7 @@ class BackgroundLoaderOfflinerTest : public testing::Test {
   void CompleteLoading() {
     // Reset snapshot controller.
     auto snapshot_controller = std::make_unique<BackgroundSnapshotController>(
-        base::ThreadTaskRunnerHandle::Get(), offliner_.get(),
+        base::SingleThreadTaskRunner::GetCurrentDefault(), offliner_.get(),
         false /* RenovationsEnabled */);
     offliner_->SetBackgroundSnapshotControllerForTest(
         std::move(snapshot_controller));
@@ -640,7 +640,7 @@ TEST_F(BackgroundLoaderOfflinerTest, FailsOnErrorPage) {
   // Create handle with net error code.
   // Called after calling LoadAndSave so we have web_contents to work with.
   content::MockNavigationHandle handle(
-      GURL(kHttpUrl), offliner()->web_contents()->GetMainFrame());
+      GURL(kHttpUrl), offliner()->web_contents()->GetPrimaryMainFrame());
   handle.set_has_committed(true);
   handle.set_is_error_page(true);
   handle.set_net_error_code(net::Error::ERR_NAME_NOT_RESOLVED);
@@ -674,7 +674,7 @@ TEST_F(BackgroundLoaderOfflinerTest, FailsOnCertificateError) {
 
   // Called after calling LoadAndSave so we have web_contents to work with.
   content::MockNavigationHandle handle(
-      GURL(kHttpUrl), offliner()->web_contents()->GetMainFrame());
+      GURL(kHttpUrl), offliner()->web_contents()->GetPrimaryMainFrame());
   handle.set_has_committed(true);
   offliner()->DidFinishNavigation(&handle);
 
@@ -705,7 +705,7 @@ TEST_F(BackgroundLoaderOfflinerTest, FailsOnRevocationCheckingFailure) {
 
   // Called after calling LoadAndSave so we have web_contents to work with.
   content::MockNavigationHandle handle(
-      GURL(kHttpUrl), offliner()->web_contents()->GetMainFrame());
+      GURL(kHttpUrl), offliner()->web_contents()->GetPrimaryMainFrame());
   handle.set_has_committed(true);
   offliner()->DidFinishNavigation(&handle);
 
@@ -736,7 +736,7 @@ TEST_F(BackgroundLoaderOfflinerTest, SucceedsOnHttp) {
 
   // Called after calling LoadAndSave so we have web_contents to work with.
   content::MockNavigationHandle handle(
-      GURL(kHttpUrl), offliner()->web_contents()->GetMainFrame());
+      GURL(kHttpUrl), offliner()->web_contents()->GetPrimaryMainFrame());
   handle.set_has_committed(true);
   offliner()->DidFinishNavigation(&handle);
 
@@ -763,7 +763,7 @@ TEST_F(BackgroundLoaderOfflinerTest, FailsOnUnwantedContent) {
       std::move(visible_security_state));
   // Called after calling LoadAndSave so we have web_contents to work with.
   content::MockNavigationHandle handle(
-      GURL(kHttpUrl), offliner()->web_contents()->GetMainFrame());
+      GURL(kHttpUrl), offliner()->web_contents()->GetPrimaryMainFrame());
   handle.set_has_committed(true);
   offliner()->DidFinishNavigation(&handle);
 
@@ -785,7 +785,7 @@ TEST_F(BackgroundLoaderOfflinerTest, FailsOnInternetDisconnected) {
   // Create handle with net error code.
   // Called after calling LoadAndSave so we have web_contents to work with.
   content::MockNavigationHandle handle(
-      GURL(kHttpUrl), offliner()->web_contents()->GetMainFrame());
+      GURL(kHttpUrl), offliner()->web_contents()->GetPrimaryMainFrame());
   handle.set_has_committed(true);
   handle.set_is_error_page(true);
   handle.set_net_error_code(net::Error::ERR_INTERNET_DISCONNECTED);
@@ -808,7 +808,7 @@ TEST_F(BackgroundLoaderOfflinerTest, DoesNotCrashWithNullResponseHeaders) {
 
   // Called after calling LoadAndSave so we have web_contents to work with.
   content::MockNavigationHandle handle(
-      GURL(kHttpUrl), offliner()->web_contents()->GetMainFrame());
+      GURL(kHttpUrl), offliner()->web_contents()->GetPrimaryMainFrame());
   handle.set_has_committed(true);
   offliner()->DidFinishNavigation(&handle);
 }
@@ -919,6 +919,35 @@ TEST_F(BackgroundLoaderOfflinerTest, SignalCollectionDisabled) {
   content::MHTMLExtraParts* extra_parts =
       content::MHTMLExtraParts::FromWebContents(offliner()->web_contents());
   EXPECT_EQ(extra_parts->size(), 0);
+}
+
+TEST_F(BackgroundLoaderOfflinerTest,
+       DoNotRecordErrorMetricInNonPrimaryMainframe) {
+  base::Time creation_time = base::Time::Now();
+  SavePageRequest request(kRequestId, GURL(kHttpUrl), kClientId, creation_time,
+                          kUserRequested);
+  EXPECT_TRUE(offliner()->LoadAndSave(request, completion_callback(),
+                                      progress_callback()));
+
+  // Simulate that DidFinishNavigation method is called with an error in a
+  // non-primary mainframe.
+  content::MockNavigationHandle handle(
+      GURL(kHttpUrl), offliner()->web_contents()->GetPrimaryMainFrame());
+  handle.set_has_committed(true);
+  handle.set_is_error_page(true);
+  handle.set_net_error_code(net::Error::ERR_NAME_NOT_RESOLVED);
+  handle.set_is_in_primary_main_frame(false);
+  offliner()->DidFinishNavigation(&handle);
+
+  // The error histogram should be 0.
+  histograms().ExpectBucketCount(
+      "OfflinePages.Background.LoadingErrorStatusCode.async_loading",
+      -105,  // ERR_NAME_NOT_RESOLVED
+      0);
+  CompleteLoading();
+  PumpLoop();
+
+  EXPECT_FALSE(completion_callback_called());
 }
 
 }  // namespace offline_pages

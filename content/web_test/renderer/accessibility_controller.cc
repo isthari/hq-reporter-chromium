@@ -1,10 +1,9 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/web_test/renderer/accessibility_controller.h"
 
-#include "base/cxx17_backports.h"
 #include "content/web_test/renderer/web_frame_test_proxy.h"
 #include "gin/handle.h"
 #include "gin/object_template_builder.h"
@@ -164,7 +163,9 @@ AccessibilityController::~AccessibilityController() {
 }
 
 void AccessibilityController::Reset() {
-  elements_.Clear();
+  if (!IsInstalled())
+    return;
+  elements_->Clear();
   notification_callback_.Reset();
   log_accessibility_events_ = false;
   ax_context_.reset();
@@ -173,6 +174,7 @@ void AccessibilityController::Reset() {
 void AccessibilityController::Install(blink::WebLocalFrame* frame) {
   ax_context_ = std::make_unique<blink::WebAXContext>(frame->GetDocument(),
                                                       ui::kAXModeComplete);
+  elements_ = std::make_unique<WebAXObjectProxyList>(*ax_context_);
   frame->View()->GetSettings()->SetInlineTextBoxAccessibilityEnabled(true);
 
   AccessibilityControllerBindings::Install(weak_factory_.GetWeakPtr(), frame);
@@ -198,6 +200,9 @@ void AccessibilityController::PostNotification(
     const blink::WebAXObject& target,
     const std::string& notification_name,
     const std::vector<ui::AXEventIntent>& event_intents) {
+  if (!IsInstalled())
+    return;
+
   v8::Isolate* isolate = blink::MainThreadIsolate();
   v8::HandleScope handle_scope(isolate);
 
@@ -213,7 +218,7 @@ void AccessibilityController::PostNotification(
   v8::Context::Scope context_scope(context);
 
   // Call notification listeners on the element.
-  v8::Local<v8::Object> element_handle = elements_.GetOrCreate(target);
+  v8::Local<v8::Object> element_handle = elements_->GetOrCreate(target);
   if (element_handle.IsEmpty())
     return;
 
@@ -235,7 +240,7 @@ void AccessibilityController::PostNotification(
   };
   local_frame->CallFunctionEvenIfScriptDisabled(
       v8::Local<v8::Function>::New(isolate, notification_callback_),
-      context->Global(), base::size(argv), argv);
+      context->Global(), std::size(argv), argv);
 }
 
 void AccessibilityController::LogAccessibilityEvents() {
@@ -254,33 +259,35 @@ void AccessibilityController::UnsetNotificationListener() {
 
 v8::Local<v8::Object> AccessibilityController::FocusedElement() {
   blink::WebFrame* frame = web_view()->MainFrame();
-  if (!frame)
+  if (!frame || !IsInstalled())
     return v8::Local<v8::Object>();
 
   // TODO(lukasza): Finish adding OOPIF support to the web tests harness.
   CHECK(frame->IsWebLocalFrame())
       << "This function cannot be called if the main frame is not a "
          "local frame.";
+  ax_context_->UpdateAXForAllDocuments();
   blink::WebAXObject focused_element =
       blink::WebAXObject::FromWebDocumentFocused(
-          frame->ToWebLocalFrame()->GetDocument(), true);
+          frame->ToWebLocalFrame()->GetDocument());
   if (focused_element.IsNull())
     focused_element = GetAccessibilityObjectForMainFrame();
-  return elements_.GetOrCreate(focused_element);
+  return elements_->GetOrCreate(focused_element);
 }
 
 v8::Local<v8::Object> AccessibilityController::RootElement() {
-  return elements_.GetOrCreate(GetAccessibilityObjectForMainFrame());
+  if (!IsInstalled())
+    return v8::Local<v8::Object>();
+  ax_context_->UpdateAXForAllDocuments();
+  return elements_->GetOrCreate(GetAccessibilityObjectForMainFrame());
 }
 
 v8::Local<v8::Object> AccessibilityController::AccessibleElementById(
     const std::string& id) {
-  blink::WebAXObject::UpdateLayout(
-      web_view()->MainFrame()->ToWebLocalFrame()->GetDocument());
-  blink::WebAXObject root_element = GetAccessibilityObjectForMainFrame();
-
-  if (!root_element.MaybeUpdateLayoutAndCheckValidity())
+  if (!IsInstalled())
     return v8::Local<v8::Object>();
+  ax_context_->UpdateAXForAllDocuments();
+  blink::WebAXObject root_element = GetAccessibilityObjectForMainFrame();
 
   return FindAccessibleElementByIdRecursive(
       root_element, blink::WebString::FromUTF8(id.c_str()));
@@ -302,7 +309,7 @@ AccessibilityController::FindAccessibleElementByIdRecursive(
   if (!node.IsNull() && node.IsElementNode()) {
     blink::WebElement element = node.To<blink::WebElement>();
     if (element.GetAttribute("id") == id)
-      return elements_.GetOrCreate(obj);
+      return elements_->GetOrCreate(obj);
   }
 
   unsigned childCount = obj.ChildCount();

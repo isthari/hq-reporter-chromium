@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@ import android.view.View;
 import android.widget.LinearLayout;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -44,22 +43,16 @@ public class FollowManagementCoordinator {
                 new LayoutViewBuilder<LinearLayout>(R.layout.follow_management_empty_state),
                 (unusedModel, unusedView, unusedKey) -> {});
         adapter.registerType(FollowManagementItemProperties.LOADING_ITEM_TYPE,
-                new LayoutViewBuilder<LinearLayout>(R.layout.follow_management_loading_state),
+                new LayoutViewBuilder<LinearLayout>(R.layout.feed_spinner),
                 (unusedModel, unusedView, unusedKey) -> {});
 
         // Inflate the XML for the activity.
         mView = LayoutInflater.from(activity).inflate(R.layout.follow_management_activity, null);
-        RecyclerView recyclerView = (RecyclerView) mView.findViewById(R.id.follow_management_list);
+        RecyclerView recyclerView = mView.findViewById(R.id.follow_management_list);
         // With the recycler view, we need to explicitly set a layout manager.
         LinearLayoutManager manager = new LinearLayoutManager(activity);
         recyclerView.setLayoutManager(manager);
         recyclerView.setAdapter(adapter);
-
-        // Set up the toolbar and back button.
-        Toolbar toolbar = (Toolbar) mView.findViewById(R.id.action_bar);
-        mActivity.setSupportActionBar(toolbar);
-        mActivity.getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-        toolbar.setNavigationOnClickListener(this::handleBackArrowClick);
 
         mMediator = new FollowManagementMediator(
                 activity, listItems, new MediatorObserver(), WebFeedFaviconFetcher.createDefault());
@@ -67,11 +60,6 @@ public class FollowManagementCoordinator {
 
     public View getView() {
         return mView;
-    }
-
-    private void handleBackArrowClick(View view) {
-        // Navigate back.
-        mActivity.finish();
     }
 
     private class MediatorObserver implements FollowManagementMediator.Observer {

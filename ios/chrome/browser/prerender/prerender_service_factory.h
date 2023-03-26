@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,9 @@ class PrerenderServiceFactory : public BrowserStateKeyedServiceFactory {
   static PrerenderService* GetForBrowserState(
       ChromeBrowserState* browser_state);
   static PrerenderServiceFactory* GetInstance();
+
+  // Returns the default factory, useful in tests where it's null by default.
+  static TestingFactory GetDefaultFactory();
 
   PrerenderServiceFactory(const PrerenderServiceFactory&) = delete;
   PrerenderServiceFactory& operator=(const PrerenderServiceFactory&) = delete;

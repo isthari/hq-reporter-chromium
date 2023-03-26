@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,23 +16,23 @@ class NGTableAlgorithmHelpersTest : public RenderingTest {
                                   int max_width,
                                   absl::optional<float> percent = absl::nullopt,
                                   bool is_constrained = false) {
-    return NGTableTypes::Column{LayoutUnit(min_width),
-                                LayoutUnit(max_width),
-                                percent,
-                                /* border_padding */ LayoutUnit(),
-                                is_constrained,
-                                /* is_collapsed */ false,
-                                /* is_table_fixed */ false,
-                                /* is_mergeable */ false};
+    return {LayoutUnit(min_width),
+            LayoutUnit(max_width),
+            percent,
+            /* border_padding */ LayoutUnit(),
+            is_constrained,
+            /* is_collapsed */ false,
+            /* is_table_fixed */ false,
+            /* is_mergeable */ false};
   }
 
   NGTableTypes::Row MakeRow(int block_size,
                             bool is_constrained = false,
                             bool has_rowspan_start = false,
                             absl::optional<float> percent = absl::nullopt) {
-    return NGTableTypes::Row{
-        LayoutUnit(block_size), LayoutUnit(), percent,           0,    0,
-        is_constrained,         false,        has_rowspan_start, false};
+    return {LayoutUnit(block_size), 0,       0,
+            absl::nullopt,          percent, is_constrained,
+            has_rowspan_start,      false};
   }
 
   NGTableTypes::Section MakeSection(
@@ -172,8 +172,7 @@ TEST_F(NGTableAlgorithmHelpersTest, DistributeColspanAutoExactMaxSize) {
       column_widths[0] + column_widths[1] + column_widths[2] + column_widths[3];
   Vector<LayoutUnit> column_sizes =
       NGTableAlgorithmHelpers::SynchronizeAssignableTableInlineSizeAndColumns(
-          assignable_table_inline_size, LayoutUnit(), false,
-          *column_constraints);
+          assignable_table_inline_size, false, *column_constraints);
   EXPECT_EQ(column_sizes[0], column_widths[0]);
   EXPECT_EQ(column_sizes[1], column_widths[1]);
   EXPECT_EQ(column_sizes[2], column_widths[2]);

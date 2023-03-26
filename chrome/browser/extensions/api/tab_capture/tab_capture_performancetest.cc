@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -286,7 +286,10 @@ class TabCapturePerformanceTest : public TabCapturePerformanceTestBase,
 // Using MSAN on ChromeOS causes problems due to its hardware OpenGL library.
 #define MAYBE_Performance DISABLED_Performance
 #elif BUILDFLAG(IS_MAC)
-// flaky on Mac 10.11 See: http://crbug.com/1235358
+// TODO(crbug.com/1235358): Flaky on Mac 10.11
+#define MAYBE_Performance DISABLED_Performance
+#elif BUILDFLAG(IS_LINUX) && defined(ADDRESS_SANITIZER)
+// TODO(crbug.com/1295824): Flaky on Linux ASAN
 #define MAYBE_Performance DISABLED_Performance
 #else
 #define MAYBE_Performance Performance

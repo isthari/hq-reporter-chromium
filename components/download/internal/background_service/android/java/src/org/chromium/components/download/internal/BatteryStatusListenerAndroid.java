@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,8 @@ public final class BatteryStatusListenerAndroid {
     @CalledByNative
     public static int getBatteryPercentage() {
         IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
-        Intent batteryStatus = ContextUtils.getApplicationContext().registerReceiver(null, filter);
+        Intent batteryStatus = ContextUtils.registerProtectedBroadcastReceiver(
+                ContextUtils.getApplicationContext(), null, filter);
         if (batteryStatus == null) return 0;
 
         int scale = batteryStatus.getIntExtra(BatteryManager.EXTRA_SCALE, -1);

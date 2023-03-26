@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -78,7 +78,8 @@ void ExclusiveAccessManager::UpdateExclusiveAccessExitBubbleContent(
   GURL url = GetExclusiveAccessBubbleURL();
   ExclusiveAccessBubbleType bubble_type = GetExclusiveAccessExitBubbleType();
   exclusive_access_context_->UpdateExclusiveAccessExitBubbleContent(
-      url, bubble_type, std::move(bubble_first_hide_callback), force_update);
+      url, bubble_type, std::move(bubble_first_hide_callback),
+      /*notify_download=*/false, force_update);
 }
 
 GURL ExclusiveAccessManager::GetExclusiveAccessBubbleURL() const {

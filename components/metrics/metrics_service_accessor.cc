@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "components/metrics/metrics_switches.h"
 #include "components/prefs/pref_service.h"
 #include "components/variations/hashing.h"
+#include "components/variations/synthetic_trial_registry.h"
 
 namespace metrics {
 namespace {
@@ -47,23 +48,12 @@ bool MetricsServiceAccessor::RegisterSyntheticFieldTrial(
     base::StringPiece trial_name,
     base::StringPiece group_name,
     variations::SyntheticTrialAnnotationMode annotation_mode) {
-  return RegisterSyntheticFieldTrialWithNameAndGroupHash(
-      metrics_service, variations::HashName(trial_name),
-      variations::HashName(group_name), annotation_mode);
-}
-
-// static
-bool MetricsServiceAccessor::RegisterSyntheticFieldTrialWithNameAndGroupHash(
-    MetricsService* metrics_service,
-    uint32_t trial_name_hash,
-    uint32_t group_name_hash,
-    variations::SyntheticTrialAnnotationMode annotation_mode) {
   if (!metrics_service)
     return false;
 
-  variations::SyntheticTrialGroup trial_group(trial_name_hash, group_name_hash,
+  variations::SyntheticTrialGroup trial_group(trial_name, group_name,
                                               annotation_mode);
-  metrics_service->synthetic_trial_registry()->RegisterSyntheticFieldTrial(
+  metrics_service->GetSyntheticTrialRegistry()->RegisterSyntheticFieldTrial(
       trial_group);
   return true;
 }

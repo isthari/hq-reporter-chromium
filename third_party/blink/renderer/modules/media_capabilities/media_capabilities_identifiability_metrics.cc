@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,12 +26,12 @@ namespace media_capabilities_identifiability_metrics {
 namespace {
 
 bool IsDecodingInfoTypeAllowed() {
-  return IdentifiabilityStudySettings::Get()->IsTypeAllowed(
+  return IdentifiabilityStudySettings::Get()->ShouldSampleType(
       IdentifiableSurface::Type::kMediaCapabilities_DecodingInfo);
 }
 
 bool ShouldSampleDecodingInfoType() {
-  return IdentifiabilityStudySettings::Get()->ShouldSample(
+  return IdentifiabilityStudySettings::Get()->ShouldSampleType(
       IdentifiableSurface::Type::kMediaCapabilities_DecodingInfo);
 }
 

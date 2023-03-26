@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,11 +36,6 @@ class PasswordGenerationController {
       delete;
 
   virtual ~PasswordGenerationController() = default;
-
-  // Returns true if the generation controller may exist for |web_contents|.
-  // Otherwise (e.g. if the keyboard accessory is not allowed),
-  // it returns false.
-  static bool AllowedForWebContents(content::WebContents* web_contents);
 
   // Returns a reference to the unique PasswordGenerationController associated
   // with |web_contents|. A new instance is created if the first time this

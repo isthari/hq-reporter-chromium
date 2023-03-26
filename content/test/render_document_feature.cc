@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,9 +20,17 @@ void InitAndEnableRenderDocumentFeature(
 }
 
 std::vector<std::string> RenderDocumentFeatureLevelValues() {
+  // TODO(https://crbug.com/936696, rakina): Handle the
+  // RenderDocumentLevel::kAllFrames case.
   return {
       GetRenderDocumentLevelName(RenderDocumentLevel::kCrashedFrame),
       GetRenderDocumentLevelName(RenderDocumentLevel::kSubframe),
+  };
+}
+
+std::vector<std::string> RenderDocumentFeatureFullyEnabled() {
+  return {
+      GetRenderDocumentLevelName(RenderDocumentLevel::kAllFrames),
   };
 }
 

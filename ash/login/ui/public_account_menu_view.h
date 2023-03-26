@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,7 @@ class ASH_EXPORT PublicAccountMenuView : public views::Combobox {
   using OnSelect = base::RepeatingCallback<void(const std::string& value)>;
 
   PublicAccountMenuView(const std::vector<Item>& items,
-                        const size_t selected_index,
+                        size_t selected_index,
                         const OnSelect& on_select);
   PublicAccountMenuView(const PublicAccountMenuView&) = delete;
   PublicAccountMenuView& operator=(const PublicAccountMenuView&) = delete;

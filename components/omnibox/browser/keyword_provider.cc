@@ -1,16 +1,18 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/omnibox/browser/keyword_provider.h"
 
-#include <algorithm>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "base/containers/contains.h"
 #include "base/containers/cxx20_erase.h"
 #include "base/i18n/case_conversion.h"
 #include "base/memory/raw_ptr.h"
+#include "base/strings/escape.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -21,12 +23,12 @@
 #include "components/omnibox/browser/keyword_extensions_delegate.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/search_provider.h"
-#include "components/search_engines/omnibox_focus_type.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
+#include "components/search_engines/template_url_starter_pack_data.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/url_formatter.h"
-#include "net/base/escape.h"
+#include "third_party/metrics_proto/omnibox_focus_type.pb.h"
 #include "third_party/metrics_proto/omnibox_input_type.pb.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/url_constants.h"
@@ -86,9 +88,11 @@ void ScopedEndExtensionKeywordMode::StayInKeywordMode() {
 KeywordProvider::KeywordProvider(AutocompleteProviderClient* client,
                                  AutocompleteProviderListener* listener)
     : AutocompleteProvider(AutocompleteProvider::TYPE_KEYWORD),
-      listener_(listener),
       model_(client->GetTemplateURLService()),
-      extensions_delegate_(client->GetKeywordExtensionsDelegate(this)) {}
+      extensions_delegate_(client->GetKeywordExtensionsDelegate(this)),
+      client_(client) {
+  AddListener(listener);
+}
 
 // static
 std::u16string KeywordProvider::SplitKeywordFromInput(
@@ -177,6 +181,33 @@ const TemplateURL* KeywordProvider::GetSubstitutingTemplateURLForInput(
   return nullptr;
 }
 
+// static
+std::pair<AutocompleteInput, const TemplateURL*>
+KeywordProvider::AdjustInputForStarterPackEngines(
+    const AutocompleteInput& input,
+    TemplateURLService* model) {
+  DCHECK(model);
+
+  // If the feature is disabled, or not in keyword mode, then `input` is
+  // definitely not in a starter pack scope, so early exit.
+  if (!OmniboxFieldTrial::IsSiteSearchStarterPackEnabled() ||
+      !input.prefer_keyword()) {
+    return {input, nullptr};
+  }
+
+  // If in a starter pack scope, should run the provider with only
+  // the user text AFTER the keyword.  E.g. if the input is "@history text",
+  // set the autocomplete input to just "text".
+  AutocompleteInput keyword_input = input;
+  const TemplateURL* keyword_provider =
+      KeywordProvider::GetSubstitutingTemplateURLForInput(model,
+                                                          &keyword_input);
+  if (keyword_provider && keyword_provider->starter_pack_id() > 0)
+    return {keyword_input, keyword_provider};
+
+  return {input, nullptr};
+}
+
 std::u16string KeywordProvider::GetKeywordForText(
     const std::u16string& text) const {
   TemplateURLService* url_service = GetTemplateURLService();
@@ -210,10 +241,23 @@ std::u16string KeywordProvider::GetKeywordForText(
   // Don't provide a keyword for inactive search engines (if the active search
   // engine flag is enabled). Prepopulated engines and extensions controlled
   // engines should always work regardless of is_active.
-  if (OmniboxFieldTrial::IsActiveSearchEnginesEnabled() &&
-      template_url->type() != TemplateURL::OMNIBOX_API_EXTENSION &&
+  if (template_url->type() != TemplateURL::OMNIBOX_API_EXTENSION &&
       template_url->prepopulate_id() == 0 &&
       template_url->is_active() != TemplateURLData::ActiveStatus::kTrue) {
+    return std::u16string();
+  }
+
+  // The built-in history keyword mode is disabled in incognito mode.  Don't
+  // provide a keyword in that case.
+  if (client_->IsOffTheRecord() &&
+      template_url->starter_pack_id() == TemplateURLStarterPackData::kHistory) {
+    return std::u16string();
+  }
+
+  // Don't provide a keyword if it's a starter pack engine and the starter pack
+  // feature flag is not enabled.
+  if (!OmniboxFieldTrial::IsSiteSearchStarterPackEnabled() &&
+      template_url->starter_pack_id() != 0) {
     return std::u16string();
   }
 
@@ -274,7 +318,7 @@ void KeywordProvider::Start(const AutocompleteInput& input,
       extensions_delegate_->IncrementInputId();
   }
 
-  if (input.focus_type() != OmniboxFocusType::DEFAULT)
+  if (input.focus_type() != metrics::OmniboxFocusType::INTERACTION_DEFAULT)
     return;
 
   GetTemplateURLService();
@@ -385,12 +429,8 @@ void KeywordProvider::Start(const AutocompleteInput& input,
       // retrieved the same keyword twice.  For example, the keyword
       // "abc.abc.com" may be retrieved for the input "abc" from the full
       // keyword matching and the domain matching passes.
-      ACMatches::const_iterator duplicate = std::find_if(
-          matches_.begin(), matches_.end(),
-          [&i] (const AutocompleteMatch& m) {
-            return m.keyword == i->first->keyword();
-          });
-      if (duplicate == matches_.end()) {
+      if (!base::Contains(matches_, i->first->keyword(),
+                          &AutocompleteMatch::keyword)) {
         matches_.push_back(CreateAutocompleteMatch(
             i->first, i->second, input, keyword.length(), remaining_input,
             false, -1, false));
@@ -401,7 +441,8 @@ void KeywordProvider::Start(const AutocompleteInput& input,
 
 void KeywordProvider::Stop(bool clear_cached_results,
                            bool due_to_user_inactivity) {
-  done_ = true;
+  AutocompleteProvider::Stop(clear_cached_results, due_to_user_inactivity);
+
   // Only end an extension's request if the user did something to explicitly
   // cancel it; mere inactivity shouldn't terminate long-running extension
   // operations since the user likely explicitly requested them.

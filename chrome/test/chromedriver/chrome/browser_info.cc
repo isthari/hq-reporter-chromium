@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include <memory>
+#include <string>
 
 #include "base/json/json_reader.h"
 #include "base/strings/string_number_conversions.h"
@@ -33,10 +34,11 @@ Status ParseBrowserInfo(const std::string& data, BrowserInfo* browser_info) {
   if (!value->is_dict())
     return Status(kUnknownError, "version info not a dictionary");
 
-  const base::Value* android_package = value->FindKey("Android-Package");
+  const base::Value* android_package = value->GetDict().Find("Android-Package");
   if (android_package) {
-    if (!android_package->is_string())
+    if (!android_package->is_string()) {
       return Status(kUnknownError, "'Android-Package' is not a string");
+    }
     browser_info->android_package = android_package->GetString();
   }
 

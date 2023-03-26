@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "chrome/browser/ash/login/easy_unlock/easy_unlock_user_login_flow.h"
 #include "chrome/browser/ash/login/helper.h"
 #include "chrome/browser/ash/login/session/user_session_manager.h"
@@ -18,12 +18,15 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "components/account_id/account_id.h"
+#include "components/signin/public/identity_manager/account_managed_status_finder.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace ash {
 
-ChromeLoginPerformer::ChromeLoginPerformer(Delegate* delegate)
-    : LoginPerformer(delegate) {}
+ChromeLoginPerformer::ChromeLoginPerformer(
+    Delegate* delegate,
+    AuthMetricsRecorder* metrics_recorder)
+    : LoginPerformer(delegate, metrics_recorder) {}
 
 ChromeLoginPerformer::~ChromeLoginPerformer() {}
 
@@ -39,10 +42,11 @@ bool ChromeLoginPerformer::RunTrustedCheck(base::OnceClosure callback) {
                          weak_factory_.GetWeakPtr(), &callback));
   // Must not proceed without signature verification.
   if (status == CrosSettingsProvider::PERMANENTLY_UNTRUSTED) {
-    if (delegate_)
+    if (delegate_) {
       delegate_->PolicyLoadFailed();
-    else
+    } else {
       NOTREACHED();
+    }
     return true;  // Some callback was called.
   } else if (status == CrosSettingsProvider::TEMPORARILY_UNTRUSTED) {
     // Value of AllowNewUser setting is still not verified.
@@ -65,10 +69,11 @@ void ChromeLoginPerformer::DidRunTrustedCheck(base::OnceClosure* callback) {
                          weak_factory_.GetWeakPtr(), callback));
   // Must not proceed without signature verification.
   if (status == CrosSettingsProvider::PERMANENTLY_UNTRUSTED) {
-    if (delegate_)
+    if (delegate_) {
       delegate_->PolicyLoadFailed();
-    else
+    } else {
       NOTREACHED();
+    }
   } else if (status == CrosSettingsProvider::TEMPORARILY_UNTRUSTED) {
     // Value of AllowNewUser setting is still not verified.
     // Another attempt will be invoked after verification completion.
@@ -97,7 +102,9 @@ void ChromeLoginPerformer::RunOnlineAllowlistCheck(
   policy::BrowserPolicyConnectorAsh* connector =
       g_browser_process->platform_part()->browser_policy_connector_ash();
   if (connector->IsCloudManaged() && wildcard_match &&
-      !connector->IsNonEnterpriseUser(account_id.GetUserEmail())) {
+      (signin::AccountManagedStatusFinder::IsEnterpriseUserBasedOnEmail(
+           account_id.GetUserEmail()) ==
+       signin::AccountManagedStatusFinder::EmailEnterpriseStatus::kUnknown)) {
     wildcard_login_checker_ = std::make_unique<policy::WildcardLoginChecker>();
     if (refresh_token.empty()) {
       NOTREACHED() << "Refresh token must be present.";

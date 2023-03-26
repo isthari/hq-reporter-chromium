@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,8 +23,9 @@ TEST(ChromotingHostContextTest, StartAndStop) {
           task_environment.GetMainThreadTaskRunner(), run_loop.QuitClosure()));
 
   EXPECT_TRUE(context);
-  if (!context)
+  if (!context) {
     return;
+  }
   EXPECT_TRUE(context->audio_task_runner().get());
   EXPECT_TRUE(context->video_capture_task_runner().get());
   EXPECT_TRUE(context->video_encode_task_runner().get());

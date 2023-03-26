@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 #include <fuchsia/media/drm/cpp/fidl.h>
 #include <string>
 
-#include "base/callback_forward.h"
 #include "base/containers/flat_map.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/threading/thread_checker.h"
@@ -34,6 +34,8 @@ class FuchsiaCdmManager {
   // A map from key system name to its CreateKeySystemCallback.
   using CreateKeySystemCallbackMap =
       base::flat_map<std::string, CreateKeySystemCallback>;
+
+  static FuchsiaCdmManager* GetInstance();
 
   // |cdm_data_quota_bytes| is currently only applied once, when the manager is
   // created.

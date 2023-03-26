@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,7 +29,8 @@ class ShellDevToolsManagerDelegate : public DevToolsManagerDelegate {
 
   // DevToolsManagerDelegate implementation.
   BrowserContext* GetDefaultBrowserContext() override;
-  scoped_refptr<DevToolsAgentHost> CreateNewTarget(const GURL& url) override;
+  scoped_refptr<DevToolsAgentHost> CreateNewTarget(const GURL& url,
+                                                   bool for_tab) override;
   std::string GetDiscoveryPageHTML() override;
   bool HasBundledFrontendResources() override;
   void ClientAttached(
@@ -38,7 +39,7 @@ class ShellDevToolsManagerDelegate : public DevToolsManagerDelegate {
       content::DevToolsAgentHostClientChannel* channel) override;
 
  private:
-  raw_ptr<BrowserContext> browser_context_;
+  raw_ptr<BrowserContext, DanglingUntriaged> browser_context_;
   base::flat_set<content::DevToolsAgentHostClient*> clients_;
 };
 

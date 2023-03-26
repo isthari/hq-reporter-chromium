@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,6 +35,7 @@ class LenientMockPageDiscarder
  private:
   void DiscardPageNodes(
       const std::vector<const PageNode*>& page_nodes,
+      ::mojom::LifecycleUnitDiscardReason discard_reason,
       base::OnceCallback<void(bool)> post_discard_cb) override;
 };
 using MockPageDiscarder = ::testing::StrictMock<LenientMockPageDiscarder>;

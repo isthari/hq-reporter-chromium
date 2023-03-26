@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #ifndef COMPONENTS_OMNIBOX_BROWSER_ZERO_SUGGEST_VERBATIM_MATCH_PROVIDER_H_
@@ -23,8 +23,8 @@ class ZeroSuggestVerbatimMatchProvider : public AutocompleteProvider {
  public:
   explicit ZeroSuggestVerbatimMatchProvider(AutocompleteProviderClient* client);
 
+  // AutocompleteProvider:
   void Start(const AutocompleteInput& input, bool minimal_changes) override;
-  void Stop(bool clear_cached_results, bool due_to_user_inactivity) override;
 
  private:
   ~ZeroSuggestVerbatimMatchProvider() override;

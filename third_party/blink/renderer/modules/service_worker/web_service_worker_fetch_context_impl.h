@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,10 +12,16 @@
 #include "third_party/blink/public/mojom/service_worker/service_worker.mojom-forward.h"
 #include "third_party/blink/public/mojom/worker/subresource_loader_updater.mojom-blink.h"
 
+#include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/public/platform/modules/service_worker/web_service_worker_fetch_context.h"
+#include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
+
+namespace base {
+class WaitableEvent;
+}
 
 namespace blink {
 
@@ -69,8 +75,6 @@ class BLINK_EXPORT WebServiceWorkerFetchContextImpl final
   std::unique_ptr<WebSocketHandshakeThrottle> CreateWebSocketHandshakeThrottle(
       scoped_refptr<base::SingleThreadTaskRunner> task_runner) override;
   WebString GetAcceptLanguages() const override;
-  CrossVariantMojoReceiver<mojom::WorkerTimingContainerInterfaceBase>
-  TakePendingWorkerTimingReceiver(int request_id) override;
   void SetIsOfflineMode(bool) override;
 
   // mojom::blink::SubresourceLoaderUpdater implementation:

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -118,6 +118,7 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
   void CloseForEventOutsideTabStrip(TabStripUICloseAction reason);
 
   void InitializeWebView();
+  void DeinitializeWebView();
 
   // TabStripUIEmbedder:
   const ui::AcceleratorProvider* GetAcceleratorProvider() const override;
@@ -132,7 +133,6 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
                                      tab_groups::TabGroupId group) override;
   void HideEditDialogForGroup() override;
   TabStripUILayout GetLayout() override;
-  SkColor GetColor(int id) const override;
   SkColor GetColorProviderColor(ui::ColorId id) const override;
 
   // views::View:

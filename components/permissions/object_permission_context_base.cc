@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,11 @@
 
 #include <utility>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/observer_list.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/values.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
@@ -235,14 +236,15 @@ void ObjectPermissionContextBase::NotifyPermissionRevoked(
   }
 }
 
-base::Value ObjectPermissionContextBase::GetWebsiteSetting(
+base::Value::Dict ObjectPermissionContextBase::GetWebsiteSetting(
     const url::Origin& origin,
     content_settings::SettingInfo* info) {
   base::Value value = host_content_settings_map_->GetWebsiteSetting(
       origin.GetURL(), GURL(), data_content_settings_type_, info);
-  if (value.is_none())
-    return base::Value(base::Value::Type::DICTIONARY);
-  return value;
+  if (!value.is_dict()) {
+    return base::Value::Dict();
+  }
+  return std::move(value.GetDict());
 }
 
 void ObjectPermissionContextBase::SaveWebsiteSetting(
@@ -268,11 +270,11 @@ void ObjectPermissionContextBase::SaveWebsiteSetting(
   for (const auto& object : origin_objects_it->second) {
     objects_list.Append(object.second->value.Clone());
   }
-  base::Value website_setting_value(base::Value::Type::DICTIONARY);
-  website_setting_value.SetKey(kObjectListKey, std::move(objects_list));
+  base::Value::Dict website_setting_value;
+  website_setting_value.Set(kObjectListKey, std::move(objects_list));
   host_content_settings_map_->SetWebsiteSettingDefaultScope(
       origin.GetURL(), GURL(), data_content_settings_type_,
-      std::move(website_setting_value));
+      base::Value(std::move(website_setting_value)));
 }
 
 void ObjectPermissionContextBase::ScheduleSaveWebsiteSetting(
@@ -285,7 +287,7 @@ void ObjectPermissionContextBase::ScheduleSaveWebsiteSetting(
     return;
   }
 
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&ObjectPermissionContextBase::SaveWebsiteSetting,
                      weak_factory_.GetWeakPtr(), origin));
@@ -314,12 +316,12 @@ ObjectPermissionContextBase::GetWebsiteSettingObjects() {
       continue;
 
     content_settings::SettingInfo info;
-    base::Value setting = GetWebsiteSetting(origin, &info);
-    base::Value* objects = setting.FindListKey(kObjectListKey);
+    base::Value::Dict setting = GetWebsiteSetting(origin, &info);
+    base::Value::List* objects = setting.FindList(kObjectListKey);
     if (!objects)
       continue;
 
-    for (auto& object : objects->GetList()) {
+    for (auto& object : *objects) {
       if (!IsValidObject(object)) {
         continue;
       }

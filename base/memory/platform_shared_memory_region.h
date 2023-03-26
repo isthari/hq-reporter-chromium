@@ -1,27 +1,20 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef BASE_MEMORY_PLATFORM_SHARED_MEMORY_REGION_H_
 #define BASE_MEMORY_PLATFORM_SHARED_MEMORY_REGION_H_
 
+#include "base/base_export.h"
+#include "base/containers/span.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/platform_shared_memory_handle.h"
+#include "base/memory/shared_memory_mapper.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
-#if BUILDFLAG(IS_MAC)
-#include <mach/mach.h>
-#include "base/mac/scoped_mach_port.h"
-#elif BUILDFLAG(IS_FUCHSIA)
-#include <lib/zx/vmo.h>
-#elif BUILDFLAG(IS_WIN)
-#include "base/win/scoped_handle.h"
-#include "base/win/windows_types.h"
-#elif BUILDFLAG(IS_POSIX)
-#include <sys/types.h>
-#include "base/file_descriptor_posix.h"
-#include "base/files/scoped_file.h"
-#endif
+#include <stdint.h>
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 namespace content {
@@ -31,32 +24,6 @@ class SandboxIPCHandler;
 
 namespace base {
 namespace subtle {
-
-#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_ANDROID)
-// Helper structs to keep two descriptors on POSIX. It's needed to support
-// ConvertToReadOnly().
-struct BASE_EXPORT FDPair {
-  // The main shared memory descriptor that is used for mapping. May be either
-  // writable or read-only, depending on region's mode.
-  int fd;
-  // The read-only descriptor, valid only in kWritable mode. Replaces |fd| when
-  // a region is converted to read-only.
-  int readonly_fd;
-};
-
-struct BASE_EXPORT ScopedFDPair {
-  ScopedFDPair();
-  ScopedFDPair(ScopedFD in_fd, ScopedFD in_readonly_fd);
-  ScopedFDPair(ScopedFDPair&&);
-  ScopedFDPair& operator=(ScopedFDPair&&);
-  ~ScopedFDPair();
-
-  FDPair get() const;
-
-  ScopedFD fd;
-  ScopedFD readonly_fd;
-};
-#endif
 
 // Implementation class for shared memory regions.
 //
@@ -136,24 +103,6 @@ class BASE_EXPORT PlatformSharedMemoryRegion {
   };
 #endif
 
-// Platform-specific shared memory type used by this class.
-#if BUILDFLAG(IS_MAC)
-  using PlatformHandle = mach_port_t;
-  using ScopedPlatformHandle = mac::ScopedMachSendRight;
-#elif BUILDFLAG(IS_FUCHSIA)
-  using PlatformHandle = zx::unowned_vmo;
-  using ScopedPlatformHandle = zx::vmo;
-#elif BUILDFLAG(IS_WIN)
-  using PlatformHandle = HANDLE;
-  using ScopedPlatformHandle = win::ScopedHandle;
-#elif BUILDFLAG(IS_ANDROID)
-  using PlatformHandle = int;
-  using ScopedPlatformHandle = ScopedFD;
-#else
-  using PlatformHandle = FDPair;
-  using ScopedPlatformHandle = ScopedFDPair;
-#endif
-
   // The minimum alignment in bytes that any mapped address produced by Map()
   // and MapAt() is guaranteed to have.
   enum { kMapMinimumAlignment = 32 };
@@ -170,11 +119,12 @@ class BASE_EXPORT PlatformSharedMemoryRegion {
   // actual region size as allocated by the kernel.
   // Closes the |handle| and returns an invalid instance if passed parameters
   // are invalid.
-  static PlatformSharedMemoryRegion Take(ScopedPlatformHandle handle,
-                                         Mode mode,
-                                         size_t size,
-                                         const UnguessableToken& guid);
-#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_MAC)
+  static PlatformSharedMemoryRegion Take(
+      ScopedPlatformSharedMemoryHandle handle,
+      Mode mode,
+      size_t size,
+      const UnguessableToken& guid);
+#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_APPLE)
   // Specialized version of Take() for POSIX that takes only one file descriptor
   // instead of pair. Cannot be used with kWritable |mode|.
   static PlatformSharedMemoryRegion Take(ScopedFD handle,
@@ -202,11 +152,11 @@ class BASE_EXPORT PlatformSharedMemoryRegion {
   // becomes invalid. It's the responsibility of the caller to close the
   // handle. If the current instance is invalid, ScopedPlatformHandle will also
   // be invalid.
-  [[nodiscard]] ScopedPlatformHandle PassPlatformHandle();
+  [[nodiscard]] ScopedPlatformSharedMemoryHandle PassPlatformHandle();
 
   // Returns the platform handle. The current instance keeps ownership of this
   // handle.
-  PlatformHandle GetPlatformHandle() const;
+  PlatformSharedMemoryHandle GetPlatformHandle() const;
 
   // Whether the platform handle is valid.
   bool IsValid() const;
@@ -223,13 +173,13 @@ class BASE_EXPORT PlatformSharedMemoryRegion {
   // kWritable mode, all other modes will CHECK-fail. The object will have
   // kReadOnly mode after this call on success.
   bool ConvertToReadOnly();
-#if BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_APPLE)
   // Same as above, but |mapped_addr| is used as a hint to avoid additional
   // mapping of the memory object.
   // |mapped_addr| must be mapped location of |memory_object_|. If the location
   // is unknown, |mapped_addr| should be |nullptr|.
   bool ConvertToReadOnly(void* mapped_addr);
-#endif  // BUILDFLAG(IS_MAC)
+#endif  // BUILDFLAG(IS_APPLE)
 
   // Converts the region to unsafe. Returns whether the operation succeeded.
   // Makes the current instance invalid on failure. Can be called only in
@@ -238,17 +188,15 @@ class BASE_EXPORT PlatformSharedMemoryRegion {
   bool ConvertToUnsafe();
 
   // Maps |size| bytes of the shared memory region starting with the given
-  // |offset| into the caller's address space. |offset| must be aligned to value
-  // of |SysInfo::VMAllocationGranularity()|. Fails if requested bytes are out
-  // of the region limits.
-  // Returns true and sets |memory| and |mapped_size| on success, returns false
-  // and leaves output parameters in unspecified state otherwise. The mapped
-  // address is guaranteed to have an alignment of at least
-  // |kMapMinimumAlignment|.
-  bool MapAt(off_t offset,
-             size_t size,
-             void** memory,
-             size_t* mapped_size) const;
+  // |offset| into the caller's address space using the provided
+  // |SharedMemoryMapper|. |offset| must be aligned to value of
+  // |SysInfo::VMAllocationGranularity()|. Fails if requested bytes are out of
+  // the region limits. Returns the mapping as span on success, or absl::nullopt
+  // on failure. The mapped address is guaranteed to have an alignment of at
+  // least |kMapMinimumAlignment|.
+  absl::optional<span<uint8_t>> MapAt(uint64_t offset,
+                                      size_t size,
+                                      SharedMemoryMapper* mapper) const;
 
   const UnguessableToken& GetGUID() const { return guid_; }
 
@@ -270,21 +218,16 @@ class BASE_EXPORT PlatformSharedMemoryRegion {
   );
 
   static bool CheckPlatformHandlePermissionsCorrespondToMode(
-      PlatformHandle handle,
+      PlatformSharedMemoryHandle handle,
       Mode mode,
       size_t size);
 
-  PlatformSharedMemoryRegion(ScopedPlatformHandle handle,
+  PlatformSharedMemoryRegion(ScopedPlatformSharedMemoryHandle handle,
                              Mode mode,
                              size_t size,
                              const UnguessableToken& guid);
 
-  bool MapAtInternal(off_t offset,
-                     size_t size,
-                     void** memory,
-                     size_t* mapped_size) const;
-
-  ScopedPlatformHandle handle_;
+  ScopedPlatformSharedMemoryHandle handle_;
   Mode mode_ = Mode::kReadOnly;
   size_t size_ = 0;
   UnguessableToken guid_;

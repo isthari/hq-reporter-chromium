@@ -1,11 +1,10 @@
-# Copyright (c) 2012 The Chromium Authors. All rights reserved.
+# Copyright 2012 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 '''The 'grit build' tool.
 '''
 
-from __future__ import print_function
 
 import collections
 import codecs
@@ -15,8 +14,6 @@ import gzip
 import os
 import shutil
 import sys
-
-import six
 
 from grit import grd_reader
 from grit import shortcuts
@@ -340,7 +337,7 @@ are exported to translation interchange files (e.g. XMB files), etc.
     # inefficient to call write once per character/byte.  Handle all of this
     # ourselves by calling write directly on strings/bytes before falling back
     # to writelines.
-    if isinstance(formatted, (six.string_types, six.binary_type)):
+    if isinstance(formatted, ((str,), bytes)):
       outfile.write(formatted)
     else:
       outfile.writelines(formatted)
@@ -448,8 +445,7 @@ are exported to translation interchange files (e.g. XMB files), etc.
     # Print out any fallback warnings, and missing translation errors, and
     # exit with an error code if there are missing translations in a non-pseudo
     # and non-official build.
-    warnings = (self.res.UberClique().MissingTranslationsReport().
-        encode('ascii', 'replace'))
+    warnings = self.res.UberClique().MissingTranslationsReport()
     if warnings:
       self.VerboseOut(warnings)
     if self.res.UberClique().HasMissingTranslations():
@@ -479,10 +475,6 @@ are exported to translation interchange files (e.g. XMB files), etc.
       ]
       error = '''Asserted file list does not match.
 
-Expected output files:
-%s
-Actual output files:
-%s
 Missing output files:
 %s
 Extra output files:
@@ -490,8 +482,8 @@ Extra output files:
 Duplicate actual output files:
 %s
 '''
-      print(error % ('\n'.join(asserted), '\n'.join(actual), '\n'.join(missing),
-                     '\n'.join(extra), '\n'.join(duplicates)))
+      print(error %
+            ('\n'.join(missing), '\n'.join(extra), '\n'.join(duplicates)))
       return False
     return True
 

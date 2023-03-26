@@ -1,13 +1,13 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/containers/intrusive_heap.h"
 
-#include "base/callback_helpers.h"
 #include "base/check_op.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/notreached.h"
 #include "base/rand_util.h"
 #include "base/test/bind.h"
@@ -69,7 +69,7 @@ void ExpectCanonical(const IntrusiveHeapInt& heap) {
 void MakeCanonical(IntrusiveHeapInt* heap) {
   static constexpr int kInts[] = {CANONICAL_ELEMENTS};
   heap->clear();
-  heap->insert(kInts, kInts + base::size(kInts));
+  heap->insert(kInts, kInts + std::size(kInts));
   ExpectCanonical(*heap);
 }
 
@@ -527,7 +527,9 @@ void ValidateValueType() {
 // the contract expected of the DefaultHeapHandleAccessor.
 struct TestElement {
   int key;
-  HeapHandle* handle;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #reinterpret-cast-trivial-type
+  RAW_PTR_EXCLUSION HeapHandle* handle;
 
   // Make this a min-heap by return > instead of <.
   bool operator<(const TestElement& other) const { return key > other.key; }

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@
 
   SDK.targetManager.observeTargets({
     targetAdded: async function(target) {
-      if (target.name() === 'Main')
+      if (target === SDK.targetManager.mainTarget() || target === SDK.targetManager.mainFrameTarget())
         return;
       let complete = false;
       target.pageAgent().setLifecycleEventsEnabled(true);

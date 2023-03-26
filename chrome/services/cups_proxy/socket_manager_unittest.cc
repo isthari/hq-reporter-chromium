@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,10 @@
 
 #include "base/files/file_util.h"
 #include "base/path_service.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/test/task_environment.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "chrome/common/chrome_paths.h"
@@ -95,7 +96,7 @@ class FakeSocket : public net::UnixDomainClientSocket {
     }
 
     // Async
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&FakeSocket::OnAsyncCallback, base::Unretained(this),
                        std::move(callback), net::OK));
@@ -120,7 +121,7 @@ class FakeSocket : public net::UnixDomainClientSocket {
     }
 
     // Async
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&FakeSocket::OnAsyncCallback, base::Unretained(this),
                        std::move(callback), num_to_read));
@@ -151,7 +152,7 @@ class FakeSocket : public net::UnixDomainClientSocket {
     }
 
     // Async
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&FakeSocket::OnAsyncCallback, base::Unretained(this),
                        std::move(callback), num_to_write));

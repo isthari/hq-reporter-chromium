@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,7 @@ class ASH_EXPORT AshNotificationInputContainer
   ~AshNotificationInputContainer() override;
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(AshNotificationViewTest, ButtonStateUpdated);
   // message_center::NotificationInputContainer:
   views::BoxLayout* InstallLayoutManager() override;
   views::InkDropContainerView* InstallInkDrop() override;
@@ -33,6 +34,8 @@ class ASH_EXPORT AshNotificationInputContainer
   gfx::Insets GetSendButtonPadding() const override;
   void SetSendButtonHighlightPath() override;
   void UpdateButtonImage() override;
+  void UpdateButtonState();
+  bool IsInputEmpty();
 
   // views::View:
   void OnThemeChanged() override;

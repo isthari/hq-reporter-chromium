@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,8 +30,6 @@ CRWNavigationItemStorage* NavigationItemStorageBuilder::BuildStorage(
   storage.timestamp = navigation_item.GetTimestamp();
   storage.title = navigation_item.GetTitle();
   storage.displayState = navigation_item.GetPageDisplayState();
-  storage.shouldSkipRepostFormConfirmation =
-      navigation_item.ShouldSkipRepostFormConfirmation();
   storage.userAgentType = navigation_item.GetUserAgentType();
   storage.HTTPRequestHeaders = navigation_item.GetHttpRequestHeaders();
   return storage;
@@ -44,7 +42,7 @@ NavigationItemStorageBuilder::BuildNavigationItemImpl(
   std::unique_ptr<NavigationItemImpl> item(new web::NavigationItemImpl());
   // While the virtual URL is persisted, we still need the original request URL
   // and the non-virtual URL to be set upon NavigationItem creation.  Since
-  // GetVirtualURL() returns |url_| for the non-overridden case, this will also
+  // GetVirtualURL() returns `url_` for the non-overridden case, this will also
   // update the virtual URL reported by this object.
   item->original_request_url_ = navigation_item_storage.URL;
 
@@ -64,8 +62,6 @@ NavigationItemStorageBuilder::BuildNavigationItemImpl(
   item->timestamp_ = navigation_item_storage.timestamp;
   item->title_ = navigation_item_storage.title;
   item->page_display_state_ = navigation_item_storage.displayState;
-  item->should_skip_repost_form_confirmation_ =
-      navigation_item_storage.shouldSkipRepostFormConfirmation;
   // Use reload transition type to avoid incorrect increase for typed count.
   item->transition_type_ = ui::PAGE_TRANSITION_RELOAD;
   item->user_agent_type_ = navigation_item_storage.userAgentType;

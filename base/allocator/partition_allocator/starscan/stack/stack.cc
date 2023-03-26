@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include <cstdint>
 #include <limits>
 
+#include "base/allocator/partition_allocator/partition_alloc_base/compiler_specific.h"
 #include "base/allocator/partition_allocator/partition_alloc_check.h"
-#include "base/compiler_specific.h"
 #include "build/build_config.h"
 
 #if BUILDFLAG(IS_WIN)
@@ -21,8 +21,7 @@
 extern "C" void* __libc_stack_end;
 #endif
 
-namespace base {
-namespace internal {
+namespace partition_alloc::internal {
 
 #if BUILDFLAG(IS_WIN)
 
@@ -88,7 +87,7 @@ Stack::Stack(void* stack_top) : stack_top_(stack_top) {
   PA_DCHECK(stack_top);
 }
 
-NOINLINE uintptr_t* GetStackPointer() {
+PA_NOINLINE uintptr_t* GetStackPointer() {
   return reinterpret_cast<uintptr_t*>(__builtin_frame_address(0));
 }
 
@@ -117,7 +116,7 @@ namespace {
 // should never be inlined to ensure that a possible redzone cannot contain
 // any data that needs to be scanned.
 // No ASAN support as method accesses redzones while walking the stack.
-[[maybe_unused]] NOINLINE NO_SANITIZE("address") void IteratePointersImpl(
+[[maybe_unused]] PA_NOINLINE PA_NO_SANITIZE("address") void IteratePointersImpl(
     const Stack* stack,
     StackVisitor* visitor,
     uintptr_t* stack_ptr) {
@@ -144,5 +143,4 @@ void Stack::IteratePointers(StackVisitor* visitor) const {
 #endif
 }
 
-}  // namespace internal
-}  // namespace base
+}  // namespace partition_alloc::internal

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "base/cancelable_callback.h"
 #include "base/memory/raw_ptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "chrome/browser/vr/browser_renderer.h"
 #include "chrome/browser/vr/model/capturing_state_model.h"
@@ -33,7 +34,7 @@ class VR_EXPORT VRBrowserRendererThreadWin {
       device::mojom::XRCompositorHost* compositor);
   ~VRBrowserRendererThreadWin();
 
-  void SetVRDisplayInfo(device::mojom::VRDisplayInfoPtr display_info);
+  void SetDefaultXrViews(const std::vector<device::mojom::XRViewPtr>& views);
   void SetLocationInfo(GURL gurl);
   void SetWebXrPresenting(bool presenting);
   void SetFramesThrottled(bool throttled);
@@ -95,11 +96,11 @@ class VR_EXPORT VRBrowserRendererThreadWin {
   std::unique_ptr<SchedulerDelegateWin> scheduler_delegate_win_;
 
   // Raw pointers to objects owned by browser_renderer_:
-  raw_ptr<InputDelegateWin> input_ = nullptr;
-  raw_ptr<GraphicsDelegateWin> graphics_ = nullptr;
-  raw_ptr<SchedulerDelegateWin> scheduler_ = nullptr;
-  raw_ptr<BrowserUiInterface> ui_ = nullptr;
-  raw_ptr<SchedulerUiInterface> scheduler_ui_ = nullptr;
+  raw_ptr<InputDelegateWin, DanglingUntriaged> input_ = nullptr;
+  raw_ptr<GraphicsDelegateWin, DanglingUntriaged> graphics_ = nullptr;
+  raw_ptr<SchedulerDelegateWin, DanglingUntriaged> scheduler_ = nullptr;
+  raw_ptr<BrowserUiInterface, DanglingUntriaged> ui_ = nullptr;
+  raw_ptr<SchedulerUiInterface, DanglingUntriaged> scheduler_ui_ = nullptr;
 
   // Owned by vr_ui_host:
   raw_ptr<device::mojom::XRCompositorHost> compositor_;
@@ -112,9 +113,9 @@ class VR_EXPORT VRBrowserRendererThreadWin {
   bool waiting_for_webxr_frame_ = false;
   bool frames_throttled_ = false;
   int current_request_id_ = 0;
+  std::vector<device::mojom::XRViewPtr> default_views_;
 
   mojo::Remote<device::mojom::ImmersiveOverlay> overlay_;
-  device::mojom::VRDisplayInfoPtr display_info_;
 
   base::CancelableOnceClosure webxr_frame_timeout_closure_;
   base::CancelableOnceClosure webxr_spinner_timeout_closure_;

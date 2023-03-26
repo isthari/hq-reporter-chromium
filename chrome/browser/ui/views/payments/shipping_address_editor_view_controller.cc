@@ -1,13 +1,13 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/payments/shipping_address_editor_view_controller.h"
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/ui/views/payments/payment_request_dialog_view.h"
 #include "chrome/browser/ui/views/payments/payment_request_dialog_view_ids.h"
 #include "chrome/browser/ui/views/payments/validating_combobox.h"
@@ -179,10 +179,9 @@ void ShippingAddressEditorViewController::OnPerformAction(
   EditorViewController::OnPerformAction(sender);
   if (sender->GetID() != GetInputFieldViewId(autofill::ADDRESS_HOME_COUNTRY))
     return;
-  DCHECK_GE(sender->GetSelectedIndex(), 0);
-  if (chosen_country_index_ !=
-      static_cast<size_t>(sender->GetSelectedIndex())) {
-    chosen_country_index_ = sender->GetSelectedIndex();
+  DCHECK(sender->GetSelectedIndex().has_value());
+  if (chosen_country_index_ != sender->GetSelectedIndex()) {
+    chosen_country_index_ = sender->GetSelectedIndex().value();
     failed_to_load_region_data_ = false;
     // View update must be asynchronous to let the combobox finish performing
     // the action.
@@ -199,8 +198,7 @@ void ShippingAddressEditorViewController::UpdateEditorView() {
         static_cast<views::Combobox*>(dialog()->GetViewByID(
             GetInputFieldViewId(autofill::ADDRESS_HOME_COUNTRY)));
     DCHECK(country_combo_box);
-    DCHECK_EQ(countries_.size(),
-              static_cast<size_t>(country_combo_box->GetRowCount()));
+    DCHECK_EQ(countries_.size(), country_combo_box->GetRowCount());
     country_combo_box->SetSelectedIndex(chosen_country_index_);
   } else if (countries_.size() > 0UL) {
     chosen_country_index_ = 0UL;
@@ -214,6 +212,11 @@ std::u16string ShippingAddressEditorViewController::GetSheetTitle() {
   // in the case that one or more fields are missing.
   return profile_to_edit_ ? l10n_util::GetStringUTF16(IDS_PAYMENTS_EDIT_ADDRESS)
                           : l10n_util::GetStringUTF16(IDS_PAYMENTS_ADD_ADDRESS);
+}
+
+base::WeakPtr<PaymentRequestSheetController>
+ShippingAddressEditorViewController::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
 }
 
 int ShippingAddressEditorViewController::GetPrimaryButtonId() {
@@ -255,8 +258,9 @@ bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
 bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
     IsValidCombobox(ValidatingCombobox* combobox,
                     std::u16string* error_message) {
-  return ValidateValue(combobox->GetTextForRow(combobox->GetSelectedIndex()),
-                       error_message);
+  return ValidateValue(
+      combobox->GetTextForRow(combobox->GetSelectedIndex().value()),
+      error_message);
 }
 
 bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
@@ -274,7 +278,8 @@ bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
     ComboboxValueChanged(ValidatingCombobox* combobox) {
   std::u16string error_message;
   bool is_valid = ValidateValue(
-      combobox->GetTextForRow(combobox->GetSelectedIndex()), &error_message);
+      combobox->GetTextForRow(combobox->GetSelectedIndex().value()),
+      &error_message);
   controller_->DisplayErrorMessageForField(field_.type, error_message);
   return is_valid;
 }
@@ -454,7 +459,7 @@ void ShippingAddressEditorViewController::UpdateEditorFields() {
               : EditorField::LengthHint::HINT_SHORT;
 
       autofill::ServerFieldType server_field_type =
-          autofill::AddressFieldToServerFieldType(component.field);
+          autofill::i18n::TypeForField(component.field);
 
       EditorField::ControlType control_type =
           EditorField::ControlType::TEXTFIELD;
@@ -490,7 +495,7 @@ void ShippingAddressEditorViewController::OnDataChanged(bool synchronous) {
   if (synchronous) {
     UpdateEditorView();
   } else {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&ShippingAddressEditorViewController::UpdateEditorView,
                        weak_ptr_factory_.GetWeakPtr()));
@@ -510,7 +515,7 @@ bool ShippingAddressEditorViewController::SaveFieldsToProfile(
   // the view.
   if (combobox) {
     std::u16string country(
-        combobox->GetTextForRow(combobox->GetSelectedIndex()));
+        combobox->GetTextForRow(combobox->GetSelectedIndex().value()));
     bool success =
         profile->SetInfo(autofill::ADDRESS_HOME_COUNTRY, country, locale);
     LOG_IF(ERROR, !success && !ignore_errors)
@@ -542,17 +547,18 @@ bool ShippingAddressEditorViewController::SaveFieldsToProfile(
         GetInputFieldViewId(autofill::ADDRESS_HOME_COUNTRY))
       continue;
     if (validating_combobox->IsValid()) {
-      success = profile->SetInfo(field.second.type,
-                                 validating_combobox->GetTextForRow(
-                                     validating_combobox->GetSelectedIndex()),
-                                 locale);
+      success =
+          profile->SetInfo(field.second.type,
+                           validating_combobox->GetTextForRow(
+                               validating_combobox->GetSelectedIndex().value()),
+                           locale);
     } else {
       success = false;
     }
     LOG_IF(ERROR, !success && !ignore_errors)
         << "Can't setinfo(" << field.second.type << ", "
         << validating_combobox->GetTextForRow(
-               validating_combobox->GetSelectedIndex());
+               validating_combobox->GetSelectedIndex().value());
     if (!success && !ignore_errors)
       return false;
   }

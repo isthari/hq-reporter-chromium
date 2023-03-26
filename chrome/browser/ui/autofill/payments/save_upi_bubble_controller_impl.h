@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,7 +42,7 @@ class SaveUPIBubbleControllerImpl
   void ShowBubble();
 
   // Weak reference. Will be nullptr if no bubble is currently shown.
-  raw_ptr<SaveUPIBubble> save_upi_bubble_ = nullptr;
+  raw_ptr<SaveUPIBubble, DanglingUntriaged> save_upi_bubble_ = nullptr;
 
   base::OnceCallback<void(bool accept)> save_upi_prompt_callback_;
 

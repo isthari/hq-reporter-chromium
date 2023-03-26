@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/run_loop.h"
 #include "base/time/time.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
@@ -34,7 +35,9 @@ class MockDevToolsObserver : public mojom::DevToolsObserver {
       const net::CookieAccessResultList& cookies_with_access_result,
       std::vector<network::mojom::HttpRawHeaderPairPtr> headers,
       const base::TimeTicks timestamp,
-      network::mojom::ClientSecurityStatePtr client_security_state) override;
+      network::mojom::ClientSecurityStatePtr client_security_state,
+      network::mojom::OtherPartitionInfoPtr site_has_cookie_in_other_partition)
+      override;
 
   void OnRawResponse(
       const std::string& devtools_request_id,
@@ -42,7 +45,9 @@ class MockDevToolsObserver : public mojom::DevToolsObserver {
       std::vector<network::mojom::HttpRawHeaderPairPtr> headers,
       const absl::optional<std::string>& raw_response_headers,
       network::mojom::IPAddressSpace resource_address_space,
-      int32_t http_status_code) override;
+      int32_t http_status_code,
+      const absl::optional<net::CookiePartitionKey>& cookie_partition_key)
+      override;
 
   void OnPrivateNetworkRequest(
       const absl::optional<std::string>& devtools_request_id,
@@ -122,6 +127,11 @@ class MockDevToolsObserver : public mojom::DevToolsObserver {
 
   const std::string devtools_request_id() { return devtools_request_id_; }
 
+  const std::vector<network::mojom::HttpRawHeaderPairPtr>& response_headers()
+      const {
+    return response_headers_;
+  }
+
   const absl::optional<std::string> raw_response_headers() const {
     return raw_response_headers_;
   }
@@ -177,6 +187,11 @@ class MockDevToolsObserver : public mojom::DevToolsObserver {
     return params_of_cors_error_;
   }
 
+  const absl::optional<net::CookiePartitionKey>& response_cookie_partition_key()
+      const {
+    return response_cookie_partition_key_;
+  }
+
  private:
   net::CookieAndLineAccessResultList raw_response_cookies_;
   base::OnceClosure wait_for_raw_response_;
@@ -185,6 +200,7 @@ class MockDevToolsObserver : public mojom::DevToolsObserver {
   network::mojom::IPAddressSpace resource_address_space_;
   std::string devtools_request_id_;
   absl::optional<std::string> raw_response_headers_;
+  std::vector<network::mojom::HttpRawHeaderPairPtr> response_headers_;
   int32_t raw_response_http_status_code_ = -1;
 
   bool got_raw_request_ = false;
@@ -201,6 +217,8 @@ class MockDevToolsObserver : public mojom::DevToolsObserver {
   absl::optional<OnCorsErrorParams> params_of_cors_error_;
 
   mojo::ReceiverSet<mojom::DevToolsObserver> receivers_;
+
+  absl::optional<net::CookiePartitionKey> response_cookie_partition_key_;
 };
 
 }  // namespace network

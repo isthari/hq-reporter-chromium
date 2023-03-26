@@ -1,31 +1,33 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/overlay/close_image_button.h"
 
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/ui/views/overlay/constants.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
-#include "ui/gfx/color_palette.h"
+#include "ui/base/models/image_model.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/vector_icons.h"
 
 namespace {
 
-constexpr int kCloseButtonMargin = 8;
-constexpr int kCloseButtonSize = 16;
+constexpr int kCloseButtonMargin = 4;
+constexpr int kCloseButtonSize = 24;
+constexpr int kCloseButtonIconSize = 16;
 
 }  // namespace
 
 CloseImageButton::CloseImageButton(PressedCallback callback)
     : OverlayWindowImageButton(std::move(callback)) {
   SetSize(gfx::Size(kCloseButtonSize, kCloseButtonSize));
-  SetImage(views::Button::STATE_NORMAL,
-           gfx::CreateVectorIcon(views::kIcCloseIcon, kCloseButtonSize,
-                                 kPipWindowIconColor));
+  SetImageModel(views::Button::STATE_NORMAL,
+                ui::ImageModel::FromVectorIcon(views::kIcCloseIcon,
+                                               kColorPipWindowForeground,
+                                               kCloseButtonIconSize));
 
   // Accessibility.
   const std::u16string close_button_label(
@@ -36,9 +38,9 @@ CloseImageButton::CloseImageButton(PressedCallback callback)
 
 void CloseImageButton::SetPosition(
     const gfx::Size& size,
-    OverlayWindowViews::WindowQuadrant quadrant) {
+    VideoOverlayWindowViews::WindowQuadrant quadrant) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  if (quadrant == OverlayWindowViews::WindowQuadrant::kBottomLeft) {
+  if (quadrant == VideoOverlayWindowViews::WindowQuadrant::kBottomLeft) {
     views::ImageButton::SetPosition(
         gfx::Point(kCloseButtonMargin, kCloseButtonMargin));
     return;

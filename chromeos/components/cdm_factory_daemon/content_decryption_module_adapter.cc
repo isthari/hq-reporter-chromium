@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,12 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
+#include "chromeos/components/cdm_factory_daemon/chromeos_cdm_factory.h"
 #include "media/base/cdm_promise.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/eme_constants.h"
@@ -44,7 +46,7 @@ ContentDecryptionModuleAdapter::ContentDecryptionModuleAdapter(
       session_closed_cb_(session_closed_cb),
       session_keys_change_cb_(session_keys_change_cb),
       session_expiration_update_cb_(session_expiration_update_cb),
-      mojo_task_runner_(base::SequencedTaskRunnerHandle::Get()) {
+      mojo_task_runner_(base::SequencedTaskRunner::GetCurrentDefault()) {
   DVLOG(1) << "Created ContentDecryptionModuleAdapter";
   cros_cdm_remote_.set_disconnect_handler(
       base::BindOnce(&ContentDecryptionModuleAdapter::OnConnectionError,
@@ -239,12 +241,26 @@ void ContentDecryptionModuleAdapter::GetHwKeyDataInternal(
                                  std::move(callback));
 }
 
+void ContentDecryptionModuleAdapter::GetHwConfigData(
+    GetHwConfigDataCB callback) {
+  ChromeOsCdmFactory::GetHwConfigData(std::move(callback));
+}
+
+void ContentDecryptionModuleAdapter::GetScreenResolutions(
+    GetScreenResolutionsCB callback) {
+  ChromeOsCdmFactory::GetScreenResolutions(std::move(callback));
+}
+
 std::unique_ptr<media::CdmContextRef>
 ContentDecryptionModuleAdapter::GetCdmContextRef() {
   return std::make_unique<media::CdmContextRefImpl>(base::WrapRefCounted(this));
 }
 
 bool ContentDecryptionModuleAdapter::UsingArcCdm() const {
+  return false;
+}
+
+bool ContentDecryptionModuleAdapter::IsRemoteCdm() const {
   return false;
 }
 

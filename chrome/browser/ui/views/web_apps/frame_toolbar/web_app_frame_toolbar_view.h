@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,6 @@
 namespace views {
 class View;
 class ViewTargeterDelegate;
-class Widget;
 }  // namespace views
 
 class BrowserView;
@@ -35,7 +34,7 @@ class WebAppFrameToolbarView : public views::AccessiblePaneView,
                                public views::ViewTargeterDelegate {
  public:
   METADATA_HEADER(WebAppFrameToolbarView);
-  WebAppFrameToolbarView(views::Widget* widget, BrowserView* browser_view);
+  explicit WebAppFrameToolbarView(BrowserView* browser_view);
   WebAppFrameToolbarView(const WebAppFrameToolbarView&) = delete;
   WebAppFrameToolbarView& operator=(const WebAppFrameToolbarView&) = delete;
   ~WebAppFrameToolbarView() override;
@@ -56,6 +55,7 @@ class WebAppFrameToolbarView : public views::AccessiblePaneView,
                                         int trailing_x,
                                         int y,
                                         int available_height);
+  gfx::Rect LayoutInContainer(gfx::Rect available_space);
 
   // Sets own bounds within the available_space.
   void LayoutForWindowControlsOverlay(gfx::Rect available_space);
@@ -79,12 +79,15 @@ class WebAppFrameToolbarView : public views::AccessiblePaneView,
   AvatarToolbarButton* GetAvatarToolbarButton() override;
   ToolbarButton* GetBackButton() override;
   ReloadButton* GetReloadButton() override;
+  IntentChipButton* GetIntentChipButton() override;
+  DownloadToolbarButtonView* GetDownloadButton() override;
 
   // views::ViewTargeterDelegate
   bool DoesIntersectRect(const View* target,
                          const gfx::Rect& rect) const override;
 
   void OnWindowControlsOverlayEnabledChanged();
+  void UpdateBorderlessModeEnabled();
   void SetWindowControlsOverlayToggleVisible(bool visible);
 
   WebAppNavigationButtonContainer* get_left_container_for_testing() {

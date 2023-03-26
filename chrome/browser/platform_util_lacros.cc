@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/platform_util.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/notreached.h"
 #include "chrome/browser/platform_util_internal.h"
@@ -71,7 +71,7 @@ void ShowItemInFolder(Profile* profile, const base::FilePath& full_path) {
       full_path, base::BindOnce(&OnOpenResult, full_path));
 }
 
-void OpenExternal(Profile* profile, const GURL& url) {
+void OpenExternal(const GURL& url) {
   // TODO(https://crbug.com/1140585): Add crosapi for opening links with
   // external protocol handlers.
   NOTIMPLEMENTED();

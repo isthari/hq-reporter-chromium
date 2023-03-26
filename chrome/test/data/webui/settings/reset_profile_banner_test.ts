@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,7 @@ suite('BannerTests', function() {
   setup(function() {
     browserProxy = new TestResetBrowserProxy();
     ResetBrowserProxyImpl.setInstance(browserProxy);
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     resetBanner = document.createElement('settings-reset-profile-banner');
     document.body.appendChild(resetBanner);
     assertTrue(resetBanner.$.dialog.open);
@@ -39,10 +39,9 @@ suite('BannerTests', function() {
 
   // Tests that the reset profile banner closes itself when the OK button is
   // clicked and that |onHideResetProfileBanner| is called.
-  test('ResetBannerOk', function() {
+  test('ResetBannerOk', async function() {
     resetBanner.$.ok.click();
-    return browserProxy.whenCalled('onHideResetProfileBanner').then(function() {
-      assertFalse(resetBanner.$.dialog.open);
-    });
+    await browserProxy.whenCalled('onHideResetProfileBanner');
+    assertFalse(resetBanner.$.dialog.open);
   });
 });

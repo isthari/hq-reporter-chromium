@@ -1,8 +1,28 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-/* #js_imports_placeholder */
+import '//resources/polymer/v3_0/paper-styles/color.js';
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '../../components/oobe_icons.html.js';
+import '../../components/oobe_i18n_dropdown.js';
+import '../../components/buttons/oobe_back_button.js';
+import '../../components/buttons/oobe_text_button.js';
+import '../../components/common_styles/oobe_common_styles.css.js';
+import '../../components/common_styles/oobe_dialog_host_styles.css.js';
+import '../../components/dialogs/oobe_adaptive_dialog.js';
+
+import {assert} from '//resources/ash/common/assert.js';
+import {I18nBehavior} from '//resources/ash/common/i18n_behavior.js';
+import {loadTimeData} from '//resources/ash/common/load_time_data.m.js';
+import {html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.js';
+import {OobeDialogHostBehavior} from '../../components/behaviors/oobe_dialog_host_behavior.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
+import {OobeTypes} from '../../components/oobe_types.js';
+import {Oobe} from '../../cr_ui.js';
+
 
 /**
  * @constructor
@@ -10,9 +30,9 @@
  * @implements {LoginScreenBehaviorInterface}
  * @implements {OobeI18nBehaviorInterface}
  */
-const DemoPreferencesScreenBase = Polymer.mixinBehaviors(
+const DemoPreferencesScreenBase = mixinBehaviors(
     [OobeI18nBehavior, OobeDialogHostBehavior, LoginScreenBehavior],
-    Polymer.Element);
+    PolymerElement);
 
 /**
  * @polymer
@@ -22,7 +42,9 @@ class DemoPreferencesScreen extends DemoPreferencesScreenBase {
     return 'demo-preferences-element';
   }
 
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   static get properties() {
     return {
@@ -31,14 +53,6 @@ class DemoPreferencesScreen extends DemoPreferencesScreenBase {
        * @type {!Array<!OobeTypes.LanguageDsc>}
        */
       languages: {
-        type: Array,
-      },
-
-      /**
-       * List of keyboards for keyboard selector dropdown.
-       * @type {!Array<!OobeTypes.IMEDsc>}
-       */
-      keyboards: {
         type: Array,
       },
 
@@ -57,6 +71,42 @@ class DemoPreferencesScreen extends DemoPreferencesScreenBase {
       is_country_selected_: {
         type: Boolean,
         value: false,
+      },
+
+      /**
+       * Indicates whether the next button is enabled and the user can continue.
+       * @private {boolean}
+       */
+      user_can_continue_: {
+        type: Boolean,
+        value: false,
+        reflectToAttribute: true,
+        computed: `userCanContinue_(retailer_name_input_,
+                                    store_number_input_,
+                                    is_country_selected_)`,
+      },
+
+      retailer_name_input_: {
+        type: String,
+        value: '',
+      },
+
+      store_number_input_: {
+        type: String,
+        value: '',
+      },
+
+      /**
+       * Indicates whether the string entered for store_number_input_ is
+       * invalid. Note that we have to use a negative boolean here so that we
+       * can style the helper text based on this value.
+       * @private {boolean}
+       */
+      store_number_input_invalid_: {
+        type: Boolean,
+        value: false,
+        reflectToAttribute: true,
+        computed: 'isStoreNumberInputInvalid_(store_number_input_)',
       },
     };
   }
@@ -80,16 +130,14 @@ class DemoPreferencesScreen extends DemoPreferencesScreenBase {
   /** @override */
   ready() {
     super.ready();
-    this.initializeLoginScreen('DemoPreferencesScreen', {
-      resetAllowed: false,
-    });
+    this.initializeLoginScreen('DemoPreferencesScreen');
     this.updateLocalizedContent();
   }
 
   /** Overridden from LoginScreenBehavior. */
   // clang-format off
   get EXTERNAL_API() {
-    return ['setSelectedKeyboard'];
+    return [];
   }
   // clang-format on
 
@@ -105,11 +153,13 @@ class DemoPreferencesScreen extends DemoPreferencesScreenBase {
 
   /** Called when dialog is shown for the first time */
   applyOobeConfiguration_() {
-    if (this.configuration_applied_)
+    if (this.configuration_applied_) {
       return;
+    }
     const configuration = Oobe.getInstance().getOobeConfiguration();
-    if (!configuration)
+    if (!configuration) {
       return;
+    }
     if (configuration.demoPreferencesNext) {
       this.onNextClicked_();
     }
@@ -123,36 +173,11 @@ class DemoPreferencesScreen extends DemoPreferencesScreenBase {
         loadTimeData.getValue('languageList'));
     this.setLanguageList_(languageList);
 
-    const inputMethodsList = /** @type {!Array<OobeTypes.IMEDsc>} */ (
-        loadTimeData.getValue('inputMethodsList'));
-    this.setInputMethods_(inputMethodsList);
-
     const countryList = /** @type {!Array<OobeTypes.DemoCountryDsc>} */ (
         loadTimeData.getValue('demoModeCountryList'));
     this.setCountryList_(countryList);
 
     this.i18nUpdateLocale();
-  }
-
-  /**
-   * Sets selected keyboard.
-   * @param {string} keyboardId
-   */
-  setSelectedKeyboard(keyboardId) {
-    let found = false;
-    for (let keyboard of this.keyboards) {
-      if (keyboard.value != keyboardId) {
-        keyboard.selected = false;
-        continue;
-      }
-      keyboard.selected = true;
-      found = true;
-    }
-    if (!found)
-      return;
-
-    // Force i18n-dropdown to refresh.
-    this.keyboards = this.keyboards.slice();
   }
 
   /**
@@ -165,15 +190,6 @@ class DemoPreferencesScreen extends DemoPreferencesScreenBase {
   }
 
   /**
-   * Sets input methods.
-   * @param {!Array<!OobeTypes.IMEDsc>} inputMethods
-   * @private
-   */
-  setInputMethods_(inputMethods) {
-    this.keyboards = inputMethods;
-  }
-
-  /**
    * Sets country list.
    * @param {!Array<!OobeTypes.DemoCountryDsc>} countries
    * @private
@@ -182,7 +198,7 @@ class DemoPreferencesScreen extends DemoPreferencesScreenBase {
     this.countries = countries;
     this.$.countryDropdownContainer.hidden = countries.length == 0;
     for (let i = 0; i < countries.length; ++i) {
-      let country = countries[i];
+      const country = countries[i];
       if (country.selected && country.value !== this.country_not_selected_id_) {
         this.is_country_selected_ = true;
         return;
@@ -191,23 +207,27 @@ class DemoPreferencesScreen extends DemoPreferencesScreenBase {
   }
 
   /**
-   * Handle language selection.
-   * @param {!CustomEvent<!OobeTypes.LanguageDsc>} event
+   * Determines whether the Next button is enabled and the user may continue.
+   * Based on the country, retailer name, and store number preferences being
+   * correctly set.
+   *
    * @private
    */
-  onLanguageSelected_(event) {
-    const languageId = event.detail.value;
-    chrome.send('DemoPreferencesScreen.setLocaleId', [languageId]);
+  userCanContinue_(
+      retailer_name_input_, store_number_input_, is_country_selected_) {
+    return retailer_name_input_ &&
+        RegExp('^[0-9]+$').test(store_number_input_) && is_country_selected_;
   }
 
   /**
-   * Handle keyboard layout selection.
-   * @param {!CustomEvent<!OobeTypes.IMEDsc>} event
+   * Validates store number input for styling the input helper text. Note we
+   * only consider the input invalid if it's nonempty, thus the different
+   * pattern than in {@link userCanContinue_}
+   *
    * @private
    */
-  onKeyboardSelected_(event) {
-    const inputMethodId = event.detail.value;
-    chrome.send('DemoPreferencesScreen.setInputMethodId', [inputMethodId]);
+  isStoreNumberInputInvalid_(store_number_input_) {
+    return !RegExp('^[0-9]*$').test(store_number_input_);
   }
 
   /**
@@ -216,10 +236,18 @@ class DemoPreferencesScreen extends DemoPreferencesScreenBase {
    * @private
    */
   onCountrySelected_(event) {
-    chrome.send(
-        'DemoPreferencesScreen.setDemoModeCountry', [event.detail.value]);
+    this.userActed(['set-demo-mode-country', event.detail.value]);
     this.is_country_selected_ =
         event.detail.value !== this.country_not_selected_id_;
+  }
+
+  onInputKeyDown_(e) {
+    if (e.key == 'Enter' &&
+        this.userCanContinue_(
+            this.retailer_name_input_, this.store_number_input_,
+            this.is_country_selected_)) {
+      this.onNextClicked_();
+    }
   }
 
   /**
@@ -235,7 +263,11 @@ class DemoPreferencesScreen extends DemoPreferencesScreenBase {
    * @private
    */
   onNextClicked_() {
-    this.userActed('continue-setup');
+    this.userActed([
+      'continue-setup',
+      this.retailer_name_input_,
+      this.store_number_input_,
+    ]);
   }
 }
 

@@ -1,11 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback_forward.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_forward.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/token.h"
 #include "build/chromeos_buildflags.h"
 #include "content/browser/renderer_host/media/fake_video_capture_device_launcher.h"
@@ -44,18 +45,18 @@ class FakeLaunchedVideoCaptureDevice
   void MaybeSuspendDevice() override { device_->MaybeSuspend(); }
   void ResumeDevice() override { device_->Resume(); }
   void Crop(const base::Token& crop_id,
+            uint32_t crop_version,
             base::OnceCallback<void(media::mojom::CropRequestResult)> callback)
       override {
-    device_->Crop(crop_id, std::move(callback));
+    device_->Crop(crop_id, crop_version, std::move(callback));
   }
   void RequestRefreshFrame() override { device_->RequestRefreshFrame(); }
   void SetDesktopCaptureWindowIdAsync(gfx::NativeViewId window_id,
                                       base::OnceClosure done_cb) override {
     // Do nothing.
   }
-  void OnUtilizationReport(int frame_feedback_id,
-                           media::VideoCaptureFeedback feedback) override {
-    device_->OnUtilizationReport(frame_feedback_id, feedback);
+  void OnUtilizationReport(media::VideoCaptureFeedback feedback) override {
+    device_->OnUtilizationReport(feedback);
   }
 
  private:
@@ -90,7 +91,7 @@ void FakeVideoCaptureDeviceLauncher::LaunchDeviceAsync(
   auto device_client = std::make_unique<media::VideoCaptureDeviceClient>(
       media::VideoCaptureBufferType::kSharedMemory,
       std::make_unique<media::VideoFrameReceiverOnTaskRunner>(
-          receiver, base::ThreadTaskRunnerHandle::Get()),
+          receiver, base::SingleThreadTaskRunner::GetCurrentDefault()),
       std::move(buffer_pool), base::BindRepeating([]() {
         return std::unique_ptr<media::VideoCaptureJpegDecoder>();
       }));
@@ -98,7 +99,7 @@ void FakeVideoCaptureDeviceLauncher::LaunchDeviceAsync(
   auto device_client = std::make_unique<media::VideoCaptureDeviceClient>(
       media::VideoCaptureBufferType::kSharedMemory,
       std::make_unique<media::VideoFrameReceiverOnTaskRunner>(
-          receiver, base::ThreadTaskRunnerHandle::Get()),
+          receiver, base::SingleThreadTaskRunner::GetCurrentDefault()),
       std::move(buffer_pool));
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   device->AllocateAndStart(params, std::move(device_client));

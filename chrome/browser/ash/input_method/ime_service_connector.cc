@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@
 #include <memory>
 #include <utility>
 
-#include "ash/services/ime/constants.h"
-#include "ash/services/ime/public/mojom/ime_service.mojom.h"
 #include "base/files/file_util.h"
+#include "chromeos/ash/services/ime/constants.h"
+#include "chromeos/ash/services/ime/public/mojom/ime_service.mojom.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "content/public/browser/service_process_host.h"
 #include "net/base/load_flags.h"
@@ -49,8 +49,8 @@ bool IsDownloadPathValid(const base::FilePath& file_path) {
     return false;
 
   // Target path must be restricted in the provided path.
-  base::FilePath parent(chromeos::ime::kInputMethodsDirName);
-  parent = parent.Append(chromeos::ime::kLanguageDataDirName);
+  base::FilePath parent(ime::kInputMethodsDirName);
+  parent = parent.Append(ime::kLanguageDataDirName);
   return parent.IsParent(file_path);
 }
 
@@ -58,7 +58,7 @@ bool IsDownloadURLValid(const GURL& url) {
   // TODO(https://crbug.com/837156): Allowlist all URLs instead of some general
   // checks below.
   return url.SchemeIs(url::kHttpsScheme) &&
-         url.DomainIs(chromeos::ime::kGoogleKeyboardDownloadDomain);
+         url.DomainIs(ime::kGoogleKeyboardDownloadDomain);
 }
 
 }  // namespace
@@ -107,7 +107,7 @@ void ImeServiceConnector::DownloadImeFileTo(
 }
 
 void ImeServiceConnector::SetupImeService(
-    mojo::PendingReceiver<chromeos::ime::mojom::InputEngineManager> receiver) {
+    mojo::PendingReceiver<ime::mojom::InputEngineManager> receiver) {
   if (!remote_service_) {
     content::ServiceProcessHost::Launch(
         remote_service_.BindNewPipeAndPassReceiver(),

@@ -1,10 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/passwords/password_bubble_view_base.h"
 
 #include <memory>
+#include <tuple>
 
 #include "base/command_line.h"
 #include "base/strings/string_util.h"
@@ -19,13 +20,19 @@
 
 using base::StartsWith;
 
+// Test params:
+//  - bool : when true, the test is setup for users that sync their passwords.
+//  - bool : when true, the test is setup for RTL interfaces.
 class PasswordBubbleBrowserTest
-    : public SupportsTestDialog<ManagePasswordsTest> {
+    : public SupportsTestDialog<ManagePasswordsTest>,
+      public testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   PasswordBubbleBrowserTest() = default;
   ~PasswordBubbleBrowserTest() override = default;
 
   void ShowUi(const std::string& name) override {
+    ConfigurePasswordSync(std::get<0>(GetParam()));
+    base::i18n::SetRTLForTesting(std::get<1>(GetParam()));
     if (StartsWith(name, "PendingPasswordBubble",
                    base::CompareCase::SENSITIVE)) {
       SetupPendingPassword();
@@ -65,44 +72,74 @@ class PasswordBubbleBrowserTest
   }
 };
 
-IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest,
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest,
                        InvokeUi_PendingPasswordBubble) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest,
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest,
                        InvokeUi_AutomaticPasswordBubble) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest,
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest,
                        InvokeUi_ManagePasswordBubble) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest, InvokeUi_AutoSignin) {
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest, InvokeUi_AutoSignin) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest, InvokeUi_SafeState) {
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest, InvokeUi_SafeState) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest, InvokeUi_MoreToFixState) {
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest, InvokeUi_MoreToFixState) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest,
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest,
                        InvokeUi_MoveToAccountStoreBubble) {
+  // This test isn't relevant for sync'ing users.
+  if (std::get<0>(GetParam()))
+    return;
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest, AlertAccessibleEvent) {
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest, AlertAccessibleEvent) {
   views::test::AXEventCounter counter(views::AXEventManager::Get());
   EXPECT_EQ(0, counter.GetCount(ax::mojom::Event::kAlert));
   // This needs to show a password bubble that does not trigger as a user
   // gesture in order to fire an alert event. See
-  // LocationBarBubbleDelegateView's calls to SetAccessibleRole().
+  // LocationBarBubbleDelegateView's calls to SetAccessibleWindowRole().
   ShowUi("AutomaticPasswordBubble");
   EXPECT_EQ(1, counter.GetCount(ax::mojom::Event::kAlert));
 }
+
+class PasswordRevampedManagementBubbleBrowserTest
+    : public PasswordBubbleBrowserTest {
+ public:
+  ~PasswordRevampedManagementBubbleBrowserTest() override = default;
+  void SetUp() override {
+    scoped_feature_list_.InitAndEnableFeature(
+        password_manager::features::kRevampedPasswordManagementBubble);
+    PasswordBubbleBrowserTest::SetUp();
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+IN_PROC_BROWSER_TEST_P(PasswordRevampedManagementBubbleBrowserTest,
+                       InvokeUi_ManagePasswordBubbleWithRevampedDesign) {
+  ShowAndVerifyUi();
+}
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         PasswordBubbleBrowserTest,
+                         testing::Combine(testing::Bool(), testing::Bool()));
+
+INSTANTIATE_TEST_SUITE_P(,
+                         PasswordRevampedManagementBubbleBrowserTest,
+                         testing::Combine(testing::Bool(), testing::Bool()));

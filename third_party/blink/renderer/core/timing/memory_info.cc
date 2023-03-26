@@ -33,6 +33,7 @@
 #include <limits>
 
 #include "base/time/default_tick_clock.h"
+#include "base/time/time.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
@@ -117,7 +118,7 @@ size_t QuantizeMemorySize(size_t size) {
   const int kNumberOfBuckets = 100;
   DEFINE_STATIC_LOCAL(Vector<size_t>, bucket_size_list, ());
 
-  if (bucket_size_list.IsEmpty()) {
+  if (bucket_size_list.empty()) {
     bucket_size_list.resize(kNumberOfBuckets);
 
     float size_of_next_bucket =

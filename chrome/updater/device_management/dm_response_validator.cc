@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <inttypes.h>
 
-#include <algorithm>
 #include <string>
 
 #include "base/check.h"
@@ -16,10 +15,10 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/updater/constants.h"
-#include "chrome/updater/device_management/cloud_policy_util.h"
 #include "chrome/updater/device_management/dm_cached_policy_info.h"
 #include "chrome/updater/device_management/dm_message.h"
 #include "chrome/updater/protos/omaha_settings.pb.h"
+#include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "crypto/signature_verifier.h"
 #include "third_party/boringssl/src/include/openssl/rsa.h"

@@ -1,33 +1,41 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/modules/direct_sockets/udp_readable_stream_wrapper.h"
 
-#include "base/callback_helpers.h"
 #include "base/containers/span.h"
+#include "base/functional/callback_helpers.h"
 #include "base/notreached.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 #include "net/base/net_errors.h"
-#include "third_party/blink/public/mojom/direct_sockets/direct_sockets.mojom-blink.h"
+#include "services/network/public/mojom/restricted_udp_socket.mojom-blink.h"
+#include "services/network/public/mojom/udp_socket.mojom-blink.h"
+#include "third_party/blink/renderer/bindings/core/v8/iterable.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_tester.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_iterator_result_value.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_union_arraybuffer_arraybufferview.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_udp_message.h"
 #include "third_party/blink/renderer/core/streams/readable_stream.h"
+#include "third_party/blink/renderer/core/typed_arrays/dom_array_piece.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h"
+#include "third_party/blink/renderer/modules/direct_sockets/stream_wrapper.h"
 #include "third_party/blink/renderer/modules/direct_sockets/udp_writable_stream_wrapper.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
+#include "third_party/blink/renderer/platform/wtf/gc_plugin.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_uchar.h"
 #include "third_party/blink/renderer/platform/wtf/wtf_size_t.h"
 
 namespace blink {
 namespace {
 
-class FakeDirectUDPSocket : public blink::mojom::blink::DirectUDPSocket {
+class FakeRestrictedUDPSocket
+    : public network::mojom::blink::RestrictedUDPSocket {
  public:
   void Send(base::span<const uint8_t> data, SendCallback callback) override {
     NOTIMPLEMENTED();
@@ -37,52 +45,63 @@ class FakeDirectUDPSocket : public blink::mojom::blink::DirectUDPSocket {
     num_requested_datagrams += num_additional_datagrams;
   }
 
-  void Close() override { NOTIMPLEMENTED(); }
-
-  void ProvideRequestedDatagrams(UDPReadableStreamWrapper* stream) {
+  void ProvideRequestedDatagrams() {
+    DCHECK(remote_.is_bound());
     while (num_requested_datagrams > 0) {
-      stream->AcceptDatagram(
-          datagram_.Span8(),
-          net::IPEndPoint{net::IPAddress::IPv4Localhost(), 0U});
+      remote_->OnReceived(net::OK,
+                          net::IPEndPoint{net::IPAddress::IPv4Localhost(), 0U},
+                          datagram_.Span8());
       num_requested_datagrams--;
     }
+  }
+
+  void Bind(mojo::PendingRemote<network::mojom::blink::UDPSocketListener>
+                pending_remote) {
+    remote_.Bind(std::move(pending_remote));
   }
 
   const String& GetTestingDatagram() const { return datagram_; }
   void SetTestingDatagram(String datagram) { datagram_ = std::move(datagram); }
 
  private:
+  GC_PLUGIN_IGNORE("https://crbug.com/1381979")
+  mojo::Remote<network::mojom::blink::UDPSocketListener> remote_;
   uint32_t num_requested_datagrams = 0;
   String datagram_{"abcde"};
 };
 
-class StreamCreator {
-  STACK_ALLOCATED();
-
+class StreamCreator : public GarbageCollected<StreamCreator> {
  public:
-  explicit StreamCreator(const V8TestingScope& scope,
-                         FakeDirectUDPSocket* fake_udp_socket)
-      : scope_(scope), receiver_{fake_udp_socket} {}
+  StreamCreator() : receiver_{&fake_udp_socket_} {}
 
   ~StreamCreator() { test::RunPendingTasks(); }
 
-  UDPReadableStreamWrapper* Create() {
+  UDPReadableStreamWrapper* Create(const V8TestingScope& scope) {
     auto* udp_socket =
-        MakeGarbageCollected<UDPSocketMojoRemote>(scope_.GetExecutionContext());
+        MakeGarbageCollected<UDPSocketMojoRemote>(scope.GetExecutionContext());
     udp_socket->get().Bind(
         receiver_.BindNewPipeAndPassRemote(),
-        scope_.GetExecutionContext()->GetTaskRunner(TaskType::kNetworking));
+        scope.GetExecutionContext()->GetTaskRunner(TaskType::kNetworking));
 
-    auto* script_state = scope_.GetScriptState();
-    auto* udp_readable_stream_wrapper =
-        MakeGarbageCollected<UDPReadableStreamWrapper>(script_state, udp_socket,
-                                                       base::DoNothing());
-    return udp_readable_stream_wrapper;
+    mojo::PendingReceiver<network::mojom::blink::UDPSocketListener> receiver;
+    fake_udp_socket_.Bind(receiver.InitWithNewPipeAndPassRemote());
+
+    auto* script_state = scope.GetScriptState();
+    stream_wrapper_ = MakeGarbageCollected<UDPReadableStreamWrapper>(
+        script_state, base::DoNothing(), udp_socket, std::move(receiver));
+    return stream_wrapper_;
   }
 
+  void Trace(Visitor* visitor) const { visitor->Trace(stream_wrapper_); }
+
+  FakeRestrictedUDPSocket& fake_udp_socket() { return fake_udp_socket_; }
+
  private:
-  const V8TestingScope& scope_;
-  mojo::Receiver<blink::mojom::blink::DirectUDPSocket> receiver_;
+  GC_PLUGIN_IGNORE("https://crbug.com/1381979")
+  mojo::Receiver<network::mojom::blink::RestrictedUDPSocket> receiver_;
+
+  FakeRestrictedUDPSocket fake_udp_socket_;
+  Member<UDPReadableStreamWrapper> stream_wrapper_;
 };
 
 std::pair<UDPMessage*, bool> UnpackPromiseResult(const V8TestingScope& scope,
@@ -93,9 +112,9 @@ std::pair<UDPMessage*, bool> UnpackPromiseResult(const V8TestingScope& scope,
   EXPECT_TRUE(result->IsObject());
   v8::Local<v8::Value> udp_message_packed;
   bool done = false;
-  EXPECT_TRUE(V8UnpackIteratorResult(scope.GetScriptState(),
-                                     result.As<v8::Object>(), &done)
-                  .ToLocal(&udp_message_packed));
+  EXPECT_TRUE(V8UnpackIterationResult(scope.GetScriptState(),
+                                      result.As<v8::Object>(),
+                                      &udp_message_packed, &done));
   if (done) {
     return {nullptr, true};
   }
@@ -106,33 +125,36 @@ std::pair<UDPMessage*, bool> UnpackPromiseResult(const V8TestingScope& scope,
 }
 
 String UDPMessageDataToString(const UDPMessage* message) {
-  auto* buffer = message->data();
-  return String{static_cast<const uint8_t*>(buffer->Data()),
-                static_cast<wtf_size_t>(buffer->ByteLength())};
+  DOMArrayPiece array_piece{message->data()};
+  return String{static_cast<const uint8_t*>(array_piece.Bytes()),
+                static_cast<wtf_size_t>(array_piece.ByteLength())};
 }
 
 TEST(UDPReadableStreamWrapperTest, Create) {
   V8TestingScope scope;
-  FakeDirectUDPSocket fake_udp_socket;
-  StreamCreator stream_creator{scope, &fake_udp_socket};
-  auto* udp_readable_stream_wrapper = stream_creator.Create();
+
+  auto* stream_creator = MakeGarbageCollected<StreamCreator>();
+  auto* udp_readable_stream_wrapper = stream_creator->Create(scope);
+
   EXPECT_TRUE(udp_readable_stream_wrapper->Readable());
 }
 
 TEST(UDPReadableStreamWrapperTest, ReadUdpMessage) {
   V8TestingScope scope;
-  FakeDirectUDPSocket fake_udp_socket;
-  StreamCreator stream_creator{scope, &fake_udp_socket};
-  auto* script_state = scope.GetScriptState();
 
-  auto* udp_readable_stream_wrapper = stream_creator.Create();
+  auto* stream_creator = MakeGarbageCollected<StreamCreator>();
+
+  auto& fake_udp_socket = stream_creator->fake_udp_socket();
+  auto* udp_readable_stream_wrapper = stream_creator->Create(scope);
+
   // Ensure that udp_socket_->ReceiveMore(...) call from
   // UDPReadableStreamWrapper constructor lands before calling
   // fake_udp_socket.ProvideRequestedDiagrams().
   test::RunPendingTasks();
 
-  fake_udp_socket.ProvideRequestedDatagrams(udp_readable_stream_wrapper);
+  fake_udp_socket.ProvideRequestedDatagrams();
 
+  auto* script_state = scope.GetScriptState();
   auto* reader =
       udp_readable_stream_wrapper->Readable()->GetDefaultReaderForTesting(
           script_state, ASSERT_NO_EXCEPTION);
@@ -151,23 +173,25 @@ TEST(UDPReadableStreamWrapperTest, ReadUdpMessage) {
 
 TEST(UDPReadableStreamWrapperTest, ReadDelayedUdpMessage) {
   V8TestingScope scope;
-  FakeDirectUDPSocket fake_udp_socket;
-  StreamCreator stream_creator{scope, &fake_udp_socket};
-  auto* script_state = scope.GetScriptState();
 
-  auto* udp_readable_stream_wrapper = stream_creator.Create();
+  auto* stream_creator = MakeGarbageCollected<StreamCreator>();
+  auto* udp_readable_stream_wrapper = stream_creator->Create(scope);
+
+  auto& fake_udp_socket = stream_creator->fake_udp_socket();
+
   // Ensure that udp_socket_->ReceiveMore(...) call from
   // UDPReadableStreamWrapper constructor lands before calling
   // fake_udp_socket.ProvideRequestedDiagrams().
   test::RunPendingTasks();
 
+  auto* script_state = scope.GetScriptState();
   auto* reader =
       udp_readable_stream_wrapper->Readable()->GetDefaultReaderForTesting(
           script_state, ASSERT_NO_EXCEPTION);
   ScriptPromiseTester tester(script_state,
                              reader->read(script_state, ASSERT_NO_EXCEPTION));
 
-  fake_udp_socket.ProvideRequestedDatagrams(udp_readable_stream_wrapper);
+  fake_udp_socket.ProvideRequestedDatagrams();
 
   tester.WaitUntilSettled();
   EXPECT_TRUE(tester.IsFulfilled());
@@ -181,11 +205,11 @@ TEST(UDPReadableStreamWrapperTest, ReadDelayedUdpMessage) {
 
 TEST(UDPReadableStreamWrapperTest, ReadEmptyUdpMessage) {
   V8TestingScope scope;
-  FakeDirectUDPSocket fake_udp_socket;
-  StreamCreator stream_creator{scope, &fake_udp_socket};
-  auto* script_state = scope.GetScriptState();
 
-  auto* udp_readable_stream_wrapper = stream_creator.Create();
+  auto* stream_creator = MakeGarbageCollected<StreamCreator>();
+  auto* udp_readable_stream_wrapper = stream_creator->Create(scope);
+
+  auto& fake_udp_socket = stream_creator->fake_udp_socket();
   // Ensure that udp_socket_->ReceiveMore(...) call from
   // UDPReadableStreamWrapper constructor lands before calling
   // fake_udp_socket.ProvideRequestedDiagrams().
@@ -193,8 +217,9 @@ TEST(UDPReadableStreamWrapperTest, ReadEmptyUdpMessage) {
 
   // Send empty datagrams.
   fake_udp_socket.SetTestingDatagram({});
-  fake_udp_socket.ProvideRequestedDatagrams(udp_readable_stream_wrapper);
+  fake_udp_socket.ProvideRequestedDatagrams();
 
+  auto* script_state = scope.GetScriptState();
   auto* reader =
       udp_readable_stream_wrapper->Readable()->GetDefaultReaderForTesting(
           script_state, ASSERT_NO_EXCEPTION);
@@ -208,21 +233,21 @@ TEST(UDPReadableStreamWrapperTest, ReadEmptyUdpMessage) {
   ASSERT_FALSE(done);
   ASSERT_TRUE(message->hasData());
 
-  ASSERT_EQ(message->data()->ByteLength(), 0U);
+  ASSERT_EQ(UDPMessageDataToString(message).length(), 0U);
 }
 
 TEST(UDPReadableStreamWrapperTest, CancelStreamFromReader) {
   V8TestingScope scope;
-  FakeDirectUDPSocket fake_udp_socket;
-  StreamCreator stream_creator{scope, &fake_udp_socket};
-  auto* script_state = scope.GetScriptState();
 
-  auto* udp_readable_stream_wrapper = stream_creator.Create();
+  auto* stream_creator = MakeGarbageCollected<StreamCreator>();
+  auto* udp_readable_stream_wrapper = stream_creator->Create(scope);
+
   // Ensure that udp_socket_->ReceiveMore(...) call from
   // UDPReadableStreamWrapper constructor lands before calling
   // fake_udp_socket.ProvideRequestedDiagrams().
   test::RunPendingTasks();
 
+  auto* script_state = scope.GetScriptState();
   auto* reader =
       udp_readable_stream_wrapper->Readable()->GetDefaultReaderForTesting(
           script_state, ASSERT_NO_EXCEPTION);
@@ -244,34 +269,28 @@ TEST(UDPReadableStreamWrapperTest, CancelStreamFromReader) {
   EXPECT_FALSE(message);
 }
 
-TEST(UDPReadableStreamWrapperTest, CancelStreamFromWrapper) {
+TEST(UDPReadableStreamWrapperTest, ReadRejectsOnError) {
   V8TestingScope scope;
-  FakeDirectUDPSocket fake_udp_socket;
-  StreamCreator stream_creator{scope, &fake_udp_socket};
-  auto* script_state = scope.GetScriptState();
 
-  auto* udp_readable_stream_wrapper = stream_creator.Create();
+  auto* stream_creator = MakeGarbageCollected<StreamCreator>();
+  auto* udp_readable_stream_wrapper = stream_creator->Create(scope);
+
   // Ensure that udp_socket_->ReceiveMore(...) call from
   // UDPReadableStreamWrapper constructor lands before calling
   // fake_udp_socket.ProvideRequestedDiagrams().
   test::RunPendingTasks();
 
+  auto* script_state = scope.GetScriptState();
   auto* reader =
       udp_readable_stream_wrapper->Readable()->GetDefaultReaderForTesting(
           script_state, ASSERT_NO_EXCEPTION);
 
-  udp_readable_stream_wrapper->Close();
+  udp_readable_stream_wrapper->ErrorStream(net::ERR_UNEXPECTED);
 
   ScriptPromiseTester read_tester(
       script_state, reader->read(script_state, ASSERT_NO_EXCEPTION));
   read_tester.WaitUntilSettled();
-  EXPECT_TRUE(read_tester.IsFulfilled());
-
-  auto [message, done] =
-      UnpackPromiseResult(scope, read_tester.Value().V8Value());
-
-  EXPECT_TRUE(done);
-  EXPECT_FALSE(message);
+  EXPECT_TRUE(read_tester.IsRejected());
 }
 
 }  // namespace

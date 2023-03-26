@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,8 @@ std::string ExecutionStatusToString(ExecutionStatus status) {
       return "ErrorEmptyOrInvalidInput";
     case ExecutionStatus::kErrorUnknown:
       return "ErrorUnknown";
+    case ExecutionStatus::kErrorCancelled:
+      return "ErrorCancelled";
   }
 }
 

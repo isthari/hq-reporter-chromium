@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -94,7 +94,7 @@ class Background : public UiElement {
   sk_sp<SkSurface> normal_gradient_surface_;
   sk_sp<SkSurface> incognito_gradient_surface_;
   sk_sp<SkSurface> fullscreen_gradient_surface_;
-  raw_ptr<SkiaSurfaceProvider> provider_ = nullptr;
+  raw_ptr<SkiaSurfaceProvider, DanglingUntriaged> provider_ = nullptr;
 
   float normal_factor_ = 1.0f;
   float incognito_factor_ = 0.0f;

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,7 +46,6 @@ class SaveCardBubbleViews : public AutofillBubbleBase,
   void AddedToWidget() override;
   std::u16string GetWindowTitle() const override;
   void WindowClosing() override;
-  void OnWidgetClosing(views::Widget* widget) override;
 
   // Returns the footnote view, so it can be searched for clickable views.
   // Exists for testing (specifically, browsertests).
@@ -81,9 +80,6 @@ class SaveCardBubbleViews : public AutofillBubbleBase,
   raw_ptr<views::View> footnote_view_ = nullptr;
 
   raw_ptr<SaveCardBubbleController> controller_;  // Weak reference.
-
-  PaymentsBubbleClosedReason closed_reason_ =
-      PaymentsBubbleClosedReason::kUnknown;
 };
 
 }  // namespace autofill

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -205,10 +205,6 @@ TEST_P(HybridSpellCheckTest, ShouldUseBrowserSpellCheckOnlyWhenNeeded) {
 }
 
 void HybridSpellCheckTest::RunShouldUseBrowserSpellCheckOnlyWhenNeededTest() {
-  if (!spellcheck::WindowsVersionSupportsSpellchecker()) {
-    return;
-  }
-
   const auto& test_case = GetParam();
 
   FakeTextCheckingResult completion;
@@ -584,10 +580,6 @@ INSTANTIATE_TEST_SUITE_P(
                      4)})}));
 
 TEST_P(CombineSpellCheckResultsTest, ShouldCorrectlyCombineHybridResults) {
-  if (!spellcheck::WindowsVersionSupportsSpellchecker()) {
-    return;
-  }
-
   const auto& test_case = GetParam();
   base::test::ScopedFeatureList local_features;
   local_features.InitAndEnableFeature(spellcheck::kWinUseBrowserSpellChecker);

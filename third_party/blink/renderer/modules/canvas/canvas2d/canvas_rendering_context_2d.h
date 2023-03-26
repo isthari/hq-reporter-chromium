@@ -27,16 +27,15 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_CANVAS_CANVAS2D_CANVAS_RENDERING_CONTEXT_2D_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_CANVAS_CANVAS2D_CANVAS_RENDERING_CONTEXT_2D_H_
 
-#include "third_party/blink/renderer/bindings/modules/v8/v8_canvas_formatted_text.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_canvas_rendering_context_2d_settings.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_context_creation_attributes_core.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context_factory.h"
+#include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
 #include "third_party/blink/renderer/core/html/canvas/image_data.h"
 #include "third_party/blink/renderer/core/style/filter_operations.h"
 #include "third_party/blink/renderer/core/svg/svg_resource_client.h"
 #include "third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.h"
-#include "third_party/blink/renderer/modules/canvas/canvas2d/canvas_formatted_text.h"
 #include "third_party/blink/renderer/modules/canvas/canvas2d/canvas_rendering_context_2d_state.h"
 #include "third_party/blink/renderer/modules/canvas/canvas2d/identifiability_study_helper.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
@@ -55,6 +54,7 @@ class Layer;
 
 namespace blink {
 
+class FormattedText;
 class CanvasImageSource;
 class Element;
 class ExceptionState;
@@ -133,13 +133,12 @@ class MODULES_EXPORT CanvasRenderingContext2D final
   void strokeText(const String& text, double x, double y);
   void strokeText(const String& text, double x, double y, double max_width);
   TextMetrics* measureText(const String& text);
-
-  CanvasRenderingContext2DSettings* getContextAttributes() const;
-
-  void fillFormattedText(CanvasFormattedText* formatted_text,
+  void drawFormattedText(FormattedText* formatted_text,
                          double x,
                          double y,
-                         double wrap_width);
+                         ExceptionState&);
+
+  CanvasRenderingContext2DSettings* getContextAttributes() const;
 
   void drawFocusIfNeeded(Element*);
   void drawFocusIfNeeded(Path2D*, Element*);
@@ -176,14 +175,17 @@ class MODULES_EXPORT CanvasRenderingContext2D final
 
   RespectImageOrientationEnum RespectImageOrientation() const final;
 
-  bool ParseColorOrCurrentColor(Color&, const String& color_string) const final;
+  Color GetCurrentColor() const final;
 
   cc::PaintCanvas* GetOrCreatePaintCanvas() final;
-  cc::PaintCanvas* GetPaintCanvas() const final;
+  cc::PaintCanvas* GetPaintCanvas() final;
   cc::PaintCanvas* GetPaintCanvasForDraw(
       const SkIRect& dirty_rect,
       CanvasPerformanceMonitor::DrawType) final;
 
+  SkColorInfo CanvasRenderingContextSkColorInfo() const override {
+    return color_params_.GetSkColorInfo();
+  }
   scoped_refptr<StaticBitmapImage> GetImage() final;
 
   sk_sp<PaintFilter> StateGetFilter() final;
@@ -232,9 +234,6 @@ class MODULES_EXPORT CanvasRenderingContext2D final
   }
 
  protected:
-  CanvasColorParams CanvasRenderingContextColorParams() const override {
-    return color_params_;
-  }
   PredefinedColorSpace GetDefaultImageDataColorSpace() const final {
     return color_params_.ColorSpace();
   }
@@ -282,6 +281,8 @@ class MODULES_EXPORT CanvasRenderingContext2D final
 
   cc::Layer* CcLayer() const override;
   bool IsCanvas2DBufferValid() const override;
+
+  void ColorSchemeMayHaveChanged() override;
 
   FilterOperations filter_operations_;
   HashMap<String, FontDescription> fonts_resolved_using_current_style_;

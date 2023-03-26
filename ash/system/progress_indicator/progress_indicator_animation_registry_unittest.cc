@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@
 #include <vector>
 
 #include "ash/constants/ash_features.h"
-#include "ash/system/holding_space/holding_space_progress_icon_animation.h"
-#include "ash/system/holding_space/holding_space_progress_indicator_animation.h"
-#include "ash/system/holding_space/holding_space_progress_ring_animation.h"
+#include "ash/system/progress_indicator/progress_icon_animation.h"
+#include "ash/system/progress_indicator/progress_indicator_animation.h"
+#include "ash/system/progress_indicator/progress_ring_animation.h"
 #include "base/containers/contains.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
@@ -21,38 +21,21 @@ namespace {
 
 // ProgressIndicatorAnimationRegistryTest --------------------------------------
 
-// Base class for tests of the `ProgressIndicatorAnimationRegistry`
-// parameterized by whether animation v2 is enabled.
-class ProgressIndicatorAnimationRegistryTest
-    : public testing::Test,
-      public testing::WithParamInterface<
-          /*animation_v2_enabled=*/bool> {
+// Base class for tests of the `ProgressIndicatorAnimationRegistry`.
+class ProgressIndicatorAnimationRegistryTest : public testing::Test {
  public:
-  ProgressIndicatorAnimationRegistryTest() {
-    scoped_feature_list_.InitWithFeatureState(
-        features::kHoldingSpaceInProgressAnimationV2, IsAnimationV2Enabled());
-  }
-
-  // Returns whether animation v2 is enabled given test parameterization.
-  bool IsAnimationV2Enabled() const { return GetParam(); }
-
   // Returns the `registry_` under test.
   ProgressIndicatorAnimationRegistry* registry() { return &registry_; }
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
   ProgressIndicatorAnimationRegistry registry_;
 };
-
-INSTANTIATE_TEST_SUITE_P(All,
-                         ProgressIndicatorAnimationRegistryTest,
-                         /*in_progress_animation_v2_enabled=*/testing::Bool());
 
 }  // namespace
 
 // Tests -----------------------------------------------------------------------
 
-TEST_P(ProgressIndicatorAnimationRegistryTest, EraseAllAnimations) {
+TEST_F(ProgressIndicatorAnimationRegistryTest, EraseAllAnimations) {
   // Create `master_keys` for progress animations which may be referenced from
   // each test case.
   std::vector<size_t> master_keys = {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u};
@@ -120,29 +103,27 @@ TEST_P(ProgressIndicatorAnimationRegistryTest, EraseAllAnimations) {
       // Count progress icon animation changed events for `key`.
       subscriptions.push_back(
           registry()->AddProgressIconAnimationChangedCallbackForKey(
-              key, base::BindLambdaForTesting(
-                       [&](HoldingSpaceProgressIconAnimation*) {
-                         ++icon_callback_call_count;
-                       })));
+              key, base::BindLambdaForTesting([&](ProgressIconAnimation*) {
+                ++icon_callback_call_count;
+              })));
 
       // Count progress ring animation changed events for `key`.
       subscriptions.push_back(
           registry()->AddProgressRingAnimationChangedCallbackForKey(
-              key, base::BindLambdaForTesting(
-                       [&](HoldingSpaceProgressRingAnimation*) {
-                         ++ring_callback_call_count;
-                       })));
+              key, base::BindLambdaForTesting([&](ProgressRingAnimation*) {
+                ++ring_callback_call_count;
+              })));
 
       // Create a progress icon animation for `key`.
       registry()->SetProgressIconAnimationForKey(
-          key, std::make_unique<HoldingSpaceProgressIconAnimation>());
+          key, std::make_unique<ProgressIconAnimation>());
       EXPECT_TRUE(registry()->GetProgressIconAnimationForKey(key));
       EXPECT_EQ(icon_callback_call_count, index + 1u);
 
       // Create a progress ring animation for `key`.
       registry()->SetProgressRingAnimationForKey(
-          key, HoldingSpaceProgressRingAnimation::CreateOfType(
-                   HoldingSpaceProgressRingAnimation::Type::kPulse));
+          key, ProgressRingAnimation::CreateOfType(
+                   ProgressRingAnimation::Type::kPulse));
       EXPECT_TRUE(registry()->GetProgressRingAnimationForKey(key));
       EXPECT_EQ(ring_callback_call_count, index + 1u);
     }
@@ -172,7 +153,7 @@ TEST_P(ProgressIndicatorAnimationRegistryTest, EraseAllAnimations) {
   }
 }
 
-TEST_P(ProgressIndicatorAnimationRegistryTest, SetProgressIconAnimationForKey) {
+TEST_F(ProgressIndicatorAnimationRegistryTest, SetProgressIconAnimationForKey) {
   // Create `key` and verify no progress icon animation is set.
   size_t key = 0u;
   EXPECT_FALSE(registry()->GetProgressIconAnimationForKey(&key));
@@ -180,9 +161,8 @@ TEST_P(ProgressIndicatorAnimationRegistryTest, SetProgressIconAnimationForKey) {
   // Count progress icon animation changed events.
   size_t callback_call_count = 0u;
   auto subscription = registry()->AddProgressIconAnimationChangedCallbackForKey(
-      &key, base::BindLambdaForTesting([&](HoldingSpaceProgressIconAnimation*) {
-        ++callback_call_count;
-      }));
+      &key, base::BindLambdaForTesting(
+                [&](ProgressIconAnimation*) { ++callback_call_count; }));
 
   // Unset progress icon animation for `key`.
   EXPECT_FALSE(registry()->SetProgressIconAnimationForKey(&key, nullptr));
@@ -190,7 +170,7 @@ TEST_P(ProgressIndicatorAnimationRegistryTest, SetProgressIconAnimationForKey) {
   EXPECT_EQ(callback_call_count, 0u);
 
   // Create a progress icon `animation`.
-  auto animation = std::make_unique<HoldingSpaceProgressIconAnimation>();
+  auto animation = std::make_unique<ProgressIconAnimation>();
   auto* animation_ptr = animation.get();
 
   // Set progress icon `animation` for `key`.
@@ -206,7 +186,7 @@ TEST_P(ProgressIndicatorAnimationRegistryTest, SetProgressIconAnimationForKey) {
   EXPECT_EQ(callback_call_count, 2u);
 }
 
-TEST_P(ProgressIndicatorAnimationRegistryTest, SetProgressRingAnimationForKey) {
+TEST_F(ProgressIndicatorAnimationRegistryTest, SetProgressRingAnimationForKey) {
   // Create `key` and verify no progress ring animation is set.
   size_t key = 0u;
   EXPECT_FALSE(registry()->GetProgressRingAnimationForKey(&key));
@@ -214,9 +194,8 @@ TEST_P(ProgressIndicatorAnimationRegistryTest, SetProgressRingAnimationForKey) {
   // Count progress ring animation changed events.
   size_t callback_call_count = 0u;
   auto subscription = registry()->AddProgressRingAnimationChangedCallbackForKey(
-      &key, base::BindLambdaForTesting([&](HoldingSpaceProgressRingAnimation*) {
-        ++callback_call_count;
-      }));
+      &key, base::BindLambdaForTesting(
+                [&](ProgressRingAnimation*) { ++callback_call_count; }));
 
   // Unset progress ring animation for `key`.
   EXPECT_FALSE(registry()->SetProgressRingAnimationForKey(&key, nullptr));
@@ -224,8 +203,8 @@ TEST_P(ProgressIndicatorAnimationRegistryTest, SetProgressRingAnimationForKey) {
   EXPECT_EQ(callback_call_count, 0u);
 
   // Create a progress ring `animation`.
-  auto animation = HoldingSpaceProgressRingAnimation::CreateOfType(
-      HoldingSpaceProgressRingAnimation::Type::kPulse);
+  auto animation =
+      ProgressRingAnimation::CreateOfType(ProgressRingAnimation::Type::kPulse);
   auto* animation_ptr = animation.get();
 
   // Set progress ring `animation` for `key`.

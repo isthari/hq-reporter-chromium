@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,8 +16,6 @@ import androidx.appcompat.content.res.AppCompatResources;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.elevation.ElevationOverlayProvider;
 
-import org.chromium.base.ApiCompatibilityUtils;
-
 /**
  * Provides common default colors for Chrome UI.
  */
@@ -33,8 +31,7 @@ public class ChromeColors {
      * @return The default theme color.
      */
     public static @ColorInt int getDefaultThemeColor(Context context, boolean isIncognito) {
-        return isIncognito ? ApiCompatibilityUtils.getColor(
-                       context.getResources(), R.color.toolbar_background_primary_dark)
+        return isIncognito ? context.getColor(R.color.toolbar_background_primary_dark)
                            : MaterialColors.getColor(context, R.attr.colorSurface, TAG);
     }
 
@@ -48,11 +45,8 @@ public class ChromeColors {
      * @return The primary background color.
      */
     public static @ColorInt int getPrimaryBackgroundColor(Context context, boolean isIncognito) {
-        return isIncognito ? ApiCompatibilityUtils.getColor(
-                       context.getResources(), R.color.default_bg_color_dark)
-                           : MaterialColors.getColor(context, R.attr.default_bg_color_dynamic,
-                                   // Temporarily pass a default, see https://crbug.com/1247186.
-                                   context.getColor(R.color.default_bg_color));
+        return isIncognito ? context.getColor(R.color.default_bg_color_dark)
+                           : SemanticColorUtils.getDefaultBgColor(context);
     }
 
     /**

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,17 +9,14 @@
 #include <vector>
 
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "components/web_package/web_bundle_utils.h"
 #include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/browser/renderer_host/navigation_request.h"
 #include "content/browser/web_package/web_bundle_reader.h"
 #include "content/browser/web_package/web_bundle_source.h"
 #include "content/browser/web_package/web_bundle_utils.h"
-#include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/content_client.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_request_headers.h"
@@ -62,9 +59,8 @@ class WebBundleURLLoaderFactory::EntryLoader final
     }
 
     factory_->reader()->ReadResponse(
-        resource_request, GetAcceptLangs(),
-        base::BindOnce(&EntryLoader::OnResponseReady,
-                       weak_factory_.GetWeakPtr()));
+        resource_request, base::BindOnce(&EntryLoader::OnResponseReady,
+                                         weak_factory_.GetWeakPtr()));
   }
 
   EntryLoader(const EntryLoader&) = delete;
@@ -121,8 +117,6 @@ class WebBundleURLLoaderFactory::EntryLoader final
         return;
       }
     }
-    loader_client_->OnReceiveResponse(std::move(response_head),
-                                      mojo::ScopedDataPipeConsumerHandle());
 
     mojo::ScopedDataPipeProducerHandle producer_handle;
     mojo::ScopedDataPipeConsumerHandle consumer_handle;
@@ -137,7 +131,8 @@ class WebBundleURLLoaderFactory::EntryLoader final
 
     auto result =
         mojo::CreateDataPipe(&options, producer_handle, consumer_handle);
-    loader_client_->OnStartLoadingResponseBody(std::move(consumer_handle));
+    loader_client_->OnReceiveResponse(
+        std::move(response_head), std::move(consumer_handle), absl::nullopt);
     if (result != MOJO_RESULT_OK) {
       loader_client_->OnComplete(
           network::URLLoaderCompletionStatus(net::ERR_INSUFFICIENT_RESOURCES));
@@ -157,15 +152,6 @@ class WebBundleURLLoaderFactory::EntryLoader final
     network::URLLoaderCompletionStatus status;
     status.error_code = net_error;
     loader_client_->OnComplete(status);
-  }
-
-  std::string GetAcceptLangs() const {
-    auto* web_contents = WebContents::FromFrameTreeNodeId(frame_tree_node_id_);
-    // This may be null if the WebContents has been closed, or in unit tests.
-    if (!web_contents)
-      return std::string();
-    return GetContentClient()->browser()->GetAcceptLangs(
-        web_contents->GetBrowserContext());
   }
 
   base::WeakPtr<WebBundleURLLoaderFactory> factory_;

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,6 +63,7 @@ class ArcNotificationManager
       arc::mojom::ArcLockScreenNotificationSettingPtr setting) override;
   void ProcessUserAction(
       arc::mojom::ArcNotificationUserActionDataPtr data) override;
+  void LogInlineReplySent(const std::string& key) override;
 
   // Methods called from ArcNotificationItem:
   void SendNotificationRemovedFromChrome(const std::string& key);

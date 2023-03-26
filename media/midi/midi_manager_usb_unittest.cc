@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,13 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <memory>
 #include <string>
 #include <utility>
 
-#include "base/cxx17_backports.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/task_environment.h"
@@ -223,8 +224,12 @@ class MidiManagerFactoryForTesting : public midi::MidiService::ManagerFactory {
   }
 
  private:
-  TestUsbMidiDeviceFactory* device_factory_ = nullptr;
-  MidiManagerUsbForTesting* manager_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #constexpr-ctor-field-initializer
+  RAW_PTR_EXCLUSION TestUsbMidiDeviceFactory* device_factory_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #constexpr-ctor-field-initializer
+  RAW_PTR_EXCLUSION MidiManagerUsbForTesting* manager_ = nullptr;
 };
 
 class MidiManagerUsbTest : public ::testing::Test {
@@ -564,7 +569,7 @@ TEST_F(MidiManagerUsbTest, Receive) {
   RunCallbackUntilCallbackInvoked(true, &devices);
   EXPECT_EQ(Result::OK, GetInitializationResult());
 
-  manager()->ReceiveUsbMidiData(device_raw, 2, data, base::size(data),
+  manager()->ReceiveUsbMidiData(device_raw, 2, data, std::size(data),
                                 base::TimeTicks());
   Finalize();
 

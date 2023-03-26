@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,7 +39,11 @@ enum class AccessibilityAlert {
 
   // When workspace state just changed from WorkspaceWindowState::kFullscreen.
   // to others.
-  WORKSPACE_FULLSCREEN_STATE_EXITED
+  WORKSPACE_FULLSCREEN_STATE_EXITED,
+
+  // When the user enters saved desks mode.
+  SAVED_DESKS_MODE_ENTERED
+
 };
 
 enum class AccessibilityPanelState {
@@ -216,6 +220,16 @@ enum class DictationBubbleHintType {
   kSelectAll,
   kUndo,
   kHelp,
+  kUnselect,
+  kCopy,
+};
+
+// The types of notifications that can be shown by Dictation.
+enum class DictationNotificationType {
+  kAllDlcsDownloaded,
+  kNoDlcsDownloaded,
+  kOnlySodaDownloaded,
+  kOnlyPumpkinDownloaded,
 };
 
 }  // namespace ash

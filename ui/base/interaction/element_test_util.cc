@@ -1,15 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/base/interaction/element_test_util.h"
 
 #include "base/test/bind.h"
+#include "ui/base/interaction/element_tracker.h"
+#include "ui/base/interaction/framework_specific_implementation.h"
 
-namespace ui {
-
-DEFINE_LOCAL_ELEMENT_IDENTIFIER_VALUE(kTestFrameworkIdentifier);
-DEFINE_LOCAL_ELEMENT_IDENTIFIER_VALUE(kOtherFrameworkIdentifier);
+namespace ui::test {
 
 TestElementBase::TestElementBase(ElementIdentifier id, ElementContext context)
     : TrackedElement(id, context) {}
@@ -44,25 +43,20 @@ void TestElementBase::Hide() {
   ElementTracker::GetFrameworkDelegate()->NotifyElementHidden(this);
 }
 
-// static
-TrackedElement::FrameworkIdentifier TestElement::GetFrameworkIdentifier() {
-  return kTestFrameworkIdentifier;
+void TestElementBase::SendCustomEvent(CustomElementEventType event_type) {
+  DCHECK(visible_);
+  ElementTracker::GetFrameworkDelegate()->NotifyCustomEvent(this, event_type);
 }
 
-TrackedElement::FrameworkIdentifier
-TestElement::GetInstanceFrameworkIdentifier() const {
-  return kTestFrameworkIdentifier;
+void TestElementBase::SetScreenBounds(const gfx::Rect& screen_bounds) {
+  screen_bounds_ = screen_bounds;
 }
 
-// static
-TrackedElement::FrameworkIdentifier
-TestElementOtherFramework::GetFrameworkIdentifier() {
-  return kOtherFrameworkIdentifier;
+gfx::Rect TestElementBase::GetScreenBounds() const {
+  return screen_bounds_;
 }
 
-TrackedElement::FrameworkIdentifier
-TestElementOtherFramework::GetInstanceFrameworkIdentifier() const {
-  return kOtherFrameworkIdentifier;
-}
+DEFINE_FRAMEWORK_SPECIFIC_METADATA(TestElement)
+DEFINE_FRAMEWORK_SPECIFIC_METADATA(TestElementOtherFramework)
 
-}  // namespace ui
+}  // namespace ui::test

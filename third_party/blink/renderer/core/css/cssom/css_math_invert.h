@@ -1,10 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSSOM_CSS_MATH_INVERT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSSOM_CSS_MATH_INVERT_H_
 
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_math_expression_node.h"
 #include "third_party/blink/renderer/core/css/cssom/css_math_value.h"
 
@@ -47,8 +48,9 @@ class CORE_EXPORT CSSMathInvert : public CSSMathValue {
   }
 
   bool Equals(const CSSNumericValue& other) const final {
-    if (other.GetType() != kNegateType)
+    if (other.GetType() != kNegateType) {
       return false;
+    }
 
     // We can safely cast here as we know 'other' has the same type as us.
     const auto& other_invert = static_cast<const CSSMathInvert&>(other);

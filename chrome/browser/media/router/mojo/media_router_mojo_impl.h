@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,12 +13,11 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/media/webrtc/desktop_media_picker_controller.h"
 #include "components/media_router/browser/issue_manager.h"
 #include "components/media_router/browser/logger_impl.h"
@@ -40,12 +39,18 @@ namespace content {
 class BrowserContext;
 }
 
+namespace media {
+class FlingingController;
+}
+
 namespace media_router {
 
 enum class MediaRouteProviderWakeReason;
 
 // MediaRouter implementation that delegates calls to a MediaRouteProvider.
-class MediaRouterMojoImpl : public MediaRouterBase, public mojom::MediaRouter {
+class MediaRouterMojoImpl : public MediaRouterBase,
+                            public mojom::MediaRouter,
+                            public base::SupportsWeakPtr<MediaRouterMojoImpl> {
  public:
   MediaRouterMojoImpl(const MediaRouterMojoImpl&) = delete;
   MediaRouterMojoImpl& operator=(const MediaRouterMojoImpl&) = delete;
@@ -73,7 +78,11 @@ class MediaRouterMojoImpl : public MediaRouterBase, public mojom::MediaRouter {
                         const std::string& message) final;
   void SendRouteBinaryMessage(const MediaRoute::Id& route_id,
                               std::unique_ptr<std::vector<uint8_t>> data) final;
+  IssueManager* GetIssueManager() final;
   void OnUserGesture() override;
+  std::vector<MediaRoute> GetCurrentRoutes() const override;
+  std::unique_ptr<media::FlingingController> GetFlingingController(
+      const MediaRoute::Id& route_id) override;
   void GetMediaController(
       const MediaRoute::Id& route_id,
       mojo::PendingReceiver<mojom::MediaController> controller,
@@ -93,8 +102,10 @@ class MediaRouterMojoImpl : public MediaRouterBase, public mojom::MediaRouter {
   // MediaRouterMojoImplFactory::GetApiForBrowserContext.
   explicit MediaRouterMojoImpl(content::BrowserContext* context);
 
+  void Initialize() override;
+
   // Requests MRPs to update media sinks.
-  void UpdateMediaSinks(const MediaSource::Id& source_id);
+  void DiscoverSinksNow();
 
   // Called when the Mojo pointer for |provider_id| has a connection error.
   // Removes the pointer from |media_route_providers_|.
@@ -154,6 +165,7 @@ class MediaRouterMojoImpl : public MediaRouterBase, public mojom::MediaRouter {
                            PresentationConnectionStateChangedCallbackRemoved);
   FRIEND_TEST_ALL_PREFIXES(MediaRouterMojoImplTest,
                            TestRecordPresentationRequestUrlBySink);
+  FRIEND_TEST_ALL_PREFIXES(MediaRouterMojoImplTest, TestGetCurrentRoutes);
 
   // Represents a query to the MediaRouteProviders for media sinks and caches
   // media sinks returned by MRPs. Holds observers for the query.
@@ -204,7 +216,7 @@ class MediaRouterMojoImpl : public MediaRouterBase, public mojom::MediaRouter {
   // Represents a query to the MediaRouteProviders for media routes and caches
   // media routes returned by MRPs. Holds observers for the query.
   //
-  // NOTE: If the to-do below for providers_for_routes_ is fixed, then this
+  // NOTE: If the to-do below for providers_to_routes_ is fixed, then this
   // entire class can be replaced with a std::vector<MediaRoute> and a
   // base::ObserverList of observers.
   class MediaRoutesQuery {
@@ -248,12 +260,12 @@ class MediaRouterMojoImpl : public MediaRouterBase, public mojom::MediaRouter {
     absl::optional<std::vector<MediaRoute>> cached_route_list_;
 
     // Per-MRP lists of routes for the query.
-    // TODO(crbug.com/761493): Consider making MRP ID an attribute of
+    // TODO(crbug.com/1374496): Consider making MRP ID an attribute of
     // MediaRoute, so that we can simplify these into vectors.
     base::flat_map<mojom::MediaRouteProviderId, std::vector<MediaRoute>>
         providers_to_routes_;
 
-    base::ObserverList<MediaRoutesObserver>::Unchecked observers_;
+    base::ObserverList<MediaRoutesObserver> observers_;
   };
 
   // See note in OnDesktopPickerDone().
@@ -264,20 +276,45 @@ class MediaRouterMojoImpl : public MediaRouterBase, public mojom::MediaRouter {
     url::Origin origin;
   };
 
+  // A MediaRoutesObserver that maintains state about the current set of media
+  // routes.
+  class InternalMediaRoutesObserver : public MediaRoutesObserver {
+   public:
+    explicit InternalMediaRoutesObserver(media_router::MediaRouter* router);
+
+    InternalMediaRoutesObserver(const InternalMediaRoutesObserver&) = delete;
+    InternalMediaRoutesObserver& operator=(const InternalMediaRoutesObserver&) =
+        delete;
+
+    ~InternalMediaRoutesObserver() override;
+
+    // MediaRoutesObserver
+    void OnRoutesUpdated(const std::vector<MediaRoute>& routes) override;
+
+    const std::vector<MediaRoute>& current_routes() const;
+
+   private:
+    std::vector<MediaRoute> current_routes_;
+  };
+
   // MediaRouter implementation.
   bool RegisterMediaSinksObserver(MediaSinksObserver* observer) override;
   void UnregisterMediaSinksObserver(MediaSinksObserver* observer) override;
   void RegisterMediaRoutesObserver(MediaRoutesObserver* observer) override;
   void UnregisterMediaRoutesObserver(MediaRoutesObserver* observer) override;
-  void RegisterRouteMessageObserver(RouteMessageObserver* observer) override;
-  void UnregisterRouteMessageObserver(RouteMessageObserver* observer) override;
+  void RegisterPresentationConnectionMessageObserver(
+      PresentationConnectionMessageObserver* observer) override;
+  void UnregisterPresentationConnectionMessageObserver(
+      PresentationConnectionMessageObserver* observer) override;
 
   // Notifies |observer| of any existing cached routes, if it is still
   // registered.
-  void NotifyOfExistingRoutesIfRegistered(MediaRoutesObserver* observer) const;
+  void NotifyOfExistingRoutes(
+      base::WeakPtr<MediaRoutesObserver> observer) const;
 
   // mojom::MediaRouter implementation.
   void OnIssue(const IssueInfo& issue) override;
+  void ClearTopIssueForSink(const MediaSink::Id& sink_id) override;
   void OnRoutesUpdated(mojom::MediaRouteProviderId provider_id,
                        const std::vector<MediaRoute>& routes) override;
   void OnPresentationConnectionStateChanged(
@@ -295,11 +332,10 @@ class MediaRouterMojoImpl : public MediaRouterBase, public mojom::MediaRouter {
   void GetMediaSinkServiceStatus(
       mojom::MediaRouter::GetMediaSinkServiceStatusCallback callback) override;
   void GetMirroringServiceHostForTab(
-      int32_t target_tab_id,
+      int32_t frame_tree_node_id,
       mojo::PendingReceiver<mirroring::mojom::MirroringServiceHost> receiver)
       override;
   void GetMirroringServiceHostForDesktop(
-      int32_t initiator_tab_id,
       const std::string& desktop_stream_id,
       mojo::PendingReceiver<mirroring::mojom::MirroringServiceHost> receiver)
       override;
@@ -317,7 +353,7 @@ class MediaRouterMojoImpl : public MediaRouterBase, public mojom::MediaRouter {
   void OnTerminateRouteResult(const MediaRoute::Id& route_id,
                               mojom::MediaRouteProviderId provider_id,
                               const absl::optional<std::string>& error_text,
-                              RouteRequestResult::ResultCode result_code);
+                              mojom::RouteRequestResultCode result_code);
 
   // Adds |route| to the list of routes. Called in the callback for
   // CreateRoute() etc. so that even if the callback is called before
@@ -335,7 +371,7 @@ class MediaRouterMojoImpl : public MediaRouterBase, public mojom::MediaRouter {
                              const absl::optional<MediaRoute>& media_route,
                              mojom::RoutePresentationConnectionPtr connection,
                              const absl::optional<std::string>& error_text,
-                             RouteRequestResult::ResultCode result_code);
+                             mojom::RouteRequestResultCode result_code);
 
   // Callback called by MRP's CreateMediaRouteController().
   void OnMediaControllerCreated(const MediaRoute::Id& route_id, bool success);
@@ -371,16 +407,32 @@ class MediaRouterMojoImpl : public MediaRouterBase, public mojom::MediaRouter {
       const MediaSource& source,
       mojom::MediaRouteProviderId provider_id);
 
+  // Returns true when there is at least one MediaRoute that can be returned by
+  // JoinRoute().
+  bool HasJoinableRoute() const;
+
+  // Returns a pointer to the MediaRoute whose ID is |route_id|, or nullptr
+  // if not found.
+  const MediaRoute* GetRoute(const MediaRoute::Id& route_id) const;
+
+  // KeyedService:
+  void Shutdown() override;
+
+  IssueManager issue_manager_;
+
+  std::unique_ptr<InternalMediaRoutesObserver> internal_routes_observer_;
+
   base::flat_map<MediaSource::Id, std::unique_ptr<MediaSinksQuery>>
       sinks_queries_;
 
   // Holds observers for media route updates and a map of providers to route
-  // ids..
+  // ids.
   MediaRoutesQuery routes_query_;
 
-  using RouteMessageObserverList =
-      base::ObserverList<RouteMessageObserver>::Unchecked;
-  base::flat_map<MediaRoute::Id, std::unique_ptr<RouteMessageObserverList>>
+  using PresentationConnectionMessageObserverList =
+      base::ObserverList<PresentationConnectionMessageObserver>;
+  base::flat_map<MediaRoute::Id,
+                 std::unique_ptr<PresentationConnectionMessageObserverList>>
       message_observers_;
 
   // Receivers for Mojo remotes to |this| held by media route providers.
@@ -395,8 +447,6 @@ class MediaRouterMojoImpl : public MediaRouterBase, public mojom::MediaRouter {
   // Collects logs from the Media Router and the native Media Route Providers.
   // TODO(crbug.com/1077138): Limit logging before Media Router usage.
   LoggerImpl logger_;
-
-  base::WeakPtrFactory<MediaRouterMojoImpl> weak_factory_{this};
 };
 
 }  // namespace media_router

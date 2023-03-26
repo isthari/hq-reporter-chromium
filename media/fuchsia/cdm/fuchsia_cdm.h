@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 
 #include <fuchsia/media/drm/cpp/fidl.h>
 
-#include "base/callback_forward.h"
 #include "base/containers/flat_map.h"
+#include "base/functional/callback_forward.h"
 #include "media/base/callback_registry.h"
 #include "media/base/cdm_context.h"
 #include "media/base/cdm_promise_adapter.h"
@@ -106,9 +106,6 @@ class FuchsiaCdm : public ContentDecryptionModule,
 
   void OnNewKey();
 
-  CdmPromiseAdapter promises_;
-  base::flat_map<std::string, std::unique_ptr<CdmSession>> session_map_;
-
   fuchsia::media::drm::ContentDecryptionModulePtr cdm_;
   ReadyCB ready_cb_;
   SessionCallbacks session_callbacks_;
@@ -118,6 +115,12 @@ class FuchsiaCdm : public ContentDecryptionModule,
   base::Lock new_key_callbacks_lock_;
   std::vector<base::RepeatingClosure> new_key_callbacks_
       GUARDED_BY(new_key_callbacks_lock_);
+
+  CdmPromiseAdapter promises_;
+
+  // CdmSession instances reference `session_callbacks_`, so they must be
+  // deleted before the callbacks.
+  base::flat_map<std::string, std::unique_ptr<CdmSession>> session_map_;
 
   CallbackRegistry<EventCB::RunType> event_callbacks_;
 };

@@ -1,33 +1,48 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// #import {LongTouchDetector} from './components/long_touch_detector.m.js';
+import '//resources/polymer/v3_0/paper-styles/color.js';
+import '//resources/js/action_link.js';
+import '//resources/cr_elements/cr_shared_style.css.js';
+import '../../components/oobe_icons.html.js';
+import '../../components/common_styles/oobe_dialog_host_styles.css.js';
+import '../../components/oobe_vars/oobe_shared_vars.css.js';
 
-/* #js_imports_placeholder */
+import {assert} from '//resources/ash/common/assert.js';
+import {loadTimeData} from '//resources/ash/common/load_time_data.m.js';
+import {html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {OobeDialogHostBehavior} from '../../components/behaviors/oobe_dialog_host_behavior.js';
+import {OobeI18nBehavior} from '../../components/behaviors/oobe_i18n_behavior.js';
+import {OobeModalDialog} from '../../components/dialogs/oobe_modal_dialog.js';
+import {LongTouchDetector} from '../../components/long_touch_detector.js';
+import {OobeCrLottie} from '../../components/oobe_cr_lottie.js';
 
 /**
  * @constructor
  * @extends {PolymerElement}
  */
- const OobeWelcomeDialogBase = Polymer.mixinBehaviors(
-  [OobeI18nBehavior, OobeDialogHostBehavior],
-  Polymer.Element);
+const OobeWelcomeDialogBase =
+    mixinBehaviors([OobeI18nBehavior, OobeDialogHostBehavior], PolymerElement);
 
 /**
  * @typedef {{
  *   title:  HTMLAnchorElement,
- *   chromeVoxHint:  OobeModalDialogElement,
- *   welcomeAnimation:  CrLottieElement,
+ *   chromeVoxHint:  OobeModalDialog,
+ *   welcomeAnimation:  OobeCrLottie,
  * }}
  */
 OobeWelcomeDialogBase.$;
 
-/* #export */ class OobeWelcomeDialog extends OobeWelcomeDialogBase {
+export class OobeWelcomeDialog extends OobeWelcomeDialogBase {
+  static get is() {
+    return 'oobe-welcome-dialog';
+  }
 
-  static get is() { return 'oobe-welcome-dialog'; }
-
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   static get properties() {
     return {
@@ -58,15 +73,14 @@ OobeWelcomeDialogBase.$;
       isMeet_: {
         type: Boolean,
         value: function() {
-          return loadTimeData.valueExists('flowType') &&
-              (loadTimeData.getString('flowType') == 'meet');
+          return (
+              loadTimeData.valueExists('flowType') &&
+              loadTimeData.getString('flowType') == 'meet');
         },
         readOnly: true,
       },
 
-      isQuickStartEnabled_: {
-        type: Boolean,
-      },
+      isQuickStartEnabled: Boolean,
     };
   }
 
@@ -74,7 +88,6 @@ OobeWelcomeDialogBase.$;
     super();
     this.currentLanguage = '';
     this.timezoneButtonVisible = false;
-
 
     /**
      * @private {LongTouchDetector}
@@ -86,7 +99,7 @@ OobeWelcomeDialogBase.$;
      */
     this.focusedElement_ = null;
 
-    this.isQuickStartEnabled_ = loadTimeData.getBoolean('isQuickStartEnabled');
+    this.isQuickStartEnabled = false;
   }
 
   onBeforeShow() {
@@ -95,17 +108,26 @@ OobeWelcomeDialogBase.$;
 
   onLanguageClicked_(e) {
     this.focusedElement_ = 'languageSelectionButton';
-    this.dispatchEvent(new CustomEvent('language-button-clicked', { bubbles: true, composed: true }));
+    this.dispatchEvent(new CustomEvent('language-button-clicked', {
+      bubbles: true,
+      composed: true,
+    }));
   }
 
   onAccessibilityClicked_() {
     this.focusedElement_ = 'accessibilitySettingsButton';
-    this.dispatchEvent(new CustomEvent('accessibility-button-clicked', { bubbles: true, composed: true }));
+    this.dispatchEvent(new CustomEvent('accessibility-button-clicked', {
+      bubbles: true,
+      composed: true,
+    }));
   }
 
   onTimezoneClicked_() {
     this.focusedElement_ = 'timezoneSettingsButton';
-    this.dispatchEvent(new CustomEvent('timezone-button-clicked', { bubbles: true, composed: true }));
+    this.dispatchEvent(new CustomEvent('timezone-button-clicked', {
+      bubbles: true,
+      composed: true,
+    }));
   }
 
   onNextClicked_() {
@@ -115,24 +137,28 @@ OobeWelcomeDialogBase.$;
   }
 
   onQuickStartClicked_() {
-    assert(this.isQuickStartEnabled_);
+    assert(this.isQuickStartEnabled);
     this.dispatchEvent(new CustomEvent(
         'quick-start-clicked', {bubbles: true, composed: true}));
   }
 
   onDebuggingLinkClicked_() {
-    this.dispatchEvent(new CustomEvent(
-        'enable-debugging-clicked', {bubbles: true, composed: true}));
+    this.dispatchEvent(new CustomEvent('enable-debugging-clicked', {
+      bubbles: true,
+      composed: true,
+    }));
   }
 
   /*
-    * This is called from titleLongTouchDetector_ when long touch is detected.
-    *
-    * @private
-    */
+   * This is called from titleLongTouchDetector_ when long touch is detected.
+   *
+   * @private
+   */
   onTitleLongTouch_() {
-    this.dispatchEvent(new CustomEvent(
-        'launch-advanced-options', {bubbles: true, composed: true}));
+    this.dispatchEvent(new CustomEvent('launch-advanced-options', {
+      bubbles: true,
+      composed: true,
+    }));
   }
 
   attached() {
@@ -155,17 +181,18 @@ OobeWelcomeDialogBase.$;
     if (!this.focusedElement_) {
       this.focusedElement_ = 'getStarted';
     }
-    let focusedElement = this.$[this.focusedElement_];
-    if (focusedElement)
+    const focusedElement = this.$[this.focusedElement_];
+    if (focusedElement) {
       focusedElement.focus();
+    }
   }
 
   /*
-    * Observer method for changes to the hidden property.
-    * This replaces the show() function, in this class.
-    */
+   * Observer method for changes to the hidden property.
+   * This replaces the show() function, in this class.
+   */
   updateHidden_(newValue, oldValue) {
-    let visible = !newValue;
+    const visible = !newValue;
     if (visible) {
       this.focus();
     }
@@ -180,8 +207,9 @@ OobeWelcomeDialogBase.$;
    * @suppress {missingProperties}
    */
   setVideoPlay_(play) {
-    if (this.isMeet_)
+    if (this.isMeet_) {
       return;
+    }
     this.$.welcomeAnimation.playing = play;
   }
 
@@ -218,14 +246,20 @@ OobeWelcomeDialogBase.$;
    * @private
    */
   dismissChromeVoxHint_() {
-    this.dispatchEvent(new CustomEvent('chromevox-hint-dismissed', { bubbles: true, composed: true }));
+    this.dispatchEvent(new CustomEvent('chromevox-hint-dismissed', {
+      bubbles: true,
+      composed: true,
+    }));
     this.closeChromeVoxHint();
   }
 
   /** @private */
   activateChromeVox_() {
     this.closeChromeVoxHint();
-    this.dispatchEvent(new CustomEvent('chromevox-hint-accepted', { bubbles: true, composed: true }));
+    this.dispatchEvent(new CustomEvent('chromevox-hint-accepted', {
+      bubbles: true,
+      composed: true,
+    }));
   }
 }
 

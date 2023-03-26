@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,13 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/location.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "chrome/test/chromedriver/net/command_id.h"
 #include "chrome/test/chromedriver/net/timeout.h"
@@ -21,9 +22,12 @@
 
 SyncWebSocketImpl::SyncWebSocketImpl(
     net::URLRequestContextGetter* context_getter)
-    : core_(new Core(context_getter)) {}
+    : core_(new Core(context_getter)) {
+  core_->SetNotificationCallback(base::BindRepeating(
+      &SyncWebSocketImpl::SendNotification, weak_factory_.GetWeakPtr()));
+}
 
-SyncWebSocketImpl::~SyncWebSocketImpl() {}
+SyncWebSocketImpl::~SyncWebSocketImpl() = default;
 
 bool SyncWebSocketImpl::IsConnected() {
   return core_->IsConnected();
@@ -46,10 +50,22 @@ bool SyncWebSocketImpl::HasNextMessage() {
   return core_->HasNextMessage();
 }
 
+void SyncWebSocketImpl::SetNotificationCallback(
+    base::RepeatingClosure callback) {
+  notify_ = std::move(callback);
+}
+
+void SyncWebSocketImpl::SendNotification() {
+  if (notify_) {
+    notify_.Run();
+  }
+}
+
 SyncWebSocketImpl::Core::Core(net::URLRequestContextGetter* context_getter)
     : context_getter_(context_getter),
       is_connected_(false),
-      on_update_event_(&lock_) {}
+      on_update_event_(&lock_),
+      owning_sequence_(base::SequencedTaskRunner::GetCurrentDefault()) {}
 
 bool SyncWebSocketImpl::Core::IsConnected() {
   base::AutoLock lock(lock_);
@@ -113,6 +129,7 @@ SyncWebSocket::StatusCode SyncWebSocketImpl::Core::ReceiveNextMessage(
     return SyncWebSocket::StatusCode::kDisconnected;
   *message = received_queue_.front();
   received_queue_.pop_front();
+
   return SyncWebSocket::StatusCode::kOk;
 }
 
@@ -125,23 +142,35 @@ bool SyncWebSocketImpl::Core::HasNextMessage() {
 // https://crrev.com/c/1745493 is a pending CL that does this
 void SyncWebSocketImpl::Core::OnMessageReceived(const std::string& message) {
   base::AutoLock lock(lock_);
+
+  bool notification_is_needed = false;
   bool send_to_chromedriver;
+
   DetermineRecipient(message, &send_to_chromedriver);
-  if (send_to_chromedriver)
+  if (send_to_chromedriver) {
+    notification_is_needed = received_queue_.empty();
+
     received_queue_.push_back(message);
+  }
   on_update_event_.Signal();
+
+  // The notification can be emitted sporadically but we explicitly allow this.
+  if (notification_is_needed && notify_) {
+    owning_sequence_->PostTask(FROM_HERE, notify_);
+  }
 }
 
 void SyncWebSocketImpl::Core::DetermineRecipient(const std::string& message,
                                                  bool* send_to_chromedriver) {
   absl::optional<base::Value> message_value =
       base::JSONReader::Read(message, base::JSON_REPLACE_INVALID_CHARACTERS);
-  base::DictionaryValue* message_dict;
-  if (!message_value || !message_value->GetAsDictionary(&message_dict)) {
+  base::Value::Dict* message_dict =
+      message_value ? message_value->GetIfDict() : nullptr;
+  if (!message_dict) {
     *send_to_chromedriver = true;
     return;
   }
-  base::Value* id = message_dict->FindKey("id");
+  base::Value* id = message_dict->Find("id");
   *send_to_chromedriver =
       id == nullptr ||
       (id->is_int() && CommandId::IsChromeDriverCommandId(id->GetInt()));
@@ -153,7 +182,13 @@ void SyncWebSocketImpl::Core::OnClose() {
   on_update_event_.Signal();
 }
 
-SyncWebSocketImpl::Core::~Core() { }
+void SyncWebSocketImpl::Core::SetNotificationCallback(
+    base::RepeatingClosure callback) {
+  base::AutoLock lock(lock_);
+  notify_ = std::move(callback);
+}
+
+SyncWebSocketImpl::Core::~Core() = default;
 
 void SyncWebSocketImpl::Core::ConnectOnIO(
     const GURL& url,

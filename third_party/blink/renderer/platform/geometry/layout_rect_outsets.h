@@ -68,6 +68,12 @@ class PLATFORM_EXPORT LayoutRectOutsets {
         bottom_(LayoutUnit(outsets.bottom())),
         left_(LayoutUnit(outsets.left())) {}
 
+  explicit LayoutRectOutsets(const gfx::OutsetsF& outsets)
+      : top_(LayoutUnit(outsets.top())),
+        right_(LayoutUnit(outsets.right())),
+        bottom_(LayoutUnit(outsets.bottom())),
+        left_(LayoutUnit(outsets.left())) {}
+
   constexpr LayoutUnit Top() const { return top_; }
   constexpr LayoutUnit Right() const { return right_; }
   constexpr LayoutUnit Bottom() const { return bottom_; }
@@ -141,12 +147,31 @@ inline LayoutRectOutsets operator+(const LayoutRectOutsets& a,
                            a.Bottom() + b.Bottom(), a.Left() + b.Left());
 }
 
+inline LayoutRectOutsets operator+(const LayoutRectOutsets& a, LayoutUnit b) {
+  return LayoutRectOutsets(a.Top() + b, a.Right() + b, a.Bottom() + b,
+                           a.Left() + b);
+}
+
 inline LayoutRectOutsets operator-(const LayoutRectOutsets& a) {
   return LayoutRectOutsets(-a.Top(), -a.Right(), -a.Bottom(), -a.Left());
 }
 
+inline LayoutRectOutsets operator-(const LayoutRectOutsets& a,
+                                   const LayoutRectOutsets& b) {
+  return a + -b;
+}
+
+inline LayoutRectOutsets operator-(const LayoutRectOutsets& a, LayoutUnit b) {
+  return a + -b;
+}
+
 inline LayoutRectOutsets& operator-=(LayoutRectOutsets& a,
                                      const LayoutRectOutsets& b) {
+  a += -b;
+  return a;
+}
+
+inline LayoutRectOutsets& operator-=(LayoutRectOutsets& a, LayoutUnit b) {
   a += -b;
   return a;
 }

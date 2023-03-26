@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,16 +32,14 @@ class ExistingBaseSubMenuModel : public ui::SimpleMenuModel,
   ExistingBaseSubMenuModel(ui::SimpleMenuModel::Delegate* parent_delegate,
                            TabStripModel* model,
                            int context_index,
-                           int min_command_id);
+                           int min_command_id,
+                           int parent_new_command_id_);
 
   // ui::SimpleMenuModel
-  bool GetAcceleratorForCommandId(int command_id,
-                                  ui::Accelerator* accelerator) const override;
-  const gfx::FontList* GetLabelFontListAt(int index) const override;
+  const gfx::FontList* GetLabelFontListAt(size_t index) const override;
 
   // ui::SimpleMenuModel::Delegate
-  bool IsCommandIdChecked(int command_id) const override;
-  bool IsCommandIdEnabled(int command_id) const override;
+  bool IsCommandIdAlerted(int command_id) const override;
   void ExecuteCommand(int command_id, int event_flags) final;
 
   // Command IDs for various submenus.
@@ -53,7 +51,7 @@ class ExistingBaseSubMenuModel : public ui::SimpleMenuModel,
 
   ~ExistingBaseSubMenuModel() override;
 
-  const base::flat_map<int, int>& command_id_to_target_index_for_testing() {
+  const base::flat_map<int, size_t>& command_id_to_target_index_for_testing() {
     return command_id_to_target_index_;
   }
 
@@ -75,7 +73,7 @@ class ExistingBaseSubMenuModel : public ui::SimpleMenuModel,
     // The target index for this item. E.g. tab group index or browser
     // index. If this field is not provided then the entry for this item will be
     // a title and have no corresponding command.
-    absl::optional<int> target_index;
+    absl::optional<size_t> target_index;
 
     // An optionally provided accessible name for this menu item. If
     // |accessible_name| is empty, then the default accessible name will be used
@@ -94,20 +92,14 @@ class ExistingBaseSubMenuModel : public ui::SimpleMenuModel,
 
   // Helper method for checking if the command is to add a tab to a new object
   // model.
-  bool IsNewCommand(int command_id) const {
-    return command_id == min_command_id_;
-  }
-
-  // Performs the action for adding the tab to a new object model (e.g. group or
-  // window).
-  virtual void ExecuteNewCommand(int event_flags);
+  bool IsNewCommand(int command_id) const;
 
   // Performs the action for adding the tab to an existing object model (e.g.
   // group or window) at |target_index|.
-  virtual void ExecuteExistingCommand(int target_index);
+  virtual void ExecuteExistingCommand(size_t target_index);
 
   // Maximum number of entries for a submenu.
-  static constexpr int max_size = 200;
+  static constexpr size_t max_size = 200;
 
   ui::SimpleMenuModel::Delegate* parent_delegate() const {
     return parent_delegate_;
@@ -120,10 +112,11 @@ class ExistingBaseSubMenuModel : public ui::SimpleMenuModel,
   const raw_ptr<TabStripModel> model_;
   const raw_ptr<const content::WebContents> context_contents_;
   const int min_command_id_;
+  const int parent_new_command_id_;
 
   // Stores a mapping from a menu item's command id to its target index (e.g.
   // tab-group index or browser index).
-  base::flat_map<int, int> command_id_to_target_index_;
+  base::flat_map<int, size_t> command_id_to_target_index_;
 };
 
 #endif  // CHROME_BROWSER_UI_TABS_EXISTING_BASE_SUB_MENU_MODEL_H_

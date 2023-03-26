@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,11 +12,11 @@
 #include <unordered_set>
 
 #include "ash/ash_export.h"
-#include "ash/components/phonehub/camera_roll_manager.h"
-#include "ash/components/phonehub/feature_status_provider.h"
-#include "ash/components/phonehub/notification_manager.h"
-#include "ash/components/phonehub/tether_controller.h"
 #include "base/gtest_prod_util.h"
+#include "chromeos/ash/components/phonehub/camera_roll_manager.h"
+#include "chromeos/ash/components/phonehub/feature_status_provider.h"
+#include "chromeos/ash/components/phonehub/notification_manager.h"
+#include "chromeos/ash/components/phonehub/tether_controller.h"
 
 namespace message_center {
 class MessageView;
@@ -41,7 +41,6 @@ class CameraRollItemMetadata;
 // PhoneHub corresponding notification.
 class ASH_EXPORT PhoneHubNotificationController
     : public phonehub::CameraRollManager::Observer,
-      public phonehub::FeatureStatusProvider::Observer,
       public phonehub::NotificationManager::Observer,
       public phonehub::TetherController::Observer {
  public:
@@ -67,9 +66,6 @@ class ASH_EXPORT PhoneHubNotificationController
                            NotificationHasPhoneName);
 
   class NotificationDelegate;
-
-  // phonehub::FeatureStatusProvider::Observer:
-  void OnFeatureStatusChanged() override;
 
   // phonehub::NotificationManager::Observer:
   void OnNotificationsAdded(
@@ -142,17 +138,11 @@ class ASH_EXPORT PhoneHubNotificationController
   phonehub::NotificationInteractionHandler* notification_interaction_handler_ =
       nullptr;
   phonehub::NotificationManager* manager_ = nullptr;
-  phonehub::FeatureStatusProvider* feature_status_provider_ = nullptr;
   phonehub::TetherController* tether_controller_ = nullptr;
   phonehub::CameraRollManager* camera_roll_manager_ = nullptr;
   phonehub::PhoneModel* phone_model_ = nullptr;
   std::unordered_map<int64_t, std::unique_ptr<NotificationDelegate>>
       notification_map_;
-
-  // A set of notification ids that have been previously shown, even across
-  // disconnects. This is needed to prevent pop-ups from reappearing due to a
-  // flaky connection. See crbug.com/1150621.
-  std::unordered_set<uint64_t> shown_notification_ids_;
 
   base::WeakPtrFactory<PhoneHubNotificationController> weak_ptr_factory_{this};
 };

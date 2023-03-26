@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -210,6 +210,9 @@ public class PageInfoPermissionsController
         }
         mDataIsStale = false;
     }
+
+    @Override
+    public void onNativeInitialized() {}
 
     // SingleWebsiteSettings.Observer methods
 

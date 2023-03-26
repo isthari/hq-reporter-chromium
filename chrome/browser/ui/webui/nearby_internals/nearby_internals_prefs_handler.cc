@@ -1,9 +1,9 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/webui/nearby_internals/nearby_internals_prefs_handler.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "chrome/browser/nearby_sharing/common/nearby_share_prefs.h"
 #include "chrome/browser/nearby_sharing/logging/logging.h"
 #include "chrome/browser/profiles/profile.h"
@@ -23,7 +23,7 @@ NearbyInternalsPrefsHandler::NearbyInternalsPrefsHandler(
 NearbyInternalsPrefsHandler::~NearbyInternalsPrefsHandler() = default;
 
 void NearbyInternalsPrefsHandler::RegisterMessages() {
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "clearNearbyPrefs",
       base::BindRepeating(&NearbyInternalsPrefsHandler::HandleClearNearbyPrefs,
                           base::Unretained(this)));
@@ -34,7 +34,7 @@ void NearbyInternalsPrefsHandler::OnJavascriptAllowed() {}
 void NearbyInternalsPrefsHandler::OnJavascriptDisallowed() {}
 
 void NearbyInternalsPrefsHandler::HandleClearNearbyPrefs(
-    const base::ListValue* args) {
+    const base::Value::List& args) {
   // Reset onboarding otherwise turning off Nearby also sets Fast Initiation
   // pref.
   pref_service_->SetBoolean(prefs::kNearbySharingOnboardingCompletePrefName,

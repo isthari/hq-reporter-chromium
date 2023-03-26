@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -135,7 +136,7 @@ struct IEOrderBookmarkComparator {
     }
     return lhs.path.size() < rhs.path.size();
   }
-  const std::map<base::FilePath, uint32_t>* sort_index_;
+  raw_ptr<const std::map<base::FilePath, uint32_t>> sort_index_;
 };
 
 // IE stores the order of the Favorites menu in registry under:
@@ -668,7 +669,7 @@ void IEImporter::ParseFavoritesFolder(
   for (std::vector<base::FilePath::StringType>::iterator it = file_list.begin();
        it != file_list.end(); ++it) {
     base::FilePath shortcut(*it);
-    if (!base::LowerCaseEqualsASCII(shortcut.Extension(), ".url"))
+    if (!base::EqualsCaseInsensitiveASCII(shortcut.Extension(), ".url"))
       continue;
 
     // Skip the bookmark with invalid URL.
@@ -705,8 +706,7 @@ void IEImporter::ParseFavoritesFolder(
     entry.url = url;
     entry.creation_time = GetFileCreationTime(shortcut);
     if (!relative_path.empty()) {
-      std::vector<std::wstring> wide_components;
-      relative_path.GetComponents(&wide_components);
+      std::vector<std::wstring> wide_components = relative_path.GetComponents();
       base::ranges::transform(wide_components, std::back_inserter(entry.path),
                               &base::AsString16);
     }

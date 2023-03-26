@@ -1,18 +1,25 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_scheduler_impl.h"
 
 #include <memory>
-#include "base/bind.h"
+
+#include "base/functional/bind.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/task/sequence_manager/test/sequence_manager_for_test.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/test/test_mock_time_task_runner.h"
+#include "base/time/time.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/platform/scheduler/common/throttling/cpu_time_budget_pool.h"
 #include "third_party/blink/renderer/platform/scheduler/common/throttling/task_queue_throttler.h"
+#include "third_party/blink/renderer/platform/scheduler/public/frame_or_worker_scheduler.h"
 #include "third_party/blink/renderer/platform/scheduler/public/web_scheduling_priority.h"
 #include "third_party/blink/renderer/platform/scheduler/public/web_scheduling_task_queue.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_thread_scheduler.h"
@@ -35,11 +42,13 @@ namespace scheduler {
 // To avoid symbol collisions in jumbo builds.
 namespace worker_scheduler_unittest {
 
+namespace {
+
 void AppendToVectorTestTask(Vector<String>* vector, String value) {
   vector->push_back(value);
 }
 
-void RunChainedTask(scoped_refptr<base::sequence_manager::TaskQueue> task_queue,
+void RunChainedTask(scoped_refptr<NonMainThreadTaskQueue> task_queue,
                     int count,
                     base::TimeDelta duration,
                     scoped_refptr<base::TestMockTimeTaskRunner> environment,
@@ -53,12 +62,28 @@ void RunChainedTask(scoped_refptr<base::sequence_manager::TaskQueue> task_queue,
 
   // Add a delay of 50ms to ensure that wake-up based throttling does not affect
   // us.
-  task_queue->task_runner()->PostDelayedTask(
+  task_queue->GetTaskRunnerWithDefaultTaskType()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&RunChainedTask, task_queue, count - 1, duration,
                      environment, base::Unretained(tasks)),
       base::Milliseconds(50));
 }
+
+void IncrementCounter(int* counter) {
+  ++*counter;
+}
+
+class TestObject {
+ public:
+  explicit TestObject(int* counter) : counter_(counter) {}
+
+  ~TestObject() { ++(*counter_); }
+
+ private:
+  int* counter_;
+};
+
+}  // namespace
 
 class WorkerThreadSchedulerForTest : public WorkerThreadScheduler {
  public:
@@ -132,8 +157,8 @@ class WorkerSchedulerImplTest : public testing::Test {
                     const String& task_descriptor,
                     TaskType task_type) {
     worker_scheduler_->GetTaskRunner(task_type)->PostTask(
-        FROM_HERE, WTF::Bind(&AppendToVectorTestTask,
-                             WTF::Unretained(run_order), task_descriptor));
+        FROM_HERE, WTF::BindOnce(&AppendToVectorTestTask,
+                                 WTF::Unretained(run_order), task_descriptor));
   }
 
  protected:
@@ -143,6 +168,7 @@ class WorkerSchedulerImplTest : public testing::Test {
   std::unique_ptr<WorkerThreadSchedulerForTest> scheduler_;
   std::unique_ptr<WorkerSchedulerForTest> worker_scheduler_;
   base::TimeTicks start_time_;
+  base::test::ScopedFeatureList feature_list_;
 };
 
 TEST_F(WorkerSchedulerImplTest, TestPostTasks) {
@@ -160,7 +186,7 @@ TEST_F(WorkerSchedulerImplTest, TestPostTasks) {
   PostTestTask(&run_order, "T4", TaskType::kInternalTest);
   PostTestTask(&run_order, "T5", TaskType::kInternalTest);
   RunUntilIdle();
-  EXPECT_TRUE(run_order.IsEmpty());
+  EXPECT_TRUE(run_order.empty());
 
   worker_scheduler_.reset();
 }
@@ -231,8 +257,10 @@ TEST_F(WorkerSchedulerImplTest, ThrottleWorkerScheduler_RunThrottledTasks) {
 
   Vector<base::TimeTicks> tasks;
 
-  worker_scheduler_->ThrottleableTaskQueue()->task_runner()->PostTask(
-      FROM_HERE, base::BindOnce(&RunChainedTask,
+  worker_scheduler_->ThrottleableTaskQueue()
+      ->GetTaskRunnerWithDefaultTaskType()
+      ->PostTask(FROM_HERE,
+                 base::BindOnce(&RunChainedTask,
                                 worker_scheduler_->ThrottleableTaskQueue(), 5,
                                 base::TimeDelta(), mock_task_runner_,
                                 base::Unretained(&tasks)));
@@ -262,8 +290,10 @@ TEST_F(WorkerSchedulerImplTest,
 
   Vector<base::TimeTicks> tasks;
 
-  worker_scheduler_->ThrottleableTaskQueue()->task_runner()->PostTask(
-      FROM_HERE, base::BindOnce(&RunChainedTask,
+  worker_scheduler_->ThrottleableTaskQueue()
+      ->GetTaskRunnerWithDefaultTaskType()
+      ->PostTask(FROM_HERE,
+                 base::BindOnce(&RunChainedTask,
                                 worker_scheduler_->ThrottleableTaskQueue(), 5,
                                 base::Milliseconds(100), mock_task_runner_,
                                 base::Unretained(&tasks)));
@@ -313,7 +343,11 @@ TEST_F(WorkerSchedulerImplTest, MAYBE_NestedPauseHandlesTasks) {
 
 class WorkerSchedulerDelegateForTesting : public WorkerScheduler::Delegate {
  public:
-  MOCK_METHOD1(UpdateBackForwardCacheDisablingFeatures, void(uint64_t));
+  MOCK_METHOD(void,
+              UpdateBackForwardCacheDisablingFeatures,
+              (uint64_t,
+               const BFCacheBlockingFeatureAndLocations&,
+               const BFCacheBlockingFeatureAndLocations&));
 };
 
 // Confirms that the feature usage in a dedicated worker is uploaded to
@@ -347,9 +381,19 @@ TEST_F(WorkerSchedulerImplTest, FeatureUpload) {
                                (1 << static_cast<uint64_t>(
                                     SchedulingPolicy::Feature::
                                         kMainResourceHasCacheControlNoStore)) |
-                               (1 << static_cast<uint64_t>(
-                                    SchedulingPolicy::Feature::
-                                        kMainResourceHasCacheControlNoCache))));
+                                   (1 << static_cast<uint64_t>(
+                                        SchedulingPolicy::Feature::
+                                            kMainResourceHasCacheControlNoCache)),
+                               BFCacheBlockingFeatureAndLocations(),
+                               BFCacheBlockingFeatureAndLocations(
+                                   {FeatureAndJSLocationBlockingBFCache(
+                                        SchedulingPolicy::Feature::
+                                            kMainResourceHasCacheControlNoStore,
+                                        nullptr),
+                                    FeatureAndJSLocationBlockingBFCache(
+                                        SchedulingPolicy::Feature::
+                                            kMainResourceHasCacheControlNoCache,
+                                        nullptr)})));
                      },
                      worker_scheduler_.get(), delegate.get()));
 
@@ -434,6 +478,78 @@ TEST_F(NonMainThreadWebSchedulingTaskQueueTest, DynamicTaskPriorityOrder) {
   EXPECT_THAT(run_order,
               testing::ElementsAre("V1", "V2", "B1", "B2", "U1", "U2"));
 }
+
+enum class DeleterTaskRunnerEnabled { kEnabled, kDisabled };
+
+class WorkerSchedulerImplTaskRunnerWithCustomDeleterTest
+    : public WorkerSchedulerImplTest,
+      public ::testing::WithParamInterface<DeleterTaskRunnerEnabled> {
+ public:
+  WorkerSchedulerImplTaskRunnerWithCustomDeleterTest() {
+    feature_list_.Reset();
+    if (GetParam() == DeleterTaskRunnerEnabled::kEnabled) {
+      feature_list_.InitWithFeatures(
+          {blink::features::kUseBlinkSchedulerTaskRunnerWithCustomDeleter}, {});
+    } else {
+      feature_list_.InitWithFeatures(
+          {}, {blink::features::kUseBlinkSchedulerTaskRunnerWithCustomDeleter});
+    }
+  }
+};
+
+TEST_P(WorkerSchedulerImplTaskRunnerWithCustomDeleterTest,
+       DeleteSoonAfterDispose) {
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner =
+      worker_scheduler_->GetTaskRunner(TaskType::kInternalTest);
+  int counter = 0;
+
+  // Deleting before shutdown should always work.
+  std::unique_ptr<TestObject> test_object1 =
+      std::make_unique<TestObject>(&counter);
+  task_runner->DeleteSoon(FROM_HERE, std::move(test_object1));
+  EXPECT_EQ(counter, 0);
+  RunUntilIdle();
+  EXPECT_EQ(counter, 1);
+
+  task_runner->PostTask(
+      FROM_HERE, base::BindOnce(&IncrementCounter, base::Unretained(&counter)));
+  worker_scheduler_->Dispose();
+  worker_scheduler_.reset();
+
+  // No more tasks should run after worker scheduler disposal.
+  EXPECT_EQ(counter, 1);
+  RunUntilIdle();
+  EXPECT_EQ(counter, 1);
+
+  std::unique_ptr<TestObject> test_object2 =
+      std::make_unique<TestObject>(&counter);
+  TestObject* unowned_test_object2 = test_object2.get();
+  task_runner->DeleteSoon(FROM_HERE, std::move(test_object2));
+  EXPECT_EQ(counter, 1);
+  RunUntilIdle();
+
+  // Without the custom task runner, this leaks.
+  if (GetParam() == DeleterTaskRunnerEnabled::kDisabled) {
+    EXPECT_EQ(counter, 1);
+    delete (unowned_test_object2);
+  } else {
+    EXPECT_EQ(counter, 2);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    WorkerSchedulerImplTaskRunnerWithCustomDeleterTest,
+    testing::Values(DeleterTaskRunnerEnabled::kEnabled,
+                    DeleterTaskRunnerEnabled::kDisabled),
+    [](const testing::TestParamInfo<DeleterTaskRunnerEnabled>& info) {
+      switch (info.param) {
+        case DeleterTaskRunnerEnabled::kEnabled:
+          return "Enabled";
+        case DeleterTaskRunnerEnabled::kDisabled:
+          return "Disabled";
+      }
+    });
 
 }  // namespace worker_scheduler_unittest
 }  // namespace scheduler

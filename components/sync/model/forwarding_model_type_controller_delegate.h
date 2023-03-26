@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,9 +38,10 @@ class ForwardingModelTypeControllerDelegate
       base::OnceCallback<void(const TypeEntitiesCount&)> callback)
       const override;
   void RecordMemoryUsageAndCountsHistograms() override;
+  void ClearMetadataWhileStopped() override;
 
  private:
-  const raw_ptr<ModelTypeControllerDelegate> other_;
+  const raw_ptr<ModelTypeControllerDelegate, DanglingUntriaged> other_;
 };
 
 }  // namespace syncer

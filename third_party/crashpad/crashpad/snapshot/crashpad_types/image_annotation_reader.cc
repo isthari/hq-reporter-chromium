@@ -1,4 +1,4 @@
-// Copyright 2017 The Crashpad Authors. All rights reserved.
+// Copyright 2017 The Crashpad Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,7 +26,11 @@
 #include "client/annotation_list.h"
 #include "client/simple_string_dictionary.h"
 #include "snapshot/snapshot_constants.h"
+#if BUILDFLAG(IS_FUCHSIA)
+#include "util/fuchsia/traits.h"
+#else
 #include "util/linux/traits.h"
+#endif
 
 namespace crashpad {
 

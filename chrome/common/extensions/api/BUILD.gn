@@ -1,4 +1,4 @@
-# Copyright 2015 The Chromium Authors. All rights reserved.
+# Copyright 2015 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -57,7 +57,7 @@ generated_json_strings("generated_api_json_strings") {
     "tts.json",
     "tts_engine.json",
   ]
-  if (is_chromeos_ash || is_chromeos_lacros) {
+  if (is_chromeos) {
     sources += [ "file_browser_handler.json" ]
   }
   if (!is_chromeos_ash) {

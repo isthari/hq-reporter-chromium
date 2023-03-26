@@ -1,18 +1,60 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/enterprise/connectors/device_trust/key_management/core/persistence/win_key_persistence_delegate.h"
 
-#include "base/win/registry.h"
+#include <array>
+#include <string>
+#include <utility>
+
+#include "base/no_destructor.h"
+#include "base/syslog_logging.h"
+#include "chrome/browser/enterprise/connectors/device_trust/key_management/core/ec_signing_key.h"
+#include "chrome/browser/enterprise/connectors/device_trust/key_management/core/persistence/metrics_utils.h"
 #include "chrome/installer/util/install_util.h"
+#include "crypto/unexportable_key.h"
 
 using BPKUR = enterprise_management::BrowserPublicKeyUploadRequest;
 using BPKUP = enterprise_management::BrowserPublicKeyUploadResponse;
 
 namespace enterprise_connectors {
 
+namespace {
+
+bool RecordFailure(KeyPersistenceOperation operation,
+                   KeyPersistenceError error,
+                   const std::string& log_message) {
+  RecordError(operation, error);
+  SYSLOG(ERROR) << log_message;
+  return false;
+}
+
+// Creates the unexportable signing key given the key `trust_level`.
+std::unique_ptr<crypto::UnexportableSigningKey> CreateSigningKey(
+    KeyPersistenceDelegate::KeyTrustLevel trust_level) {
+  std::unique_ptr<crypto::UnexportableKeyProvider> provider;
+
+  if (trust_level == BPKUR::CHROME_BROWSER_HW_KEY) {
+    provider = crypto::GetUnexportableKeyProvider();
+  } else if (trust_level == BPKUR::CHROME_BROWSER_OS_KEY) {
+    provider = std::make_unique<ECSigningKeyProvider>();
+  }
+
+  static constexpr std::array<crypto::SignatureVerifier::SignatureAlgorithm, 2>
+      kAcceptableAlgorithms = {crypto::SignatureVerifier::ECDSA_SHA256,
+                               crypto::SignatureVerifier::RSA_PKCS1_SHA256};
+  return provider ? provider->GenerateSigningKeySlowly(kAcceptableAlgorithms)
+                  : nullptr;
+}
+
+}  // namespace
+
 WinKeyPersistenceDelegate::~WinKeyPersistenceDelegate() = default;
+
+bool WinKeyPersistenceDelegate::CheckRotationPermissions() {
+  return true;
+}
 
 bool WinKeyPersistenceDelegate::StoreKeyPair(
     KeyPersistenceDelegate::KeyTrustLevel trust_level,
@@ -23,42 +65,77 @@ bool WinKeyPersistenceDelegate::StoreKeyPair(
   std::tie(key, signingkey_name, trustlevel_name) =
       InstallUtil::GetDeviceTrustSigningKeyLocation(
           InstallUtil::ReadOnly(false));
-  if (!key.Valid())
-    return false;
+  if (!key.Valid()) {
+    return RecordFailure(KeyPersistenceOperation::kStoreKeyPair,
+                         KeyPersistenceError::kOpenPersistenceStorageFailed,
+                         "Device trust key rotation failed. Could not open the "
+                         "signing key storage for reading.");
+  }
 
   if (trust_level == BPKUR::KEY_TRUST_LEVEL_UNSPECIFIED) {
     DCHECK_EQ(wrapped.size(), 0u);
-    return key.DeleteValue(signingkey_name.c_str()) == ERROR_SUCCESS &&
-           key.DeleteValue(trustlevel_name.c_str()) == ERROR_SUCCESS;
+    if (key.DeleteValue(signingkey_name.c_str()) == ERROR_SUCCESS &&
+        key.DeleteValue(trustlevel_name.c_str()) == ERROR_SUCCESS) {
+      return true;
+    }
+    return RecordFailure(KeyPersistenceOperation::kStoreKeyPair,
+                         KeyPersistenceError::kDeleteKeyPairFailed,
+                         "Device trust key rotation failed. Failed to delete "
+                         "the signing key pair.");
   }
 
-  return key.WriteValue(signingkey_name.c_str(), wrapped.data(), wrapped.size(),
-                        REG_BINARY) == ERROR_SUCCESS &&
-         key.WriteValue(trustlevel_name.c_str(), trust_level) == ERROR_SUCCESS;
+  if (key.WriteValue(signingkey_name.c_str(), wrapped.data(), wrapped.size(),
+                     REG_BINARY) == ERROR_SUCCESS &&
+      key.WriteValue(trustlevel_name.c_str(), trust_level) == ERROR_SUCCESS) {
+    return true;
+  }
+
+  return RecordFailure(KeyPersistenceOperation::kStoreKeyPair,
+                       KeyPersistenceError::kWritePersistenceStorageFailed,
+                       "Device trust key rotation failed. Could not write to "
+                       "the signing key storage.");
 }
 
-KeyPersistenceDelegate::KeyInfo WinKeyPersistenceDelegate::LoadKeyPair() {
+std::unique_ptr<SigningKeyPair> WinKeyPersistenceDelegate::LoadKeyPair() {
   base::win::RegKey key;
   std::wstring signingkey_name;
   std::wstring trustlevel_name;
   std::tie(key, signingkey_name, trustlevel_name) =
       InstallUtil::GetDeviceTrustSigningKeyLocation(
           InstallUtil::ReadOnly(true));
-  if (!key.Valid())
-    return invalid_key_info();
+  if (!key.Valid()) {
+    RecordFailure(KeyPersistenceOperation::kLoadKeyPair,
+                  KeyPersistenceError::kOpenPersistenceStorageFailed,
+                  "Device trust key rotation failed. Failed to open the "
+                  "signing key storage for reading.");
+    return nullptr;
+  }
 
   DWORD trust_level_dw;
   auto res = key.ReadValueDW(trustlevel_name.c_str(), &trust_level_dw);
-  if (res != ERROR_SUCCESS)
-    return invalid_key_info();
+  if (res != ERROR_SUCCESS) {
+    RecordFailure(KeyPersistenceOperation::kLoadKeyPair,
+                  KeyPersistenceError::kKeyPairMissingTrustLevel,
+                  "Device trust key rotation failed. Failed to get the trust "
+                  "level details from the signing key storage.");
+    return nullptr;
+  }
 
+  std::unique_ptr<crypto::UnexportableKeyProvider> provider;
   KeyTrustLevel trust_level = BPKUR::KEY_TRUST_LEVEL_UNSPECIFIED;
-  if (trust_level_dw == BPKUR::CHROME_BROWSER_TPM_KEY) {
-    trust_level = BPKUR::CHROME_BROWSER_TPM_KEY;
+  if (trust_level_dw == BPKUR::CHROME_BROWSER_HW_KEY) {
+    trust_level = BPKUR::CHROME_BROWSER_HW_KEY;
+    provider = crypto::GetUnexportableKeyProvider();
   } else if (trust_level_dw == BPKUR::CHROME_BROWSER_OS_KEY) {
     trust_level = BPKUR::CHROME_BROWSER_OS_KEY;
+    provider = std::make_unique<ECSigningKeyProvider>();
   } else {
-    return invalid_key_info();
+    RecordFailure(KeyPersistenceOperation::kLoadKeyPair,
+                  KeyPersistenceError::kInvalidTrustLevel,
+                  "Device trust key rotation failed. Invalid trust level for "
+                  "the signing key.");
+
+    return nullptr;
   }
 
   std::vector<uint8_t> wrapped;
@@ -69,15 +146,61 @@ KeyPersistenceDelegate::KeyInfo WinKeyPersistenceDelegate::LoadKeyPair() {
     wrapped.resize(size);
     res = key.ReadValue(signingkey_name.c_str(), wrapped.data(), &size, &type);
   }
-  if (res != ERROR_SUCCESS || type != REG_BINARY)
-    return invalid_key_info();
+  if (res != ERROR_SUCCESS) {
+    RecordFailure(
+        KeyPersistenceOperation::kLoadKeyPair,
+        KeyPersistenceError::kKeyPairMissingSigningKey,
+        "Device trust key rotation failed. Failed to get the signing key "
+        "details from the signing key storage.");
+    return nullptr;
 
-  return {trust_level, wrapped};
+  } else if (type != REG_BINARY) {
+    RecordFailure(
+        KeyPersistenceOperation::kLoadKeyPair,
+        KeyPersistenceError::kInvalidSigningKey,
+        "Device trust key rotation failed. The signing key type is incorrect.");
+    return nullptr;
+  }
+
+  auto signing_key = provider->FromWrappedSigningKeySlowly(wrapped);
+  if (!signing_key) {
+    RecordFailure(
+        KeyPersistenceOperation::kLoadKeyPair,
+        KeyPersistenceError::kCreateSigningKeyFromWrappedFailed,
+        "Device trust key rotation failed. Failure creating a signing key "
+        "object from the signing key details.");
+    return nullptr;
+  }
+
+  return std::make_unique<SigningKeyPair>(std::move(signing_key), trust_level);
 }
 
-std::unique_ptr<crypto::UnexportableKeyProvider>
-WinKeyPersistenceDelegate::GetTpmBackedKeyProvider() {
-  return crypto::GetUnexportableKeyProvider();
+std::unique_ptr<SigningKeyPair> WinKeyPersistenceDelegate::CreateKeyPair() {
+  // Attempt to create a TPM signing key.
+  KeyPersistenceDelegate::KeyTrustLevel trust_level =
+      BPKUR::CHROME_BROWSER_HW_KEY;
+  auto signing_key = CreateSigningKey(trust_level);
+
+  // Fallback to an OS signing key when a TPM key cannot be created.
+  if (!signing_key) {
+    RecordFailure(KeyPersistenceOperation::kCreateKeyPair,
+                  KeyPersistenceError::kGenerateHardwareSigningKeyFailed,
+                  "Device trust key rotation failed. Failed to generate a new "
+                  "hardware signing key.");
+
+    trust_level = BPKUR::CHROME_BROWSER_OS_KEY;
+    signing_key = CreateSigningKey(trust_level);
+  }
+
+  if (!signing_key) {
+    RecordFailure(KeyPersistenceOperation::kCreateKeyPair,
+                  KeyPersistenceError::kGenerateOSSigningKeyFailed,
+                  "Device trust key rotation failed. Failed to generate a new "
+                  "OS signing key.");
+    return nullptr;
+  }
+
+  return std::make_unique<SigningKeyPair>(std::move(signing_key), trust_level);
 }
 
 }  // namespace enterprise_connectors

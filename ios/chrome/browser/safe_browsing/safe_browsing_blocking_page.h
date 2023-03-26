@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,7 @@ class SafeBrowsingBlockingPage
     : public security_interstitials::IOSSecurityInterstitialPage {
  public:
   // Creates a safe browsing blocking page that creates the HTML for the error
-  // page shown for |resource|.
+  // page shown for `resource`.
   static std::unique_ptr<SafeBrowsingBlockingPage> Create(
       const security_interstitials::UnsafeResource& resource);
   ~SafeBrowsingBlockingPage() override;
@@ -42,11 +42,13 @@ class SafeBrowsingBlockingPage
     void Proceed() override;
     void GoBack() override;
     void GoBackAfterNavigationCommitted() override;
+    void OpenEnhancedProtectionSettings() override;
 
     // The URL of the resource causing the insterstitial.
     GURL url_;
-    // The threat type encountered for |url_|.
+    // The threat type encountered for `url_`.
     safe_browsing::SBThreatType threat_type_;
+    safe_browsing::ThreatSource threat_source_;
   };
 
   // Constructor used by Create().
@@ -60,12 +62,10 @@ class SafeBrowsingBlockingPage
   // security_interstitials::IOSSecurityInterstitialPage:
   std::string GetHtmlContents() const override;
   void HandleCommand(
-      security_interstitials::SecurityInterstitialCommand command,
-      const GURL& origin_url,
-      bool user_is_interacting,
-      web::WebFrame* sender_frame) override;
+      security_interstitials::SecurityInterstitialCommand command) override;
   bool ShouldCreateNewNavigation() const override;
-  void PopulateInterstitialStrings(base::Value* load_time_data) const override;
+  void PopulateInterstitialStrings(
+      base::Value::Dict& load_time_data) const override;
 
   // The unsafe resource triggering the blocking page.
   security_interstitials::UnsafeResource resource_;

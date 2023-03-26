@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -81,17 +81,6 @@ public class UrlUtilities {
     }
 
     /**
-     * @param uri A URI.
-     *
-     * @return True if the URI's scheme is one that ContentView can handle.
-     * @deprecated use {@link #isAcceptedScheme(GURL)} instead.
-     */
-    @Deprecated
-    public static boolean isAcceptedScheme(String uri) {
-        return isAcceptedScheme(new GURL(uri));
-    }
-
-    /**
      * @param url A GURL.
      *
      * @return True if the GURL's scheme is one that ContentView can handle.
@@ -118,6 +107,13 @@ public class UrlUtilities {
      */
     public static boolean isInternalScheme(@NonNull GURL gurl) {
         return INTERNAL_SCHEMES.contains(gurl.getScheme());
+    }
+
+    /**
+     * Returns whether the scheme represented by the given string is for a internal chrome page.
+     */
+    public static boolean isInternalScheme(String scheme) {
+        return INTERNAL_SCHEMES.contains(scheme);
     }
 
     /**
@@ -250,7 +246,7 @@ public class UrlUtilities {
 
     /**
      * Escapes characters in text suitable for use as a query parameter value.
-     * This method calls into net::EscapeQueryParamValue.
+     * This method calls into base::EscapeQueryParamValue.
      * @param text string to be escaped.
      * @param usePlus whether or not to use "+" in place of spaces.
      * @return the escaped string.

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,11 @@
 
 #include <memory>
 
-#include "base/stl_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/task/thread_pool.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_callback.h"
+#include "base/types/optional_util.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_histogram_helper.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_policy_event.pb.h"
@@ -30,7 +31,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
-#include "url/origin.h"
+#include "url/gurl.h"
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "chromeos/lacros/lacros_service.h"
@@ -56,9 +57,10 @@ class MockDlpController : public DataTransferDlpController {
                void(const ui::DataTransferEndpoint* const data_src,
                     const ui::DataTransferEndpoint* const data_dst));
 
-  MOCK_METHOD2(WarnOnPaste,
+  MOCK_METHOD3(WarnOnPaste,
                void(const ui::DataTransferEndpoint* const data_src,
-                    const ui::DataTransferEndpoint* const data_dst));
+                    const ui::DataTransferEndpoint* const data_dst,
+                    base::RepeatingCallback<void()> reporting_cb));
 
   MOCK_METHOD4(WarnOnBlinkPaste,
                void(const ui::DataTransferEndpoint* const data_src,
@@ -90,7 +92,7 @@ absl::optional<ui::DataTransferEndpoint> CreateEndpoint(
     bool notify_if_restricted) {
   if (type && *type == ui::EndpointType::kUrl) {
     return ui::DataTransferEndpoint(
-        url::Origin::Create(GURL(kExample2Url)),
+        (GURL(kExample2Url)),
         /*notify_if_restricted=*/notify_if_restricted);
   } else if (type) {
     return ui::DataTransferEndpoint(
@@ -168,7 +170,7 @@ TEST_F(DataTransferDlpControllerTest, NullSrc) {
 }
 
 TEST_F(DataTransferDlpControllerTest, ClipboardHistoryDst) {
-  ui::DataTransferEndpoint data_src(url::Origin::Create(GURL(kExample1Url)));
+  ui::DataTransferEndpoint data_src((GURL(kExample1Url)));
   ui::DataTransferEndpoint data_dst(ui::EndpointType::kClipboardHistory);
   EXPECT_EQ(true, dlp_controller_.IsClipboardReadAllowed(&data_src, &data_dst,
                                                          absl::nullopt));
@@ -178,7 +180,7 @@ TEST_F(DataTransferDlpControllerTest, ClipboardHistoryDst) {
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 TEST_F(DataTransferDlpControllerTest, LacrosDst) {
-  ui::DataTransferEndpoint data_src(url::Origin::Create(GURL(kExample1Url)));
+  ui::DataTransferEndpoint data_src((GURL(kExample1Url)));
   ui::DataTransferEndpoint data_dst(ui::EndpointType::kLacros);
   EXPECT_EQ(true, dlp_controller_.IsClipboardReadAllowed(&data_src, &data_dst,
                                                          absl::nullopt));
@@ -188,8 +190,8 @@ TEST_F(DataTransferDlpControllerTest, LacrosDst) {
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 TEST_F(DataTransferDlpControllerTest, PasteIfAllowed_Allow) {
-  ui::DataTransferEndpoint data_src(url::Origin::Create(GURL(kExample1Url)));
-  ui::DataTransferEndpoint data_dst(url::Origin::Create(GURL(kExample2Url)));
+  ui::DataTransferEndpoint data_src((GURL(kExample1Url)));
+  ui::DataTransferEndpoint data_dst((GURL(kExample2Url)));
 
   // IsClipboardReadAllowed
   EXPECT_CALL(rules_manager_, IsRestrictedDestination)
@@ -202,12 +204,13 @@ TEST_F(DataTransferDlpControllerTest, PasteIfAllowed_Allow) {
       TestingProfile::Builder().Build();
   auto web_contents = CreateTestWebContents(testing_profile.get());
   dlp_controller_.PasteIfAllowed(&data_src, &data_dst, absl::nullopt,
-                                 web_contents->GetMainFrame(), callback.Get());
+                                 web_contents->GetPrimaryMainFrame(),
+                                 callback.Get());
 }
 
 TEST_F(DataTransferDlpControllerTest, PasteIfAllowed_NullWebContents) {
-  ui::DataTransferEndpoint data_src(url::Origin::Create(GURL(kExample1Url)));
-  ui::DataTransferEndpoint data_dst(url::Origin::Create(GURL(kExample2Url)));
+  ui::DataTransferEndpoint data_src((GURL(kExample1Url)));
+  ui::DataTransferEndpoint data_dst((GURL(kExample2Url)));
 
   ::testing::StrictMock<base::MockOnceCallback<void(bool)>> callback;
   EXPECT_CALL(callback, Run(false));
@@ -216,8 +219,8 @@ TEST_F(DataTransferDlpControllerTest, PasteIfAllowed_NullWebContents) {
 }
 
 TEST_F(DataTransferDlpControllerTest, PasteIfAllowed_WarnDst) {
-  ui::DataTransferEndpoint data_src(url::Origin::Create(GURL(kExample1Url)));
-  ui::DataTransferEndpoint data_dst(url::Origin::Create(GURL(kExample2Url)));
+  ui::DataTransferEndpoint data_src((GURL(kExample1Url)));
+  ui::DataTransferEndpoint data_dst((GURL(kExample2Url)));
 
   std::unique_ptr<TestingProfile> testing_profile =
       TestingProfile::Builder().Build();
@@ -235,7 +238,8 @@ TEST_F(DataTransferDlpControllerTest, PasteIfAllowed_WarnDst) {
   EXPECT_CALL(dlp_controller_, WarnOnBlinkPaste);
 
   dlp_controller_.PasteIfAllowed(&data_src, &data_dst, absl::nullopt,
-                                 web_contents->GetMainFrame(), callback.Get());
+                                 web_contents->GetPrimaryMainFrame(),
+                                 callback.Get());
   // We are not expecting warning proceeded event here. Warning proceeded event
   // is sent after a user accept the warn dialogue.
   // However, DataTransferDlpController::WarnOnBlinkPaste method is mocked
@@ -247,8 +251,8 @@ TEST_F(DataTransferDlpControllerTest, PasteIfAllowed_WarnDst) {
 }
 
 TEST_F(DataTransferDlpControllerTest, PasteIfAllowed_ProceedDst) {
-  ui::DataTransferEndpoint data_src(url::Origin::Create(GURL(kExample1Url)));
-  ui::DataTransferEndpoint data_dst(url::Origin::Create(GURL(kExample2Url)));
+  ui::DataTransferEndpoint data_src((GURL(kExample1Url)));
+  ui::DataTransferEndpoint data_dst((GURL(kExample2Url)));
 
   std::unique_ptr<TestingProfile> testing_profile =
       TestingProfile::Builder().Build();
@@ -266,7 +270,8 @@ TEST_F(DataTransferDlpControllerTest, PasteIfAllowed_ProceedDst) {
 
   EXPECT_CALL(callback, Run(true));
   dlp_controller_.PasteIfAllowed(&data_src, &data_dst, absl::nullopt,
-                                 web_contents->GetMainFrame(), callback.Get());
+                                 web_contents->GetPrimaryMainFrame(),
+                                 callback.Get());
   EXPECT_EQ(events_.size(), 1u);
   EXPECT_THAT(events_[0],
               IsDlpPolicyEvent(CreateDlpPolicyWarningProceededEvent(
@@ -274,8 +279,8 @@ TEST_F(DataTransferDlpControllerTest, PasteIfAllowed_ProceedDst) {
 }
 
 TEST_F(DataTransferDlpControllerTest, PasteIfAllowed_CancelDst) {
-  ui::DataTransferEndpoint data_src(url::Origin::Create(GURL(kExample1Url)));
-  ui::DataTransferEndpoint data_dst(url::Origin::Create(GURL(kExample2Url)));
+  ui::DataTransferEndpoint data_src((GURL(kExample1Url)));
+  ui::DataTransferEndpoint data_dst((GURL(kExample2Url)));
 
   std::unique_ptr<TestingProfile> testing_profile =
       TestingProfile::Builder().Build();
@@ -293,7 +298,8 @@ TEST_F(DataTransferDlpControllerTest, PasteIfAllowed_CancelDst) {
 
   EXPECT_CALL(callback, Run(false));
   dlp_controller_.PasteIfAllowed(&data_src, &data_dst, absl::nullopt,
-                                 web_contents->GetMainFrame(), callback.Get());
+                                 web_contents->GetPrimaryMainFrame(),
+                                 callback.Get());
   EXPECT_TRUE(events_.empty());
 }
 
@@ -302,19 +308,17 @@ class DlpControllerTest : public DataTransferDlpControllerTest {
  protected:
   void SetUp() override {
     DataTransferDlpControllerTest::SetUp();
-    data_src_ =
-        ui::DataTransferEndpoint(url::Origin::Create(GURL(kExample1Url)));
+    data_src_ = ui::DataTransferEndpoint((GURL(kExample1Url)));
     absl::optional<ui::EndpointType> endpoint_type;
     std::tie(endpoint_type, do_notify_) = GetParam();
-    data_dst_ =
-        CreateEndpoint(base::OptionalOrNullptr(endpoint_type), do_notify_);
-    dst_ptr_ = base::OptionalOrNullptr(data_dst_);
+    data_dst_ = CreateEndpoint(base::OptionalToPtr(endpoint_type), do_notify_);
+    dst_ptr_ = base::OptionalToPtr(data_dst_);
   }
 
   ui::DataTransferEndpoint data_src_{ui::EndpointType::kDefault};
   bool do_notify_;
   absl::optional<ui::DataTransferEndpoint> data_dst_;
-  ui::DataTransferEndpoint* dst_ptr_;
+  raw_ptr<ui::DataTransferEndpoint> dst_ptr_;
 };
 
 INSTANTIATE_TEST_SUITE_P(
@@ -479,9 +483,8 @@ TEST_P(DlpControllerTest, Warn_ShouldCancelOnWarn) {
   EXPECT_CALL(dlp_controller_, ShouldCancelOnWarn)
       .WillRepeatedly(testing::Return(true));
 
-  bool expected_is_read = data_dst_.has_value() ? !do_notify_ : false;
-  EXPECT_EQ(expected_is_read, dlp_controller_.IsClipboardReadAllowed(
-                                  &data_src_, dst_ptr_, absl::nullopt));
+  EXPECT_EQ(false, dlp_controller_.IsClipboardReadAllowed(&data_src_, dst_ptr_,
+                                                          absl::nullopt));
   testing::Mock::VerifyAndClearExpectations(&dlp_controller_);
 }
 
@@ -505,8 +508,7 @@ class DlpControllerVMsTest : public DataTransferDlpControllerTest {
  protected:
   void SetUp() override {
     DataTransferDlpControllerTest::SetUp();
-    data_src_ =
-        ui::DataTransferEndpoint(url::Origin::Create(GURL(kExample1Url)));
+    data_src_ = ui::DataTransferEndpoint((GURL(kExample1Url)));
     std::tie(endpoint_type_, do_notify_) = GetParam();
     ASSERT_TRUE(endpoint_type_.has_value());
     data_dst_ = ui::DataTransferEndpoint(endpoint_type_.value(), do_notify_);
@@ -527,7 +529,7 @@ INSTANTIATE_TEST_SUITE_P(
                        testing::Bool()));
 
 TEST_P(DlpControllerVMsTest, Allow) {
-  ui::DataTransferEndpoint data_src(url::Origin::Create(GURL(kExample1Url)));
+  ui::DataTransferEndpoint data_src((GURL(kExample1Url)));
   auto [endpoint_type, do_notify] = GetParam();
   ASSERT_TRUE(endpoint_type.has_value());
   ui::DataTransferEndpoint data_dst(endpoint_type.value(), do_notify);
@@ -634,7 +636,7 @@ TEST_P(DlpControllerVMsTest, Report_DropIfAllowed) {
 }
 
 TEST_P(DlpControllerVMsTest, Warn_IsClipboardReadAllowed) {
-  ui::DataTransferEndpoint data_src(url::Origin::Create(GURL(kExample1Url)));
+  ui::DataTransferEndpoint data_src((GURL(kExample1Url)));
   auto [endpoint_type, do_notify] = GetParam();
   ASSERT_TRUE(endpoint_type.has_value());
   ui::DataTransferEndpoint data_dst(endpoint_type.value(), do_notify);

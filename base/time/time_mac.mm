@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@
 #include <sys/types.h>
 #include <time.h>
 
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/mac/mach_logging.h"
 #include "base/mac/scoped_cftyperef.h"
@@ -108,7 +107,7 @@ int64_t ComputeCurrentTicks() {
   struct timeval boottime;
   int mib[2] = {CTL_KERN, KERN_BOOTTIME};
   size_t size = sizeof(boottime);
-  int kr = sysctl(mib, base::size(mib), &boottime, &size, nullptr, 0);
+  int kr = sysctl(mib, std::size(mib), &boottime, &size, nullptr, 0);
   DCHECK_EQ(KERN_SUCCESS, kr);
   base::TimeDelta time_difference = base::subtle::TimeNowIgnoringOverride() -
                                     (base::Time::FromTimeT(boottime.tv_sec) +

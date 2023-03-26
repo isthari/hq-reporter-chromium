@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@ import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabFavicon;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.chrome.browser.tasks.tab_management.TabManagementFieldTrial;
 import org.chromium.chrome.browser.ui.favicon.FaviconHelper;
 import org.chromium.chrome.browser.ui.favicon.FaviconHelper.DefaultFaviconHelper;
 import org.chromium.chrome.browser.ui.favicon.FaviconHelper.FaviconImageCallback;
@@ -97,7 +98,7 @@ public class LayerTitleCache {
         if (mTabModelSelector == null) return;
 
         Tab tab = mTabModelSelector.getTabById(tabId);
-        if (tab == null) return;
+        if (tab == null || tab.isDestroyed()) return;
 
         getUpdatedTitle(tab, "");
     }
@@ -134,7 +135,23 @@ public class LayerTitleCache {
             title.register();
         }
 
-        title.set(titleBitmapFactory.getTitleBitmap(mContext, titleString),
+        // Boolean determines if tab title text needs to be bolded.
+        boolean isBold = false;
+
+        // Bold title text for TSR detached.
+        if (TabManagementFieldTrial.isTabStripDetachedEnabled()) {
+            if (mTabModelSelector == null) {
+                return titleString;
+            }
+
+            // Get currently selected tab id.
+            int selectedTabId = mTabModelSelector.getCurrentTabId();
+
+            // Selected tab title text should be bolded.
+            isBold = tabId == selectedTabId;
+        }
+
+        title.set(titleBitmapFactory.getTitleBitmap(mContext, titleString, isBold),
                 titleBitmapFactory.getFaviconBitmap(originalFavicon), fetchFaviconFromHistory);
 
         if (mNativeLayerTitleCache != 0) {

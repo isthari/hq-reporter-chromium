@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,26 +6,20 @@ package org.chromium.weblayer_private.test;
 
 import android.os.IBinder;
 import android.os.RemoteException;
-import android.view.View;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
-import android.widget.TextView;
-
-import androidx.fragment.app.FragmentManager;
 
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.base.annotations.UsedByReflection;
+import org.chromium.build.annotations.UsedByReflection;
 import org.chromium.components.autofill.AutofillProviderTestHelper;
+import org.chromium.components.browser_ui.accessibility.FontSizePrefs;
 import org.chromium.components.infobars.InfoBarAnimationListener;
 import org.chromium.components.infobars.InfoBarUiItem;
 import org.chromium.components.location.LocationUtils;
 import org.chromium.components.media_router.BrowserMediaRouter;
 import org.chromium.components.media_router.MockMediaRouteProvider;
-import org.chromium.components.media_router.RouterTestUtils;
 import org.chromium.components.permissions.PermissionDialogController;
-import org.chromium.components.webauthn.Fido2ApiHandler;
-import org.chromium.components.webauthn.MockFido2ApiHandler;
+import org.chromium.components.webauthn.AuthenticatorImpl;
+import org.chromium.components.webauthn.MockFido2CredentialRequest;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.WebContentsUtils;
 import org.chromium.device.geolocation.LocationProviderOverrider;
@@ -43,7 +37,6 @@ import org.chromium.weblayer_private.interfaces.IObjectWrapper;
 import org.chromium.weblayer_private.interfaces.IProfile;
 import org.chromium.weblayer_private.interfaces.ITab;
 import org.chromium.weblayer_private.interfaces.ObjectWrapper;
-import org.chromium.weblayer_private.media.MediaRouteDialogFragmentImpl;
 import org.chromium.weblayer_private.test_interfaces.ITestWebLayer;
 
 import java.util.ArrayList;
@@ -159,11 +152,6 @@ public final class TestWebLayerImpl extends ITestWebLayer.Stub {
     }
 
     @Override
-    public boolean canBrowserControlsScroll(ITab tab) {
-        return ((TabImpl) tab).canBrowserControlsScrollForTesting();
-    }
-
-    @Override
     public void setIgnoreMissingKeyForTranslateManager(boolean ignore) {
         TestWebLayerImplJni.get().setIgnoreMissingKeyForTranslateManager(ignore);
     }
@@ -177,19 +165,6 @@ public final class TestWebLayerImpl extends ITestWebLayer.Stub {
     @Override
     public boolean canInfoBarContainerScroll(ITab tab) {
         return ((TabImpl) tab).canInfoBarContainerScrollForTesting();
-    }
-
-    @Override
-    public String getDisplayedUrl(IObjectWrapper /* View */ view) {
-        View urlBarView = ObjectWrapper.unwrap(view, View.class);
-        assert (urlBarView instanceof LinearLayout);
-        LinearLayout urlBarLayout = (LinearLayout) urlBarView;
-        assert (urlBarLayout.getChildCount() == 2);
-
-        View textView = urlBarLayout.getChildAt(1);
-        assert (textView instanceof TextView);
-        TextView urlBarTextView = (TextView) textView;
-        return urlBarTextView.getText().toString();
     }
 
     @Override
@@ -228,9 +203,7 @@ public final class TestWebLayerImpl extends ITestWebLayer.Stub {
 
     @Override
     public IObjectWrapper getMediaRouteButton(String name) {
-        FragmentManager fm =
-                MediaRouteDialogFragmentImpl.getInstanceForTest().getSupportFragmentManager();
-        return ObjectWrapper.wrap(RouterTestUtils.waitForRouteButton(fm, name));
+        return null;
     }
 
     @Override
@@ -254,18 +227,6 @@ public final class TestWebLayerImpl extends ITestWebLayer.Stub {
     }
 
     @Override
-    public IObjectWrapper getSecurityButton(IObjectWrapper /* View */ view) {
-        View urlBarView = ObjectWrapper.unwrap(view, View.class);
-        assert (urlBarView instanceof LinearLayout);
-        LinearLayout urlBarLayout = (LinearLayout) urlBarView;
-        assert (urlBarLayout.getChildCount() == 2);
-
-        View securityIconView = urlBarLayout.getChildAt(0);
-        assert (securityIconView instanceof ImageView);
-        return ObjectWrapper.wrap((ImageView) securityIconView);
-    }
-
-    @Override
     public void fetchAccessToken(IProfile profile, IObjectWrapper /* Set<String> */ scopes,
             IObjectWrapper /* ValueCallback<String> */ onTokenFetched) throws RemoteException {
         ProfileImpl profileImpl = (ProfileImpl) profile;
@@ -281,8 +242,10 @@ public final class TestWebLayerImpl extends ITestWebLayer.Stub {
                 ObjectWrapper.unwrap(eventsObserved, ArrayList.class);
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             BrowserImpl browserImpl = (BrowserImpl) browser;
-            browserImpl.getViewController().addContentCaptureConsumerForTesting(
-                    new TestContentCaptureConsumer(unwrappedOnNewEvents, unwrappedEventsObserved));
+            browserImpl.getBrowserFragment()
+                    .getPossiblyNullViewController()
+                    .addContentCaptureConsumerForTesting(new TestContentCaptureConsumer(
+                            unwrappedOnNewEvents, unwrappedEventsObserved));
         });
     }
 
@@ -317,9 +280,10 @@ public final class TestWebLayerImpl extends ITestWebLayer.Stub {
     @Override
     public void setMockWebAuthnEnabled(boolean enabled) {
         if (enabled) {
-            Fido2ApiHandler.overrideInstanceForTesting(new MockFido2ApiHandler());
+            AuthenticatorImpl.overrideFido2CredentialRequestForTesting(
+                    new MockFido2CredentialRequest());
         } else {
-            Fido2ApiHandler.overrideInstanceForTesting(null);
+            AuthenticatorImpl.overrideFido2CredentialRequestForTesting(null);
         }
     }
 
@@ -335,6 +299,18 @@ public final class TestWebLayerImpl extends ITestWebLayer.Stub {
     public void grantLocationPermission(String url) {
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> { TestWebLayerImplJni.get().grantLocationPermission(url); });
+    }
+
+    @Override
+    public void setTextScaling(IProfile profile, float value) {
+        ProfileImpl profileImpl = (ProfileImpl) profile;
+        FontSizePrefs.getInstance(profileImpl).setUserFontScaleFactor(value);
+    }
+
+    @Override
+    public boolean getForceEnableZoom(IProfile profile) {
+        ProfileImpl profileImpl = (ProfileImpl) profile;
+        return FontSizePrefs.getInstance(profileImpl).getForceEnableZoom();
     }
 
     @NativeMethods

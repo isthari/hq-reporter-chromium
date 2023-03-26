@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include "ash/components/arc/arc_prefs.h"
 #include "ash/constants/ash_features.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
@@ -23,9 +23,9 @@
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/ui/webui/chromeos/login/app_downloading_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
+#include "chrome/browser/ui/webui/ash/login/app_downloading_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/oobe_ui.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/test/browser_test.h"
@@ -90,6 +90,10 @@ class AppDownloadingScreenTest : public OobeBaseTest {
 };
 
 IN_PROC_BROWSER_TEST_F(AppDownloadingScreenTest, NoAppsSelected) {
+  LoginDisplayHost::default_host()
+      ->GetWizardContext()
+      ->defer_oobe_flow_finished_for_tests = true;
+
   Login();
   ShowAppDownloadingScreen();
 
@@ -104,11 +108,15 @@ IN_PROC_BROWSER_TEST_F(AppDownloadingScreenTest, NoAppsSelected) {
 }
 
 IN_PROC_BROWSER_TEST_F(AppDownloadingScreenTest, SingleAppSelected) {
+  LoginDisplayHost::default_host()
+      ->GetWizardContext()
+      ->defer_oobe_flow_finished_for_tests = true;
+
   Login();
-  base::Value apps(base::Value::Type::LIST);
+  base::Value::List apps;
   apps.Append("app.test.package.1");
 
-  ProfileManager::GetActiveUserProfile()->GetPrefs()->Set(
+  ProfileManager::GetActiveUserProfile()->GetPrefs()->SetList(
       arc::prefs::kArcFastAppReinstallPackages, std::move(apps));
   ShowAppDownloadingScreen();
 
@@ -123,12 +131,16 @@ IN_PROC_BROWSER_TEST_F(AppDownloadingScreenTest, SingleAppSelected) {
 }
 
 IN_PROC_BROWSER_TEST_F(AppDownloadingScreenTest, MultipleAppsSelected) {
+  LoginDisplayHost::default_host()
+      ->GetWizardContext()
+      ->defer_oobe_flow_finished_for_tests = true;
+
   Login();
-  base::Value apps(base::Value::Type::LIST);
+  base::Value::List apps;
   apps.Append("app.test.package.1");
   apps.Append("app.test.package.2");
 
-  ProfileManager::GetActiveUserProfile()->GetPrefs()->Set(
+  ProfileManager::GetActiveUserProfile()->GetPrefs()->SetList(
       arc::prefs::kArcFastAppReinstallPackages, std::move(apps));
 
   ShowAppDownloadingScreen();

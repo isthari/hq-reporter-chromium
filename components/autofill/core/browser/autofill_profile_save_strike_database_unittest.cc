@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/autofill/core/browser/autofill_profile_save_strike_database.h"
 #include "components/autofill/core/browser/proto/strike_data.pb.h"
 #include "components/autofill/core/browser/test_autofill_clock.h"
@@ -30,13 +29,10 @@ class AutofillProfileSaveStrikeDatabaseTest : public ::testing::Test {
 
   void SetUp() override {
     EXPECT_TRUE(temp_dir_.CreateUniqueTempDir());
-
     db_provider_ = std::make_unique<leveldb_proto::ProtoDatabaseProvider>(
         temp_dir_.GetPath());
-
     strike_database_service_ = std::make_unique<StrikeDatabase>(
         db_provider_.get(), temp_dir_.GetPath());
-
     strike_database_ = std::make_unique<AutofillProfileSaveStrikeDatabase>(
         strike_database_service_.get());
   }
@@ -69,15 +65,15 @@ class AutofillProfileSaveStrikeDatabaseTest : public ::testing::Test {
 TEST_F(AutofillProfileSaveStrikeDatabaseTest, AddAndRemoveStrikes) {
   strike_database_->AddStrike(test_host1);
   EXPECT_EQ(strike_database_->GetStrikes(test_host1), 1);
-  EXPECT_FALSE(strike_database_->IsMaxStrikesLimitReached(test_host1));
+  EXPECT_FALSE(strike_database_->ShouldBlockFeature(test_host1));
 
   strike_database_->AddStrikes(2, test_host1);
   EXPECT_EQ(strike_database_->GetStrikes(test_host1), 3);
-  EXPECT_TRUE(strike_database_->IsMaxStrikesLimitReached(test_host1));
+  EXPECT_TRUE(strike_database_->ShouldBlockFeature(test_host1));
 
   strike_database_->RemoveStrike(test_host1);
   EXPECT_EQ(strike_database_->GetStrikes(test_host1), 2);
-  EXPECT_FALSE(strike_database_->IsMaxStrikesLimitReached(test_host1));
+  EXPECT_FALSE(strike_database_->ShouldBlockFeature(test_host1));
 }
 
 TEST_F(AutofillProfileSaveStrikeDatabaseTest,

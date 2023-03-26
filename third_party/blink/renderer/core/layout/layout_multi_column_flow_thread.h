@@ -163,6 +163,11 @@ class CORE_EXPORT LayoutMultiColumnFlowThread final
     return To<LayoutBlockFlow>(Parent());
   }
 
+  bool IsNGMulticol() const {
+    NOT_DESTROYED();
+    return MultiColumnBlockFlow()->IsLayoutNGObject();
+  }
+
   LayoutMultiColumnSet* FirstMultiColumnSet() const;
   LayoutMultiColumnSet* LastMultiColumnSet() const;
 
@@ -306,7 +311,8 @@ class CORE_EXPORT LayoutMultiColumnFlowThread final
   void AppendNewFragmentainerGroupIfNeeded(LayoutUnit offset_in_flow_thread,
                                            PageBoundaryRule);
 
-  void StartLayoutFromNG(unsigned column_count);
+  void SetColumnCountFromNG(unsigned column_count);
+  void StartLayoutFromNG();
   LayoutMultiColumnSet* PendingColumnSetForNG() const;
   void AppendNewFragmentainerGroupFromNG();
   void SetCurrentColumnBlockSizeFromNG(LayoutUnit);
@@ -329,6 +335,8 @@ class CORE_EXPORT LayoutMultiColumnFlowThread final
   // Note: We call this constructor only in |CreateAnonymous()|, but mark this
   // "public" for |MakeGarbageCollected<T>|.
   explicit LayoutMultiColumnFlowThread(bool needs_paint_layer);
+
+  LayoutSize Size() const override;
 
  private:
   void UpdateLayout() override;

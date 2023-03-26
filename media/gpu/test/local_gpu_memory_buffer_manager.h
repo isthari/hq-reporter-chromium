@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,8 +42,6 @@ class MEDIA_GPU_EXPORT LocalGpuMemoryBufferManager
       gfx::BufferUsage usage,
       gpu::SurfaceHandle surface_handle,
       base::WaitableEvent* shutdown_event) override;
-  void SetDestructionSyncToken(gfx::GpuMemoryBuffer* buffer,
-                               const gpu::SyncToken& sync_token) override;
   void CopyGpuMemoryBufferAsync(
       gfx::GpuMemoryBufferHandle buffer_handle,
       base::UnsafeSharedMemoryRegion memory_region,

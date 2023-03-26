@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,13 +12,14 @@
 #include "ash/wm/window_cycle/window_cycle_controller.h"
 #include "ash/wm/window_cycle/window_cycle_list.h"
 #include "ash/wm/window_state.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "components/prefs/pref_service.h"
 #include "ui/events/event.h"
 #include "ui/events/types/event_type.h"
 #include "ui/wm/core/coordinate_conversion.h"
 
 namespace ash {
+namespace {
 
 // The distance a user has to move their mouse from |initial_mouse_location_|
 // before this stops filtering mouse events.
@@ -38,6 +39,33 @@ bool IsReverseScrollOn() {
       Shell::Get()->session_controller()->GetActivePrefService();
   return pref->GetBoolean(prefs::kMouseReverseScroll);
 }
+
+// Returns whether `event` is a trigger key (tab, left, right, w (when
+// debugging)).
+bool IsTriggerKey(ui::KeyEvent* event) {
+  const ui::KeyboardCode key_code = event->key_code();
+  const bool interactive_trigger_key =
+      (key_code == ui::VKEY_LEFT || key_code == ui::VKEY_RIGHT);
+
+  const bool nav_trigger_key =
+      Shell::Get()
+          ->window_cycle_controller()
+          ->IsInteractiveAltTabModeAllowed() &&
+      (key_code == ui::VKEY_UP || key_code == ui::VKEY_DOWN ||
+       key_code == ui::VKEY_LEFT || key_code == ui::VKEY_RIGHT);
+
+  return key_code == ui::VKEY_TAB ||
+         (debug::DeveloperAcceleratorsEnabled() && key_code == ui::VKEY_W) ||
+         interactive_trigger_key || nav_trigger_key;
+}
+
+// Returns whether `event` is an exit key (return, space).
+bool IsExitKey(ui::KeyEvent* event) {
+  return event->key_code() == ui::VKEY_RETURN ||
+         event->key_code() == ui::VKEY_SPACE;
+}
+
+}  // namespace
 
 WindowCycleEventFilter::WindowCycleEventFilter()
     : initial_mouse_location_(
@@ -145,34 +173,12 @@ void WindowCycleEventFilter::HandleTriggerKey(ui::KeyEvent* event) {
         base::BindRepeating(
             &WindowCycleController::HandleCycleWindow,
             base::Unretained(Shell::Get()->window_cycle_controller()),
-            GetWindowCyclingDirection(event)));
+            GetWindowCyclingDirection(event), /*same_app_only=*/false));
   } else if (key_code == ui::VKEY_UP || key_code == ui::VKEY_DOWN ||
              key_code == ui::VKEY_LEFT || key_code == ui::VKEY_RIGHT) {
     Shell::Get()->window_cycle_controller()->HandleKeyboardNavigation(
         GetKeyboardNavDirection(event));
   }
-}
-
-bool WindowCycleEventFilter::IsTriggerKey(ui::KeyEvent* event) const {
-  const ui::KeyboardCode key_code = event->key_code();
-  const bool interactive_trigger_key =
-      (key_code == ui::VKEY_LEFT || key_code == ui::VKEY_RIGHT);
-
-  const bool nav_trigger_key =
-      Shell::Get()
-          ->window_cycle_controller()
-          ->IsInteractiveAltTabModeAllowed() &&
-      (key_code == ui::VKEY_UP || key_code == ui::VKEY_DOWN ||
-       key_code == ui::VKEY_LEFT || key_code == ui::VKEY_RIGHT);
-
-  return key_code == ui::VKEY_TAB ||
-         (debug::DeveloperAcceleratorsEnabled() && key_code == ui::VKEY_W) ||
-         interactive_trigger_key || nav_trigger_key;
-}
-
-bool WindowCycleEventFilter::IsExitKey(ui::KeyEvent* event) const {
-  return event->key_code() == ui::VKEY_RETURN ||
-         event->key_code() == ui::VKEY_SPACE;
 }
 
 bool WindowCycleEventFilter::ShouldRepeatKey(ui::KeyEvent* event) const {

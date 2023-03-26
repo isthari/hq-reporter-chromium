@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -108,7 +108,7 @@ void CSSNumberInterpolationType::ApplyStandardPropertyValue(
     StyleResolverState& state) const {
   double clamped_number = NumberPropertyFunctions::ClampNumber(
       CssProperty(), To<InterpolableNumber>(interpolable_value).Value());
-  if (!NumberPropertyFunctions::SetNumber(CssProperty(), *state.Style(),
+  if (!NumberPropertyFunctions::SetNumber(CssProperty(), state.StyleBuilder(),
                                           clamped_number)) {
     StyleBuilder::ApplyProperty(GetProperty().GetCSSProperty(), state,
                                 ScopedCSSValue(*CSSNumericLiteralValue::Create(

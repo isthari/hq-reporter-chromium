@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,8 +80,9 @@ class PowerButtonMenuScreenView::PowerButtonMenuBackgroundView
       power_button_controller->DismissMenu();
     }
 
-    if (layer()->opacity() == kPowerButtonMenuOpacity)
+    if (layer()->opacity() == kPowerButtonMenuOpacity) {
       show_animation_done_.Run();
+    }
   }
 
   void ScheduleShowHideAnimation(bool show) {
@@ -108,9 +109,9 @@ class PowerButtonMenuScreenView::PowerButtonMenuBackgroundView
   // views::View:
   void OnThemeChanged() override {
     views::View::OnThemeChanged();
-    layer()->SetColor(DeprecatedGetShieldLayerColor(
-        AshColorProvider::ShieldLayerType::kShield40,
-        kPowerButtonMenuFullscreenShieldColor));
+    layer()->SetColor(
+        DeprecatedGetBaseLayerColor(AshColorProvider::BaseLayerType::kOpaque,
+                                    kPowerButtonMenuFullscreenShieldColor));
   }
 
   // A callback for when the animation that shows the power menu has finished.
@@ -118,6 +119,7 @@ class PowerButtonMenuScreenView::PowerButtonMenuBackgroundView
 };
 
 PowerButtonMenuScreenView::PowerButtonMenuScreenView(
+    ShutdownReason shutdown_reason,
     PowerButtonPosition power_button_position,
     double power_button_offset_percentage,
     base::RepeatingClosure show_animation_done)
@@ -126,7 +128,8 @@ PowerButtonMenuScreenView::PowerButtonMenuScreenView(
   power_button_screen_background_shield_ =
       new PowerButtonMenuBackgroundView(show_animation_done);
   AddChildView(power_button_screen_background_shield_);
-  power_button_menu_view_ = new PowerButtonMenuView(power_button_position_);
+  power_button_menu_view_ =
+      new PowerButtonMenuView(shutdown_reason, power_button_position_);
   AddChildView(power_button_menu_view_);
 
   AddAccelerator(ui::Accelerator(ui::VKEY_ESCAPE, ui::EF_NONE));
@@ -157,8 +160,9 @@ void PowerButtonMenuScreenView::OnWidgetShown(
   // power_button_menu_view_'s preferred size, which depends on the items added
   // to the view.
   power_button_menu_view_->RecreateItems();
-  if (power_button_position_ != PowerButtonPosition::NONE)
+  if (power_button_position_ != PowerButtonPosition::NONE) {
     UpdateMenuBoundsOrigins();
+  }
   Layout();
 }
 
@@ -172,10 +176,11 @@ void PowerButtonMenuScreenView::Layout() {
   gfx::Rect menu_bounds = GetMenuBounds();
   PowerButtonMenuView::TransformDisplacement transform_displacement =
       power_button_menu_view_->GetTransformDisplacement();
-  if (transform_displacement.direction == TransformDirection::X)
+  if (transform_displacement.direction == TransformDirection::X) {
     menu_bounds.set_x(menu_bounds.x() - transform_displacement.distance);
-  else if (transform_displacement.direction == TransformDirection::Y)
+  } else if (transform_displacement.direction == TransformDirection::Y) {
     menu_bounds.set_y(menu_bounds.y() - transform_displacement.distance);
+  }
 
   power_button_menu_view_->SetBoundsRect(menu_bounds);
 }
@@ -198,8 +203,9 @@ bool PowerButtonMenuScreenView::AcceleratorPressed(
 }
 
 void PowerButtonMenuScreenView::OnGestureEvent(ui::GestureEvent* event) {
-  if (event->type() != ui::ET_GESTURE_TAP_DOWN)
+  if (event->type() != ui::ET_GESTURE_TAP_DOWN) {
     return;
+  }
 
   // Dismisses the menu if tap anywhere on the background shield.
   ScheduleShowHideAnimation(false);

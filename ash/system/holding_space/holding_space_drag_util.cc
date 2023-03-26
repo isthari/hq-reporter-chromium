@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,10 +12,13 @@
 #include "ash/public/cpp/holding_space/holding_space_item.h"
 #include "ash/public/cpp/rounded_image_view.h"
 #include "ash/public/cpp/style/scoped_light_mode_as_default.h"
-#include "ash/style/ash_color_provider.h"
+#include "ash/style/ash_color_id.h"
+#include "ash/style/dark_light_mode_controller_impl.h"
 #include "ash/system/holding_space/holding_space_item_view.h"
 #include "base/containers/adapters.h"
 #include "base/i18n/rtl.h"
+#include "base/ranges/algorithm.h"
+#include "ui/color/color_provider.h"
 #include "ui/compositor/canvas_painter.h"
 #include "ui/compositor/compositor.h"
 #include "ui/gfx/canvas.h"
@@ -40,11 +43,11 @@ namespace {
 constexpr int kDragImageItemViewCornerRadius = 8;
 constexpr int kDragImageItemViewElevation = 2;
 constexpr int kDragImageItemChipViewIconSize = 24;
-constexpr gfx::Insets kDragImageItemChipViewInsets(8, 8, 8, /*right=*/12);
+constexpr auto kDragImageItemChipViewInsets = gfx::Insets::TLBR(8, 8, 8, 12);
 constexpr gfx::Size kDragImageItemChipViewPreferredSize(160, 40);
 constexpr int kDragImageItemChipViewSpacing = 8;
 constexpr gfx::Size kDragImageItemScreenCaptureViewPreferredSize(104, 80);
-constexpr gfx::Insets kDragImageOverflowBadgeInsets = gfx::Insets(0, 8);
+constexpr auto kDragImageOverflowBadgeInsets = gfx::Insets::VH(0, 8);
 constexpr gfx::Size kDragImageOverflowBadgeMinimumSize(24, 24);
 constexpr int kDragImageViewChildOffset = 8;
 
@@ -146,7 +149,10 @@ class DragImageItemView : public views::View {
   ~DragImageItemView() override = default;
 
  protected:
-  DragImageItemView() = default;
+  explicit DragImageItemView(const ui::ColorProvider* color_provider)
+      : color_provider_(color_provider) {}
+
+  const ui::ColorProvider* color_provider() const { return color_provider_; }
 
   // views::View:
   gfx::Insets GetInsets() const final {
@@ -162,13 +168,9 @@ class DragImageItemView : public views::View {
     gfx::RectF bounds(GetContentsBounds());
     bounds.Inset(gfx::InsetsF(0.5f));
 
-    // NOTE: Background is white when the dark/light mode feature is disabled.
     cc::PaintFlags flags;
     flags.setAntiAlias(true);
-    flags.setColor(features::IsDarkLightModeEnabled()
-                       ? AshColorProvider::Get()->GetBaseLayerColor(
-                             AshColorProvider::BaseLayerType::kOpaque)
-                       : SK_ColorWHITE);
+    flags.setColor(color_provider_->GetColor(kColorAshShieldAndBaseOpaque));
     flags.setLooper(gfx::CreateShadowDrawLooper(GetShadowDetails().values));
     canvas->DrawRoundRect(bounds, kDragImageItemViewCornerRadius, flags);
   }
@@ -178,6 +180,8 @@ class DragImageItemView : public views::View {
     return gfx::ShadowDetails::Get(kDragImageItemViewElevation,
                                    kDragImageItemViewCornerRadius);
   }
+
+  const ui::ColorProvider* const color_provider_;
 };
 
 // DragImageItemChipView -------------------------------------------------------
@@ -186,7 +190,9 @@ class DragImageItemView : public views::View {
 // chip in the drag image for a collection of holding space item views.
 class DragImageItemChipView : public DragImageItemView {
  public:
-  explicit DragImageItemChipView(const HoldingSpaceItem* item) {
+  DragImageItemChipView(const HoldingSpaceItem* item,
+                        const ui::ColorProvider* color_provider)
+      : DragImageItemView(color_provider) {
     InitLayout(item);
   }
 
@@ -219,12 +225,21 @@ class DragImageItemChipView : public DragImageItemView {
     icon->SetImage(item->image().GetImageSkia(
         icon->GetPreferredSize(),
         /*dark_background=*/features::IsDarkLightModeEnabled() &&
-            AshColorProvider::Get()->IsDarkModeEnabled()));
+            DarkLightModeControllerImpl::Get()->IsDarkModeEnabled()));
 
     // Label.
     ScopedLightModeAsDefault scoped_light_mode;
     auto* label = AddChildView(bubble_utils::CreateLabel(
-        bubble_utils::LabelStyle::kChipTitle, item->GetText()));
+        bubble_utils::TypographyStyle::kBody2, item->GetText()));
+    // Label created via `bubble_utils::CreateLabel()` has an enabled color id,
+    // which is resolved when the label is added to the views hierarchy. But
+    // `this` is never added to widget, enabled color id will never be resolved.
+    // Thus we need to manually resolve it and set the color as the enabled
+    // color for the label.
+    if (auto enabled_color_id = label->GetEnabledColorId()) {
+      label->SetEnabledColor(color_provider()->GetColor(*enabled_color_id));
+    }
+
     label->SetElideBehavior(gfx::ElideBehavior::ELIDE_MIDDLE);
     label->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
     layout->SetFlexForView(label, 1);
@@ -237,7 +252,9 @@ class DragImageItemChipView : public DragImageItemView {
 // `item` in the drag image for a collection of holding space item views.
 class DragImageItemScreenCaptureView : public DragImageItemView {
  public:
-  explicit DragImageItemScreenCaptureView(const HoldingSpaceItem* item) {
+  DragImageItemScreenCaptureView(const HoldingSpaceItem* item,
+                                 const ui::ColorProvider* color_provider)
+      : DragImageItemView(color_provider) {
     DCHECK(item->IsScreenCapture());
     InitLayout(item);
   }
@@ -262,7 +279,7 @@ class DragImageItemScreenCaptureView : public DragImageItemView {
     image->SetImage(item->image().GetImageSkia(
         image->GetPreferredSize(),
         /*dark_background=*/features::IsDarkLightModeEnabled() &&
-            AshColorProvider::Get()->IsDarkModeEnabled()));
+            DarkLightModeControllerImpl::Get()->IsDarkModeEnabled()));
   }
 };
 
@@ -273,7 +290,8 @@ class DragImageItemScreenCaptureView : public DragImageItemView {
 // if the number of dragged items is > `kDragImageViewMaxItemsToPaint`.
 class DragImageOverflowBadge : public views::View {
  public:
-  explicit DragImageOverflowBadge(size_t count) {
+  DragImageOverflowBadge(size_t count, const ui::ColorProvider* color_provider)
+      : color_provider_(color_provider) {
     DCHECK_GT(count, kDragImageViewMaxItemsToPaint);
     InitLayout(count);
   }
@@ -296,9 +314,8 @@ class DragImageOverflowBadge : public views::View {
     ScopedLightModeAsDefault scoped_light_mode;
 
     // Background.
-    SetBackground(views::CreateRoundedRectBackground(
-        AshColorProvider::Get()->GetControlsLayerColor(
-            AshColorProvider::ControlsLayerType::kFocusRingColor),
+    SetBackground(views::CreateThemedRoundedRectBackground(
+        ui::kColorAshFocusRing,
         /*radius=*/kDragImageOverflowBadgeMinimumSize.height() / 2));
 
     // Layout.
@@ -312,12 +329,17 @@ class DragImageOverflowBadge : public views::View {
 
     // Label.
     auto* label = AddChildView(
-        bubble_utils::CreateLabel(bubble_utils::LabelStyle::kBadge));
-    label->SetEnabledColor(AshColorProvider::Get()->IsDarkModeEnabled()
-                               ? gfx::kGoogleGrey900
-                               : gfx::kGoogleGrey200);
+        bubble_utils::CreateLabel(bubble_utils::TypographyStyle::kButton1));
+    // `this` is never added to widget, enabled color id will never be resolved.
+    // Thus we need to manually resolve it and set the color as the enabled
+    // color for the label.
+    label->SetEnabledColor(
+        color_provider_->GetColor(kColorAshDragImageOverflowBadgeTextColor));
+
     label->SetText(base::UTF8ToUTF16(base::NumberToString(count)));
   }
+
+  const ui::ColorProvider* const color_provider_;
 };
 
 // DragImageView ---------------------------------------------------------------
@@ -326,7 +348,9 @@ class DragImageOverflowBadge : public views::View {
 // item `views`. This view expects to be painted to an `SkBitmap`.
 class DragImageView : public views::View {
  public:
-  explicit DragImageView(const std::vector<const HoldingSpaceItem*>& items) {
+  DragImageView(const std::vector<const HoldingSpaceItem*>& items,
+                const ui::ColorProvider* color_provider)
+      : color_provider_(color_provider) {
     InitLayout(items);
   }
 
@@ -388,8 +412,7 @@ class DragImageView : public views::View {
     // within contents bounds so only half of the badge's preferred `size` needs
     // to be added as insets.
     gfx::Size size = drag_image_overflow_badge_->GetPreferredSize();
-    return gfx::Insets(/*top=*/size.height() / 2, /*left=*/0, /*bottom=*/0,
-                       /*right=*/size.width() / 2);
+    return gfx::Insets::TLBR(size.height() / 2, 0, 0, size.width() / 2);
   }
 
   void Layout() override {
@@ -422,8 +445,8 @@ class DragImageView : public views::View {
     container->SetLayoutManager(
         std::make_unique<DragImageLayoutManager>(kDragImageViewChildOffset));
 
-    const bool contains_only_screen_captures = std::all_of(
-        items.begin(), items.end(),
+    const bool contains_only_screen_captures = base::ranges::all_of(
+        items,
         [](const HoldingSpaceItem* item) { return item->IsScreenCapture(); });
 
     // Show at most `kDragImageViewMaxItemsToPaint` items in the drag image. If
@@ -433,10 +456,11 @@ class DragImageView : public views::View {
     for (size_t i = 0; i < count; ++i) {
       if (contains_only_screen_captures) {
         container->AddChildView(
-            std::make_unique<DragImageItemScreenCaptureView>(items[i]));
+            std::make_unique<DragImageItemScreenCaptureView>(items[i],
+                                                             color_provider_));
       } else {
         container->AddChildView(
-            std::make_unique<DragImageItemChipView>(items[i]));
+            std::make_unique<DragImageItemChipView>(items[i], color_provider_));
       }
     }
 
@@ -450,14 +474,15 @@ class DragImageView : public views::View {
     if (count <= kDragImageViewMaxItemsToPaint)
       return;
 
-    drag_image_overflow_badge_ =
-        AddChildView(std::make_unique<DragImageOverflowBadge>(count));
+    drag_image_overflow_badge_ = AddChildView(
+        std::make_unique<DragImageOverflowBadge>(count, color_provider_));
 
     // This view's `layout` manager ignores `drag_image_overflow_badge_` as it
     // is manually positioned relative to the `first_drag_image_item_view_`.
     layout->SetChildViewIgnoredByLayout(drag_image_overflow_badge_, true);
   }
 
+  const ui::ColorProvider* const color_provider_;
   views::View* first_drag_image_item_view_ = nullptr;
   views::View* drag_image_overflow_badge_ = nullptr;
 };
@@ -468,7 +493,8 @@ class DragImageView : public views::View {
 
 void CreateDragImage(const std::vector<const HoldingSpaceItemView*>& views,
                      gfx::ImageSkia* drag_image,
-                     gfx::Vector2d* drag_offset) {
+                     gfx::Vector2d* drag_offset,
+                     const ui::ColorProvider* color_provider) {
   if (views.empty()) {
     *drag_image = gfx::ImageSkia();
     *drag_offset = gfx::Vector2d();
@@ -479,7 +505,7 @@ void CreateDragImage(const std::vector<const HoldingSpaceItemView*>& views,
   const float scale = views::ScaleFactorForDragFromWidget(widget);
   const bool is_pixel_canvas = widget->GetCompositor()->is_pixel_canvas();
 
-  DragImageView drag_image_view(GetHoldingSpaceItems(views));
+  DragImageView drag_image_view(GetHoldingSpaceItems(views), color_provider);
   drag_image_view.SetSize(drag_image_view.GetPreferredSize());
 
   *drag_image = drag_image_view.GetDragImage(scale, is_pixel_canvas);

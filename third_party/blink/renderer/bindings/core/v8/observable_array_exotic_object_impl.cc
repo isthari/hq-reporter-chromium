@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,7 +42,7 @@ const WrapperTypeInfo& ObservableArrayExoticObjectImpl::wrapper_type_info_ =
 
 // static
 bindings::ObservableArrayBase*
-ObservableArrayExoticObjectImpl::ProxyTargetToObservableArrayBase(
+ObservableArrayExoticObjectImpl::ProxyTargetToObservableArrayBaseOrDie(
     v8::Isolate* isolate,
     v8::Local<v8::Array> v8_proxy_target) {
   // See the implementation comment in ObservableArrayExoticObjectImpl::Wrap.
@@ -50,6 +50,8 @@ ObservableArrayExoticObjectImpl::ProxyTargetToObservableArrayBase(
       V8PrivateProperty::GetSymbol(isolate, kV8ProxyTargetToV8WrapperKey);
   v8::Local<v8::Value> backing_list_wrapper =
       private_property.GetOrUndefined(v8_proxy_target).ToLocalChecked();
+  // Crash when author script managed to pass something else other than the
+  // right proxy target object.
   CHECK(backing_list_wrapper->IsObject());
   return ToScriptWrappable(backing_list_wrapper.As<v8::Object>())
       ->ToImpl<bindings::ObservableArrayBase>();

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -18,11 +18,12 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback_forward.h"
 #include "base/cancelable_callback.h"
 #include "base/containers/queue.h"
-#include "base/memory/ref_counted.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "media/base/limits.h"
@@ -311,7 +312,7 @@ class MEDIA_GPU_EXPORT V4L2VideoDecodeAccelerator
   // function definition.
   void NotifyFlushDoneIfNeeded();
   // Notify the client of a flush completion.
-  void NofityFlushDone();
+  void NotifyFlushDone();
   // Returns true if VIDIOC_DECODER_CMD is supported.
   bool IsDecoderCmdSupported();
   // Send V4L2_DEC_CMD_STOP to the driver. Return true if success.

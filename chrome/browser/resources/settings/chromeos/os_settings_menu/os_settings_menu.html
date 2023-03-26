@@ -3,7 +3,7 @@
     /* The tap target extends slightly above each visible menu item. */
     --tap-target-padding: 3px;
     /* Width of the keyboard focus border. */
-    --focus-border-width: 1px;
+    --focus-border-width: 2px;
     box-sizing: border-box;
     display: block;
     padding-bottom: 2px;
@@ -47,6 +47,7 @@
     margin-inline-end: 2px;
     min-height: 32px;
     padding-inline-start: 20px;
+    text-decoration: none;
   }
 
   :host-context([dir=rtl]) a.item {
@@ -54,17 +55,26 @@
     border-radius: 20px 0 0 20px;
   }
 
-  a.iron-selected.item {
+  a.item.iron-selected {
     background-color: var(--cros-highlight-color);
     color: var(--cros-text-color-selection);
   }
 
-  :host-context(.focus-outline-visible) a:focus.item {
+  :host-context(body.jelly-enabled) a.item.iron-selected {
+    background-color: var(--cros-sys-primary);
+    color: var(--cros-sys-on_primary);
+  }
+
+  :host-context(.focus-outline-visible) a.item:focus {
     border-color: var(--cros-focus-ring-color);
   }
 
-  a:hover:not(.iron-selected).item {
+  a.item:not(.iron-selected):hover {
     background-color: var(--cros-ripple-color);
+  }
+
+  :host-context(body.jelly-enabled) a.item:not(.iron-selected):hover {
+    background-color: var(--cros-sys-hover_on_subtle);
   }
 
   iron-icon {
@@ -73,8 +83,12 @@
     vertical-align: top;
   }
 
-  a.iron-selected.item > iron-icon {
+  a.item.iron-selected > iron-icon {
     fill: var(--cros-icon-color-selection);
+  }
+
+  :host-context(body.jelly-enabled) a.item.iron-selected > iron-icon {
+    fill: var(--cros-sys-on_primary);
   }
 
   #advancedButton {
@@ -100,7 +114,8 @@
   }
 
   :host-context(.focus-outline-visible) #advancedButton:focus {
-    outline: auto 5px -webkit-focus-ring-color;
+    border-radius: 0 20px 20px 0;
+    outline: var(--focus-border-width) solid var(--cros-focus-ring-color);
   }
 
   #advancedButton > span {
@@ -181,6 +196,10 @@
     <iron-icon icon="os-settings:apps"></iron-icon>
     $i18n{appsPageTitle}
   </a>
+  <a href="/osAccessibility" class="item">
+    <iron-icon icon="os-settings:accessibility"></iron-icon>
+    $i18n{a11yPageTitle}
+  </a>
   <cr-button id="advancedButton"
       aria-expanded$="[[boolToString_(advancedOpened)]]"
       on-click="onAdvancedButtonToggle_">
@@ -207,13 +226,9 @@
         <iron-icon icon="os-settings:print"></iron-icon>
         $i18n{printingPageTitle}
       </a>
-      <a href="/crostini" hidden="[[!showCrostini]]" class="item">
+      <a href="/crostini" class="item">
         <iron-icon icon="os-settings:developer-tags"></iron-icon>
         $i18n{crostiniPageTitle}
-      </a>
-      <a href="/osAccessibility" class="item">
-        <iron-icon icon="os-settings:accessibility"></iron-icon>
-        $i18n{a11yPageTitle}
       </a>
       <a id="osReset" href="/osReset" hidden="[[!showReset]]" class="item">
         <iron-icon icon="os-settings:restore"></iron-icon>
@@ -222,7 +237,7 @@
     </iron-selector>
   </iron-collapse>
   <div id="menuSeparator"></div>
-  <a id="aboutItem" href="/help" class="item">
+  <a id="aboutItem" href="/help/about" class="item">
     $i18n{aboutOsPageTitle}
   </a>
 </iron-selector>

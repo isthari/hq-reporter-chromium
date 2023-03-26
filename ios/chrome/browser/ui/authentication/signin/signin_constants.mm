@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #error "This file requires ARC support."
 #endif
 
-NSString* const kUserSigninAttemptedNotification = @"UserSigninAttempted";
 NSString* const kSkipSigninAccessibilityIdentifier =
     @"SkipSigninAccessibilityIdentifier";
 NSString* const kAddAccountAccessibilityIdentifier =
@@ -22,6 +21,8 @@ NSString* const kWebSigninContinueAsButtonAccessibilityIdentifier =
     @"WebSigninContinueAsButtonAccessibilityIdentifier";
 NSString* const kWebSigninSkipButtonAccessibilityIdentifier =
     @"WebSigninSkipButtonAccessibilityIdentifier";
+NSString* const kTangibleSyncViewAccessibilityIdentifier =
+    @"TangibleSyncViewAccessibilityIdentifier";
 
 const char* kWebSigninConsistencyConsecutiveActiveDismissalLimitParam =
     "consecutive_active_dismissal_limit";

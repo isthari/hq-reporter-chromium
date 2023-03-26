@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -60,7 +60,7 @@ class PlatformUiElement : public UiElement {
   GlTextureLocation texture_location() const { return texture_location_; }
 
  private:
-  raw_ptr<PlatformUiInputDelegate> delegate_ = nullptr;
+  raw_ptr<PlatformUiInputDelegate, DanglingUntriaged> delegate_ = nullptr;
   unsigned int texture_id_ = 0;
   GlTextureLocation texture_location_ = kGlTextureLocationExternal;
 };

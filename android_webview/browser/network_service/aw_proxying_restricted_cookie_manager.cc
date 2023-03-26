@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -91,12 +91,14 @@ void AwProxyingRestrictedCookieManager::SetCanonicalCookie(
     const GURL& url,
     const net::SiteForCookies& site_for_cookies,
     const url::Origin& top_frame_origin,
+    net::CookieInclusionStatus status,
     SetCanonicalCookieCallback callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
   if (AllowCookies(url, site_for_cookies)) {
     underlying_restricted_cookie_manager_->SetCanonicalCookie(
-        cookie, url, site_for_cookies, top_frame_origin, std::move(callback));
+        cookie, url, site_for_cookies, top_frame_origin, status,
+        std::move(callback));
   } else {
     std::move(callback).Run(false);
   }
@@ -138,7 +140,8 @@ void AwProxyingRestrictedCookieManager::SetCookieFromString(
     underlying_restricted_cookie_manager_->SetCookieFromString(
         url, site_for_cookies, top_frame_origin, cookie, std::move(callback));
   } else {
-    std::move(callback).Run();
+    std::move(callback).Run(/*site_for_cookies_ok=*/true,
+                            /*top_frame_origin_ok=*/true);
   }
 }
 

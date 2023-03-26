@@ -1,12 +1,13 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/quick_pair/keyed_service/battery_update_message_handler.h"
 
 #include "ash/quick_pair/common/logging.h"
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/containers/adapters.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/bluetooth_device.h"
@@ -74,10 +75,9 @@ void BatteryUpdateMessageHandler::GetBatteryUpdateFromMessageStream(
   DCHECK(message_stream);
 
   // Iterate over messages for battery update if it already exists.
-  for (auto it = message_stream->messages().rbegin();
-       it != message_stream->messages().rend(); ++it) {
-    if ((*it)->is_battery_update()) {
-      SetBatteryInfo(device_address, (*it)->get_battery_update());
+  for (const auto& message : base::Reversed(message_stream->messages())) {
+    if (message->is_battery_update()) {
+      SetBatteryInfo(device_address, message->get_battery_update());
       return;
     }
   }

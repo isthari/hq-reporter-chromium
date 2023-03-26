@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,8 +54,9 @@ public class PopupController implements UserData {
      */
     public static void hidePopupsAndClearSelection(WebContents webContents) {
         if (webContents == null) return;
+
         SelectionPopupControllerImpl controller =
-                SelectionPopupControllerImpl.fromWebContents(webContents);
+                SelectionPopupControllerImpl.fromWebContentsNoCreate(webContents);
         if (controller != null) controller.destroyActionModeAndUnselect();
         PopupController.hideAll(webContents);
     }

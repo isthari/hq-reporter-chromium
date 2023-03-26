@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 package org.chromium.android_webview.test;
@@ -7,7 +7,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import android.annotation.SuppressLint;
 import android.content.res.Configuration;
 import android.os.Build;
 
@@ -38,7 +37,6 @@ import java.util.concurrent.Callable;
  */
 @RunWith(AwJUnit4ClassRunner.class)
 @MinAndroidSdkLevel(Build.VERSION_CODES.P)
-@SuppressLint("NewApi")
 public class AwDarkModeTest {
     private static final String FILE = "/main.html";
     private static final String DATA =
@@ -93,10 +91,8 @@ public class AwDarkModeTest {
     @Test
     @SmallTest
     @Feature({"AndroidWebView"})
-    @CommandLineFlags.Add({"disable-features=WebViewForceDarkModeMatchTheme",
-            "enable-features=WebViewDarkModeMatchTheme"})
-    public void
-    testLightThemeFalseWithMatchThemeDisabled() throws Throwable {
+    @CommandLineFlags.Add({"disable-features=WebViewForceDarkModeMatchTheme"})
+    public void testLightThemeFalseWithMatchThemeDisabled() throws Throwable {
         DarkModeHelper.setsLightThemeForTesting(DarkModeHelper.LightTheme.LIGHT_THEME_FALSE);
         final String url = mWebServer.setResponse(FILE, DATA, null);
         loadUrlSync(url);
@@ -107,8 +103,7 @@ public class AwDarkModeTest {
     @Test
     @SmallTest
     @Feature({"AndroidWebView"})
-    @CommandLineFlags.
-    Add({"enable-features=WebViewForceDarkModeMatchTheme,WebViewDarkModeMatchTheme"})
+    @CommandLineFlags.Add({"enable-features=WebViewForceDarkModeMatchTheme"})
     public void testLightThemeFalse() throws Throwable {
         DarkModeHelper.setsLightThemeForTesting(DarkModeHelper.LightTheme.LIGHT_THEME_FALSE);
         final String url = mWebServer.setResponse(FILE, DATA, null);
@@ -120,7 +115,6 @@ public class AwDarkModeTest {
     @Test
     @SmallTest
     @Feature({"AndroidWebView"})
-    @CommandLineFlags.Add({"enable-features=WebViewDarkModeMatchTheme"})
     public void testConfigurationChanged() throws Throwable {
         DarkModeHelper.setsLightThemeForTesting(DarkModeHelper.LightTheme.LIGHT_THEME_TRUE);
         final String url = mWebServer.setResponse(FILE, DATA, null);
@@ -246,7 +240,7 @@ public class AwDarkModeTest {
         return TestThreadUtils.runOnUiThreadBlocking(new Callable<Boolean>() {
             @Override
             public Boolean call() {
-                return mAwContents.getSettings().isDarkMode();
+                return mAwContents.getSettings().isForceDarkApplied();
             }
         });
     }

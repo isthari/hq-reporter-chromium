@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define ASH_AMBIENT_UI_AMBIENT_INFO_VIEW_H_
 
 #include "ash/ambient/ui/ambient_view_delegate.h"
+#include "ash/ambient/ui/glanceable_info_view.h"
 #include "ash/ash_export.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
@@ -22,7 +23,8 @@ namespace ash {
 
 class GlanceableInfoView;
 
-class ASH_EXPORT AmbientInfoView : public views::View {
+class ASH_EXPORT AmbientInfoView : public views::View,
+                                   public GlanceableInfoView::Delegate {
  public:
   METADATA_HEADER(AmbientInfoView);
 
@@ -31,8 +33,11 @@ class ASH_EXPORT AmbientInfoView : public views::View {
   AmbientInfoView& operator=(AmbientInfoView&) = delete;
   ~AmbientInfoView() override;
 
-  // views::View
+  // views::View:
   void OnThemeChanged() override;
+
+  // GlanceableInfoView::Delegate:
+  SkColor GetTimeTemperatureFontColor() override;
 
   void UpdateImageDetails(const std::u16string& details,
                           const std::u16string& related_details);

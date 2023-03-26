@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,50 @@
  * @fileoverview Polymer element for displaying material design Update screen.
  */
 
-/* #js_imports_placeholder */
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '//resources/polymer/v3_0/paper-progress/paper-progress.js';
+import '//resources/polymer/v3_0/paper-styles/color.js';
+import '../../components/oobe_cr_lottie.js';
+import '../../components/oobe_icons.html.js';
+import '../../components/buttons/oobe_back_button.js';
+import '../../components/buttons/oobe_next_button.js';
+import '../../components/common_styles/oobe_dialog_host_styles.css.js';
+import '../../components/dialogs/oobe_adaptive_dialog.js';
+import '../../components/dialogs/oobe_loading_dialog.js';
+import '../../components/oobe_carousel.js';
+import '../../components/oobe_slide.js';
+
+import {html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.js';
+import {MultiStepBehavior, MultiStepBehaviorInterface} from '../../components/behaviors/multi_step_behavior.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
+
 
 const USER_ACTION_ACCEPT_UPDATE_OVER_CELLUAR = 'update-accept-cellular';
 const USER_ACTION_REJECT_UPDATE_OVER_CELLUAR = 'update-reject-cellular';
 const USER_ACTION_CANCEL_UPDATE_SHORTCUT = 'cancel-update';
+const USER_ACTION_OPT_OUT_INFO_NEXT = 'opt-out-info-next';
 
 const UNREACHABLE_PERCENT = 1000;
 // Thresholds which are used to determine when update status announcement should
 // take place. Last element is not reachable to simplify implementation.
 const PERCENT_THRESHOLDS = [
-  0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98, 99, 100, UNREACHABLE_PERCENT
+  0,
+  10,
+  20,
+  30,
+  40,
+  50,
+  60,
+  70,
+  80,
+  90,
+  95,
+  98,
+  99,
+  100,
+  UNREACHABLE_PERCENT,
 ];
 
 /**
@@ -31,6 +64,7 @@ const UpdateUIState = {
   RESTART: 'restart',
   REBOOT: 'reboot',
   CELLULAR: 'cellular',
+  OPT_OUT_INFO: 'opt-out-info',
 };
 
 /**
@@ -40,9 +74,8 @@ const UpdateUIState = {
  * @implements {OobeI18nBehaviorInterface}
  * @implements {MultiStepBehaviorInterface}
  */
-const UpdateBase = Polymer.mixinBehaviors(
-    [OobeI18nBehavior, LoginScreenBehavior, MultiStepBehavior],
-    Polymer.Element);
+const UpdateBase = mixinBehaviors(
+    [OobeI18nBehavior, LoginScreenBehavior, MultiStepBehavior], PolymerElement);
 
 /**
  * @typedef {{
@@ -52,15 +85,15 @@ const UpdateBase = Polymer.mixinBehaviors(
  */
 UpdateBase.$;
 
-/**
- * @polymer
- */
+/** @polymer */
 class Update extends UpdateBase {
   static get is() {
     return 'update-element';
   }
 
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   static get properties() {
     return {
@@ -101,6 +134,7 @@ class Update extends UpdateBase {
        */
       updateStatusMessagePercent: {
         type: String,
+        value: '',
       },
 
       /**
@@ -108,6 +142,7 @@ class Update extends UpdateBase {
        */
       updateStatusMessageTimeLeft: {
         type: String,
+        value: '',
       },
 
       /**
@@ -133,14 +168,20 @@ class Update extends UpdateBase {
       thresholdIndex: {
         type: Number,
         value: 0,
-      }
+      },
+
+      /**
+       * Whether a user can opt out from auto-updates.
+       */
+      isOptOutEnabled: {
+        type: Boolean,
+        value: false,
+      },
     };
   }
 
-  constructor() {
-    super();
-    this.updateStatusMessagePercent = '';
-    this.updateStatusMessageTimeLeft = '';
+  static get observers() {
+    return ['playAnimation_(uiStep)'];
   }
 
   defaultUIStep() {
@@ -166,9 +207,17 @@ class Update extends UpdateBase {
 
   ready() {
     super.ready();
-    this.initializeLoginScreen('UpdateScreen', {
-      resetAllowed: true,
-    });
+    this.initializeLoginScreen('UpdateScreen');
+  }
+
+  /**
+   * Event handler that is invoked just before the screen is shown.
+   * @param {Object} data Screen init payload.
+   */
+  onBeforeShow(data) {
+    if (data && 'is_opt_out_enabled' in data) {
+      this.isOptOutEnabled = data['is_opt_out_enabled'];
+    }
   }
 
   /**
@@ -184,6 +233,10 @@ class Update extends UpdateBase {
 
   onNextClicked_() {
     this.userActed(USER_ACTION_ACCEPT_UPDATE_OVER_CELLUAR);
+  }
+
+  onOptOutInfoNext_() {
+    this.userActed(USER_ACTION_OPT_OUT_INFO_NEXT);
   }
 
   /** @param {boolean} enabled */
@@ -247,6 +300,36 @@ class Update extends UpdateBase {
    */
   getAutoTransition_(step, autoTransition) {
     return step == UpdateUIState.UPDATE && autoTransition;
+  }
+
+  /**
+   * Computes the title of the first slide in carousel during update.
+   * @param {string} locale
+   * @param {boolean} isOptOutEnabled
+   */
+  getUpdateSlideTitle_(locale, isOptOutEnabled) {
+    return this.i18n(
+        isOptOutEnabled ? 'slideUpdateAdditionalSettingsTitle' :
+                          'slideUpdateTitle');
+  }
+
+  /**
+   * Computes the text of the first slide in carousel during update.
+   * @param {string} locale
+   * @param {boolean} isOptOutEnabled
+   */
+  getUpdateSlideText_(locale, isOptOutEnabled) {
+    return this.i18n(
+        isOptOutEnabled ? 'slideUpdateAdditionalSettingsText' :
+                          'slideUpdateText');
+  }
+
+  /**
+   * @private
+   * @param {UpdateUIState} uiStep which UIState is shown now.
+   */
+  playAnimation_(uiStep) {
+    this.$.checkingAnimation.playing = (uiStep === UpdateUIState.CHECKING);
   }
 }
 

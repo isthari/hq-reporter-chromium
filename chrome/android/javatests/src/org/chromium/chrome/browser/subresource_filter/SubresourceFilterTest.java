@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -101,11 +101,7 @@ public final class SubresourceFilterTest {
     @Before
     public void setUp() throws Exception {
         mTestServer = mTestServerRule.getServer();
-
-        // Create a new temporary instance to ensure the Class is loaded. Otherwise we will get a
-        // ClassNotFoundException when trying to instantiate during startup.
-        SafeBrowsingApiBridge.setSafeBrowsingHandlerType(
-                new MockSafeBrowsingApiHandler().getClass());
+        SafeBrowsingApiBridge.setHandler(new MockSafeBrowsingApiHandler());
         mActivityTestRule.startMainActivityOnBlankPage();
 
         // Disallow all jpgs.
@@ -167,16 +163,15 @@ public final class SubresourceFilterTest {
         Tab originalTab = mActivityTestRule.getActivity().getActivityTab();
         CallbackHelper tabCreatedCallback = new CallbackHelper();
         TabModel tabModel = mActivityTestRule.getActivity().getTabModelSelector().getCurrentModel();
-        TestThreadUtils.runOnUiThreadBlocking(
-                () -> tabModel.addObserver(new TabModelObserver() {
-                    @Override
-                    public void didAddTab(
-                            Tab tab, @TabLaunchType int type, @TabCreationState int creationState) {
-                        if (tab.getUrl().getSpec().equals(LEARN_MORE_PAGE)) {
-                            tabCreatedCallback.notifyCalled();
-                        }
-                    }
-                }));
+        TestThreadUtils.runOnUiThreadBlocking(() -> tabModel.addObserver(new TabModelObserver() {
+            @Override
+            public void didAddTab(Tab tab, @TabLaunchType int type,
+                    @TabCreationState int creationState, boolean markedForSelection) {
+                if (tab.getUrl().getSpec().equals(LEARN_MORE_PAGE)) {
+                    tabCreatedCallback.notifyCalled();
+                }
+            }
+        }));
 
         // Check that the infobar is showing.
         List<InfoBar> infoBars = mActivityTestRule.getInfoBars();
@@ -283,8 +278,8 @@ public final class SubresourceFilterTest {
         TabModel tabModel = mActivityTestRule.getActivity().getTabModelSelector().getCurrentModel();
         TestThreadUtils.runOnUiThreadBlocking(() -> tabModel.addObserver(new TabModelObserver() {
             @Override
-            public void didAddTab(
-                    Tab tab, @TabLaunchType int type, @TabCreationState int creationState) {
+            public void didAddTab(Tab tab, @TabLaunchType int type,
+                    @TabCreationState int creationState, boolean markedForSelection) {
                 if (tab.getUrl().getSpec().equals(LEARN_MORE_PAGE)) {
                     tabCreatedCallback.notifyCalled();
                 }
@@ -302,7 +297,7 @@ public final class SubresourceFilterTest {
                                    .getModalDialogManager()
                                    .getCurrentPresenterForTest())
                                   .getDialogContainerForTest();
-        TextView messageView = dialogView.findViewById(R.id.message);
+        TextView messageView = dialogView.findViewById(R.id.message_paragraph_1);
         Spanned spannedMessage = (Spanned) messageView.getText();
         ClickableSpan[] spans =
                 spannedMessage.getSpans(0, spannedMessage.length(), ClickableSpan.class);

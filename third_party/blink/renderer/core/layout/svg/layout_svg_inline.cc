@@ -23,6 +23,7 @@
 
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_cursor.h"
+#include "third_party/blink/renderer/core/layout/ng/svg/layout_ng_svg_text.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_inline_text.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_resource_container.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_text.h"
@@ -164,35 +165,45 @@ void LayoutSVGInline::AbsoluteQuads(Vector<gfx::QuadF>& quads,
 }
 
 void LayoutSVGInline::AddOutlineRects(Vector<PhysicalRect>& rect_list,
+                                      OutlineInfo* info,
                                       const PhysicalOffset& additional_offset,
                                       NGOutlineType outline_type) const {
   if (!IsInLayoutNGInlineFormattingContext()) {
-    LayoutInline::AddOutlineRects(rect_list, additional_offset, outline_type);
-    return;
+    LayoutInline::AddOutlineRects(rect_list, nullptr, additional_offset,
+                                  outline_type);
+  } else {
+    auto rect = PhysicalRect::EnclosingRect(ObjectBoundingBox());
+    rect.Move(additional_offset);
+    rect_list.push_back(rect);
   }
-  auto rect = PhysicalRect::EnclosingRect(ObjectBoundingBox());
-  rect.Move(additional_offset);
-  rect_list.push_back(rect);
+  if (info)
+    *info = OutlineInfo::GetUnzoomedFromStyle(StyleRef());
 }
 
 void LayoutSVGInline::WillBeDestroyed() {
   NOT_DESTROYED();
-  SVGResources::ClearClipPathFilterMask(To<SVGElement>(*GetNode()), Style());
-  SVGResources::ClearPaints(To<SVGElement>(*GetNode()), Style());
+  SVGResources::ClearEffects(*this);
+  SVGResources::ClearPaints(*this, Style());
   LayoutInline::WillBeDestroyed();
 }
 
 void LayoutSVGInline::StyleDidChange(StyleDifference diff,
                                      const ComputedStyle* old_style) {
   NOT_DESTROYED();
+  if (diff.HasDifference()) {
+    if (auto* svg_text = DynamicTo<LayoutNGSVGText>(
+            LayoutSVGText::LocateLayoutSVGTextAncestor(this))) {
+      if (svg_text->NeedsTextMetricsUpdate())
+        diff.SetNeedsFullLayout();
+    }
+  }
   LayoutInline::StyleDidChange(diff, old_style);
 
   if (diff.NeedsFullLayout())
     SetNeedsBoundariesUpdate();
 
-  SVGResources::UpdateClipPathFilterMask(To<SVGElement>(*GetNode()), old_style,
-                                         StyleRef());
-  SVGResources::UpdatePaints(To<SVGElement>(*GetNode()), old_style, StyleRef());
+  SVGResources::UpdateEffects(*this, diff, old_style);
+  SVGResources::UpdatePaints(*this, old_style, StyleRef());
 
   if (!Parent())
     return;

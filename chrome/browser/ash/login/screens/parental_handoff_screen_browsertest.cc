@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include "ash/constants/ash_features.h"
 #include "base/auto_reset.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/run_loop.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
@@ -16,7 +16,6 @@
 #include "chrome/browser/ash/login/screens/assistant_optin_flow_screen.h"
 #include "chrome/browser/ash/login/screens/edu_coexistence_login_screen.h"
 #include "chrome/browser/ash/login/test/embedded_policy_test_server_mixin.h"
-#include "chrome/browser/ash/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/ash/login/test/js_checker.h"
 #include "chrome/browser/ash/login/test/login_manager_mixin.h"
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
@@ -27,11 +26,12 @@
 #include "chrome/browser/ash/login/wizard_context.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/supervised_user/supervised_user_service.h"
-#include "chrome/browser/ui/webui/chromeos/login/assistant_optin_flow_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/parental_handoff_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/sync_consent_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/user_creation_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/system_web_dialog_delegate.h"
+#include "chrome/browser/ui/webui/ash/login/assistant_optin_flow_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/parental_handoff_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/sync_consent_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/user_creation_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/system_web_dialog_delegate.h"
+#include "chrome/test/base/fake_gaia_mixin.h"
 #include "components/account_id/account_id.h"
 #include "content/public/test/browser_test.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -42,11 +42,6 @@ namespace {
 const test::UIPath kParentalHandoffDialog = {"parental-handoff",
                                              "parentalHandoffDialog"};
 const test::UIPath kNextButton = {"parental-handoff", "nextButton"};
-
-SystemWebDialogDelegate* GetEduCoexistenceLoginDialog() {
-  return chromeos::SystemWebDialogDelegate::FindInstance(
-      SupervisedUserService::GetEduCoexistenceLoginUrl());
-}
 
 class ParentalHandoffScreenBrowserTest : public OobeBaseTest {
  public:

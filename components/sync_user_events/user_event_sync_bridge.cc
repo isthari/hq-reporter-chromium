@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,11 @@
 #include <vector>
 
 #include "base/big_endian.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "base/containers/contains.h"
 #include "base/containers/cxx20_erase.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/strings/string_number_conversions.h"
 #include "build/build_config.h"
@@ -280,8 +280,8 @@ void UserEventSyncBridge::HandleGlobalIdChange(int64_t old_global_id,
   // not be within our given range, this approach seems less error prone.
   std::vector<std::unique_ptr<UserEventSpecifics>> affected;
 
-  auto range = in_flight_nav_linked_events_.equal_range(old_global_id);
-  for (auto iter = range.first; iter != range.second;) {
+  auto [begin, end] = in_flight_nav_linked_events_.equal_range(old_global_id);
+  for (auto iter = begin; iter != end;) {
     DCHECK_EQ(old_global_id, iter->second.navigation_id());
     affected.emplace_back(std::make_unique<UserEventSpecifics>(iter->second));
     iter = in_flight_nav_linked_events_.erase(iter);

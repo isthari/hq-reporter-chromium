@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,9 @@
 #include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/common/sync_encryption_keys_extension.mojom.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
+#include "components/site_isolation/features.h"
+#include "content/public/browser/child_process_security_policy.h"
+#include "content/public/browser/site_isolation_policy.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/test/navigation_simulator.h"
 #include "content/public/test/prerender_test_util.h"
@@ -25,25 +28,43 @@
 
 namespace {
 
-using testing::IsNull;
-using testing::NotNull;
-
 class SyncEncryptionKeysTabHelperTest : public ChromeRenderViewHostTestHarness {
  public:
+  SyncEncryptionKeysTabHelperTest() {
+    // Avoid the disabling of site isolation due to memory constraints, required
+    // on Android so that ApplyGlobalIsolatedOrigins() takes effect regardless
+    // of available memory when running the test (otherwise low-memory bots may
+    // run into test failures).
+    feature_list_.InitAndEnableFeatureWithParameters(
+        site_isolation::features::kSiteIsolationMemoryThresholds,
+        {{site_isolation::features::
+              kStrictSiteIsolationMemoryThresholdParamName,
+          "0"},
+         {site_isolation::features::
+              kPartialSiteIsolationMemoryThresholdParamName,
+          "0"}});
+  }
+
+  ~SyncEncryptionKeysTabHelperTest() override = default;
+
   SyncEncryptionKeysTabHelperTest(const SyncEncryptionKeysTabHelperTest&) =
       delete;
   SyncEncryptionKeysTabHelperTest& operator=(
       const SyncEncryptionKeysTabHelperTest&) = delete;
 
  protected:
-  SyncEncryptionKeysTabHelperTest() = default;
-
-  ~SyncEncryptionKeysTabHelperTest() override = default;
-
   // content::RenderViewHostTestHarness:
   void SetUp() override {
+    content::SiteIsolationPolicy::ApplyGlobalIsolatedOrigins();
     ChromeRenderViewHostTestHarness::SetUp();
     SyncEncryptionKeysTabHelper::CreateForWebContents(web_contents());
+  }
+
+  void TearDown() override {
+    ChromeRenderViewHostTestHarness::TearDown();
+    // Undo content::SiteIsolationPolicy::ApplyGlobalIsolatedOrigins().
+    content::ChildProcessSecurityPolicy::GetInstance()
+        ->ClearIsolatedOriginsForTesting();
   }
 
   bool HasEncryptionKeysApi(content::RenderFrameHost* rfh) {
@@ -66,6 +87,8 @@ class SyncEncryptionKeysTabHelperTest : public ChromeRenderViewHostTestHarness {
             {ChromeSigninClientFactory::GetInstance(),
              base::BindRepeating(&signin::BuildTestSigninClient)}};
   }
+
+  base::test::ScopedFeatureList feature_list_;
 };
 
 TEST_F(SyncEncryptionKeysTabHelperTest, ShouldExposeMojoApiToAllowedOrigin) {
@@ -80,7 +103,9 @@ TEST_F(SyncEncryptionKeysTabHelperTest,
   EXPECT_FALSE(HasEncryptionKeysApiInMainFrame());
 }
 
-TEST_F(SyncEncryptionKeysTabHelperTest, ShouldNotExposeMojoApiIfNavigatedAway) {
+// TODO(https://crbug.com/1394191): flaky on android bots.
+TEST_F(SyncEncryptionKeysTabHelperTest,
+       DISABLED_ShouldNotExposeMojoApiIfNavigatedAway) {
   web_contents_tester()->NavigateAndCommit(GaiaUrls::GetInstance()->gaia_url());
   ASSERT_TRUE(HasEncryptionKeysApiInMainFrame());
   web_contents_tester()->NavigateAndCommit(GURL("http://page.com"));
@@ -113,8 +138,9 @@ TEST_F(SyncEncryptionKeysTabHelperTest,
   EXPECT_FALSE(HasEncryptionKeysApiInMainFrame());
 }
 
+// TODO(https://crbug.com/1394191): flaky on android bots.
 TEST_F(SyncEncryptionKeysTabHelperTest,
-       ShouldNotExposeMojoApiIfNavigatedAwayToErrorPage) {
+       DISABLED_ShouldNotExposeMojoApiIfNavigatedAwayToErrorPage) {
   web_contents_tester()->NavigateAndCommit(GaiaUrls::GetInstance()->gaia_url());
   ASSERT_TRUE(HasEncryptionKeysApiInMainFrame());
 
@@ -137,17 +163,10 @@ TEST_F(SyncEncryptionKeysTabHelperTest,
 class SyncEncryptionKeysTabHelperPrerenderingTest
     : public SyncEncryptionKeysTabHelperTest {
  public:
-  SyncEncryptionKeysTabHelperPrerenderingTest() {
-    scoped_feature_list_.InitWithFeatures(
-        {blink::features::kPrerender2},
-        // Disable the memory requirement of Prerender2 so the test can run on
-        // any bot.
-        {blink::features::kPrerender2MemoryControls});
-  }
-  ~SyncEncryptionKeysTabHelperPrerenderingTest() override = default;
+  SyncEncryptionKeysTabHelperPrerenderingTest() = default;
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
+  content::test::ScopedPrerenderFeatureList prerender_feature_list_;
 };
 
 // Tests that EncryptionKeys works based on a main frame. A prerendered page
@@ -158,6 +177,9 @@ class SyncEncryptionKeysTabHelperPrerenderingTest
 // canceling prerendering.
 TEST_F(SyncEncryptionKeysTabHelperPrerenderingTest,
        CreateEncryptionKeysInPrerendering) {
+  content::test::ScopedPrerenderWebContentsDelegate web_contents_delegate(
+      *web_contents());
+
   // Load a page.
   ASSERT_FALSE(HasEncryptionKeysApiInMainFrame());
   web_contents_tester()->NavigateAndCommit(GaiaUrls::GetInstance()->gaia_url());
@@ -180,7 +202,7 @@ TEST_F(SyncEncryptionKeysTabHelperPrerenderingTest,
   // Activate the prerendered page.
   auto* activated_rfh =
       content::NavigationSimulator::NavigateAndCommitFromDocument(
-          kPrerenderingUrl, web_contents()->GetMainFrame());
+          kPrerenderingUrl, web_contents()->GetPrimaryMainFrame());
   host_observer.WaitForActivation();
   EXPECT_TRUE(host_observer.was_activated());
   // The EncryptionKeys exists for the activated page.
@@ -197,7 +219,7 @@ TEST_F(SyncEncryptionKeysTabHelperPrerenderingTest,
 
   // Load a page that doesn't allow EncryptionKeys.
   auto* rfh = content::NavigationSimulator::NavigateAndCommitFromDocument(
-      kCrossOriginPrerenderingUrl, web_contents()->GetMainFrame());
+      kCrossOriginPrerenderingUrl, web_contents()->GetPrimaryMainFrame());
   EXPECT_FALSE(HasEncryptionKeysApi(rfh));
   EXPECT_FALSE(HasEncryptionKeysApiInMainFrame());
 }

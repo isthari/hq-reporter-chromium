@@ -1,12 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_WEBUI_PROJECTOR_APP_PROJECTOR_OAUTH_TOKEN_FETCHER_H_
 #define ASH_WEBUI_PROJECTOR_APP_PROJECTOR_OAUTH_TOKEN_FETCHER_H_
 
-#include "base/callback.h"
 #include "base/containers/flat_map.h"
+#include "base/functional/callback.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 

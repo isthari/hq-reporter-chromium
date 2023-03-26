@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,9 @@
 #include "base/memory/raw_ptr.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/time/time.h"
 #include "base/time/time_to_iso8601.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -19,6 +21,7 @@
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/autocomplete_provider_listener.h"
 #include "components/omnibox/browser/mock_autocomplete_provider_client.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/omnibox_prefs.h"
 #include "components/omnibox/browser/test_scheme_classifier.h"
 #include "components/omnibox/common/omnibox_features.h"
@@ -62,12 +65,37 @@ class FakeAutocompleteProviderClient : public MockAutocompleteProviderClient {
 
   PrefService* GetPrefs() const override { return pref_service_.get(); }
 
+  std::string ProfileUserName() const override { return "goodEmail@gmail.com"; }
+
  private:
   std::unique_ptr<TemplateURLService> template_url_service_;
   std::unique_ptr<TestingPrefServiceSimple> pref_service_;
 };
 
 }  // namespace
+
+class FakeDocumentProvider : public DocumentProvider {
+ public:
+  FakeDocumentProvider(AutocompleteProviderClient* client,
+                       AutocompleteProviderListener* listener,
+                       size_t cache_size)
+      : DocumentProvider(client, listener, cache_size) {}
+
+  using DocumentProvider::backoff_for_session_;
+  using DocumentProvider::done_;
+  using DocumentProvider::GenerateLastModifiedString;
+  using DocumentProvider::input_;
+  using DocumentProvider::IsDocumentProviderAllowed;
+  using DocumentProvider::IsInputLikelyURL;
+  using DocumentProvider::matches_;
+  using DocumentProvider::OnDocumentSuggestionsLoaderAvailable;
+  using DocumentProvider::ParseDocumentSearchResults;
+  using DocumentProvider::time_run_invoked_;
+  using DocumentProvider::UpdateResults;
+
+ protected:
+  ~FakeDocumentProvider() override = default;
+};
 
 class DocumentProviderTest : public testing::Test,
                              public AutocompleteProviderListener {
@@ -80,7 +108,8 @@ class DocumentProviderTest : public testing::Test,
 
  protected:
   // AutocompleteProviderListener:
-  void OnProviderUpdate(bool updated_matches) override;
+  void OnProviderUpdate(bool updated_matches,
+                        const AutocompleteProvider* provider) override;
 
   // Set's up |client_| call expectations to enable the doc suggestions; i.e. so
   // that |IsDocumentProviderAllowed()| returns true. This is not necessary when
@@ -104,7 +133,7 @@ class DocumentProviderTest : public testing::Test,
   }
 
   std::unique_ptr<FakeAutocompleteProviderClient> client_;
-  scoped_refptr<DocumentProvider> provider_;
+  scoped_refptr<FakeDocumentProvider> provider_;
   raw_ptr<TemplateURL> default_template_url_;
 };
 
@@ -139,10 +168,12 @@ void DocumentProviderTest::SetUp() {
       "https://drive.google.com/drive/search?q={searchTerms}";
   turl_model->Add(std::make_unique<TemplateURL>(data));
 
-  provider_ = DocumentProvider::Create(client_.get(), this, 4);
+  provider_ = new FakeDocumentProvider(client_.get(), this, 4);
 }
 
-void DocumentProviderTest::OnProviderUpdate(bool updated_matches) {
+void DocumentProviderTest::OnProviderUpdate(
+    bool updated_matches,
+    const AutocompleteProvider* provider) {
   // No action required.
 }
 
@@ -259,7 +290,7 @@ TEST_F(DocumentProviderTest, IsDocumentProviderAllowed) {
   {
     AutocompleteInput input(u"text text", metrics::OmniboxEventProto::OTHER,
                             TestSchemeClassifier());
-    input.set_focus_type(OmniboxFocusType::ON_FOCUS);
+    input.set_focus_type(metrics::OmniboxFocusType::INTERACTION_FOCUS);
     EXPECT_FALSE(provider_->IsDocumentProviderAllowed(client_.get(), input));
   }
 
@@ -283,7 +314,7 @@ TEST_F(DocumentProviderTest, IsDocumentProviderAllowed) {
   {
     AutocompleteInput input(u"www.x.com", metrics::OmniboxEventProto::OTHER,
                             TestSchemeClassifier());
-    input.set_focus_type(OmniboxFocusType::ON_FOCUS);
+    input.set_focus_type(metrics::OmniboxFocusType::INTERACTION_FOCUS);
     EXPECT_FALSE(provider_->IsDocumentProviderAllowed(client_.get(), input));
   }
 }
@@ -296,7 +327,7 @@ TEST_F(DocumentProviderTest, IsInputLikelyURL) {
     const AutocompleteInput autocomplete_input(
         base::ASCIIToUTF16(input_ascii), metrics::OmniboxEventProto::OTHER,
         TestSchemeClassifier());
-    return DocumentProvider::IsInputLikelyURL(autocomplete_input);
+    return FakeDocumentProvider::IsInputLikelyURL(autocomplete_input);
   };
 
   EXPECT_TRUE(IsInputLikelyURL_Wrapper("htt"));
@@ -763,19 +794,125 @@ TEST_F(DocumentProviderTest, GenerateLastModifiedString) {
 
   // GenerateLastModifiedString should accept any parsable timestamp, but use
   // ISO8601 UTC timestamp strings since the service returns them in practice.
-  EXPECT_EQ(DocumentProvider::GenerateLastModifiedString(
+  EXPECT_EQ(FakeDocumentProvider::GenerateLastModifiedString(
                 base::TimeToISO8601(modified_today), local_now),
-            u"2:18 AM");
-  EXPECT_EQ(DocumentProvider::GenerateLastModifiedString(
+            u"2:18\u202FAM");
+  EXPECT_EQ(FakeDocumentProvider::GenerateLastModifiedString(
                 base::TimeToISO8601(modified_this_year), local_now),
             u"Aug 19");
-  EXPECT_EQ(DocumentProvider::GenerateLastModifiedString(
+  EXPECT_EQ(FakeDocumentProvider::GenerateLastModifiedString(
                 base::TimeToISO8601(modified_last_year), local_now),
             u"8/27/17");
 }
 #endif  // !BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_WIN)
 
 TEST_F(DocumentProviderTest, GetURLForDeduping) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      omnibox::kDocumentProviderDedupingOptimization);
+
+  // Checks that |url_string| is a URL for opening |expected_id|. An empty ID
+  // signifies |url_string| is not a Drive document and |GetURLForDeduping()| is
+  // expected to simply return an empty (invalid) GURL.
+  auto CheckDeduper = [](const std::string& url_string,
+                         const std::string& expected_id) {
+    const GURL url(url_string);
+    const GURL got_output = DocumentProvider::GetURLForDeduping(url);
+
+    const GURL expected_output;
+    if (!expected_id.empty()) {
+      EXPECT_EQ(got_output,
+                GURL("https://drive.google.com/open?id=" + expected_id))
+          << url_string;
+    } else {
+      EXPECT_FALSE(got_output.is_valid()) << url_string;
+    }
+  };
+
+  // Turning clang-format off to avoid wrapping the URLs which makes them harder
+  // to search, copy/navigate, and edit.
+  // clang-format off
+
+  // Various hosts (e.g. docs).
+  CheckDeduper("https://docs.google.com/a/google.com/document/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/a/google.com/document/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  CheckDeduper("https://spreadsheets.google.com/a/google.com/document/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  CheckDeduper("https://script.google.com/a/google.com/document/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  CheckDeduper("https://sites.google.com/a/google.com/document/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  // Without domain in path (e.g. a/google.com/).
+  CheckDeduper("https://docs.google.com/document/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/document/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  // Non-document paths (e.g. presentation).
+  CheckDeduper("https://docs.google.com/a/google.com/presentation/d/tH3_d0C-1d", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/a/google.com/spreadsheets/d/tH3_d0C-1d", "tH3_d0C-1d");
+  CheckDeduper("https://docs.google.com/098/d/tH3_d0C-1d", "tH3_d0C-1d");
+  // With various action suffixes (e.g. view).
+  CheckDeduper("https://docs.google.com/a/google.com/forms/d/tH3_d0C-1d/view", "tH3_d0C-1d");
+  CheckDeduper("https://spreadsheets.google.com/spreadsheets/d/tH3_d0C-1d/comment", "tH3_d0C-1d");
+  CheckDeduper("https://docs.google.com/spreadsheets/d/tH3_d0C-1d/view", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/spreadsheets/d/tH3_d0C-1d/089", "tH3_d0C-1d");
+  CheckDeduper("https://docs.google.com/file/d/tH3_d0C-1d", "tH3_d0C-1d");
+  // With query params.
+  CheckDeduper("https://docs.google.com/a/google.com/forms/d/tH3_d0C-1d?usp=drive_web", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/a/google.com/file/d/tH3_d0C-1d/comment?usp=drive_web", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/presentation/d/tH3_d0C-1d/edit?usp=drive_web", "tH3_d0C-1d");
+  CheckDeduper("https://docs.google.com/presentation/d/tH3_d0C-1d/edit#slide=id.abc_0_789", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/file/d/tH3_d0C-1d/789", "tH3_d0C-1d");
+  CheckDeduper("https://docs.google.com/spreadsheets/d/tH3_d0C-1d/preview?x=1#y=2", "tH3_d0C-1d");
+  // With non-google domains.
+  CheckDeduper("https://docs.google.com/a/rand.com/forms/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  CheckDeduper("https://sites.google.com/a/rand.om.org/file/d/tH3_d0C-1d/view", "tH3_d0C-1d");
+  CheckDeduper("https://docs.google.com/spreadsheets/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/presentation/d/tH3_d0C-1d/comment", "tH3_d0C-1d");
+  CheckDeduper("https://script.google.com/a/domain/spreadsheets/d/tH3_d0C-1d/preview?x=1#y=2", "tH3_d0C-1d");
+  // Open.
+  CheckDeduper("https://drive.google.com/open?id=tH3_d0C-1d", "tH3_d0C-1d");
+  CheckDeduper("https://docs.google.com/a/google.com/open?x=prefix&id=tH3_d0C-1d&y=suffix", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/a/domain.com/open?id=tH3_d0C-1d&y=suffix/edit", "tH3_d0C-1d");
+  CheckDeduper("https://docs.google.com/open?x=prefix&id=tH3_d0C-1d", "tH3_d0C-1d");
+  CheckDeduper("https://script.google.com/open?id=tH3_d0C-1d", "tH3_d0C-1d");
+  // Viewform examples.
+  CheckDeduper("https://drive.google.com/a/google.com/forms/d/e/tH3_d0C-1d/viewform", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/a/google.com/forms/d/e/tH3_d0C-1d/viewform", "tH3_d0C-1d");
+  CheckDeduper("https://docs.google.com/forms/d/e/tH3_d0C-1d/viewform", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/forms/d/e/tH3_d0C-1d/viewform", "tH3_d0C-1d");
+  // File and folder.
+  CheckDeduper("https://docs.google.com/a/google.com/drive/folders/tH3_d0C-1d", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/drive/folders/tH3_d0C-1d", "tH3_d0C-1d");
+  CheckDeduper("https://docs.google.com/file/d/tH3_d0C-1d/view?usp=sharing", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/a/google.com/file/d/tH3_d0C-1d/view?usp=sharing", "tH3_d0C-1d");
+  // Redirects.
+  CheckDeduper("https://www.google.com/url?q=https://docs.google.com/a/google.com/document/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  CheckDeduper("https://www.google.com/url?sa=t&url=https://docs.google.com/a/google.com/document/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  CheckDeduper("https://www.google.com/url?sa=t&q&url=https://docs.google.com/a/google.com/document/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  CheckDeduper("https://docs.google.com/accounts?continueUrl=https://docs.google.com/a/google.com/document/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  CheckDeduper("https://docs.google.com/a/google.com/accounts?continueUrl=https://docs.google.com/a/google.com/document/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/a/google.com/accounts?continueUrl=https://docs.google.com/a/google.com/document/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/accounts?continueUrl=https://docs.google.com/a/google.com/document/d/tH3_d0C-1d/edit", "tH3_d0C-1d");
+  // Redirects encoded.
+  CheckDeduper("https://www.google.com/url?q=https%3A%2F%2Fdocs.google.com%2Fa%2Fgoogle.com%2Fdocument%2Fd%2FtH3_d0C-1d%2Fedit", "tH3_d0C-1d");
+  CheckDeduper("https://www.google.com/url?sa=t&url=https%3A%2F%2Fdocs.google.com%2Fa%2Fgoogle.com%2Fdocument%2Fd%2FtH3_d0C-1d%2Fedit", "tH3_d0C-1d");
+  CheckDeduper("https://docs.google.com/accounts?continueUrl=https%3A%2F%2Fdocs.google.com%2Fa%2Fgoogle.com%2Fdocument%2Fd%2FtH3_d0C-1d%2Fedit", "tH3_d0C-1d");
+  CheckDeduper("https://docs.google.com/a/google.com/accounts?continueUrl=https%3A%2F%2Fdocs.google.com%2Fa%2Fgoogle.com%2Fdocument%2Fd%2FtH3_d0C-1d%2Fedit", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/a/google.com/accounts?continueUrl=https%3A%2F%2Fdocs.google.com%2Fa%2Fgoogle.com%2Fdocument%2Fd%2FtH3_d0C-1d%2Fedit", "tH3_d0C-1d");
+  CheckDeduper("https://drive.google.com/accounts?continueUrl=https%3A%2F%2Fdocs.google.com%2Fa%2Fgoogle.com%2Fdocument%2Fd%2FtH3_d0C-1d%2Fedit", "tH3_d0C-1d");
+
+  // URLs that do not represent docs should return an empty (invalid) URL.
+  CheckDeduper("https://support.google.com/a/users/answer/1?id=2", "");
+  CheckDeduper("https://www.google.com", "");
+  CheckDeduper("https://www.google.com/url?url=https://drive.google.com/homepage", "");
+  CheckDeduper("https://www.google.com/url?url=https://www.youtube.com/view", "");
+  CheckDeduper("https://notdrive.google.com/?x=https%3A%2F%2Fdocs.google.com%2Fa%2Fgoogle.com%2Fdocument%2Fd%2FtH3_d0C-1d%2Fedit", "");
+  CheckDeduper("https://sites.google.com/google.com/abc/def", "");
+
+  // clang-format on
+}
+
+TEST_F(DocumentProviderTest, GetURLForDeduping_Optimized) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(
+      omnibox::kDocumentProviderDedupingOptimization);
+
   // Checks that |url_string| is a URL for opening |expected_id|. An empty ID
   // signifies |url_string| is not a Drive document and |GetURLForDeduping()| is
   // expected to simply return an empty (invalid) GURL.
@@ -937,9 +1074,12 @@ TEST_F(DocumentProviderTest, Scoring) {
       },
       R"({"results": [
           {"title": "Document 1", "score": 1150, "url": "url",
-            "metadata": {"owner": {"emailAddresses": [{"emailAddress": ""}]}}},
+            "metadata": {"owner": {"emailAddresses":
+              [{"emailAddress": "GoodemaiL@gmail.com"}]
+            }}},
           {"title": "Document 2", "score": 1150, "url": "url"},
-          {"title": "Document 3", "score": 1150, "url": "url"}
+          {"title": "Document 3", "score": 1150, "url": "url",
+            "metadata": {"owner": {"emailAddresses": [{}] }} }
         ]})",
       "input", {1150, 950, 949});
 
@@ -1110,7 +1250,7 @@ TEST_F(DocumentProviderTest, CachingForSyncMatches) {
 
   AutocompleteInput input(u"document", metrics::OmniboxEventProto::OTHER,
                           TestSchemeClassifier());
-  input.set_want_asynchronous_matches(false);
+  input.set_omit_asynchronous_matches(true);
 
   // Expect sync matches to be scored.
   // Fill cache.
@@ -1154,9 +1294,184 @@ TEST_F(DocumentProviderTest, StartCallsStop) {
 
   AutocompleteInput invalid_input(u"12", metrics::OmniboxEventProto::OTHER,
                                   TestSchemeClassifier());
-  invalid_input.set_want_asynchronous_matches(true);
+  invalid_input.set_omit_asynchronous_matches(false);
 
   provider_->done_ = false;
   provider_->Start(invalid_input, false);
   EXPECT_TRUE(provider_->done());
+}
+
+TEST_F(DocumentProviderTest, Logging) {
+  // The code flow is:
+  // 1) `Start()` is invoked when document matches are desired.
+  // 2) `Run()` is invoked from `Start()` after a potential debouncing delay.
+  // 3) A request is asyncly made to the document backend once an auth token is
+  //    ready.
+  // 4) A response is asyncly received from the document backend.
+  // At any point, the chain of events can be interrupted by a `Stop()`
+  // invocation; usually when there's a new input.
+  // The below 3 cases test the logged histograms when `Stop()` is invoked after
+  // steps 1, 2, and 3.
+
+  {
+    SCOPED_TRACE("Case: Stop() before Run().");
+    base::HistogramTester histogram_tester;
+    provider_->Stop(false, false);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.Requests", 0);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.TotalTime", 0);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.TotalTime.Interrupted", 0);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.TotalTime.NotInterrupted", 0);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.RequestTime", 0);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.RequestTime.Interrupted", 0);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.RequestTime.NotInterrupted", 0);
+  }
+
+  {
+    SCOPED_TRACE("Case: Stop() before request.");
+    base::HistogramTester histogram_tester;
+    provider_->time_run_invoked_ = base::TimeTicks::Now();
+    provider_->Stop(false, false);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.Requests", 0);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.TotalTime", 1);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.TotalTime.Interrupted", 1);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.TotalTime.NotInterrupted", 0);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.RequestTime", 0);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.RequestTime.Interrupted", 0);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.RequestTime.NotInterrupted", 0);
+  }
+
+  {
+    SCOPED_TRACE("Case: Stop() before response.");
+    base::HistogramTester histogram_tester;
+    provider_->time_run_invoked_ = base::TimeTicks::Now();
+    provider_->OnDocumentSuggestionsLoaderAvailable(
+        network::SimpleURLLoader::Create(
+            std::make_unique<network::ResourceRequest>(),
+            net::DefineNetworkTrafficAnnotation("test", "test")));
+    provider_->Stop(false, false);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.Requests", 2);
+    histogram_tester.ExpectBucketCount("Omnibox.DocumentSuggest.Requests", 1,
+                                       1);
+    histogram_tester.ExpectBucketCount("Omnibox.DocumentSuggest.Requests", 2,
+                                       1);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.TotalTime", 1);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.TotalTime.Interrupted", 1);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.TotalTime.NotInterrupted", 0);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.RequestTime", 1);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.RequestTime.Interrupted", 1);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.RequestTime.NotInterrupted", 0);
+  }
+
+  // It's difficult to simulate a completed `SimpleURLLoader` response, so we
+  // don't test the "Case: Stop() after response" or "Case: No Stop()."
+}
+
+TEST_F(DocumentProviderTest, LowQualitySuggestions) {
+  auto test = [&](int limit_enabled, const std::string& response_str,
+                  const std::string& input_text,
+                  const std::vector<int> expected_scores) {
+    base::test::ScopedFeatureList feature_list;
+    if (limit_enabled)
+      feature_list.InitAndEnableFeatureWithParameters(
+          omnibox::kDocumentProvider,
+          {{std::string(
+                OmniboxFieldTrial::kDocumentProviderMaxLowQualitySuggestions
+                    .name),
+            "1"}});
+    absl::optional<base::Value> response = base::JSONReader::Read(response_str);
+    provider_->input_.UpdateText(base::UTF8ToUTF16(input_text), 0, {});
+    ACMatches matches = provider_->ParseDocumentSearchResults(*response);
+
+    ASSERT_EQ(matches.size(), expected_scores.size());
+    for (size_t i = 0; i < matches.size(); i++)
+      EXPECT_EQ(matches[i].relevance, expected_scores[i]) << "Match " << i;
+  };
+
+  {
+    SCOPED_TRACE(
+        "Unowned and non-title matching docs are limited. Title matching docs "
+        "are not limited.");
+    test(true,
+         R"({"results": [
+          {"title": "bad title1 title2",  "score": 1000, "url": "good url isn't sufficient"},
+          {"title": "bad title1 title2",  "score": 999,  "url": "url"},
+          {"title": "bad title1 title2",  "score": 998,  "url": "url"},
+          {"title": "goOd tItLE1 title2", "score": 997,  "url": "url"},
+          {"title": "good title1 title2", "score": 996,  "url": "url"},
+          {"title": "good title1 title2", "score": 995,  "url": "url"},
+          {"title": "good title1 title2", "score": 994,  "url": "url"}
+        ]})",
+         // - 'goo': prefix matches are ok.
+         // - 'title1': all input terms must be in the title or owner, but not
+         //   all title terms must be in the input (e.g. 'title2').
+         // - "goOd tItLE1 title2": Case insensitive.
+         "gOo Title1", {1000, 0, 0, 997, 996, 995, 994});
+  }
+
+  {
+    SCOPED_TRACE("Owned docs are not limited.");
+    test(true,
+         R"({"results": [
+          {"title": "bad title1 title2",  "score": 1000, "url": "good url isn't sufficient"},
+          {"title": "bad title1 title2",  "score": 999,  "url": "url"},
+          {"title": "bad title1 title2",  "score": 998,  "url": "url", "metadata": {"owner": {"emailAddresses": [{"emailAddress": "badEmail1@gmail.com"}, {"emailAddress": "gOOdemaIl@gmail.com"}]}}},
+          {"title": "bad title1 title2",  "score": 997,  "url": "url", "metadata": {"owner": {"emailAddresses": [{"emailAddress": "badEmail2@gmail.com"}]}}},
+          {"title": "good title1 title2", "score": 996,  "url": "url"},
+          {"title": "good title1 title2", "score": 995,  "url": "url"},
+          {"title": "good title1 title2", "score": 994,  "url": "url"}
+        ]})",
+         "goo title1", {1000, 0, 998, 0, 996, 995, 994});
+  }
+
+  {
+    SCOPED_TRACE(
+        "When the limit is disabled, unowned and non-title matching docs are "
+        "not limited.");
+    test(false,
+         R"({"results": [
+          {"title": "bad title1 title2",  "score": 1000, "url": "good url isn't sufficient"},
+          {"title": "bad title1 title2",  "score": 999,  "url": "url"},
+          {"title": "bad title1 title2",  "score": 998,  "url": "url"},
+          {"title": "goOd tItLE1 title2", "score": 997,  "url": "url"},
+          {"title": "good title1 title2", "score": 996,  "url": "url"},
+          {"title": "good title1 title2", "score": 995,  "url": "url"},
+          {"title": "good title1 title2", "score": 994,  "url": "url"}
+        ]})",
+         "goo title1", {1000, 999, 998, 997, 996, 995, 994});
+  }
+
+  {
+    SCOPED_TRACE("Responses with missing owner don't crash and are limited.");
+    test(true,
+         R"({"results": [
+            {"title": "title", "score": 1000,  "url": "url", "metadata":
+              { "owner": { "emailAddresses": [{}] } }
+            },
+            {"title": "title", "score": 999,  "url": "url", "metadata":
+              { "owner": { "emailAddresses": [{}] } }
+            },
+            {"title": "title", "score": 998,  "url": "url", "metadata":
+              { "owner": { "emailAddresses": [] } }
+            },
+            {"title": "title", "score": 997,  "url": "url", "metadata":
+              { "owner": {} }
+            },
+            {"title": "title", "score": 996,  "url": "url", "metadata": {}},
+            {"title": "title", "score": 995,  "url": "url"},
+            {}
+          ]})",
+         "input", {1000, 0, 0, 0, 0, 0});
+  }
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/scoped_process_information.h"
-#include "base/win/windows_version.h"
 #include "build/build_config.h"
 #include "sandbox/win/src/process_thread_interception.h"
 #include "sandbox/win/src/sandbox.h"
@@ -117,7 +116,7 @@ TEST(ProcessPolicyTest, OpenToken) {
 // This tests that the CreateThread works with CSRSS not locked down.
 // In other words, that the interception passes through OK.
 TEST(ProcessPolicyTest, TestCreateThreadWithCsrss) {
-  TestRunner runner(JOB_NONE, USER_INTERACTIVE, USER_INTERACTIVE);
+  TestRunner runner(JobLevel::kNone, USER_INTERACTIVE, USER_INTERACTIVE);
   runner.SetDisableCsrss(false);
   EXPECT_EQ(SBOX_TEST_SUCCEEDED, runner.RunTest(L"Process_CreateThread"));
 }
@@ -125,7 +124,7 @@ TEST(ProcessPolicyTest, TestCreateThreadWithCsrss) {
 // This tests that the CreateThread works with CSRSS locked down.
 // In other words, that the interception correctly works.
 TEST(ProcessPolicyTest, TestCreateThreadWithoutCsrss) {
-  TestRunner runner(JOB_NONE, USER_INTERACTIVE, USER_INTERACTIVE);
+  TestRunner runner(JobLevel::kNone, USER_INTERACTIVE, USER_INTERACTIVE);
   EXPECT_EQ(SBOX_TEST_SUCCEEDED, runner.RunTest(L"Process_CreateThread"));
 }
 

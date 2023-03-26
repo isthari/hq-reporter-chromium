@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/values.h"
 #include "chromeos/components/quick_answers/search_result_parsers/result_parser.h"
 #include "chromeos/components/quick_answers/utils/quick_answers_utils.h"
@@ -36,23 +36,24 @@ void TranslationResponseParser::OnJsonParsed(
     data_decoder::DataDecoder::ValueOrError result) {
   DCHECK(complete_callback_);
 
-  if (!result.value) {
-    LOG(ERROR) << "JSON parsing failed: " << *result.error;
+  if (!result.has_value()) {
+    LOG(ERROR) << "JSON parsing failed: " << result.error();
     std::move(complete_callback_).Run(nullptr);
     return;
   }
 
-  auto* translations = result.value->FindListPath("data.translations");
+  auto* translations =
+      result->GetDict().FindListByDottedPath("data.translations");
   if (!translations) {
     LOG(ERROR) << "Can't find translations result list.";
     std::move(complete_callback_).Run(nullptr);
     return;
   }
 
-  DCHECK(translations->GetList().size() == 1);
+  DCHECK(translations->size() == 1);
 
   const std::string* translated_text_ptr =
-      translations->GetList().front().FindStringPath("translatedText");
+      translations->front().GetDict().FindStringByDottedPath("translatedText");
   if (!translated_text_ptr) {
     LOG(ERROR) << "Can't find a translated text.";
     std::move(complete_callback_).Run(nullptr);

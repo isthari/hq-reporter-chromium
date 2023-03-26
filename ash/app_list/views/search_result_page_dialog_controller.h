@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,9 +31,9 @@ class SearchResultPageDialogController {
   // No-op if not enabled.
   void Show(std::unique_ptr<views::WidgetDelegate> dialog_contents);
 
-  // Sets whether search result page dialogs are enabled. Disabling dialoga will
-  // close any currently opened dialogs.
-  void SetEnabled(bool enabled);
+  // Sets whether search result page dialogs are enabled. It closes the
+  // current dialog if it exists.
+  void Reset(bool enabled);
 
   SearchResultPageAnchoredDialog* dialog() { return dialog_.get(); }
 

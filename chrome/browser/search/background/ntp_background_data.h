@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,8 @@
 #include <string>
 
 #include "chrome/browser/search/background/ntp_background.pb.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "url/gurl.h"
 
 enum class ErrorType {
@@ -118,6 +120,12 @@ struct CustomBackground {
   // Url of the custom background selected by the user.
   GURL custom_background_url;
 
+  // Url of snapshot for the custom background selected by the user.
+  GURL custom_background_snapshot_url;
+
+  // Whether the image is a local resource.
+  bool is_uploaded_image;
+
   // First attribution string for custom background.
   std::string custom_background_attribution_line_1;
 
@@ -127,8 +135,14 @@ struct CustomBackground {
   // Url to learn more info about the custom background.
   GURL custom_background_attribution_action_url;
 
-  // Id of the collection being used for "daily refresh".
+  // Id of the collection being used.
   std::string collection_id;
+
+  // Main color of the image.
+  absl::optional<SkColor> custom_background_main_color;
+
+  // Whether daily refresh is enabled.
+  bool daily_refresh_enabled;
 };
 
 #endif  // CHROME_BROWSER_SEARCH_BACKGROUND_NTP_BACKGROUND_DATA_H_

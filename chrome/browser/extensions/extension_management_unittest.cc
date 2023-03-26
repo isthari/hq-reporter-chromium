@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,12 @@
 #include <vector>
 
 #include "base/containers/contains.h"
+#include "base/feature_list.h"
 #include "base/json/json_reader.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_management_internal.h"
 #include "chrome/browser/extensions/extension_management_test_util.h"
@@ -24,6 +26,7 @@
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "content/public/test/browser_task_environment.h"
 #include "extensions/browser/pref_names.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/extension_urls.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_constants.h"
@@ -175,6 +178,10 @@ class ExtensionManagementServiceTest : public testing::Test {
     SetPref(managed, path, base::Value::ToUniquePtrValue(std::move(value)));
   }
 
+  void SetPref(bool managed, const char* path, base::Value::Dict dict) {
+    SetPref(managed, path, base::Value(std::move(dict)));
+  }
+
   void RemovePref(bool managed, const char* path) {
     if (managed)
       pref_service_->RemoveManagedPref(path);
@@ -217,13 +224,12 @@ class ExtensionManagementServiceTest : public testing::Test {
   }
 
   void SetExampleDictPref(const base::StringPiece example_dict_preference) {
-    base::JSONReader::ValueWithError result =
-        base::JSONReader::ReadAndReturnValueWithError(
-            example_dict_preference,
-            base::JSONParserOptions::JSON_ALLOW_TRAILING_COMMAS);
-    ASSERT_TRUE(result.value && result.value->is_dict())
-        << result.error_message;
-    SetPref(true, pref_names::kExtensionManagement, std::move(*result.value));
+    auto result = base::JSONReader::ReadAndReturnValueWithError(
+        example_dict_preference,
+        base::JSONParserOptions::JSON_ALLOW_TRAILING_COMMAS);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    ASSERT_TRUE(result->is_dict());
+    SetPref(true, pref_names::kExtensionManagement, std::move(*result));
   }
 
   // Wrapper of ExtensionManagement::GetInstallationMode, |id| and
@@ -291,14 +297,14 @@ class ExtensionManagementServiceTest : public testing::Test {
       const std::string& version,
       const std::string& id,
       const std::string& update_url) {
-    base::DictionaryValue manifest_dict;
-    manifest_dict.SetString(manifest_keys::kName, "test");
-    manifest_dict.SetString(manifest_keys::kVersion, version);
-    manifest_dict.SetInteger(manifest_keys::kManifestVersion, 2);
-    manifest_dict.SetString(manifest_keys::kUpdateURL, update_url);
+    base::Value::Dict manifest_dict;
+    manifest_dict.Set(manifest_keys::kName, "test");
+    manifest_dict.Set(manifest_keys::kVersion, version);
+    manifest_dict.Set(manifest_keys::kManifestVersion, 2);
+    manifest_dict.Set(manifest_keys::kUpdateURL, update_url);
     std::string error;
     scoped_refptr<const Extension> extension =
-        Extension::Create(base::FilePath(), location, manifest_dict,
+        Extension::Create(base::FilePath(), location, std::move(manifest_dict),
                           Extension::NO_FLAGS, id, &error);
     CHECK(extension.get()) << error;
     return extension;
@@ -325,23 +331,24 @@ class ExtensionAdminPolicyTest : public ExtensionManagementServiceTest {
   }
 
   void CreateExtension(ManifestLocation location) {
-    base::DictionaryValue values;
+    base::Value::Dict values;
     CreateExtensionFromValues(location, &values);
   }
 
   void CreateHostedApp(ManifestLocation location) {
-    base::DictionaryValue values;
-    values.SetPath(extensions::manifest_keys::kWebURLs, base::ListValue());
-    values.SetString(extensions::manifest_keys::kLaunchWebURL,
-                     "http://www.example.com");
+    base::Value::Dict values;
+    values.SetByDottedPath(extensions::manifest_keys::kWebURLs,
+                           base::Value(base::Value::Type::LIST));
+    values.SetByDottedPath(extensions::manifest_keys::kLaunchWebURL,
+                           "http://www.example.com");
     CreateExtensionFromValues(location, &values);
   }
 
   void CreateExtensionFromValues(ManifestLocation location,
-                                 base::DictionaryValue* values) {
-    values->SetString(extensions::manifest_keys::kName, "test");
-    values->SetString(extensions::manifest_keys::kVersion, "0.1");
-    values->SetInteger(extensions::manifest_keys::kManifestVersion, 2);
+                                 base::Value::Dict* values) {
+    values->Set(extensions::manifest_keys::kName, "test");
+    values->Set(extensions::manifest_keys::kVersion, "0.1");
+    values->Set(extensions::manifest_keys::kManifestVersion, 2);
     std::string error;
     extension_ = Extension::Create(base::FilePath(), location, *values,
                                    Extension::NO_FLAGS, &error);
@@ -349,11 +356,10 @@ class ExtensionAdminPolicyTest : public ExtensionManagementServiceTest {
   }
 
   // Wrappers for legacy admin policy functions, for testing purpose only.
-  bool BlocklistedByDefault(const base::ListValue* blocklist);
-  bool UserMayLoad(const base::ListValue* blocklist,
-                   const base::ListValue* allowlist,
-                   const base::DictionaryValue* forcelist,
-                   const base::ListValue* allowed_types,
+  bool BlocklistedByDefault(const base::Value::List* blocklist);
+  bool UserMayLoad(const base::Value::List* blocklist,
+                   const base::Value::List* allowlist,
+                   const base::Value::List* allowed_types,
                    const Extension* extension,
                    std::u16string* error);
   bool UserMayModifySettings(const Extension* extension, std::u16string* error);
@@ -368,29 +374,30 @@ class ExtensionAdminPolicyTest : public ExtensionManagementServiceTest {
 };
 
 bool ExtensionAdminPolicyTest::BlocklistedByDefault(
-    const base::ListValue* blocklist) {
+    const base::Value::List* blocklist) {
   SetUpPolicyProvider();
   if (blocklist)
-    SetPref(true, pref_names::kInstallDenyList, blocklist->Clone());
+    SetPref(true, pref_names::kInstallDenyList,
+            base::Value(blocklist->Clone()));
   return extension_management_->BlocklistedByDefault();
 }
 
 bool ExtensionAdminPolicyTest::UserMayLoad(
-    const base::ListValue* blocklist,
-    const base::ListValue* allowlist,
-    const base::DictionaryValue* forcelist,
-    const base::ListValue* allowed_types,
+    const base::Value::List* blocklist,
+    const base::Value::List* allowlist,
+    const base::Value::List* allowed_types,
     const Extension* extension,
     std::u16string* error) {
   SetUpPolicyProvider();
   if (blocklist)
-    SetPref(true, pref_names::kInstallDenyList, blocklist->Clone());
+    SetPref(true, pref_names::kInstallDenyList,
+            base::Value(blocklist->Clone()));
   if (allowlist)
-    SetPref(true, pref_names::kInstallAllowList, allowlist->Clone());
-  if (forcelist)
-    SetPref(true, pref_names::kInstallForceList, forcelist->CreateDeepCopy());
+    SetPref(true, pref_names::kInstallAllowList,
+            base::Value(allowlist->Clone()));
   if (allowed_types)
-    SetPref(true, pref_names::kAllowedTypes, allowed_types->Clone());
+    SetPref(true, pref_names::kAllowedTypes,
+            base::Value(allowed_types->Clone()));
   return provider_->UserMayLoad(extension, error);
 }
 
@@ -418,12 +425,13 @@ bool ExtensionAdminPolicyTest::MustRemainEnabled(const Extension* extension,
 // Verify that preference controlled by legacy ExtensionInstallSources policy is
 // handled well.
 TEST_F(ExtensionManagementServiceTest, LegacyInstallSources) {
-  base::ListValue allowed_sites_pref;
+  base::Value::List allowed_sites_pref;
   allowed_sites_pref.Append("https://www.example.com/foo");
   allowed_sites_pref.Append("https://corp.mycompany.com/*");
-  SetPref(true, pref_names::kAllowedInstallSites, allowed_sites_pref.Clone());
-  const URLPatternSet& allowed_sites = ReadGlobalSettings()->install_sources;
-  ASSERT_TRUE(ReadGlobalSettings()->has_restricted_install_sources);
+  SetPref(true, pref_names::kAllowedInstallSites,
+          base::Value(std::move(allowed_sites_pref)));
+  ASSERT_TRUE(ReadGlobalSettings()->install_sources);
+  const URLPatternSet& allowed_sites = *ReadGlobalSettings()->install_sources;
   EXPECT_FALSE(allowed_sites.is_empty());
   EXPECT_TRUE(allowed_sites.MatchesURL(GURL("https://www.example.com/foo")));
   EXPECT_FALSE(allowed_sites.MatchesURL(GURL("https://www.example.com/bar")));
@@ -436,14 +444,15 @@ TEST_F(ExtensionManagementServiceTest, LegacyInstallSources) {
 // Verify that preference controlled by legacy ExtensionAllowedTypes policy is
 // handled well.
 TEST_F(ExtensionManagementServiceTest, LegacyAllowedTypes) {
-  base::ListValue allowed_types_pref;
+  base::Value::List allowed_types_pref;
   allowed_types_pref.Append(Manifest::TYPE_THEME);
   allowed_types_pref.Append(Manifest::TYPE_USER_SCRIPT);
 
-  SetPref(true, pref_names::kAllowedTypes, allowed_types_pref.Clone());
+  SetPref(true, pref_names::kAllowedTypes,
+          base::Value(std::move(allowed_types_pref)));
+  ASSERT_TRUE(ReadGlobalSettings()->allowed_types);
   const std::vector<Manifest::Type>& allowed_types =
-      ReadGlobalSettings()->allowed_types;
-  ASSERT_TRUE(ReadGlobalSettings()->has_restricted_allowed_types);
+      *ReadGlobalSettings()->allowed_types;
   EXPECT_EQ(allowed_types.size(), 2u);
   EXPECT_FALSE(base::Contains(allowed_types, Manifest::TYPE_EXTENSION));
   EXPECT_TRUE(base::Contains(allowed_types, Manifest::TYPE_THEME));
@@ -453,10 +462,11 @@ TEST_F(ExtensionManagementServiceTest, LegacyAllowedTypes) {
 // Verify that preference controlled by legacy ExtensionInstallBlocklist policy
 // is handled well.
 TEST_F(ExtensionManagementServiceTest, LegacyInstallBlocklist) {
-  base::ListValue denied_list_pref;
+  base::Value::List denied_list_pref;
   denied_list_pref.Append(kTargetExtension);
 
-  SetPref(true, pref_names::kInstallDenyList, denied_list_pref.Clone());
+  SetPref(true, pref_names::kInstallDenyList,
+          base::Value(std::move(denied_list_pref)));
   EXPECT_EQ(GetInstallationModeById(kTargetExtension),
             ExtensionManagement::INSTALLATION_BLOCKED);
   EXPECT_EQ(GetInstallationModeById(kNonExistingExtension),
@@ -466,13 +476,15 @@ TEST_F(ExtensionManagementServiceTest, LegacyInstallBlocklist) {
 // Verify that preference controlled by legacy ExtensionInstallAllowlist policy
 // is handled well.
 TEST_F(ExtensionManagementServiceTest, LegacyAllowlist) {
-  base::ListValue denied_list_pref;
+  base::Value::List denied_list_pref;
   denied_list_pref.Append("*");
-  base::ListValue allowed_list_pref;
+  base::Value::List allowed_list_pref;
   allowed_list_pref.Append(kTargetExtension);
 
-  SetPref(true, pref_names::kInstallDenyList, denied_list_pref.Clone());
-  SetPref(true, pref_names::kInstallAllowList, allowed_list_pref.Clone());
+  SetPref(true, pref_names::kInstallDenyList,
+          base::Value(std::move(denied_list_pref)));
+  SetPref(true, pref_names::kInstallAllowList,
+          base::Value(allowed_list_pref.Clone()));
   EXPECT_EQ(GetInstallationModeById(kTargetExtension),
             ExtensionManagement::INSTALLATION_ALLOWED);
   EXPECT_EQ(GetInstallationModeById(kNonExistingExtension),
@@ -480,7 +492,8 @@ TEST_F(ExtensionManagementServiceTest, LegacyAllowlist) {
 
   // Verify that install allowlist preference set by user is ignored.
   RemovePref(true, pref_names::kInstallAllowList);
-  SetPref(false, pref_names::kInstallAllowList, allowed_list_pref.Clone());
+  SetPref(false, pref_names::kInstallAllowList,
+          base::Value(std::move(allowed_list_pref)));
   EXPECT_EQ(GetInstallationModeById(kTargetExtension),
             ExtensionManagement::INSTALLATION_BLOCKED);
 }
@@ -488,12 +501,11 @@ TEST_F(ExtensionManagementServiceTest, LegacyAllowlist) {
 // Verify that preference controlled by legacy ExtensionInstallForcelist policy
 // is handled well.
 TEST_F(ExtensionManagementServiceTest, LegacyInstallForcelist) {
-  base::DictionaryValue forced_list_pref;
-  ExternalPolicyLoader::AddExtension(
-      &forced_list_pref, kTargetExtension, kExampleUpdateUrl);
+  base::Value::Dict forced_list_pref;
+  ExternalPolicyLoader::AddExtension(forced_list_pref, kTargetExtension,
+                                     kExampleUpdateUrl);
 
-  SetPref(true, pref_names::kInstallForceList,
-          forced_list_pref.CreateDeepCopy());
+  SetPref(true, pref_names::kInstallForceList, forced_list_pref.Clone());
   EXPECT_EQ(GetInstallationModeById(kTargetExtension),
             ExtensionManagement::INSTALLATION_FORCED);
   CheckAutomaticallyInstalledUpdateUrl(kTargetExtension, kExampleUpdateUrl);
@@ -502,8 +514,7 @@ TEST_F(ExtensionManagementServiceTest, LegacyInstallForcelist) {
 
   // Verify that install forcelist preference set by user is ignored.
   RemovePref(true, pref_names::kInstallForceList);
-  SetPref(false, pref_names::kInstallForceList,
-          forced_list_pref.CreateDeepCopy());
+  SetPref(false, pref_names::kInstallForceList, forced_list_pref.Clone());
   EXPECT_EQ(GetInstallationModeById(kTargetExtension),
             ExtensionManagement::INSTALLATION_ALLOWED);
 }
@@ -513,14 +524,13 @@ TEST_F(ExtensionManagementServiceTest, LegacyInstallForcelist) {
 // |kExtensionSettings| pref.
 TEST_F(ExtensionManagementServiceTest,
        InstallUpdateUrlEnforcedForceInstalledPref) {
-  base::DictionaryValue forced_list_pref;
-  ExternalPolicyLoader::AddExtension(&forced_list_pref, kTargetExtension,
+  base::Value::Dict forced_list_pref;
+  ExternalPolicyLoader::AddExtension(forced_list_pref, kTargetExtension,
                                      kExampleUpdateUrl);
-  ExternalPolicyLoader::AddExtension(&forced_list_pref, kTargetExtension2,
+  ExternalPolicyLoader::AddExtension(forced_list_pref, kTargetExtension2,
                                      kExampleUpdateUrl);
 
-  SetPref(true, pref_names::kInstallForceList,
-          forced_list_pref.CreateDeepCopy());
+  SetPref(true, pref_names::kInstallForceList, forced_list_pref.Clone());
   EXPECT_EQ(GetInstallationModeById(kTargetExtension),
             ExtensionManagement::INSTALLATION_FORCED);
   EXPECT_EQ(GetInstallationModeById(kTargetExtension2),
@@ -546,11 +556,10 @@ TEST_F(ExtensionManagementServiceTest,
 // |kExtensionSettings|.
 TEST_F(ExtensionManagementServiceTest,
        InstallUpdateUrlEnforcedForceInstalledPrefMissing) {
-  base::DictionaryValue forced_list_pref;
-  ExternalPolicyLoader::AddExtension(&forced_list_pref, kTargetExtension2,
+  base::Value::Dict forced_list_pref;
+  ExternalPolicyLoader::AddExtension(forced_list_pref, kTargetExtension2,
                                      kExampleUpdateUrl);
-  SetPref(true, pref_names::kInstallForceList,
-          forced_list_pref.CreateDeepCopy());
+  SetPref(true, pref_names::kInstallForceList, forced_list_pref.Clone());
 
   EXPECT_EQ(GetInstallationModeById(kTargetExtension2),
             ExtensionManagement::INSTALLATION_FORCED);
@@ -589,14 +598,13 @@ TEST_F(ExtensionManagementServiceTest,
 // URL.
 TEST_F(ExtensionManagementServiceTest,
        InstallUpdateUrlEnforcedWebstoreUpdateUrl) {
-  base::DictionaryValue forced_list_pref;
-  ExternalPolicyLoader::AddExtension(&forced_list_pref, kTargetExtension,
+  base::Value::Dict forced_list_pref;
+  ExternalPolicyLoader::AddExtension(forced_list_pref, kTargetExtension,
                                      extension_urls::kChromeWebstoreUpdateURL);
-  ExternalPolicyLoader::AddExtension(&forced_list_pref, kTargetExtension2,
+  ExternalPolicyLoader::AddExtension(forced_list_pref, kTargetExtension2,
                                      kExampleUpdateUrl);
 
-  SetPref(true, pref_names::kInstallForceList,
-          forced_list_pref.CreateDeepCopy());
+  SetPref(true, pref_names::kInstallForceList, forced_list_pref.Clone());
   EXPECT_EQ(GetInstallationModeById(kTargetExtension),
             ExtensionManagement::INSTALLATION_FORCED);
   EXPECT_EQ(GetInstallationModeById(kTargetExtension2),
@@ -683,17 +691,17 @@ TEST_F(ExtensionManagementServiceTest, PreferenceParsing) {
             ExtensionManagement::INSTALLATION_ALLOWED);
 
   // Verifies global settings.
-  EXPECT_TRUE(ReadGlobalSettings()->has_restricted_install_sources);
-  const URLPatternSet& allowed_sites = ReadGlobalSettings()->install_sources;
+  ASSERT_TRUE(ReadGlobalSettings()->install_sources);
+  const URLPatternSet& allowed_sites = *ReadGlobalSettings()->install_sources;
   EXPECT_EQ(allowed_sites.size(), 1u);
   EXPECT_TRUE(allowed_sites.MatchesURL(GURL("http://foo.com/entry")));
   EXPECT_FALSE(allowed_sites.MatchesURL(GURL("http://bar.com/entry")));
   EXPECT_TRUE(GetPolicyBlockedHosts(kNonExistingExtension)
                   .MatchesURL(GURL("http://example.com/default")));
 
-  EXPECT_TRUE(ReadGlobalSettings()->has_restricted_allowed_types);
+  ASSERT_TRUE(ReadGlobalSettings()->allowed_types);
   const std::vector<Manifest::Type>& allowed_types =
-      ReadGlobalSettings()->allowed_types;
+      *ReadGlobalSettings()->allowed_types;
   EXPECT_EQ(allowed_types.size(), 2u);
   EXPECT_TRUE(base::Contains(allowed_types, Manifest::TYPE_THEME));
   EXPECT_TRUE(base::Contains(allowed_types, Manifest::TYPE_USER_SCRIPT));
@@ -862,11 +870,12 @@ TEST_F(ExtensionManagementServiceTest, kMinimumVersionRequired) {
 // ExtensionInstallSources policy.
 TEST_F(ExtensionManagementServiceTest, NewInstallSources) {
   // Set the legacy preference, and verifies that it works.
-  base::ListValue allowed_sites_pref;
+  base::Value::List allowed_sites_pref;
   allowed_sites_pref.Append("https://www.example.com/foo");
-  SetPref(true, pref_names::kAllowedInstallSites, allowed_sites_pref.Clone());
-  EXPECT_TRUE(ReadGlobalSettings()->has_restricted_install_sources);
-  EXPECT_TRUE(ReadGlobalSettings()->install_sources.MatchesURL(
+  SetPref(true, pref_names::kAllowedInstallSites,
+          base::Value(std::move(allowed_sites_pref)));
+  ASSERT_TRUE(ReadGlobalSettings()->install_sources);
+  EXPECT_TRUE(ReadGlobalSettings()->install_sources->MatchesURL(
       GURL("https://www.example.com/foo")));
 
   // Set the new dictionary preference.
@@ -875,8 +884,8 @@ TEST_F(ExtensionManagementServiceTest, NewInstallSources) {
     updater.ClearInstallSources();
   }
   // Verifies that the new one overrides the legacy ones.
-  EXPECT_TRUE(ReadGlobalSettings()->has_restricted_install_sources);
-  EXPECT_FALSE(ReadGlobalSettings()->install_sources.MatchesURL(
+  ASSERT_TRUE(ReadGlobalSettings()->install_sources);
+  EXPECT_FALSE(ReadGlobalSettings()->install_sources->MatchesURL(
       GURL("https://www.example.com/foo")));
 
   // Updates the new dictionary preference.
@@ -884,8 +893,8 @@ TEST_F(ExtensionManagementServiceTest, NewInstallSources) {
     PrefUpdater updater(pref_service_.get());
     updater.AddInstallSource("https://corp.mycompany.com/*");
   }
-  EXPECT_TRUE(ReadGlobalSettings()->has_restricted_install_sources);
-  EXPECT_TRUE(ReadGlobalSettings()->install_sources.MatchesURL(
+  ASSERT_TRUE(ReadGlobalSettings()->install_sources);
+  EXPECT_TRUE(ReadGlobalSettings()->install_sources->MatchesURL(
       GURL("https://corp.mycompany.com/entry")));
 }
 
@@ -893,12 +902,14 @@ TEST_F(ExtensionManagementServiceTest, NewInstallSources) {
 // ExtensionAllowedTypes policy.
 TEST_F(ExtensionManagementServiceTest, NewAllowedTypes) {
   // Set the legacy preference, and verifies that it works.
-  base::ListValue allowed_types_pref;
+  base::Value::List allowed_types_pref;
   allowed_types_pref.Append(Manifest::TYPE_USER_SCRIPT);
-  SetPref(true, pref_names::kAllowedTypes, allowed_types_pref.Clone());
-  EXPECT_TRUE(ReadGlobalSettings()->has_restricted_allowed_types);
-  EXPECT_EQ(ReadGlobalSettings()->allowed_types.size(), 1u);
-  EXPECT_EQ(ReadGlobalSettings()->allowed_types[0], Manifest::TYPE_USER_SCRIPT);
+  SetPref(true, pref_names::kAllowedTypes,
+          base::Value(allowed_types_pref.Clone()));
+  ASSERT_TRUE(ReadGlobalSettings()->allowed_types);
+  EXPECT_EQ(ReadGlobalSettings()->allowed_types->size(), 1u);
+  EXPECT_EQ(ReadGlobalSettings()->allowed_types.value()[0],
+            Manifest::TYPE_USER_SCRIPT);
 
   // Set the new dictionary preference.
   {
@@ -906,17 +917,18 @@ TEST_F(ExtensionManagementServiceTest, NewAllowedTypes) {
     updater.ClearAllowedTypes();
   }
   // Verifies that the new one overrides the legacy ones.
-  EXPECT_TRUE(ReadGlobalSettings()->has_restricted_allowed_types);
-  EXPECT_EQ(ReadGlobalSettings()->allowed_types.size(), 0u);
+  ASSERT_TRUE(ReadGlobalSettings()->allowed_types);
+  EXPECT_EQ(ReadGlobalSettings()->allowed_types->size(), 0u);
 
   // Updates the new dictionary preference.
   {
     PrefUpdater updater(pref_service_.get());
     updater.AddAllowedType("theme");
   }
-  EXPECT_TRUE(ReadGlobalSettings()->has_restricted_allowed_types);
-  EXPECT_EQ(ReadGlobalSettings()->allowed_types.size(), 1u);
-  EXPECT_EQ(ReadGlobalSettings()->allowed_types[0], Manifest::TYPE_THEME);
+  ASSERT_TRUE(ReadGlobalSettings()->allowed_types);
+  EXPECT_EQ(ReadGlobalSettings()->allowed_types->size(), 1u);
+  EXPECT_EQ(ReadGlobalSettings()->allowed_types.value()[0],
+            Manifest::TYPE_THEME);
 }
 
 // Tests functionality of new preference as to deprecate legacy
@@ -936,14 +948,16 @@ TEST_F(ExtensionManagementServiceTest, NewInstallBlocklist) {
             ExtensionManagement::INSTALLATION_ALLOWED);
 
   // Set legacy preference.
-  base::ListValue denied_list_pref;
+  base::Value::List denied_list_pref;
   denied_list_pref.Append("*");
   denied_list_pref.Append(kTargetExtension2);
-  SetPref(true, pref_names::kInstallDenyList, denied_list_pref.Clone());
+  SetPref(true, pref_names::kInstallDenyList,
+          base::Value(std::move(denied_list_pref)));
 
-  base::ListValue allowed_list_pref;
+  base::Value::List allowed_list_pref;
   allowed_list_pref.Append(kTargetExtension);
-  SetPref(true, pref_names::kInstallAllowList, allowed_list_pref.Clone());
+  SetPref(true, pref_names::kInstallAllowList,
+          base::Value(std::move(allowed_list_pref)));
 
   // Verifies that the new one have higher priority over the legacy ones.
   EXPECT_FALSE(extension_management_->BlocklistedByDefault());
@@ -972,13 +986,15 @@ TEST_F(ExtensionManagementServiceTest, NewAllowlist) {
             ExtensionManagement::INSTALLATION_BLOCKED);
 
   // Set legacy preference.
-  base::ListValue denied_list_pref;
+  base::Value::List denied_list_pref;
   denied_list_pref.Append(kTargetExtension);
-  SetPref(true, pref_names::kInstallDenyList, denied_list_pref.Clone());
+  SetPref(true, pref_names::kInstallDenyList,
+          base::Value(std::move(denied_list_pref)));
 
-  base::ListValue allowed_list_pref;
+  base::Value::List allowed_list_pref;
   allowed_list_pref.Append(kTargetExtension2);
-  SetPref(true, pref_names::kInstallAllowList, allowed_list_pref.Clone());
+  SetPref(true, pref_names::kInstallAllowList,
+          base::Value(std::move(allowed_list_pref)));
 
   // Verifies that the new one have higher priority over the legacy ones.
   EXPECT_TRUE(extension_management_->BlocklistedByDefault());
@@ -995,9 +1011,10 @@ TEST_F(ExtensionManagementServiceTest, NewAllowlist) {
 TEST_F(ExtensionManagementServiceTest, NewInstallForcelist) {
   // Set some legacy preferences, to verify that the new one overrides the
   // legacy ones.
-  base::ListValue denied_list_pref;
+  base::Value::List denied_list_pref;
   denied_list_pref.Append(kTargetExtension);
-  SetPref(true, pref_names::kInstallDenyList, denied_list_pref.Clone());
+  SetPref(true, pref_names::kInstallDenyList,
+          base::Value(std::move(denied_list_pref)));
 
   // Set the new dictionary preference.
   {
@@ -1104,17 +1121,95 @@ TEST_F(ExtensionManagementServiceTest,
             GetInstallationModeById(kTargetExtension));
 }
 
+TEST_F(ExtensionManagementServiceTest, ManifestV2Default) {
+  SetPref(true, pref_names::kManifestV2Availability,
+          base::Value(static_cast<int>(
+              internal::GlobalSettings::ManifestV2Setting::kDefault)));
+  bool is_manifest_v3_only = base::FeatureList::IsEnabled(
+      extensions_features::kExtensionsManifestV3Only);
+  EXPECT_EQ(!is_manifest_v3_only,
+            extension_management_->IsAllowedManifestVersion(
+                2, kTargetExtension, Manifest::Type::TYPE_EXTENSION));
+  EXPECT_TRUE(extension_management_->IsAllowedManifestVersion(
+      3, kTargetExtension, Manifest::Type::TYPE_EXTENSION));
+}
+
+TEST_F(ExtensionManagementServiceTest, ManifestV2Disabled) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndDisableFeature(
+      extensions_features::kExtensionsManifestV3Only);
+  SetPref(true, pref_names::kManifestV2Availability,
+          base::Value(static_cast<int>(
+              internal::GlobalSettings::ManifestV2Setting::kDisabled)));
+  EXPECT_FALSE(extension_management_->IsAllowedManifestVersion(
+      2, kTargetExtension, Manifest::Type::TYPE_EXTENSION));
+  EXPECT_TRUE(extension_management_->IsAllowedManifestVersion(
+      3, kTargetExtension, Manifest::Type::TYPE_EXTENSION));
+}
+
+TEST_F(ExtensionManagementServiceTest, ManifestV2Enabled) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(
+      extensions_features::kExtensionsManifestV3Only);
+  SetPref(true, pref_names::kManifestV2Availability,
+          base::Value(static_cast<int>(
+              internal::GlobalSettings::ManifestV2Setting::kEnabled)));
+  EXPECT_TRUE(extension_management_->IsAllowedManifestVersion(
+      2, kTargetExtension, Manifest::Type::TYPE_EXTENSION));
+  EXPECT_TRUE(extension_management_->IsAllowedManifestVersion(
+      3, kTargetExtension, Manifest::Type::TYPE_EXTENSION));
+}
+
+TEST_F(ExtensionManagementServiceTest, ManifestV2EnabledForForceInstalled) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(
+      extensions_features::kExtensionsManifestV3Only);
+  SetPref(
+      true, pref_names::kManifestV2Availability,
+      base::Value(static_cast<int>(internal::GlobalSettings::ManifestV2Setting::
+                                       kEnabledForForceInstalled)));
+  EXPECT_FALSE(extension_management_->IsAllowedManifestVersion(
+      2, kTargetExtension, Manifest::Type::TYPE_EXTENSION));
+  EXPECT_TRUE(extension_management_->IsAllowedManifestVersion(
+      3, kTargetExtension, Manifest::Type::TYPE_EXTENSION));
+
+  base::Value::Dict forced_list_pref;
+  ExternalPolicyLoader::AddExtension(forced_list_pref, kTargetExtension,
+                                     kExampleUpdateUrl);
+  SetPref(true, pref_names::kInstallForceList, forced_list_pref.Clone());
+
+  EXPECT_TRUE(extension_management_->IsAllowedManifestVersion(
+      2, kTargetExtension, Manifest::Type::TYPE_EXTENSION));
+  EXPECT_TRUE(extension_management_->IsAllowedManifestVersion(
+      3, kTargetExtension, Manifest::Type::TYPE_EXTENSION));
+}
+
+TEST_F(ExtensionManagementServiceTest, ManifestV2EnabledForExtensionOnly) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(
+      extensions_features::kExtensionsManifestV3Only);
+  SetPref(true, pref_names::kManifestV2Availability,
+          base::Value(static_cast<int>(
+              internal::GlobalSettings::ManifestV2Setting::kEnabled)));
+  EXPECT_TRUE(extension_management_->IsAllowedManifestVersion(
+      2, kTargetExtension, Manifest::Type::TYPE_EXTENSION));
+  EXPECT_TRUE(extension_management_->IsAllowedManifestVersion(
+      2, kTargetExtension, Manifest::Type::TYPE_LOGIN_SCREEN_EXTENSION));
+  EXPECT_FALSE(extension_management_->IsAllowedManifestVersion(
+      2, kTargetExtension, Manifest::Type::TYPE_HOSTED_APP));
+}
+
 // Tests the flag value indicating that extensions are blocklisted by default.
 TEST_F(ExtensionAdminPolicyTest, BlocklistedByDefault) {
   EXPECT_FALSE(BlocklistedByDefault(nullptr));
 
-  base::ListValue blocklist;
+  base::Value::List blocklist;
   blocklist.Append(kNonExistingExtension);
   EXPECT_FALSE(BlocklistedByDefault(&blocklist));
   blocklist.Append("*");
   EXPECT_TRUE(BlocklistedByDefault(&blocklist));
 
-  blocklist.ClearList();
+  blocklist.clear();
   blocklist.Append("*");
   EXPECT_TRUE(BlocklistedByDefault(&blocklist));
 }
@@ -1122,35 +1217,34 @@ TEST_F(ExtensionAdminPolicyTest, BlocklistedByDefault) {
 // Tests UserMayLoad for required extensions.
 TEST_F(ExtensionAdminPolicyTest, UserMayLoadRequired) {
   CreateExtension(ManifestLocation::kComponent);
-  EXPECT_TRUE(UserMayLoad(nullptr, nullptr, nullptr, nullptr, extension_.get(),
-                          nullptr));
+  EXPECT_TRUE(
+      UserMayLoad(nullptr, nullptr, nullptr, extension_.get(), nullptr));
   std::u16string error;
-  EXPECT_TRUE(UserMayLoad(nullptr, nullptr, nullptr, nullptr, extension_.get(),
-                          &error));
+  EXPECT_TRUE(UserMayLoad(nullptr, nullptr, nullptr, extension_.get(), &error));
   EXPECT_TRUE(error.empty());
 
   // Required extensions may load even if they're on the blocklist.
-  base::ListValue blocklist;
+  base::Value::List blocklist;
   blocklist.Append(extension_->id());
-  EXPECT_TRUE(UserMayLoad(&blocklist, nullptr, nullptr, nullptr,
-                          extension_.get(), nullptr));
+  EXPECT_TRUE(
+      UserMayLoad(&blocklist, nullptr, nullptr, extension_.get(), nullptr));
 
   blocklist.Append("*");
-  EXPECT_TRUE(UserMayLoad(&blocklist, nullptr, nullptr, nullptr,
-                          extension_.get(), nullptr));
+  EXPECT_TRUE(
+      UserMayLoad(&blocklist, nullptr, nullptr, extension_.get(), nullptr));
 }
 
 // Tests UserMayLoad when no blocklist exists, or it's empty.
 TEST_F(ExtensionAdminPolicyTest, UserMayLoadNoBlocklist) {
   CreateExtension(ManifestLocation::kInternal);
-  EXPECT_TRUE(UserMayLoad(nullptr, nullptr, nullptr, nullptr, extension_.get(),
-                          nullptr));
-  base::ListValue blocklist;
-  EXPECT_TRUE(UserMayLoad(&blocklist, nullptr, nullptr, nullptr,
-                          extension_.get(), nullptr));
+  EXPECT_TRUE(
+      UserMayLoad(nullptr, nullptr, nullptr, extension_.get(), nullptr));
+  base::Value::List blocklist;
+  EXPECT_TRUE(
+      UserMayLoad(&blocklist, nullptr, nullptr, extension_.get(), nullptr));
   std::u16string error;
-  EXPECT_TRUE(UserMayLoad(&blocklist, nullptr, nullptr, nullptr,
-                          extension_.get(), &error));
+  EXPECT_TRUE(
+      UserMayLoad(&blocklist, nullptr, nullptr, extension_.get(), &error));
   EXPECT_TRUE(error.empty());
 }
 
@@ -1158,18 +1252,18 @@ TEST_F(ExtensionAdminPolicyTest, UserMayLoadNoBlocklist) {
 TEST_F(ExtensionAdminPolicyTest, UserMayLoadAllowlisted) {
   CreateExtension(ManifestLocation::kInternal);
 
-  base::ListValue allowlist;
+  base::Value::List allowlist;
   allowlist.Append(extension_->id());
-  EXPECT_TRUE(UserMayLoad(nullptr, &allowlist, nullptr, nullptr,
-                          extension_.get(), nullptr));
+  EXPECT_TRUE(
+      UserMayLoad(nullptr, &allowlist, nullptr, extension_.get(), nullptr));
 
-  base::ListValue blocklist;
+  base::Value::List blocklist;
   blocklist.Append(extension_->id());
-  EXPECT_TRUE(UserMayLoad(nullptr, &allowlist, nullptr, nullptr,
-                          extension_.get(), nullptr));
+  EXPECT_TRUE(
+      UserMayLoad(nullptr, &allowlist, nullptr, extension_.get(), nullptr));
   std::u16string error;
-  EXPECT_TRUE(UserMayLoad(nullptr, &allowlist, nullptr, nullptr,
-                          extension_.get(), &error));
+  EXPECT_TRUE(
+      UserMayLoad(nullptr, &allowlist, nullptr, extension_.get(), &error));
   EXPECT_TRUE(error.empty());
 }
 
@@ -1178,54 +1272,54 @@ TEST_F(ExtensionAdminPolicyTest, UserMayLoadBlocklisted) {
   CreateExtension(ManifestLocation::kInternal);
 
   // Blocklisted by default.
-  base::ListValue blocklist;
+  base::Value::List blocklist;
   blocklist.Append("*");
-  EXPECT_FALSE(UserMayLoad(&blocklist, nullptr, nullptr, nullptr,
-                           extension_.get(), nullptr));
+  EXPECT_FALSE(
+      UserMayLoad(&blocklist, nullptr, nullptr, extension_.get(), nullptr));
   std::u16string error;
-  EXPECT_FALSE(UserMayLoad(&blocklist, nullptr, nullptr, nullptr,
-                           extension_.get(), &error));
+  EXPECT_FALSE(
+      UserMayLoad(&blocklist, nullptr, nullptr, extension_.get(), &error));
   EXPECT_FALSE(error.empty());
 
   // Extension on the blocklist, with and without wildcard.
   blocklist.Append(extension_->id());
-  EXPECT_FALSE(UserMayLoad(&blocklist, nullptr, nullptr, nullptr,
-                           extension_.get(), nullptr));
-  blocklist.ClearList();
+  EXPECT_FALSE(
+      UserMayLoad(&blocklist, nullptr, nullptr, extension_.get(), nullptr));
+  blocklist.clear();
   blocklist.Append(extension_->id());
-  EXPECT_FALSE(UserMayLoad(&blocklist, nullptr, nullptr, nullptr,
-                           extension_.get(), nullptr));
+  EXPECT_FALSE(
+      UserMayLoad(&blocklist, nullptr, nullptr, extension_.get(), nullptr));
 
   // With a allowlist. There's no such thing as a allowlist wildcard.
-  base::ListValue allowlist;
+  base::Value::List allowlist;
   allowlist.Append("behllobkkfkfnphdnhnkndlbkcpglgmj");
-  EXPECT_FALSE(UserMayLoad(&blocklist, &allowlist, nullptr, nullptr,
-                           extension_.get(), nullptr));
+  EXPECT_FALSE(
+      UserMayLoad(&blocklist, &allowlist, nullptr, extension_.get(), nullptr));
   allowlist.Append("*");
-  EXPECT_FALSE(UserMayLoad(&blocklist, &allowlist, nullptr, nullptr,
-                           extension_.get(), nullptr));
+  EXPECT_FALSE(
+      UserMayLoad(&blocklist, &allowlist, nullptr, extension_.get(), nullptr));
 }
 
 TEST_F(ExtensionAdminPolicyTest, UserMayLoadAllowedTypes) {
   CreateExtension(ManifestLocation::kInternal);
-  EXPECT_TRUE(UserMayLoad(nullptr, nullptr, nullptr, nullptr, extension_.get(),
-                          nullptr));
+  EXPECT_TRUE(
+      UserMayLoad(nullptr, nullptr, nullptr, extension_.get(), nullptr));
 
-  base::ListValue allowed_types;
-  EXPECT_FALSE(UserMayLoad(nullptr, nullptr, nullptr, &allowed_types,
-                           extension_.get(), nullptr));
+  base::Value::List allowed_types;
+  EXPECT_FALSE(
+      UserMayLoad(nullptr, nullptr, &allowed_types, extension_.get(), nullptr));
 
   allowed_types.Append(Manifest::TYPE_EXTENSION);
-  EXPECT_TRUE(UserMayLoad(nullptr, nullptr, nullptr, &allowed_types,
-                          extension_.get(), nullptr));
+  EXPECT_TRUE(
+      UserMayLoad(nullptr, nullptr, &allowed_types, extension_.get(), nullptr));
 
   CreateHostedApp(ManifestLocation::kInternal);
-  EXPECT_FALSE(UserMayLoad(nullptr, nullptr, nullptr, &allowed_types,
-                           extension_.get(), nullptr));
+  EXPECT_FALSE(
+      UserMayLoad(nullptr, nullptr, &allowed_types, extension_.get(), nullptr));
 
   CreateHostedApp(ManifestLocation::kExternalPolicyDownload);
-  EXPECT_FALSE(UserMayLoad(nullptr, nullptr, nullptr, &allowed_types,
-                           extension_.get(), nullptr));
+  EXPECT_FALSE(
+      UserMayLoad(nullptr, nullptr, &allowed_types, extension_.get(), nullptr));
 }
 
 TEST_F(ExtensionAdminPolicyTest, UserMayModifySettings) {

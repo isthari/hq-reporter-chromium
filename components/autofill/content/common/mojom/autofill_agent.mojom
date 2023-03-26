@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,9 +15,9 @@ interface AutofillAgent {
   TriggerReparse();
 
   // Instructs the renderer to fill or preview the active form with the given
-  // form data. Refer to AutofillDriver.AskForValuesToFill for comments
-  // about the |id|.
-  FillOrPreviewForm(int32 id, FormData form, RendererFormDataAction action);
+  // form data.
+  FillOrPreviewForm(FormData form,
+                    RendererFormDataAction action);
 
   // Sends the heuristic and server field type predictions to the renderer.
   FieldTypePredictionsAvailable(array<FormDataPredictions> forms);
@@ -56,6 +56,9 @@ interface AutofillAgent {
   PreviewPasswordSuggestion(mojo_base.mojom.String16 username,
                             mojo_base.mojom.String16 password);
 
+  // Tells the renderer to preview the generated password.
+  PreviewPasswordGenerationSuggestion(mojo_base.mojom.String16 password);
+
   // Configures the render to require, or not, a user gesture before notifying
   // the autofill agent of a field change. The default is true. Bypassing the
   // user gesture check should only used for Android Webview, which needs to
@@ -75,17 +78,6 @@ interface AutofillAgent {
   // Configures whether AutofillAgent will query password field autofill suggestions. The default is false.
   SetQueryPasswordSuggestion(bool query);
 
-  // Get form element's form and field data. The form field is given by a
-  // stable devtools node identifier in the backend node id.
-  // https://chromedevtools.github.io/devtools-protocol/tot/DOM/#type-BackendNodeId
-  // The corresponding entity in the renderer is the DOMNodeIds.
-  GetElementFormAndFieldDataForDevToolsNodeId(int32 backend_node_id) => (
-      autofill.mojom.FormData form, autofill.mojom.FormFieldData field);
-
-  // Set whether or not the Autofill Assistant currently wants to suppress the
-  // keyboard from showing.
-  SetAssistantKeyboardSuppressState(bool suppress);
-
   // Allows heavy scraping of form data (e.g., button titles for
   // unowned forms).
   EnableHeavyFormDataScraping();
@@ -97,13 +89,14 @@ interface AutofillAgent {
 // There is one instance of this interface per render frame in the render
 // process.
 interface PasswordAutofillAgent {
-  // Fills a password form and prepare field autocomplete for multiple
-  // matching logins. Lets the renderer know if it should disable the popup
-  // because the browser process will own the popup UI.
-  FillPasswordForm(PasswordFormFillData form_data);
+  // Provides fill information for a password form, which can fill the form and
+  // prepare field autocomplete for multiple matching logins. Lets the renderer
+  // know if it should disable the popup because the browser process will own
+  // the popup UI.
+  SetPasswordFillData(PasswordFormFillData form_data);
 
   // Lets the renderer know that there are no saved credentials for filling.
-  // This is the "no results" equivalent of FillPasswordForm.
+  // This is the "no results" equivalent of SetPasswordFillData.
   InformNoSavedCredentials(bool should_show_popup_without_passwords);
 
   // Fills the given |credential| into the last focused text input.
@@ -115,6 +108,7 @@ interface PasswordAutofillAgent {
 
   // Informs the renderer that the Touch To Fill sheet has been closed.
   // Indicates whether the virtual keyboard should be shown instead.
+  [EnableIf=is_android]
   TouchToFillClosed(bool show_virtual_keyboard);
 
   // Triggers a form submission on the last interacted element.

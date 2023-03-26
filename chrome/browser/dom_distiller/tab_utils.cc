@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include "base/location.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/dom_distiller/dom_distiller_service_factory.h"
 #include "chrome/browser/ui/tab_contents/core_tab_helper.h"
@@ -24,7 +23,6 @@
 #include "content/public/browser/back_forward_cache.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_controller.h"
-#include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 
@@ -54,8 +52,7 @@ class SelfDeletingRequestDelegate : public ViewRequestDelegate,
   void OnArticleUpdated(ArticleDistillationUpdate article_update) override;
 
   // content::WebContentsObserver implementation.
-  void DidFinishNavigation(
-      content::NavigationHandle* navigation_handle) override;
+  void PrimaryPageChanged(content::Page& page) override;
   void PrimaryMainFrameRenderProcessGone(
       base::TerminationStatus status) override;
   void WebContentsDestroyed() override;
@@ -70,28 +67,23 @@ class SelfDeletingRequestDelegate : public ViewRequestDelegate,
   std::unique_ptr<ViewerHandle> viewer_handle_;
 };
 
-void SelfDeletingRequestDelegate::DidFinishNavigation(
-    content::NavigationHandle* navigation_handle) {
-  // TODO(https://crbug.com/1218946): With MPArch there may be multiple main
-  // frames. This caller was converted automatically to the primary main frame
-  // to preserve its semantics. Follow up to confirm correctness.
-  if (!navigation_handle->IsInPrimaryMainFrame() ||
-      !navigation_handle->HasCommitted())
-    return;
-
-  Observe(NULL);
-  base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+void SelfDeletingRequestDelegate::PrimaryPageChanged(content::Page& page) {
+  Observe(nullptr);
+  base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                this);
 }
 
 void SelfDeletingRequestDelegate::PrimaryMainFrameRenderProcessGone(
     base::TerminationStatus status) {
-  Observe(NULL);
-  base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+  Observe(nullptr);
+  base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                this);
 }
 
 void SelfDeletingRequestDelegate::WebContentsDestroyed() {
-  Observe(NULL);
-  base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+  Observe(nullptr);
+  base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                this);
 }
 
 SelfDeletingRequestDelegate::SelfDeletingRequestDelegate(
@@ -135,7 +127,7 @@ void MaybeStartDistillation(
   // be cancelled and would not be restarted when the page is restored from the
   // cache.
   content::BackForwardCache::DisableForRenderFrameHost(
-      source_page_handle->web_contents()->GetMainFrame(),
+      source_page_handle->web_contents()->GetPrimaryMainFrame(),
       back_forward_cache::DisabledReason(
           back_forward_cache::DisabledReasonId::
               kDomDistiller_SelfDeletingRequestDelegate));

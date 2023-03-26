@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <string>
 
 #include "base/memory/scoped_refptr.h"
-#include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/time/tick_clock.h"
@@ -37,7 +36,7 @@ class Adapter : public AlsReader::Observer,
                 public BrightnessMonitor::Observer,
                 public Modeller::Observer,
                 public ModelConfigLoader::Observer,
-                public PowerManagerClient::Observer {
+                public chromeos::PowerManagerClient::Observer {
  public:
   // How user manual brightness change will affect Adapter.
   // These values are persisted to logs. Entries should not be renumbered and

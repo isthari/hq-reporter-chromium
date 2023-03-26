@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
 #include "build/build_config.h"
-#include "components/security_state/core/features.h"
 #include "net/ssl/ssl_cipher_suite_names.h"
 #include "net/ssl/ssl_connection_status_flags.h"
 #include "services/network/public/cpp/is_potentially_trustworthy.h"
@@ -46,48 +45,13 @@ std::string GetHistogramSuffixForSafetyTipStatus(
       return "SafetyTip_Unknown";
     case security_state::SafetyTipStatus::kNone:
       return "SafetyTip_None";
-    case security_state::SafetyTipStatus::kBadReputation:
-      return "SafetyTip_BadReputation";
     case security_state::SafetyTipStatus::kLookalike:
       return "SafetyTip_Lookalike";
-    case security_state::SafetyTipStatus::kBadReputationIgnored:
-      return "SafetyTip_BadReputationIgnored";
     case security_state::SafetyTipStatus::kLookalikeIgnored:
       return "SafetyTip_LookalikeIgnored";
-    case security_state::SafetyTipStatus::kDigitalAssetLinkMatch:
-      return "SafetyTip_DigitalAssetLinkMatch";
-    case security_state::SafetyTipStatus::kBadKeyword:
-      return "SafetyTip_BadKeyword";
   }
   NOTREACHED();
   return std::string();
-}
-
-// Returns whether to set the security level based on the safety tip status.
-// Sets |level| to the right value if status should be set.
-bool ShouldSetSecurityLevelFromSafetyTip(security_state::SafetyTipStatus status,
-                                         SecurityLevel* level) {
-  if (!IsSafetyTipUIFeatureEnabled()) {
-    return false;
-  }
-
-  switch (status) {
-    case security_state::SafetyTipStatus::kBadReputation:
-      *level = security_state::NONE;
-      return true;
-    case security_state::SafetyTipStatus::kBadReputationIgnored:
-    case security_state::SafetyTipStatus::kLookalike:
-    case security_state::SafetyTipStatus::kLookalikeIgnored:
-    case security_state::SafetyTipStatus::kBadKeyword:
-      // TODO(crbug/1012982): Decide whether to degrade the indicator once the
-      // UI lands.
-    case security_state::SafetyTipStatus::kDigitalAssetLinkMatch:
-    case security_state::SafetyTipStatus::kUnknown:
-    case security_state::SafetyTipStatus::kNone:
-      return false;
-  }
-  NOTREACHED();
-  return false;
 }
 
 }  // namespace
@@ -176,13 +140,6 @@ SecurityLevel GetSecurityLevel(
       return WARNING;
     }
     return NONE;
-  }
-
-  // Downgrade the security level for pages that trigger a Safety Tip.
-  SecurityLevel safety_tip_level;
-  if (ShouldSetSecurityLevelFromSafetyTip(
-          visible_security_state.safety_tip_info.status, &safety_tip_level)) {
-    return safety_tip_level;
   }
 
   // In most cases, SHA1 use is treated as a certificate error, in which case
@@ -290,13 +247,6 @@ bool IsSHA1InChain(const VisibleSecurityState& visible_security_state) {
   return visible_security_state.certificate &&
          (visible_security_state.cert_status &
           net::CERT_STATUS_SHA1_SIGNATURE_PRESENT);
-}
-
-bool IsSafetyTipUIFeatureEnabled() {
-  return base::FeatureList::IsEnabled(features::kSafetyTipUI) ||
-         base::FeatureList::IsEnabled(
-             features::kSafetyTipUIForSimplifiedDomainDisplay) ||
-         base::FeatureList::IsEnabled(features::kSafetyTipUIOnDelayedWarning);
 }
 
 }  // namespace security_state

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -83,7 +83,6 @@ public class ManageSpaceActivity extends AppCompatActivity implements View.OnCli
     protected void onCreate(Bundle savedInstanceState) {
         ensureActivityNotExported();
 
-        setTheme(R.style.ColorOverlay_ChromiumAndroid);
         setContentView(R.layout.manage_space_activity);
         Resources r = getResources();
         setTitle(String.format(r.getString(R.string.storage_management_activity_label),
@@ -266,9 +265,9 @@ public class ManageSpaceActivity extends AppCompatActivity implements View.OnCli
     }
 
     private void onSiteStorageSizeCalculated(long totalSize, long unimportantSize) {
-        RecordHistogram.recordCountHistogram("Android.ManageSpace.TotalDiskUsageMB",
+        RecordHistogram.recordCount1MHistogram("Android.ManageSpace.TotalDiskUsageMB",
                 (int) ConversionUtils.bytesToMegabytes(totalSize));
-        RecordHistogram.recordCountHistogram("Android.ManageSpace.UnimportantDiskUsageMB",
+        RecordHistogram.recordCount1MHistogram("Android.ManageSpace.UnimportantDiskUsageMB",
                 (int) ConversionUtils.bytesToMegabytes(unimportantSize));
         mSiteDataSizeText.setText(Formatter.formatFileSize(this, totalSize));
         mUnimportantSiteDataSizeText.setText(Formatter.formatFileSize(this, unimportantSize));

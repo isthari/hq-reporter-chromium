@@ -1,29 +1,30 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// So that mojo is defined.
-import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
 import 'chrome://nearby/app.js';
 
-import {setContactManagerForTesting} from 'chrome://nearby/shared/nearby_contact_manager.m.js';
-import {setNearbyShareSettingsForTesting} from 'chrome://nearby/shared/nearby_share_settings.m.js';
+import {NearbyShareAppElement} from 'chrome://nearby/app.js';
+import {setContactManagerForTesting} from 'chrome://nearby/shared/nearby_contact_manager.js';
+import {setNearbyShareSettingsForTesting} from 'chrome://nearby/shared/nearby_share_settings.js';
+import {loadTimeData} from 'chrome://resources/ash/common/load_time_data.m.js';
+import {NearbyShareSettingsInterface} from 'chrome://resources/mojo/chromeos/ash/services/nearby/public/mojom/nearby_share_settings.mojom-webui.js';
+import {waitAfterNextRender} from 'chrome://webui-test/polymer_test_util.js';
 
-import {assertEquals, assertFalse, assertTrue} from '../chai_assert.js';
-import {waitAfterNextRender} from '../test_util.js';
+import {assertEquals, assertFalse, assertTrue} from '../chromeos/chai_assert.js';
 
-import {FakeContactManager} from './shared/fake_nearby_contact_manager.m.js';
-import {FakeNearbyShareSettings} from './shared/fake_nearby_share_settings.m.js';
+import {FakeContactManager} from './shared/fake_nearby_contact_manager.js';
+import {FakeNearbyShareSettings} from './shared/fake_nearby_share_settings.js';
 
 suite('ShareAppTest', function() {
   /** @type {!NearbyShareAppElement} */
   let shareAppElement;
-  /** @type {!nearbyShare.mojom.NearbyShareSettingsInterface} */
+  /** @type {!NearbyShareSettingsInterface} */
   let fakeSettings;
 
   /** @param {!string} page Page to check if it is active. */
   function isPageActive(page) {
-    return shareAppElement.$$(`nearby-${page}-page`)
+    return shareAppElement.shadowRoot.querySelector(`nearby-${page}-page`)
         .classList.contains('active');
   }
 
@@ -40,7 +41,7 @@ suite('ShareAppTest', function() {
     fakeSettings.setEnabled(enabled);
     setNearbyShareSettingsForTesting(fakeSettings);
 
-    let fakeContactManager = new FakeContactManager();
+    const fakeContactManager = new FakeContactManager();
     setContactManagerForTesting(fakeContactManager);
     fakeContactManager.setupContactRecords();
 
@@ -63,7 +64,7 @@ suite('ShareAppTest', function() {
 
     test('renders discovery page when enabled', async function() {
       assertEquals('NEARBY-SHARE-APP', shareAppElement.tagName);
-      assertEquals(null, shareAppElement.$$('.active'));
+      assertEquals(null, shareAppElement.shadowRoot.querySelector('.active'));
       // We have to wait for settings to return from the mojo after which
       // the app will route to the correct page.
       await waitAfterNextRender(shareAppElement);
@@ -79,7 +80,8 @@ suite('ShareAppTest', function() {
         async function() {
           sharedSetup(/*enabled=*/ false, /*isOnboardingComplete=*/ true);
           assertEquals('NEARBY-SHARE-APP', shareAppElement.tagName);
-          assertEquals(null, shareAppElement.$$('.active'));
+          assertEquals(
+              null, shareAppElement.shadowRoot.querySelector('.active'));
           // We have to wait for settings to return from the mojo after which
           // the app will route to the correct page.
           await waitAfterNextRender(shareAppElement);
@@ -90,28 +92,46 @@ suite('ShareAppTest', function() {
 
     test('renders onboarding page when disabled', async function() {
       sharedSetup(/*enabled=*/ false, /*isOnboardingComplete=*/ false);
+      loadTimeData.overrideValues({
+        'isOnePageOnboardingEnabled': false,
+      });
       assertEquals('NEARBY-SHARE-APP', shareAppElement.tagName);
-      assertEquals(null, shareAppElement.$$('.active'));
+      assertEquals(null, shareAppElement.shadowRoot.querySelector('.active'));
       // We have to wait for settings to return from the mojo after which
       // the app will route to the correct page.
       await waitAfterNextRender(shareAppElement);
       assertTrue(isPageActive('onboarding'));
     });
 
-    test('changes page on event', async function() {
+    test('renders one-page onboarding page when disabled', async function() {
       sharedSetup(/*enabled=*/ false, /*isOnboardingComplete=*/ false);
+      loadTimeData.overrideValues({
+        'isOnePageOnboardingEnabled': true,
+      });
       assertEquals('NEARBY-SHARE-APP', shareAppElement.tagName);
-      assertEquals(null, shareAppElement.$$('.active'));
+      assertEquals(null, shareAppElement.shadowRoot.querySelector('.active'));
       // We have to wait for settings to return from the mojo after which
       // the app will route to the correct page.
       await waitAfterNextRender(shareAppElement);
-      assertTrue(isPageActive('onboarding'));
+      assertTrue(isPageActive('onboarding-one'));
+    });
 
-      shareAppElement.fire('change-page', {page: 'discovery'});
+    test('changes page on event', async function() {
+      sharedSetup(/*enabled=*/ false, /*isOnboardingComplete=*/ false);
+      assertEquals('NEARBY-SHARE-APP', shareAppElement.tagName);
+      assertEquals(null, shareAppElement.shadowRoot.querySelector('.active'));
+      // We have to wait for settings to return from the mojo after which
+      // the app will route to the correct page.
+      await waitAfterNextRender(shareAppElement);
+      assertTrue(isPageActive('onboarding-one'));
+
+      shareAppElement.dispatchEvent(new CustomEvent(
+          'change-page',
+          {bubbles: true, composed: true, detail: {page: 'discovery'}}));
 
       // Discovery page should now be active, other pages should not.
       assertTrue(isPageActive('discovery'));
-      assertFalse(isPageActive('onboarding'));
+      assertFalse(isPageActive('onboarding-one'));
     });
   });
 });

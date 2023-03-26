@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,6 +45,49 @@ public interface ProcessScopeDependencyProvider {
     /** Returns the collection of currently active experiment ids. */
     default int[] getExperimentIds() {
         return new int[0];
+    }
+
+    /**
+     * Provides experimental feature state to xsurface implementations.
+     */
+    public interface FeatureStateProvider {
+        boolean isFeatureActive(String featureName);
+        boolean getBooleanParameterValue(
+                String featureName, String paramName, boolean defaultValue);
+        int getIntegerParameterValue(String featureName, String paramName, int defaultValue);
+        double getDoubleParameterValue(String featureName, String paramName, double defaultValue);
+    }
+
+    /**
+     * Returns whether a feature is active.
+     *
+     * The returned function must be called on the UI thread.
+     */
+    default FeatureStateProvider getFeatureStateProvider() {
+        return new FeatureStateProvider() {
+            @Override
+            public boolean isFeatureActive(String featureName) {
+                return false;
+            }
+
+            @Override
+            public boolean getBooleanParameterValue(
+                    String featureName, String paramName, boolean defaultValue) {
+                return defaultValue;
+            }
+
+            @Override
+            public int getIntegerParameterValue(
+                    String featureName, String paramName, int defaultValue) {
+                return defaultValue;
+            }
+
+            @Override
+            public double getDoubleParameterValue(
+                    String featureName, String paramName, double defaultValue) {
+                return defaultValue;
+            }
+        };
     }
 
     /** @see {Log.e} */

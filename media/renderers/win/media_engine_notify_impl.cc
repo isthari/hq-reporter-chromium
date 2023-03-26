@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,14 +63,7 @@ std::string MediaEngineEventToString(MF_MEDIA_ENGINE_EVENT event) {
 #undef ENUM_TO_STRING
 
 PipelineStatus MediaEngineErrorToPipelineStatus(
-    MF_MEDIA_ENGINE_ERR media_engine_error,
-    HRESULT hr) {
-  // HRESULT 0x8004CD12 is DRM_E_TEE_INVALID_HWDRM_STATE, which can happen
-  // during OS sleep/resume, or moving video to different graphics adapters.
-  // This is not an error, so special case it here.
-  if (hr == static_cast<HRESULT>(0x8004CD12))
-    return PIPELINE_ERROR_HARDWARE_CONTEXT_RESET;
-
+    MF_MEDIA_ENGINE_ERR media_engine_error) {
   switch (media_engine_error) {
     case MF_MEDIA_ENGINE_ERR_NOERROR:
       return PIPELINE_OK;
@@ -100,6 +93,7 @@ HRESULT MediaEngineNotifyImpl::RuntimeClassInitialize(
     EndedCB ended_cb,
     FormatChangeCB format_change_cb,
     LoadedDataCB loaded_data_cb,
+    CanPlayThroughCB can_play_through_cb,
     PlayingCB playing_cb,
     WaitingCB waiting_cb,
     TimeUpdateCB time_update_cb) {
@@ -109,6 +103,7 @@ HRESULT MediaEngineNotifyImpl::RuntimeClassInitialize(
   ended_cb_ = std::move(ended_cb);
   format_change_cb_ = std::move(format_change_cb);
   loaded_data_cb_ = std::move(loaded_data_cb);
+  can_play_through_cb_ = std::move(can_play_through_cb);
   playing_cb_ = std::move(playing_cb);
   waiting_cb_ = std::move(waiting_cb);
   time_update_cb_ = std::move(time_update_cb);
@@ -136,7 +131,7 @@ HRESULT MediaEngineNotifyImpl::EventNotify(DWORD event_code,
       MF_MEDIA_ENGINE_ERR error = static_cast<MF_MEDIA_ENGINE_ERR>(param1);
       HRESULT hr = param2;
       LOG(ERROR) << __func__ << ": error=" << error << ", hr=" << PrintHr(hr);
-      error_cb_.Run(MediaEngineErrorToPipelineStatus(error, hr), hr);
+      error_cb_.Run(MediaEngineErrorToPipelineStatus(error), hr);
       break;
     }
     case MF_MEDIA_ENGINE_EVENT_ENDED:
@@ -147,6 +142,9 @@ HRESULT MediaEngineNotifyImpl::EventNotify(DWORD event_code,
       break;
     case MF_MEDIA_ENGINE_EVENT_LOADEDDATA:
       loaded_data_cb_.Run();
+      break;
+    case MF_MEDIA_ENGINE_EVENT_CANPLAYTHROUGH:
+      can_play_through_cb_.Run();
       break;
     case MF_MEDIA_ENGINE_EVENT_PLAYING:
       playing_cb_.Run();

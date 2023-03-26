@@ -1,8 +1,7 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
@@ -372,7 +371,7 @@ TEST_F(BluetoothRemoteGattDescriptorTest, MAYBE_ReadRemoteDescriptor) {
   EXPECT_EQ(1, gatt_read_descriptor_attempts_);
 
   uint8_t values[] = {0, 1, 2, 3, 4, 0xf, 0xf0, 0xff};
-  std::vector<uint8_t> test_vector(values, values + base::size(values));
+  std::vector<uint8_t> test_vector(values, values + std::size(values));
   SimulateGattDescriptorRead(descriptor1_, test_vector);
   base::RunLoop().RunUntilIdle();
 
@@ -403,7 +402,7 @@ TEST_F(BluetoothRemoteGattDescriptorTest, MAYBE_WriteRemoteDescriptor) {
   ASSERT_NO_FATAL_FAILURE(FakeDescriptorBoilerplate());
 
   uint8_t values[] = {0, 1, 2, 3, 4, 0xf, 0xf0, 0xff};
-  std::vector<uint8_t> test_vector(values, values + base::size(values));
+  std::vector<uint8_t> test_vector(values, values + std::size(values));
   descriptor1_->WriteRemoteDescriptor(test_vector, GetCallback(Call::EXPECTED),
                                       GetGattErrorCallback(Call::NOT_EXPECTED));
   EXPECT_EQ(1, gatt_write_descriptor_attempts_);
@@ -436,7 +435,7 @@ TEST_F(BluetoothRemoteGattDescriptorTest, MAYBE_ReadRemoteDescriptor_Twice) {
   EXPECT_EQ(1, gatt_read_descriptor_attempts_);
 
   uint8_t values[] = {0, 1, 2, 3, 4, 0xf, 0xf0, 0xff};
-  std::vector<uint8_t> test_vector(values, values + base::size(values));
+  std::vector<uint8_t> test_vector(values, values + std::size(values));
   SimulateGattDescriptorRead(descriptor1_, test_vector);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1, callback_count_);
@@ -477,7 +476,7 @@ TEST_F(BluetoothRemoteGattDescriptorTest, MAYBE_WriteRemoteDescriptor_Twice) {
   ASSERT_NO_FATAL_FAILURE(FakeDescriptorBoilerplate());
 
   uint8_t values[] = {0, 1, 2, 3, 4, 0xf, 0xf0, 0xff};
-  std::vector<uint8_t> test_vector(values, values + base::size(values));
+  std::vector<uint8_t> test_vector(values, values + std::size(values));
   descriptor1_->WriteRemoteDescriptor(test_vector, GetCallback(Call::EXPECTED),
                                       GetGattErrorCallback(Call::NOT_EXPECTED));
   EXPECT_EQ(1, gatt_write_descriptor_attempts_);
@@ -613,11 +612,11 @@ TEST_F(BluetoothRemoteGattDescriptorTest, MAYBE_ReadError) {
   descriptor1_->ReadRemoteDescriptor(
       GetReadValueCallback(Call::EXPECTED, Result::FAILURE));
   SimulateGattDescriptorReadError(
-      descriptor1_, BluetoothGattService::GATT_ERROR_INVALID_LENGTH);
+      descriptor1_, BluetoothGattService::GattErrorCode::kInvalidLength);
   SimulateGattDescriptorReadError(descriptor1_,
-                                  BluetoothGattService::GATT_ERROR_FAILED);
+                                  BluetoothGattService::GattErrorCode::kFailed);
   base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(BluetoothGattService::GATT_ERROR_INVALID_LENGTH,
+  EXPECT_EQ(BluetoothGattService::GattErrorCode::kInvalidLength,
             last_gatt_error_code_);
 }
 
@@ -643,12 +642,12 @@ TEST_F(BluetoothRemoteGattDescriptorTest, MAYBE_WriteError) {
                                       GetCallback(Call::NOT_EXPECTED),
                                       GetGattErrorCallback(Call::EXPECTED));
   SimulateGattDescriptorWriteError(
-      descriptor1_, BluetoothGattService::GATT_ERROR_INVALID_LENGTH);
-  SimulateGattDescriptorWriteError(descriptor1_,
-                                   BluetoothGattService::GATT_ERROR_FAILED);
+      descriptor1_, BluetoothGattService::GattErrorCode::kInvalidLength);
+  SimulateGattDescriptorWriteError(
+      descriptor1_, BluetoothGattService::GattErrorCode::kFailed);
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_EQ(BluetoothGattService::GATT_ERROR_INVALID_LENGTH,
+  EXPECT_EQ(BluetoothGattService::GattErrorCode::kInvalidLength,
             last_gatt_error_code_);
 }
 
@@ -674,7 +673,8 @@ TEST_F(BluetoothRemoteGattDescriptorTest, MAYBE_ReadSynchronousError) {
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(0, callback_count_);
   EXPECT_EQ(1, error_callback_count_);
-  EXPECT_EQ(BluetoothGattService::GATT_ERROR_FAILED, last_gatt_error_code_);
+  EXPECT_EQ(BluetoothGattService::GattErrorCode::kFailed,
+            last_gatt_error_code_);
 
   // After failing once, can succeed:
   ResetEventCounts();
@@ -712,7 +712,8 @@ TEST_F(BluetoothRemoteGattDescriptorTest, MAYBE_WriteSynchronousError) {
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(0, callback_count_);
   EXPECT_EQ(1, error_callback_count_);
-  EXPECT_EQ(BluetoothGattService::GATT_ERROR_FAILED, last_gatt_error_code_);
+  EXPECT_EQ(BluetoothGattService::GattErrorCode::kFailed,
+            last_gatt_error_code_);
 
   // After failing once, can succeed:
   ResetEventCounts();
@@ -754,7 +755,7 @@ TEST_F(BluetoothRemoteGattDescriptorTest,
 
   EXPECT_EQ(0, callback_count_);
   EXPECT_EQ(1, error_callback_count_);
-  EXPECT_EQ(BluetoothGattService::GATT_ERROR_IN_PROGRESS,
+  EXPECT_EQ(BluetoothGattService::GattErrorCode::kInProgress,
             last_gatt_error_code_);
 
   // Initial read should still succeed:
@@ -798,7 +799,7 @@ TEST_F(BluetoothRemoteGattDescriptorTest,
 
   EXPECT_EQ(0, callback_count_);
   EXPECT_EQ(1, error_callback_count_);
-  EXPECT_EQ(BluetoothGattService::GATT_ERROR_IN_PROGRESS,
+  EXPECT_EQ(BluetoothGattService::GattErrorCode::kInProgress,
             last_gatt_error_code_);
 
   // Initial write should still succeed:
@@ -840,7 +841,7 @@ TEST_F(BluetoothRemoteGattDescriptorTest,
 
   EXPECT_EQ(0, callback_count_);
   EXPECT_EQ(1, error_callback_count_);
-  EXPECT_EQ(BluetoothGattService::GATT_ERROR_IN_PROGRESS,
+  EXPECT_EQ(BluetoothGattService::GattErrorCode::kInProgress,
             last_gatt_error_code_);
 
   // Initial write should still succeed:
@@ -882,7 +883,7 @@ TEST_F(BluetoothRemoteGattDescriptorTest,
 
   EXPECT_EQ(0, callback_count_);
   EXPECT_EQ(1, error_callback_count_);
-  EXPECT_EQ(BluetoothGattService::GATT_ERROR_IN_PROGRESS,
+  EXPECT_EQ(BluetoothGattService::GattErrorCode::kInProgress,
             last_gatt_error_code_);
 
   // Initial read should still succeed:
@@ -989,7 +990,7 @@ TEST_F(BluetoothRemoteGattDescriptorTest, ReadRemoteDescriptor_NSNumber) {
   base::RunLoop().RunUntilIdle();
 
   uint8_t values[] = {0x34, 0x12};
-  std::vector<uint8_t> test_vector(values, values + base::size(values));
+  std::vector<uint8_t> test_vector(values, values + std::size(values));
   EXPECT_EQ(test_vector, last_read_value_);
   EXPECT_EQ(test_vector, descriptor1_->GetValue());
 }

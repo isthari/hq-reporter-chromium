@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,46 +15,46 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.os.Build;
-import android.support.test.InstrumentationRegistry;
 import android.text.SpannableStringBuilder;
 
-import androidx.test.filters.SmallTest;
-
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.robolectric.RuntimeEnvironment;
+import org.robolectric.annotation.Config;
 
-import org.chromium.base.test.BaseJUnit4ClassRunner;
-import org.chromium.base.test.util.Batch;
+import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.notifications.channels.ChromeChannelDefinitions;
 import org.chromium.components.browser_ui.notifications.NotificationMetadata;
 import org.chromium.components.browser_ui.notifications.PendingIntentProvider;
-import org.chromium.components.browser_ui.widget.RoundedIconGenerator;
-import org.chromium.components.embedder_support.util.UrlUtilities;
-import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
+import org.chromium.components.embedder_support.util.ShadowUrlUtilities;
 
 /**
- * Instrumentation unit tests for StandardNotificationBuilder.
- *
- * Extends NativeLibraryTestBase so that {@link UrlUtilities#getDomainAndRegistry} can access
- * native GetDomainAndRegistry, when called by {@link RoundedIconGenerator#getIconTextForUrl}
- * during notification construction.
+ * Robolectric unit tests for StandardNotificationBuilder.
  */
-@RunWith(BaseJUnit4ClassRunner.class)
-@Batch(Batch.UNIT_TESTS)
+@RunWith(BaseRobolectricTestRunner.class)
+@Config(manifest = Config.NONE, shadows = {ShadowUrlUtilities.class})
 public class StandardNotificationBuilderTest {
     private static final String NOTIFICATION_TAG = "TestNotificationTag";
     private static final int NOTIFICATION_ID = 99;
 
     @Before
     public void setUp() {
-        // Not initializing the browser process is safe because GetDomainAndRegistry() is
-        // stand-alone.
-        NativeLibraryTestUtils.loadNativeLibraryNoBrowserProcess();
+        ShadowUrlUtilities.setTestImpl(new ShadowUrlUtilities.TestImpl() {
+            @Override
+            public String getDomainAndRegistry(String uri, boolean includePrivateRegistries) {
+                return uri;
+            }
+        });
+    }
+
+    @After
+    public void tearDown() {
+        ShadowUrlUtilities.reset();
     }
 
     private NotificationBuilderBase createAllOptionsBuilder(
@@ -63,7 +63,7 @@ public class StandardNotificationBuilderTest {
             throw new IllegalArgumentException();
         }
 
-        Context context = InstrumentationRegistry.getTargetContext();
+        Context context = RuntimeEnvironment.getApplication();
         outContentAndDeleteIntents[0] = createIntent(context, "content");
         outContentAndDeleteIntents[1] = createIntent(context, "delete");
 
@@ -105,7 +105,6 @@ public class StandardNotificationBuilderTest {
     }
 
     @Test
-    @SmallTest
     @Feature({"Browser", "Notifications"})
     public void testSetAll() {
         PendingIntentProvider[] contentAndDeleteIntents = new PendingIntentProvider[2];
@@ -124,7 +123,7 @@ public class StandardNotificationBuilderTest {
         Assert.assertNotNull(picture);
         Assert.assertTrue(picture.getWidth() > 0 && picture.getHeight() > 0);
 
-        Context context = InstrumentationRegistry.getTargetContext();
+        Context context = RuntimeEnvironment.getApplication();
         Bitmap smallIcon =
                 BitmapFactory.decodeResource(context.getResources(), R.drawable.ic_chrome);
         Assert.assertTrue(smallIcon.sameAs(
@@ -151,17 +150,11 @@ public class StandardNotificationBuilderTest {
         Assert.assertNotNull(notification.publicVersion);
         Assert.assertEquals(context.getString(R.string.notification_hidden_text),
                 NotificationTestUtil.getExtraText(notification.publicVersion));
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
-            Assert.assertEquals(
-                    "origin", NotificationTestUtil.getExtraSubText(notification.publicVersion));
-        } else {
-            Assert.assertEquals(
-                    "origin", NotificationTestUtil.getExtraTitle(notification.publicVersion));
-        }
+        Assert.assertEquals(
+                "origin", NotificationTestUtil.getExtraSubText(notification.publicVersion));
     }
 
     @Test
-    @SmallTest
     @Feature({"Browser", "Notifications"})
     public void testBigTextStyle() {
         PendingIntentProvider[] contentAndDeleteIntents = new PendingIntentProvider[2];
@@ -173,10 +166,9 @@ public class StandardNotificationBuilderTest {
     }
 
     @Test
-    @SmallTest
     @Feature({"Browser", "Notifications"})
     public void testSetSmallIcon() {
-        Context context = InstrumentationRegistry.getTargetContext();
+        Context context = RuntimeEnvironment.getApplication();
         NotificationBuilderBase notificationBuilder = new StandardNotificationBuilder(context);
 
         Bitmap bitmap =
@@ -192,35 +184,27 @@ public class StandardNotificationBuilderTest {
 
         Assert.assertNotNull(result);
 
-        if (NotificationBuilderBase.deviceSupportsBitmapStatusBarIcons()) {
-            // Check the white overlay was applied.
-            Bitmap expected = bitmap.copy(bitmap.getConfig(), true);
-            NotificationBuilderBase.applyWhiteOverlayToBitmap(expected);
-            Assert.assertTrue(expected.sameAs(result));
+        // Check the white overlay was applied.
+        Bitmap expected = bitmap.copy(bitmap.getConfig(), true);
+        NotificationBuilderBase.applyWhiteOverlayToBitmap(expected);
+        Assert.assertTrue(expected.sameAs(result));
 
-            // Check using the same bitmap on another builder gives the same result.
-            NotificationBuilderBase otherBuilder = new StandardNotificationBuilder(context);
-            otherBuilder.setStatusBarIcon(bitmap).setChannelId(
-                    ChromeChannelDefinitions.ChannelId.SITES);
-            Notification otherNotification = buildNotification(otherBuilder);
-            Assert.assertTrue(expected.sameAs(
-                    NotificationTestUtil.getSmallIconFromNotification(context, otherNotification)));
-        } else {
-            Bitmap expected =
-                    BitmapFactory.decodeResource(context.getResources(), R.drawable.ic_chrome);
-            Assert.assertTrue(expected.sameAs(result));
-        }
+        // Check using the same bitmap on another builder gives the same result.
+        NotificationBuilderBase otherBuilder = new StandardNotificationBuilder(context);
+        otherBuilder.setStatusBarIcon(bitmap).setChannelId(
+                ChromeChannelDefinitions.ChannelId.SITES);
+        Notification otherNotification = buildNotification(otherBuilder);
+        Assert.assertTrue(expected.sameAs(
+                NotificationTestUtil.getSmallIconFromNotification(context, otherNotification)));
     }
 
     /**
      * Regression test for crash observed on Samsung/Coolpad Marshmallow devices - see crbug/829367.
      */
     @Test
-    @MinAndroidSdkLevel(Build.VERSION_CODES.M)
-    @SmallTest
     @Feature({"Browser", "Notifications"})
     public void testRenotifyWithCustomBadgeDoesNotCrash() {
-        Context context = InstrumentationRegistry.getTargetContext();
+        Context context = RuntimeEnvironment.getApplication();
 
         NotificationBuilderBase builder =
                 new StandardNotificationBuilder(context)
@@ -245,10 +229,9 @@ public class StandardNotificationBuilderTest {
     }
 
     @Test
-    @SmallTest
     @Feature({"Browser", "Notifications"})
     public void testAddTextActionSetsRemoteInput() {
-        Context context = InstrumentationRegistry.getTargetContext();
+        Context context = RuntimeEnvironment.getApplication();
         NotificationBuilderBase notificationBuilder =
                 new StandardNotificationBuilder(context)
                         .setChannelId(ChromeChannelDefinitions.ChannelId.SITES)

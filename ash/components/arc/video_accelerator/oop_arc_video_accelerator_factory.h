@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "ash/components/arc/mojom/video_decoder.mojom.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
+#include "chromeos/components/cdm_factory_daemon/mojom/browser_cdm_factory.mojom.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 
 namespace arc {
@@ -37,7 +38,9 @@ class OOPArcVideoAcceleratorFactory
   void CreateDecodeAccelerator(
       mojo::PendingReceiver<mojom::VideoDecodeAccelerator> receiver,
       mojo::PendingRemote<mojom::ProtectedBufferManager>
-          protected_buffer_manager) override;
+          protected_buffer_manager,
+      mojo::PendingRemote<chromeos::cdm::mojom::BrowserCdmFactory>
+          browser_cdm_factory) override;
   void CreateVideoDecoder(
       mojo::PendingReceiver<mojom::VideoDecoder> receiver) override;
   void CreateEncodeAccelerator(

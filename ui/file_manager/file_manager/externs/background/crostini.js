@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,11 +23,12 @@ export class Crostini {
   initVolumeManager(volumeManager) {}
 
   /**
-   * Set whether the specified VM is enabled.
+   * Set whether the specified Guest is enabled.
    * @param {string} vmName
+   * @param {string} containerName
    * @param {boolean} enabled
    */
-  setEnabled(vmName, enabled) {}
+  setEnabled(vmName, containerName, enabled) {}
 
   /**
    * Returns true if the specified VM is enabled.

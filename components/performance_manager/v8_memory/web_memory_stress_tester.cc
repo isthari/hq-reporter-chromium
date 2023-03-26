@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,13 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/dcheck_is_on.h"
 #include "base/debug/activity_tracker.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/rand_util.h"
@@ -35,11 +35,13 @@ namespace {
 #if DCHECK_IS_ON()
 // Give the feature a different name on the Albatross build so it can get
 // different parameters.
-constexpr base::Feature kStressTestFeature{"StressTestWebMeasureMemoryDcheck",
-                                           base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kStressTestFeature,
+             "StressTestWebMeasureMemoryDcheck",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 #else
-constexpr base::Feature kStressTestFeature{"StressTestWebMeasureMemory",
-                                           base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kStressTestFeature,
+             "StressTestWebMeasureMemory",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 #endif
 
 constexpr base::FeatureParam<double> kStressTestProbabilityParam{
@@ -66,10 +68,11 @@ class StressTestSecurityChecker : public WebMeasureMemorySecurityChecker {
 // When the production implementation would kill a renderer, instead upload a
 // crash report with the message in a breadcrumb. This should only be done once
 // per browser session to avoid spamming crashes.
-void ReportBadMessageInCrashOnce(const std::string& message) {
+void ReportBadMessageInCrashOnce(base::StringPiece message) {
   static bool have_crashed = false;
   if (have_crashed)
     return;
+  have_crashed = true;
   base::debug::ScopedActivity scoped_activity;
   auto& user_data = scoped_activity.user_data();
   user_data.SetString("web_measure_memory_bad_mojo_message", message);

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,7 +50,7 @@ class OmniboxFieldTrialTest : public testing::Test {
                                            const std::string& group_name) {
     base::FieldTrial* trial = base::FieldTrialList::CreateFieldTrial(
         name, group_name);
-    trial->group();
+    trial->Activate();
     return trial;
   }
 
@@ -352,29 +352,6 @@ TEST_F(OmniboxFieldTrialTest, GetValueForRuleInContext) {
     ExpectRuleValue("",
                     "rule5", OmniboxEventProto::OTHER);    // no rule at all
   }
-}
-
-TEST_F(OmniboxFieldTrialTest, LocalZeroSuggestAgeThreshold) {
-  base::test::ScopedFeatureList scoped_feature_list_;
-
-  // The default value can be overridden.
-  scoped_feature_list_.InitWithFeaturesAndParameters(
-      {{omnibox::kOmniboxLocalZeroSuggestAgeThreshold,
-        {{OmniboxFieldTrial::kOmniboxLocalZeroSuggestAgeThresholdParam, "3"}}}},
-      {});
-  base::Time age_threshold =
-      OmniboxFieldTrial::GetLocalHistoryZeroSuggestAgeThreshold();
-  EXPECT_EQ(3, base::TimeDelta(base::Time::Now() - age_threshold).InDays());
-
-  // If the age threshold is not parsable to an unsigned integer, the default
-  // value is used.
-  scoped_feature_list_.Reset();
-  scoped_feature_list_.InitWithFeaturesAndParameters(
-      {{omnibox::kOmniboxLocalZeroSuggestAgeThreshold,
-        {{OmniboxFieldTrial::kOmniboxLocalZeroSuggestAgeThresholdParam, "j"}}}},
-      {});
-  age_threshold = OmniboxFieldTrial::GetLocalHistoryZeroSuggestAgeThreshold();
-  EXPECT_EQ(7, base::TimeDelta(base::Time::Now() - age_threshold).InDays());
 }
 
 TEST_F(OmniboxFieldTrialTest, HUPNewScoringFieldTrial) {

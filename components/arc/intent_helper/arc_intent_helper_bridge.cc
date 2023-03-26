@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "ash/components/arc/session/arc_bridge_service.h"
 #include "ash/components/arc/session/arc_service_manager.h"
 #include "ash/public/cpp/new_window_delegate.h"
+#include "ash/public/cpp/system/power/power_button_controller_base.h"
 #include "ash/public/cpp/wallpaper/wallpaper_controller.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
@@ -20,6 +21,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
+#include "components/arc/common/intent_helper/arc_intent_helper_package.h"
 #include "components/arc/intent_helper/control_camera_app_delegate.h"
 #include "components/arc/intent_helper/intent_constants.h"
 #include "components/arc/intent_helper/open_url_delegate.h"
@@ -52,6 +54,12 @@ class ArcIntentHelperBridgeFactory
 
   static ArcIntentHelperBridgeFactory* GetInstance() {
     return base::Singleton<ArcIntentHelperBridgeFactory>::get();
+  }
+
+  static void ShutDownForTesting(content::BrowserContext* context) {
+    auto* factory = GetInstance();
+    factory->BrowserContextShutdown(context);
+    factory->BrowserContextDestroyed(context);
   }
 
  private:
@@ -113,10 +121,6 @@ bool CanOpenWebAppForUrl(const GURL& url) {
 }  // namespace
 
 // static
-const char ArcIntentHelperBridge::kArcIntentHelperPackageName[] =
-    "org.chromium.arc.intent_helper";
-
-// static
 ArcIntentHelperBridge* ArcIntentHelperBridge::GetForBrowserContext(
     content::BrowserContext* context) {
   return ArcIntentHelperBridgeFactory::GetForBrowserContext(context);
@@ -126,6 +130,12 @@ ArcIntentHelperBridge* ArcIntentHelperBridge::GetForBrowserContext(
 ArcIntentHelperBridge* ArcIntentHelperBridge::GetForBrowserContextForTesting(
     content::BrowserContext* context) {
   return ArcIntentHelperBridgeFactory::GetForBrowserContextForTesting(context);
+}
+
+// static
+void ArcIntentHelperBridge::ShutDownForTesting(
+    content::BrowserContext* context) {
+  return ArcIntentHelperBridgeFactory::ShutDownForTesting(context);
 }
 
 // static
@@ -278,7 +288,6 @@ void ArcIntentHelperBridge::LaunchCameraApp(uint32_t intent_id,
                                             int32_t task_id) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
-  base::DictionaryValue intent_info;
   std::string mode_str =
       mode == arc::mojom::CameraIntentMode::PHOTO ? "photo" : "video";
 
@@ -325,30 +334,21 @@ void ArcIntentHelperBridge::IsChromeAppEnabled(
 }
 
 void ArcIntentHelperBridge::OnSupportedLinksChanged(
-    std::vector<arc::mojom::SupportedLinksPtr> added_packages,
-    std::vector<arc::mojom::SupportedLinksPtr> removed_packages,
+    std::vector<arc::mojom::SupportedLinksPackagePtr> added_packages,
+    std::vector<arc::mojom::SupportedLinksPackagePtr> removed_packages,
     arc::mojom::SupportedLinkChangeSource source) {
   for (auto& observer : observer_list_)
     observer.OnArcSupportedLinksChanged(added_packages, removed_packages,
                                         source);
 }
 
-void ArcIntentHelperBridge::OnDownloadAdded(
+void ArcIntentHelperBridge::OnDownloadAddedDeprecated(
     const std::string& relative_path_as_string,
     const std::string& owner_package_name) {
-  const base::FilePath download_folder("Download/");
-  const base::FilePath relative_path(relative_path_as_string);
-
-  // Observers should *not* be called when a download is added outside of the
-  // Download/ folder. This would be an unexpected event coming from ARC but
-  // we protect against it because ARC is treated as an untrusted source.
-  if (!download_folder.IsParent(relative_path) ||
-      relative_path.ReferencesParent()) {
-    return;
-  }
-
-  for (auto& observer : observer_list_)
-    observer.OnArcDownloadAdded(relative_path, owner_package_name);
+  // The `OnDownloadAdded()` event has been broken since at least 01/2022
+  // (see crbug.com/1291882). It is being fixed and replaced with a new API,
+  // `mojom::FileSystemHost::OnMediaStoreUriAdded()`.
+  LOG(ERROR) << "`OnDownloadAdded()` is deprecated.";
 }
 
 void ArcIntentHelperBridge::OnOpenAppWithIntent(
@@ -363,32 +363,19 @@ void ArcIntentHelperBridge::OnOpenAppWithIntent(
   }
 }
 
+void ArcIntentHelperBridge::OnOpenGlobalActions() {
+  ash::PowerButtonControllerBase::Get()->OnArcPowerButtonMenuEvent();
+}
+
+void ArcIntentHelperBridge::OnCloseSystemDialogs() {
+  ash::PowerButtonControllerBase::Get()->CancelPowerButtonEvent();
+}
+
 ArcIntentHelperBridge::GetResult ArcIntentHelperBridge::GetActivityIcons(
     const std::vector<ActivityName>& activities,
     OnIconsReadyCallback callback) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   return icon_loader_.GetActivityIcons(activities, std::move(callback));
-}
-
-bool ArcIntentHelperBridge::ShouldChromeHandleUrl(const GURL& url) {
-  if (!url.SchemeIsHTTPOrHTTPS()) {
-    // Chrome will handle everything that is not http and https.
-    return true;
-  }
-
-  for (auto& package_filters : intent_filters_) {
-    // The intent helper package is used by ARC to send URLs to Chrome, so it
-    // does not count as a candidate.
-    if (IsIntentHelperPackage(package_filters.first))
-      continue;
-    for (auto& filter : package_filters.second) {
-      if (filter.Match(url))
-        return false;
-    }
-  }
-
-  // Didn't find any matches for Android so let Chrome handle it.
-  return true;
 }
 
 void ArcIntentHelperBridge::SetAdaptiveIconDelegate(
@@ -448,8 +435,8 @@ void ArcIntentHelperBridge::SendNewCaptureBroadcast(bool is_video,
   std::string action =
       is_video ? "org.chromium.arc.intent_helper.ACTION_SEND_NEW_VIDEO"
                : "org.chromium.arc.intent_helper.ACTION_SEND_NEW_PICTURE";
-  base::DictionaryValue value;
-  value.SetString("file_path", file_path);
+  base::Value::Dict value;
+  value.Set("file_path", file_path);
   std::string extras;
   base::JSONWriter::Write(value, &extras);
 
@@ -458,18 +445,12 @@ void ArcIntentHelperBridge::SendNewCaptureBroadcast(bool is_video,
 }
 
 // static
-bool ArcIntentHelperBridge::IsIntentHelperPackage(
-    const std::string& package_name) {
-  return package_name == kArcIntentHelperPackageName;
-}
-
-// static
 std::vector<mojom::IntentHandlerInfoPtr>
 ArcIntentHelperBridge::FilterOutIntentHelper(
     std::vector<mojom::IntentHandlerInfoPtr> handlers) {
   std::vector<mojom::IntentHandlerInfoPtr> handlers_filtered;
   for (auto& handler : handlers) {
-    if (IsIntentHelperPackage(handler->package_name))
+    if (handler->package_name == kArcIntentHelperPackageName)
       continue;
     handlers_filtered.push_back(std::move(handler));
   }

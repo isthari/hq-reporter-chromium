@@ -1,11 +1,11 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_ZOOM_TEST_ZOOM_TEST_UTILS_H_
 #define COMPONENTS_ZOOM_TEST_ZOOM_TEST_UTILS_H_
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/raw_ptr.h"
 #include "components/zoom/zoom_controller.h"
 #include "components/zoom/zoom_observer.h"

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -182,7 +182,7 @@ class ForceInstalledMetricsTest : public ForceInstalledTestBase {
   }
 
   void SetupExtensionManagementPref() {
-    std::unique_ptr<base::DictionaryValue> extension_entry =
+    base::Value::Dict extension_entry =
         DictionaryBuilder()
             .Set("installation_mode", "allowed")
             .Set(ExternalProviderImpl::kExternalUpdateUrl, kExtensionUpdateUrl)
@@ -1361,7 +1361,7 @@ TEST_F(ForceInstalledMetricsTest,
        NonMisconfigurationFailureNotPresentDisallowedByPolicyTypeError) {
   SetupForceList(ExtensionOrigin::kWebStore);
   // Set TYPE_EXTENSION and TYPE_THEME as the allowed extension types.
-  std::unique_ptr<base::Value> list =
+  base::Value::List list =
       ListBuilder().Append("extension").Append("theme").Build();
   prefs()->SetManagedPref(pref_names::kAllowedTypes, std::move(list));
 
@@ -1391,7 +1391,7 @@ TEST_F(ForceInstalledMetricsTest,
   SetupForceList(ExtensionOrigin::kWebStore);
 
   // Set TYPE_EXTENSION and TYPE_THEME as the allowed extension types.
-  std::unique_ptr<base::Value> list =
+  base::Value::List list =
       ListBuilder().Append("extension").Append("theme").Build();
   prefs()->SetManagedPref(pref_names::kAllowedTypes, std::move(list));
 

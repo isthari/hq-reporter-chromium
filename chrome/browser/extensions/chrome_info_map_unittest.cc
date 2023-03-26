@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,8 +32,7 @@ scoped_refptr<Extension> LoadManifest(const std::string& dir,
   std::string error;
   scoped_refptr<Extension> extension =
       Extension::Create(path, mojom::ManifestLocation::kInvalidLocation,
-                        *static_cast<base::DictionaryValue*>(result.get()),
-                        Extension::NO_FLAGS, &error);
+                        result->GetDict(), Extension::NO_FLAGS, &error);
   EXPECT_TRUE(extension.get()) << error;
 
   return extension;

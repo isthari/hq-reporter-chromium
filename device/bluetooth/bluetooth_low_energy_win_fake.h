@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -103,7 +103,6 @@ class BluetoothLowEnergyWrapperFake : public BluetoothLowEnergyWrapper {
   BluetoothLowEnergyWrapperFake();
   ~BluetoothLowEnergyWrapperFake() override;
 
-  bool IsBluetoothLowEnergySupported() override;
   bool EnumerateKnownBluetoothLowEnergyDevices(
       std::vector<std::unique_ptr<BluetoothLowEnergyDeviceInfo>>* devices,
       std::string* error) override;

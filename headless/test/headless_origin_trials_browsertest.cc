@@ -1,16 +1,18 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/strings/strcat.h"
 #include "base/test/bind.h"
-#include "build/build_config.h"
+#include "base/test/scoped_feature_list.h"
+#include "content/public/common/content_features.h"
 #include "content/public/test/browser_test.h"
-#include "content/public/test/content_browser_test.h"
 #include "content/public/test/url_loader_interceptor.h"
+#include "headless/lib/browser/headless_browser_context_impl.h"
 #include "headless/public/headless_browser.h"
 #include "headless/public/headless_web_contents.h"
 #include "headless/test/headless_browser_test.h"
+#include "headless/test/headless_browser_test_utils.h"
 
 using content::URLLoaderInterceptor;
 
@@ -73,12 +75,47 @@ IN_PROC_BROWSER_TEST_F(HeadlessOriginTrialsBrowserTest,
   // enable the WebComponents V0 origin trial.
   // TODO(crbug.com/1050190): Implement a permanent, sample trial so this test
   // doesn't rely on WebComponents V0, which will eventually go away.
-  EXPECT_FALSE(
+  EXPECT_THAT(
       EvaluateScript(web_contents,
-                     "'createShadowRoot' in document.createElement('div')")
-          ->GetResult()
-          ->GetValue()
-          ->GetBool());
+                     "'createShadowRoot' in document.createElement('div')"),
+      DictHasValue("result.result.value", false));
+}
+
+IN_PROC_BROWSER_TEST_F(HeadlessOriginTrialsBrowserTest,
+                       DelegateNotAvailableOnContext) {
+  // Delete this test when |::features::kPersistentOriginTrials| is enabled by
+  // default or fully removed.
+  HeadlessBrowserContext* browser_context =
+      browser()->CreateBrowserContextBuilder().Build();
+  HeadlessBrowserContextImpl* context_impl =
+      HeadlessBrowserContextImpl::From(browser_context);
+  EXPECT_FALSE(context_impl->GetOriginTrialsControllerDelegate())
+      << "Headless browser should not have an OriginTrialsControllerDelegate "
+         "if ::features::kPersistentOriginTrials is not enabled";
+}
+
+// This class can be replaced with |HeadlessOriginTrialsBrowserTest| when
+// |::features::kPersistentOriginTrials| is enabled by default or fully removed.
+class HeadlessPersistentOriginTrialsBrowserTest : public HeadlessBrowserTest {
+ public:
+  HeadlessPersistentOriginTrialsBrowserTest() {
+    test_features_.InitAndEnableFeature(::features::kPersistentOriginTrials);
+  }
+  ~HeadlessPersistentOriginTrialsBrowserTest() override = default;
+
+ private:
+  base::test::ScopedFeatureList test_features_;
+};
+
+IN_PROC_BROWSER_TEST_F(HeadlessPersistentOriginTrialsBrowserTest,
+                       DelegateAvailableOnContext) {
+  HeadlessBrowserContext* browser_context =
+      browser()->CreateBrowserContextBuilder().Build();
+  HeadlessBrowserContextImpl* context_impl =
+      HeadlessBrowserContextImpl::From(browser_context);
+
+  EXPECT_TRUE(context_impl->GetOriginTrialsControllerDelegate())
+      << "Headless browser should have an OriginTrialsControllerDelegate";
 }
 
 }  // namespace headless

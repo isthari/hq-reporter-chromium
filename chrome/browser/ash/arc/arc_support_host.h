@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "chrome/browser/ash/arc/extensions/arc_support_message_host.h"
 #include "extensions/browser/api/messaging/native_message_host.h"
 #include "ui/display/display_observer.h"
@@ -204,7 +204,7 @@ class ArcSupportHost : public arc::ArcSupportMessageHost::Observer,
   void SetLocationServicesPreferenceCheckbox(bool is_enabled, bool is_managed);
 
   // arc::ArcSupportMessageHost::Observer override:
-  void OnMessage(const base::DictionaryValue& message) override;
+  void OnMessage(const base::Value::Dict& message) override;
 
   // display::DisplayObserver:
   void OnDisplayMetricsChanged(const display::Display& display,
@@ -230,6 +230,8 @@ class ArcSupportHost : public arc::ArcSupportMessageHost::Observer,
 
   // Requests to start the ARC support Chrome app.
   void RequestAppStart();
+
+  void SetWindowBound(const display::Display& display);
 
   bool Initialize();
 

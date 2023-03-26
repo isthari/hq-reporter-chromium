@@ -15,6 +15,7 @@ limitations under the License.
 #include "tensorflow_lite_support/cc/task/text/universal_sentence_encoder_qa.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -28,20 +29,11 @@ limitations under the License.
 #include "tensorflow_lite_support/cc/task/core/task_utils.h"
 #include "tensorflow_lite_support/cc/task/core/tflite_engine.h"
 #include "tensorflow_lite_support/cc/task/text/proto/retrieval.pb.h"
-
-namespace tflite {
-namespace ops {
-namespace custom {
-TfLiteRegistration* Register_SENTENCEPIECE_TOKENIZER();
-TfLiteRegistration* Register_RAGGED_TENSOR_TO_TENSOR();
-}  // namespace custom
-}  // namespace ops
-}  // namespace tflite
+#include "tensorflow_lite_support/cc/task/text/utils/universal_sentence_encoder_utils.h"
 
 namespace tflite {
 namespace task {
 namespace text {
-namespace retrieval {
 
 using ::absl::Status;
 using ::absl::StatusCode;
@@ -49,18 +41,12 @@ using internal::QAInput;
 using internal::QAOutput;
 using ::tflite::support::StatusOr;
 using ::tflite::support::TfLiteSupportStatus;
-using ::tflite::task::core::FindTensorByName;
 using ::tflite::task::core::PopulateTensor;
 using ::tflite::task::core::PopulateVectorToRepeated;
 using ::tflite::task::core::TaskAPIFactory;
 using FeatureVector = UniversalSentenceEncoderQA::FeatureVector;
 
 namespace {
-constexpr char kQueryTextTensorName[] = "inp_text";
-constexpr char kResponseTextTensorName[] = "res_text";
-constexpr char kResponseContextTensorName[] = "res_context";
-constexpr char kQueryEncodingTensorName[] = "query_encoding";
-constexpr char kResponseEncodingTensorName[] = "response_encoding";
 
 // Sanity check for options to ensure required fields.
 absl::Status SanityCheckOptions(const RetrievalOptions& options) {
@@ -106,20 +92,6 @@ struct QAOutput {
   const TfLiteTensor* response_encoding;  // not owned.
 };
 }  // namespace internal
-
-// Creates custom op resolver for USE QA task.
-std::unique_ptr<tflite_shims::ops::builtin::BuiltinOpResolver>
-CreateQACustomOpResolver() {
-  auto resolver =
-      absl::make_unique<tflite_shims::ops::builtin::BuiltinOpResolver>();
-  resolver->AddCustom(
-      "TFSentencepieceTokenizeOp",
-      ::tflite::ops::custom::Register_SENTENCEPIECE_TOKENIZER());
-  resolver->AddCustom(
-      "RaggedTensorToTensor",
-      ::tflite::ops::custom::Register_RAGGED_TENSOR_TO_TENSOR());
-  return resolver;
-}
 
 constexpr int UniversalSentenceEncoderQA::kFinalEmbeddingSize;
 
@@ -246,28 +218,12 @@ std::vector<size_t> UniversalSentenceEncoderQA::Top(
 Status UniversalSentenceEncoderQA::Preprocess(
     const std::vector<TfLiteTensor*>& input_tensors,
     const QAInput& input) {
-  auto* input_tensor_metadatas =
-      GetMetadataExtractor()->GetInputTensorMetadata();
-  TfLiteTensor* query_text_tensor =
-      input_tensor_metadatas
-          ? FindTensorByName(input_tensors, input_tensor_metadatas,
-                             kQueryTextTensorName)
-          : input_tensors[0];
-  TfLiteTensor* response_text_tensor =
-      input_tensor_metadatas
-          ? FindTensorByName(input_tensors, input_tensor_metadatas,
-                             kResponseTextTensorName)
-          : input_tensors[2];
-  TfLiteTensor* response_context_tensor =
-      input_tensor_metadatas
-          ? FindTensorByName(input_tensors, input_tensor_metadatas,
-                             kResponseContextTensorName)
-          : input_tensors[1];
-
-  RETURN_IF_ERROR(PopulateTensor(input.query_text, query_text_tensor));
-  RETURN_IF_ERROR(PopulateTensor(input.response_text, response_text_tensor));
   RETURN_IF_ERROR(
-      PopulateTensor(input.response_context, response_context_tensor));
+      PopulateTensor(input.query_text, input_tensors[input_indices_[0]]));
+  RETURN_IF_ERROR(
+      PopulateTensor(input.response_context, input_tensors[input_indices_[1]]));
+  RETURN_IF_ERROR(
+      PopulateTensor(input.response_text, input_tensors[input_indices_[2]]));
 
   return absl::OkStatus();
 }
@@ -275,23 +231,9 @@ Status UniversalSentenceEncoderQA::Preprocess(
 StatusOr<QAOutput> UniversalSentenceEncoderQA::Postprocess(
     const std::vector<const TfLiteTensor*>& output_tensors,
     const QAInput& /*input*/) {
-  auto* output_tensor_metadatas =
-      GetMetadataExtractor()->GetOutputTensorMetadata();
-
-  const TfLiteTensor* output_query_encoding_tensor =
-      output_tensor_metadatas
-          ? FindTensorByName(output_tensors, output_tensor_metadatas,
-                             kQueryEncodingTensorName)
-          : output_tensors[0];
-  const TfLiteTensor* output_response_encoding_tensor =
-      output_tensor_metadatas
-          ? FindTensorByName(output_tensors, output_tensor_metadatas,
-                             kResponseEncodingTensorName)
-          : output_tensors[1];
-
   QAOutput output;
-  output.query_encoding = output_query_encoding_tensor;
-  output.response_encoding = output_response_encoding_tensor;
+  output.query_encoding = output_tensors[output_indices_[0]];
+  output.response_encoding = output_tensors[output_indices_[1]];
   return output;
 }
 
@@ -300,11 +242,25 @@ internal::QAOutput UniversalSentenceEncoderQA::Run(
     absl::string_view response_text,
     absl::string_view response_context) {
   QAInput input;
-  input.query_text = query_text;
-  input.response_text = response_text;
-  input.response_context = response_context;
+  input.query_text = std::string(query_text);
+  input.response_text = std::string(response_text);
+  input.response_context = std::string(response_context);
   return Infer(input).value();
 }
+
+absl::Status UniversalSentenceEncoderQA::Init(
+    std::unique_ptr<RetrievalOptions> options) {
+  options_ = std::move(options);
+
+  ASSIGN_OR_RETURN(
+      input_indices_,
+      GetUniversalSentenceEncoderInputTensorIndices(GetTfLiteEngine()));
+  ASSIGN_OR_RETURN(
+      output_indices_,
+      GetUniversalSentenceEncoderOutputTensorIndices(GetTfLiteEngine()));
+
+  return absl::OkStatus();
+}  // namespace retrieval
 
 StatusOr<std::unique_ptr<UniversalSentenceEncoderQA>>
 UniversalSentenceEncoderQA::CreateFromOption(
@@ -320,11 +276,11 @@ UniversalSentenceEncoderQA::CreateFromOption(
       auto encoder,
       TaskAPIFactory::CreateFromBaseOptions<UniversalSentenceEncoderQA>(
           &options_copy->base_options(), std::move(resolver)));
-  encoder->proto_options_ = std::move(options_copy);
-  return std::move(encoder);
+
+  RETURN_IF_ERROR(encoder->Init(std::move(options_copy)));
+  return encoder;
 }
 
-}  // namespace retrieval
 }  // namespace text
 }  // namespace task
 }  // namespace tflite

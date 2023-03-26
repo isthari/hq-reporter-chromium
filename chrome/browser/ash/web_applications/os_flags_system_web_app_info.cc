@@ -1,35 +1,23 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/web_applications/os_flags_system_web_app_info.h"
 
-#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/resources/grit/ash_public_unscaled_resources.h"
-#include "base/feature_list.h"
 #include "chrome/browser/ash/web_applications/system_web_app_install_utils.h"
+#include "chrome/browser/web_applications/mojom/user_display_mode.mojom.h"
+#include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/chromeos/styles/cros_styles.h"
-
-namespace {
-
-SkColor GetBgColor(bool use_dark_mode) {
-  return cros_styles::ResolveColor(
-      cros_styles::ColorName::kBgColor, use_dark_mode,
-      base::FeatureList::IsEnabled(
-          ash::features::kSemanticColorsDebugOverride));
-}
-
-}  // namespace
 
 OsFlagsSystemWebAppDelegate::OsFlagsSystemWebAppDelegate(Profile* profile)
-    : web_app::SystemWebAppDelegate(web_app::SystemAppType::OS_FLAGS,
-                                    "OsFlags",
-                                    GURL(chrome::kChromeUIFlagsURL),
-                                    profile) {}
+    : ash::SystemWebAppDelegate(ash::SystemWebAppType::OS_FLAGS,
+                                "OsFlags",
+                                GURL(chrome::kChromeUIFlagsURL),
+                                profile) {}
 
 OsFlagsSystemWebAppDelegate::~OsFlagsSystemWebAppDelegate() = default;
 
@@ -50,10 +38,12 @@ std::unique_ptr<WebAppInstallInfo> OsFlagsSystemWebAppDelegate::GetWebAppInfo()
       },
       *info);
 
-  info->theme_color = GetBgColor(/*use_dark_mode=*/false);
-  info->dark_mode_theme_color = GetBgColor(/*use_dark_mode=*/true);
+  info->theme_color =
+      web_app::GetDefaultBackgroundColor(/*use_dark_mode=*/false);
+  info->dark_mode_theme_color =
+      web_app::GetDefaultBackgroundColor(/*use_dark_mode=*/true);
   info->display_mode = blink::mojom::DisplayMode::kStandalone;
-  info->user_display_mode = blink::mojom::DisplayMode::kStandalone;
+  info->user_display_mode = web_app::mojom::UserDisplayMode::kStandalone;
 
   return info;
 }
@@ -63,10 +53,6 @@ bool OsFlagsSystemWebAppDelegate::ShouldCaptureNavigations() const {
 }
 
 bool OsFlagsSystemWebAppDelegate::IsAppEnabled() const {
-  return true;
-}
-
-bool OsFlagsSystemWebAppDelegate::ShouldReuseExistingWindow() const {
   return true;
 }
 

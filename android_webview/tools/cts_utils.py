@@ -1,4 +1,4 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """Stage the Chromium checkout to update CTS test version."""
@@ -48,11 +48,6 @@ DEPS_FILE = 'DEPS'
 
 TEST_SUITES_FILE = os.path.join('testing', 'buildbot', 'test_suites.pyl')
 
-# Android desserts that are no longer receiving CTS updates at
-# https://source.android.com/compatibility/cts/downloads
-# Please update this list as more versions reach end-of-service.
-END_OF_SERVICE_DESSERTS = ['M']
-
 CTS_DEP_NAME = 'src/android_webview/tools/cts_archive'
 CTS_DEP_PACKAGE = 'chromium/android_webview/tools/cts_archive'
 
@@ -85,11 +80,23 @@ class CTSConfig:
     with open(self._path) as f:
       self._config = json.load(f)
 
+  def save(self):
+    with open(self._path, 'w') as file:
+      json.dump(self._config, file, indent=2)
+      file.write("\n")
+
   def get_platforms(self):
     return sorted(self._config.keys())
 
   def get_archs(self, platform):
     return sorted(self._config[platform]['arch'].keys())
+
+  def get_git_tag_prefix(self, platform):
+    return self._config[platform]['git']['tag_prefix']
+
+  def iter_platforms(self):
+    for p in self.get_platforms():
+      yield p
 
   def iter_platform_archs(self):
     for p in self.get_platforms():
@@ -107,6 +114,25 @@ class CTSConfig:
 
   def get_apks(self, platform):
     return sorted([r['apk'] for r in self._config[platform]['test_runs']])
+
+  def get_additional_apks(self, platform):
+    return [
+        apk['apk'] for r in self._config[platform]['test_runs']
+        for apk in r.get('additional_apks', [])
+    ]
+
+  def set_release_version(self, platform, arch, release):
+    pattern = re.compile(r'(?<=_r)\d*')
+
+    def update_release_version(field):
+      return pattern.sub(str(release),
+                         self._config[platform]['arch'][arch][field])
+
+    self._config[platform]['arch'][arch] = {
+        'filename': update_release_version('filename'),
+        '_origin': update_release_version('_origin'),
+        'unzip_dir': update_release_version('unzip_dir'),
+    }
 
 
 class CTSCIPDYaml:
@@ -277,7 +303,8 @@ def filter_cts_file(cts_config, cts_zip_file, dest_dir):
       o = cts_config.get_origin(p, a)
       base_name = os.path.basename(o)
       if base_name == os.path.basename(cts_zip_file):
-        filterzip(cts_zip_file, cts_config.get_apks(p),
+        filterzip(cts_zip_file,
+                  cts_config.get_apks(p) + cts_config.get_additional_apks(p),
                   os.path.join(dest_dir, base_name))
         return
   raise ValueError('Could not find platform and arch for: ' + cts_zip_file)
@@ -305,9 +332,11 @@ class ChromiumRepoHelper:
     deps_file = os.path.join(self._root_dir, DEPS_FILE)
 
     # Use the gclient command instead of gclient_eval since the latter is not
-    # intended for direct use outside of depot_tools.
+    # intended for direct use outside of depot_tools. The .bat file extension
+    # must be explicitly specified when shell=False.
+    gclient = 'gclient.bat' if os.name == 'nt' else 'gclient'
     cmd = [
-        'gclient', 'getdep', '--revision',
+        gclient, 'getdep', '--revision',
         '%s:%s' % (CTS_DEP_NAME, CTS_DEP_PACKAGE), '--deps-file', deps_file
     ]
     env = os.environ
@@ -352,7 +381,7 @@ class ChromiumRepoHelper:
       IOError: If generation failed.
     """
     with chdir(self._root_dir):
-      ret = cmd_helper.RunCmd(['python', _GENERATE_BUILDBOT_JSON])
+      ret = cmd_helper.RunCmd(['vpython3', _GENERATE_BUILDBOT_JSON])
       if ret:
         raise IOError('Error while generating_buildbot_json.py')
 

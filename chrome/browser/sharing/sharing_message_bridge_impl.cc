@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -264,9 +264,8 @@ SharingMessageBridgeImpl::TimedCallback::TimedCallback(
     CommitFinishedCallback commit_callback,
     base::OnceClosure timeout_callback)
     : commit_callback_(std::move(commit_callback)) {
-  const base::TimeDelta time_delta =
-      base::Seconds(kSharingMessageBridgeTimeoutSeconds.Get());
-  timer_.Start(FROM_HERE, time_delta, std::move(timeout_callback));
+  timer_.Start(FROM_HERE, SharingMessageBridgeImpl::kCommitTimeout,
+               std::move(timeout_callback));
 }
 
 SharingMessageBridgeImpl::TimedCallback::~TimedCallback() = default;

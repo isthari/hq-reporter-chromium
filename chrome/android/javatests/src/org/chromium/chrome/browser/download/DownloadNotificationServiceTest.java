@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,6 +36,7 @@ import org.chromium.components.offline_items_collection.OfflineItem.Progress;
 import org.chromium.components.offline_items_collection.OfflineItemProgressUnit;
 import org.chromium.components.offline_items_collection.PendingState;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
+import org.chromium.url.GURL;
 
 import java.util.Arrays;
 import java.util.List;
@@ -46,8 +47,7 @@ import java.util.UUID;
  */
 @RunWith(ParameterizedRunner.class)
 @UseRunnerDelegate(ChromeJUnit4RunnerDelegate.class)
-@Features.DisableFeatures({ChromeFeatureList.DOWNLOAD_NOTIFICATION_BADGE,
-        ChromeFeatureList.DOWNLOAD_OFFLINE_CONTENT_PROVIDER})
+@Features.DisableFeatures({ChromeFeatureList.DOWNLOAD_OFFLINE_CONTENT_PROVIDER})
 @Batch(Batch.UNIT_TESTS)
 public class DownloadNotificationServiceTest {
     private static final ContentId ID1 =
@@ -159,8 +159,9 @@ public class DownloadNotificationServiceTest {
         assertTrue(mDownloadNotificationService.mDownloadsInProgress.contains(ID1));
 
         // Download is successful.
-        mDownloadNotificationService.notifyDownloadSuccessful(
-                ID1, "", "test", 1L, mPrimaryOTRProfileID, true, true, null, "", false, "", 0);
+        mDownloadNotificationService.notifyDownloadSuccessful(ID1, "", "test", 1L,
+                mPrimaryOTRProfileID, true, true, null, GURL.emptyGURL(), false, GURL.emptyGURL(),
+                0);
         assertEquals(1, mDownloadNotificationService.getNotificationIds().size());
         assertFalse(mDownloadForegroundServiceManager.mDownloadUpdateQueue.containsKey(
                 notificationId1));

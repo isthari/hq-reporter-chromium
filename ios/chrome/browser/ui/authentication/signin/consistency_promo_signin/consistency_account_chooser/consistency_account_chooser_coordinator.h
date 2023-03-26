@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,15 @@
 
 #import "ios/chrome/browser/ui/coordinators/chrome_coordinator.h"
 
-@class ChromeIdentity;
 @class ConsistencyAccountChooserCoordinator;
 @protocol ConsistencyLayoutDelegate;
+@protocol SystemIdentity;
 
 // Delegate for ConsistencyAccountChooserCoordinator.
 @protocol ConsistencyAccountChooserCoordinatorDelegate <NSObject>
 
 // Invoked when the user selected an identity.
-- (void)consistencyAccountChooserCoordinatorChromeIdentitySelected:
+- (void)consistencyAccountChooserCoordinatorIdentitySelected:
     (ConsistencyAccountChooserCoordinator*)coordinator;
 
 // Invoke add account SigninCoordinator.
@@ -29,7 +29,7 @@
 @interface ConsistencyAccountChooserCoordinator : ChromeCoordinator
 
 // Identity selected by the user.
-@property(nonatomic, strong, readonly) ChromeIdentity* selectedIdentity;
+@property(nonatomic, strong, readonly) id<SystemIdentity> selectedIdentity;
 @property(nonatomic, strong, readonly) UIViewController* viewController;
 @property(nonatomic, weak) id<ConsistencyAccountChooserCoordinatorDelegate>
     delegate;
@@ -37,7 +37,7 @@
 
 - (void)start NS_UNAVAILABLE;
 // Starts the coordinator with the selected identity.
-- (void)startWithSelectedIdentity:(ChromeIdentity*)selectedIdentity;
+- (void)startWithSelectedIdentity:(id<SystemIdentity>)selectedIdentity;
 
 @end
 

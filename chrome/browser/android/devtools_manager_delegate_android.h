@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,8 +27,8 @@ class DevToolsManagerDelegateAndroid : public content::DevToolsManagerDelegate {
   std::string GetTargetType(content::WebContents* web_contents) override;
   content::DevToolsAgentHost::List RemoteDebuggingTargets() override;
   scoped_refptr<content::DevToolsAgentHost> CreateNewTarget(
-      const GURL& url) override;
-  std::string GetDiscoveryPageHTML() override;
+      const GURL& url,
+      bool for_tab) override;
   bool IsBrowserTargetDiscoverable() override;
 };
 

@@ -1,17 +1,17 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/services/sharing/nearby/platform/wifi_lan_server_socket.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "net/base/net_errors.h"
 
-namespace location {
 namespace nearby {
 namespace chrome {
 
@@ -126,12 +126,14 @@ void WifiLanServerSocket::OnAccepted(
     mojo::ScopedDataPipeProducerHandle send_stream) {
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
 
-  // TODO(https://crbug.com/1261238): Log metric.
+  base::UmaHistogramSparse("Nearby.Connections.WifiLan.Socket.AcceptResult",
+                           -net_error);
+
   if (net_error == net::OK) {
     DCHECK(remote_addr);
     VLOG(1) << "WifiLanServerSocket::" << __func__
             << ": Connection accepted from " << remote_addr->ToString();
-    *connected_socket_parameters = {*remote_addr, std::move(connected_socket),
+    *connected_socket_parameters = {std::move(connected_socket),
                                     std::move(receive_stream),
                                     std::move(send_stream)};
   } else {
@@ -236,4 +238,3 @@ void WifiLanServerSocket::OnFirewallHoleDisconnected() {
 
 }  // namespace chrome
 }  // namespace nearby
-}  // namespace location

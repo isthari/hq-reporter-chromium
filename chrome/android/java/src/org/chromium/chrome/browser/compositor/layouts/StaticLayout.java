@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,7 +28,6 @@ import org.chromium.chrome.browser.tab.TabSelectionType;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabObserver;
-import org.chromium.chrome.browser.tabmodel.TabSwitchMetrics;
 import org.chromium.chrome.browser.theme.ThemeUtils;
 import org.chromium.chrome.browser.theme.TopUiThemeColorProvider;
 import org.chromium.chrome.browser.ui.native_page.NativePage;
@@ -201,7 +200,10 @@ public class StaticLayout extends Layout {
         mTabModelSelectorTabModelObserver = new TabModelSelectorTabModelObserver(tabModelSelector) {
             @Override
             public void didSelectTab(Tab tab, int type, int lastId) {
-                if (mIsActive) setStaticTab(tab);
+                if (!mIsActive) return;
+
+                setStaticTab(tab);
+                requestFocus(tab);
             }
         };
 
@@ -210,6 +212,7 @@ public class StaticLayout extends Layout {
             public void onPageLoadFinished(Tab tab, GURL url) {
                 if (mIsActive) unstallImmediately(tab.getId());
             }
+
             @Override
             public void onShown(Tab tab, @TabSelectionType int type) {
                 if (mModel.get(LayoutTab.TAB_ID) != tab.getId()) {
@@ -263,32 +266,28 @@ public class StaticLayout extends Layout {
     }
 
     @Override
+    public void doneShowing() {
+        super.doneShowing();
+        Tab tab = mTabModelSelector.getCurrentTab();
+        if (tab == null) return;
+        requestFocus(tab);
+    }
+
+    @Override
     public void doneHiding() {
         super.doneHiding();
         mIsActive = false;
     }
 
     @Override
-    public void onTabSelected(long time, int id, int prevId, boolean incognito) {
-
-    }
-
-    @Override
     public void onTabSelecting(long time, int id) {
-
+        // Intentional no-op.
     }
 
     @Override
-    public void onTabCreated(long time, int tabId, int tabIndex, int sourceTabId,
-            boolean newIsIncognito, boolean background, float originX, float originY) {
+    public void setTabModelSelector(TabModelSelector modelSelector, TabContentManager manager) {
+        // Intentional no-op.
     }
-
-    @Override
-    public void onTabModelSwitched(boolean incognito) {
-    }
-
-    @Override
-    public void setTabModelSelector(TabModelSelector modelSelector, TabContentManager manager) {}
 
     private void setPreHideState() {
         mHandler.removeCallbacks(mUnstallRunnable);
@@ -302,6 +301,11 @@ public class StaticLayout extends Layout {
         mModel.set(LayoutTab.STATIC_TO_VIEW_BLEND, 0.0f);
         mModel.set(LayoutTab.SATURATION, 1.0f);
         mUnstalling = false;
+    }
+
+    private void requestFocus(Tab tab) {
+        // TODO(crbug/1395495): Investigate removing this behavior. It may no longer be relevant.
+        if (mIsActive && tab.getView() != null) tab.getView().requestFocus();
     }
 
     private void setStaticTab(Tab tab) {
@@ -335,7 +339,7 @@ public class StaticLayout extends Layout {
     }
 
     private void updateStaticTab(Tab tab) {
-        if (!mIsActive || mModel.get(LayoutTab.TAB_ID) != tab.getId()) return;
+        if (mModel.get(LayoutTab.TAB_ID) != tab.getId()) return;
 
         TopUiThemeColorProvider topUiTheme = mTopUiThemeColorProvider.get();
         mModel.set(LayoutTab.BACKGROUND_COLOR, topUiTheme.getBackgroundColor(tab));
@@ -409,11 +413,6 @@ public class StaticLayout extends Layout {
     }
 
     @Override
-    public boolean handlesCloseAll() {
-        return mHandlesTabLifecycles;
-    }
-
-    @Override
     public boolean shouldDisplayContentOverlay() {
         return true;
     }
@@ -435,14 +434,6 @@ public class StaticLayout extends Layout {
         super.updateSceneLayer(
                 viewport, contentViewport, tabContentManager, resourceManager, browserControls);
         assert mSceneLayer != null;
-
-        // TODO(dtrainor, crbug.com/1070281): Find the best way to properly track this metric for
-        //  cold starts. We should probably erase the thumbnail when we select a tab that we need to
-        //  restore. Potentially move to show().
-        if (tabContentManager != null
-                && tabContentManager.hasFullCachedThumbnail(mModel.get(LayoutTab.TAB_ID))) {
-            TabSwitchMetrics.logPerceivedTabSwitchLatencyMetric();
-        }
     }
 
     @Override

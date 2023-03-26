@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -82,6 +82,10 @@ public class TabPersistentStoreUnitTest {
     private TabModel mNormalTabModel;
     @Mock
     private TabModel mIncognitoTabModel;
+    @Mock
+    private TabModelFilterProvider mTabModelFilterProvider;
+    private TabModelFilter mNormalTabModelFilter;
+    private TabModelFilter mIncognitoTabModelFilter;
 
     @Mock
     private TabCreatorManager mTabCreatorManager;
@@ -109,6 +113,12 @@ public class TabPersistentStoreUnitTest {
                 .thenReturn(TabPersistentStore.SAVED_STATE_FILE_PREFIX + "state_files_yay");
         when(mPersistencePolicy.isMergeInProgress()).thenReturn(false);
         when(mPersistencePolicy.performInitialization(any(TaskRunner.class))).thenReturn(false);
+
+        when(mTabModelSelector.getTabModelFilterProvider()).thenReturn(mTabModelFilterProvider);
+        mNormalTabModelFilter = new EmptyTabModelFilter(mNormalTabModel);
+        mIncognitoTabModelFilter = new EmptyTabModelFilter(mIncognitoTabModel);
+        when(mTabModelFilterProvider.getTabModelFilter(false)).thenReturn(mNormalTabModelFilter);
+        when(mTabModelFilterProvider.getTabModelFilter(true)).thenReturn(mIncognitoTabModelFilter);
     }
 
     @After
@@ -123,6 +133,7 @@ public class TabPersistentStoreUnitTest {
 
     @Test
     @SmallTest
+    @UiThreadTest
     @Feature("TabPersistentStore")
     public void testNtpSaveBehavior() {
         when(mNormalTabModel.index()).thenReturn(TabList.INVALID_TAB_INDEX);
@@ -140,7 +151,7 @@ public class TabPersistentStoreUnitTest {
         UserDataHost emptyNtpTabUserDataHost = new UserDataHost();
         when(emptyNtpTab.getUserDataHost()).thenReturn(emptyNtpTabUserDataHost);
         when(emptyNtpTab.getUrl()).thenReturn(new GURL(UrlConstants.NTP_URL));
-        TabStateAttributes.from(emptyNtpTab).setIsTabStateDirty(true);
+        TabStateAttributes.from(emptyNtpTab).markTabStateDirty();
         when(emptyNtpTab.canGoBack()).thenReturn(false);
         when(emptyNtpTab.canGoForward()).thenReturn(false);
 
@@ -151,7 +162,7 @@ public class TabPersistentStoreUnitTest {
         UserDataHost ntpWithBackNavTabUserDataHost = new UserDataHost();
         when(ntpWithBackNavTab.getUserDataHost()).thenReturn(ntpWithBackNavTabUserDataHost);
         when(ntpWithBackNavTab.getUrl()).thenReturn(new GURL(UrlConstants.NTP_URL));
-        TabStateAttributes.from(ntpWithBackNavTab).setIsTabStateDirty(true);
+        TabStateAttributes.from(ntpWithBackNavTab).markTabStateDirty();
         when(ntpWithBackNavTab.canGoBack()).thenReturn(true);
         when(ntpWithBackNavTab.canGoForward()).thenReturn(false);
 
@@ -162,7 +173,7 @@ public class TabPersistentStoreUnitTest {
         UserDataHost ntpWithForwardNavTabUserDataHost = new UserDataHost();
         when(ntpWithForwardNavTab.getUserDataHost()).thenReturn(ntpWithForwardNavTabUserDataHost);
         when(ntpWithForwardNavTab.getUrl()).thenReturn(new GURL(UrlConstants.NTP_URL));
-        TabStateAttributes.from(ntpWithForwardNavTab).setIsTabStateDirty(true);
+        TabStateAttributes.from(ntpWithForwardNavTab).markTabStateDirty();
         when(ntpWithForwardNavTab.canGoBack()).thenReturn(false);
         when(ntpWithForwardNavTab.canGoForward()).thenReturn(true);
 
@@ -173,7 +184,7 @@ public class TabPersistentStoreUnitTest {
         UserDataHost ntpWithAllTheNavsTabUserDataHost = new UserDataHost();
         when(ntpWithAllTheNavsTab.getUserDataHost()).thenReturn(ntpWithAllTheNavsTabUserDataHost);
         when(ntpWithAllTheNavsTab.getUrl()).thenReturn(new GURL(UrlConstants.NTP_URL));
-        TabStateAttributes.from(ntpWithAllTheNavsTab).setIsTabStateDirty(true);
+        TabStateAttributes.from(ntpWithAllTheNavsTab).markTabStateDirty();
         when(ntpWithAllTheNavsTab.canGoBack()).thenReturn(true);
         when(ntpWithAllTheNavsTab.canGoForward()).thenReturn(true);
 
@@ -219,7 +230,7 @@ public class TabPersistentStoreUnitTest {
 
         verify(mNormalTabCreator)
                 .createNewTab(argThat(new LoadUrlParamsUrlMatcher(UrlConstants.NTP_URL)),
-                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull());
+                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull(), eq(0));
     }
 
     @Test
@@ -244,14 +255,14 @@ public class TabPersistentStoreUnitTest {
         mPersistentStore.restoreTab(emptyNtpDetails, null, null, false);
         verify(mNormalTabCreator)
                 .createNewTab(argThat(new LoadUrlParamsUrlMatcher(UrlConstants.NTP_URL)),
-                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull());
+                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull(), eq(0));
 
         TabRestoreDetails emptyIncognitoNtpDetails =
                 new TabRestoreDetails(1, 0, true, UrlConstants.NTP_URL, true);
         mPersistentStore.restoreTab(emptyIncognitoNtpDetails, null, null, false);
         verify(mIncognitoTabCreator)
                 .createNewTab(argThat(new LoadUrlParamsUrlMatcher(UrlConstants.NTP_URL)),
-                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull());
+                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull(), eq(0));
     }
 
     @Test
@@ -295,7 +306,7 @@ public class TabPersistentStoreUnitTest {
 
         verify(mIncognitoTabCreator)
                 .createNewTab(argThat(new LoadUrlParamsUrlMatcher(UrlConstants.NTP_URL)),
-                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull());
+                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull(), eq(0));
     }
 
     @Test

@@ -1,11 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
@@ -84,7 +85,7 @@ class ScrollLatencyBrowserTest : public ContentBrowserTest {
   RenderWidgetHostImpl* GetWidgetHost() {
     return RenderWidgetHostImpl::From(shell()
                                           ->web_contents()
-                                          ->GetMainFrame()
+                                          ->GetPrimaryMainFrame()
                                           ->GetRenderViewHost()
                                           ->GetWidget());
   }
@@ -93,7 +94,7 @@ class ScrollLatencyBrowserTest : public ContentBrowserTest {
   // crbug.com/405282 for details.
   void GiveItSomeTime() {
     base::RunLoop run_loop;
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE, run_loop.QuitClosure(), base::Milliseconds(10));
     run_loop.Run();
   }
@@ -147,7 +148,7 @@ class ScrollLatencyBrowserTest : public ContentBrowserTest {
       // latency histograms being logged).
       // We must install a callback for each gesture since they are one-shot
       // callbacks.
-      shell()->web_contents()->GetMainFrame()->InsertVisualStateCallback(
+      shell()->web_contents()->GetPrimaryMainFrame()->InsertVisualStateCallback(
           base::BindOnce(&ScrollLatencyBrowserTest::InvokeVisualStateCallback,
                          base::Unretained(this)));
 
@@ -210,7 +211,8 @@ class ScrollLatencyBrowserTest : public ContentBrowserTest {
 };
 
 // Disabled due to flakiness https://crbug.com/1163246.
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || \
+    BUILDFLAG(IS_ANDROID)
 #define MAYBE_MultipleWheelScroll DISABLED_MultipleWheelScroll
 #else
 #define MAYBE_MultipleWheelScroll MultipleWheelScroll
@@ -223,8 +225,8 @@ IN_PROC_BROWSER_TEST_F(ScrollLatencyBrowserTest, MAYBE_MultipleWheelScroll) {
   RunMultipleWheelScroll();
 }
 
-// Disabled due to flakiness https://crbug.com/1163246.
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+// Disabled due to flakiness https://crbug.com/1163246 and https://crbug.com/1349901
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_MAC)
 #define MAYBE_MultipleWheelScrollOnMain DISABLED_MultipleWheelScrollOnMain
 #else
 #define MAYBE_MultipleWheelScrollOnMain MultipleWheelScrollOnMain
@@ -572,8 +574,9 @@ IN_PROC_BROWSER_TEST_F(ScrollLatencyCompositedScrollbarBrowserTest,
   RunScrollbarThumbDragLatencyTest();
 }
 
+// Disabled due to flakiness https://crbug.com/1188553
 IN_PROC_BROWSER_TEST_F(ScrollLatencyCompositedScrollbarBrowserTest,
-                       ScrollbarThumbDragDeviceChange) {
+                       DISABLED_ScrollbarThumbDragDeviceChange) {
 #if !BUILDFLAG(IS_ANDROID)
   LoadURL();
 

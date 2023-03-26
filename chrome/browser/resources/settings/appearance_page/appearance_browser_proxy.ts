@@ -1,10 +1,10 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import {sendWithPromise} from 'chrome://resources/js/cr.m.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {sendWithPromise} from 'chrome://resources/js/cr.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 // clang-format on
 
 export interface AppearanceBrowserProxy {
@@ -16,8 +16,9 @@ export interface AppearanceBrowserProxy {
 
   useDefaultTheme(): void;
 
-  // <if expr="is_linux and not chromeos">
-  useSystemTheme(): void;
+  // <if expr="is_linux">
+  useGtkTheme(): void;
+  useQtTheme(): void;
   // </if>
 
   validateStartupPage(url: string): Promise<boolean>;
@@ -25,15 +26,11 @@ export interface AppearanceBrowserProxy {
 
 export class AppearanceBrowserProxyImpl implements AppearanceBrowserProxy {
   getDefaultZoom(): Promise<number> {
-    return new Promise(function(resolve) {
-      chrome.settingsPrivate.getDefaultZoom(resolve);
-    });
+    return chrome.settingsPrivate.getDefaultZoom();
   }
 
   getThemeInfo(themeId: string): Promise<chrome.management.ExtensionInfo> {
-    return new Promise(function(resolve) {
-      chrome.management.get(themeId, resolve);
-    });
+    return chrome.management.get(themeId);
   }
 
   isChildAccount() {
@@ -44,9 +41,13 @@ export class AppearanceBrowserProxyImpl implements AppearanceBrowserProxy {
     chrome.send('useDefaultTheme');
   }
 
-  // <if expr="is_linux and not chromeos">
-  useSystemTheme() {
-    chrome.send('useSystemTheme');
+  // <if expr="is_linux">
+  useGtkTheme() {
+    chrome.send('useGtkTheme');
+  }
+
+  useQtTheme() {
+    chrome.send('useQtTheme');
   }
   // </if>
 

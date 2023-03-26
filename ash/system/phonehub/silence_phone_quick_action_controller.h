@@ -1,12 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_SYSTEM_PHONEHUB_SILENCE_PHONE_QUICK_ACTION_CONTROLLER_H_
 #define ASH_SYSTEM_PHONEHUB_SILENCE_PHONE_QUICK_ACTION_CONTROLLER_H_
 
-#include "ash/components/phonehub/do_not_disturb_controller.h"
 #include "ash/system/phonehub/quick_action_controller_base.h"
+#include "chromeos/ash/components/phonehub/do_not_disturb_controller.h"
 
 namespace base {
 class OneShotTimer;

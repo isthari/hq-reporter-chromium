@@ -29,6 +29,7 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/notreached.h"
 #include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom-blink-forward.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
 #include "third_party/blink/renderer/platform/graphics/image_observer.h"
@@ -82,15 +83,25 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
       int resource_id,
       ui::ResourceScaleFactor scale_factor = ui::k100Percent);
 
+  // Resize and reorient the specified PaintImage. The resulting image will have
+  // color type kN32_SkColorType. The resulting image will have the same color
+  // space as the input PaintImage, unless a non-nullptr SkColorSpace is
+  // specified, in which case the resulting image will have the specified color
+  // space.
   static PaintImage ResizeAndOrientImage(
       const PaintImage&,
       ImageOrientation,
       gfx::Vector2dF image_scale = gfx::Vector2dF(1, 1),
       float opacity = 1.0,
       InterpolationQuality = kInterpolationNone);
+  static PaintImage ResizeAndOrientImage(const PaintImage&,
+                                         ImageOrientation,
+                                         gfx::Vector2dF image_scale,
+                                         float opacity,
+                                         InterpolationQuality,
+                                         sk_sp<SkColorSpace> color_space);
 
   virtual bool IsSVGImage() const { return false; }
-  virtual bool IsSVGImageForContainer() const { return false; }
   virtual bool IsBitmapImage() const { return false; }
   virtual bool IsStaticBitmapImage() const { return false; }
   virtual bool IsPlaceholderImage() const { return false; }
@@ -170,7 +181,7 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
 
   virtual bool GetHotSpot(gfx::Point&) const { return false; }
 
-  enum SizeAvailability {
+  enum SizeAvailability : uint8_t {
     kSizeUnavailable,
     kSizeAvailableAndLoadingAsynchronously,
     kSizeAvailable,
@@ -189,8 +200,11 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
     return kSizeUnavailable;
   }
 
-  // null string if unknown
+  // Returns null string if unknown.
   virtual String FilenameExtension() const;
+
+  // Returns WTF::g_null_atom if unknown.
+  virtual const AtomicString& MimeType() const;
 
   virtual void DestroyDecodedData() = 0;
 
@@ -303,7 +317,6 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
   // of that function the shader should use a clamping tile mode if possible.
   virtual bool ApplyShader(cc::PaintFlags&,
                            const SkMatrix& local_matrix,
-                           const gfx::RectF& dst_rect,
                            const gfx::RectF& src_rect,
                            const ImageDrawOptions& draw_options);
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,11 +50,12 @@
     {'pid':17851,'tid':23,'ts':101000,'ph':'b','cat':'blink.user_timing','name':'HTML done parsing','args':{},'id':'0x472bc7'},
     {'pid':17851,'tid':23,'ts':102000,'ph':'e','cat':'blink.user_timing','name':'HTML done parsing','args':{},'id':'0x472bc7'},
     {'pid':17851,'tid':23,'ts':101250,'ph':'b','cat':'blink.user_timing','name':'eval scripts','args':{},'id':'0xa09f70'},
-    {'pid':17851,'tid':23,'ts':102000,'ph':'e','cat':'blink.user_timing','name':'eval scripts','args':{},'id':'0xa09f70'}
+    {'pid':17851,'tid':23,'ts':102000,'ph':'e','cat':'blink.user_timing','name':'eval scripts','args':{},'id':'0xa09f70'},
+    {'pid':17851,'tid':23,'ts':102000,'ph':'E','cat':'devtools.timeline','name':'RunTask','args':{},'id':'0xa09f70'}
   ];
 
   const timeline = UI.panels.timeline;
-  timeline.setModel(PerformanceTestRunner.createPerformanceModelWithEvents(rawTraceEvents));
+  timeline.setModel(await PerformanceTestRunner.createPerformanceModelWithEvents(rawTraceEvents));
 
   testEventTree('CallTree');
   testEventTree('BottomUp');

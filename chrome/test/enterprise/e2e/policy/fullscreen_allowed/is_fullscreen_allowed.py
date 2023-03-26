@@ -1,14 +1,16 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import test_util
+import time
 from absl import app
 from pywinauto.application import Application
 
+from test_util import create_chrome_webdriver
+
 
 def main(argv):
-  driver = test_util.create_chrome_webdriver()
+  driver = create_chrome_webdriver()
   try:
     application = Application(backend="uia")
     application.connect(title_re='.*Chrome|.*Chromium')
@@ -17,13 +19,15 @@ def main(argv):
     for desc in w.descendants():
       print("item: %s" % desc)
 
-    print("Closing info bar.")
-    container = w.child_window(best_match="Infobar Container")
-    container.child_window(best_match="Close").click_input()
+    print("Closing info bar if exists.")
+    if w.child_window(best_match="Infobar Container").exists():
+      w.child_window(best_match="Infobar Container").child_window(
+          best_match="Close").click_input()
 
     print("press F11 to enter full screen mode.")
     w.type_keys('{F11}')
 
+    time.sleep(5)
     window_rect = w.rectangle()
     window_width = window_rect.width()
     window_height = window_rect.height()

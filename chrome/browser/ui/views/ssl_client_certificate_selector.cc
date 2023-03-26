@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,9 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -113,8 +114,6 @@ SSLClientCertificateSelector::SSLClientCertificateSelector(
           dialog->auth_observer_impl_->CertificateSelected(nullptr, nullptr);
       },
       this));
-  chrome::RecordDialogCreation(
-      chrome::DialogIdentifier::SSL_CLIENT_CERTIFICATE_SELECTOR);
 }
 
 SSLClientCertificateSelector::~SSLClientCertificateSelector() {}

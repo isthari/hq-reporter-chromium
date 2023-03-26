@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -52,7 +52,7 @@ scoped_refptr<const Extension> CreateExtensionImportingModules(
 
 scoped_refptr<const Extension> CreateSharedModule(
     const std::string& module_id) {
-  std::unique_ptr<base::DictionaryValue> manifest =
+  base::Value::Dict manifest =
       DictionaryBuilder()
           .Set("name", "Shared Module")
           .Set("version", "1.0")
@@ -178,7 +178,7 @@ TEST_F(SharedModuleServiceUnitTest, PruneSharedModulesOnUpdate) {
       CreateSharedModule("shared_module_1");
   EXPECT_TRUE(InstallExtension(shared_module_1.get(), false));
 
-  std::unique_ptr<base::DictionaryValue> manifest_2 =
+  base::Value::Dict manifest_2 =
       DictionaryBuilder()
           .Set("name", "Shared Module 2")
           .Set("version", "1.0")
@@ -237,7 +237,7 @@ TEST_F(SharedModuleServiceUnitTest, AllowlistedImports) {
   std::string nonallowlisted_id =
       crx_file::id_util::GenerateId("nonallowlisted");
   // Create a module which exports to a restricted allowlist.
-  std::unique_ptr<base::DictionaryValue> manifest =
+  base::Value::Dict manifest =
       DictionaryBuilder()
           .Set("name", "Shared Module")
           .Set("version", "1.0")

@@ -1,13 +1,14 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/time/time.h"
 #include "chrome/browser/password_manager/account_password_store_factory.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/sync/sync_service_factory.h"
@@ -33,7 +34,7 @@ class PasswordsCounterTest : public InProcessBrowserTest {
   void SetUpOnMainThread() override {
     finished_ = false;
     time_ = base::Time::Now();
-    times_used_ = 0;
+    times_used_in_html_form_ = 0;
     store_ = PasswordStoreFactory::GetForProfile(
                  browser()->profile(), ServiceAccessType::IMPLICIT_ACCESS)
                  .get();
@@ -73,7 +74,7 @@ class PasswordsCounterTest : public InProcessBrowserTest {
 
   void RevertTimeInDays(int days) { time_ -= base::Days(days); }
 
-  void SetTimesUsed(int occurrences) { times_used_ = occurrences; }
+  void SetTimesUsed(int occurrences) { times_used_in_html_form_ = occurrences; }
 
   void WaitForCounting() {
     // The counting takes place on the background thread. Wait until it
@@ -134,19 +135,21 @@ class PasswordsCounterTest : public InProcessBrowserTest {
     PasswordForm result;
     result.signon_realm = origin;
     result.url = GURL(origin);
-    result.username_value = base::ASCIIToUTF16(username);
-    result.password_value = u"hunter2";
+    if (!blocked_by_user) {
+      result.username_value = base::ASCIIToUTF16(username);
+      result.password_value = u"hunter2";
+    }
     result.blocked_by_user = blocked_by_user;
     result.date_created = time_;
-    result.times_used = times_used_;
+    result.times_used_in_html_form = times_used_in_html_form_;
     return result;
   }
 
-  raw_ptr<password_manager::PasswordStoreInterface> store_;
+  raw_ptr<password_manager::PasswordStoreInterface, DanglingUntriaged> store_;
 
   std::unique_ptr<base::RunLoop> run_loop_;
   base::Time time_;
-  int times_used_;
+  int times_used_in_html_form_;
 
   bool finished_;
   BrowsingDataCounter::ResultInt result_;
@@ -182,8 +185,8 @@ IN_PROC_BROWSER_TEST_F(PasswordsCounterTest, SameDomain) {
 // Tests that the counter doesn't count blocklisted entries.
 IN_PROC_BROWSER_TEST_F(PasswordsCounterTest, blocklisted) {
   AddLogin("https://www.google.com", "user1", false);
-  AddLogin("https://www.google.com", "user2", true);
-  AddLogin("https://www.chrome.com", "user3", true);
+  AddLogin("https://www.google.com", "", true);
+  AddLogin("https://www.chrome.com", "", true);
 
   Profile* profile = browser()->profile();
   browsing_data::PasswordsCounter counter(

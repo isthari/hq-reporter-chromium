@@ -1,12 +1,15 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/modules/locks/lock.h"
 
+#include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_throw_dom_exception.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/modules/locks/lock_manager.h"
@@ -40,12 +43,15 @@ class Lock::ThenFunction final : public ScriptFunction::Callable {
     DCHECK(lock_);
     DCHECK(resolve_type_ == kFulfilled || resolve_type_ == kRejected);
     lock_->ReleaseIfHeld();
-    if (resolve_type_ == kFulfilled)
+    if (resolve_type_ == kFulfilled) {
       lock_->resolver_->Resolve(value);
-    else
+      lock_ = nullptr;
+      return value;
+    } else {
       lock_->resolver_->Reject(value);
-    lock_ = nullptr;
-    return value;
+      lock_ = nullptr;
+      return ScriptValue();
+    }
   }
 
  private:
@@ -70,7 +76,7 @@ Lock::Lock(ScriptState* script_state,
   handle_.Bind(std::move(handle), task_runner);
   lock_lifetime_.Bind(std::move(lock_lifetime), task_runner);
   handle_.set_disconnect_handler(
-      WTF::Bind(&Lock::OnConnectionError, WrapWeakPersistent(this)));
+      WTF::BindOnce(&Lock::OnConnectionError, WrapWeakPersistent(this)));
 }
 
 Lock::~Lock() = default;
@@ -149,9 +155,21 @@ void Lock::ReleaseIfHeld() {
 }
 
 void Lock::OnConnectionError() {
+  DCHECK(resolver_);
+
   ReleaseIfHeld();
-  resolver_->Reject(MakeGarbageCollected<DOMException>(
-      DOMExceptionCode::kAbortError,
+
+  ScriptState* const script_state = resolver_->GetScriptState();
+
+  if (!IsInParallelAlgorithmRunnable(resolver_->GetExecutionContext(),
+                                     script_state)) {
+    return;
+  }
+
+  ScriptState::Scope script_state_scope(script_state);
+
+  resolver_->Reject(V8ThrowDOMException::CreateOrDie(
+      script_state->GetIsolate(), DOMExceptionCode::kAbortError,
       "Lock broken by another request with the 'steal' option."));
 }
 

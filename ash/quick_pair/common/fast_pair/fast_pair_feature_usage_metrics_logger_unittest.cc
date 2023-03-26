@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
-#include "chromeos/components/feature_usage/feature_usage_metrics.h"
+#include "chromeos/ash/components/feature_usage/feature_usage_metrics.h"
 #include "components/prefs/pref_registry.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
@@ -112,12 +112,21 @@ TEST_F(FastPairFeatureUsageMetricsLoggerTest, IsEligible_Ineligible) {
 
 TEST_F(FastPairFeatureUsageMetricsLoggerTest, IsEnabled_Enabled) {
   FastPairFeatureUsageMetricsLogger feature_usage_metrics;
+
+  SetBluetoothIsPresent(/*present=*/true);
+  SetHardwareOffloadingStatus(
+      /*hardware_offloading_status=*/device::BluetoothAdapter::
+          LowEnergyScanSessionHardwareOffloadingStatus::kSupported);
   EXPECT_TRUE(feature_usage_metrics.IsEnabled());
 }
 
 TEST_F(FastPairFeatureUsageMetricsLoggerTest, IsEnabled_NotEnabled) {
   FastPairFeatureUsageMetricsLogger feature_usage_metrics;
 
+  SetBluetoothIsPresent(/*present=*/true);
+  SetHardwareOffloadingStatus(
+      /*hardware_offloading_status=*/device::BluetoothAdapter::
+          LowEnergyScanSessionHardwareOffloadingStatus::kSupported);
   SetEnabled(/*is_enabled=*/false);
   EXPECT_FALSE(feature_usage_metrics.IsEnabled());
 }
@@ -158,6 +167,10 @@ TEST_F(FastPairFeatureUsageMetricsLoggerTest, RecordUsage) {
 
 TEST_F(FastPairFeatureUsageMetricsLoggerTest, IsAccessible_Unmanaged_Enabled) {
   FastPairFeatureUsageMetricsLogger feature_usage_metrics;
+  SetBluetoothIsPresent(/*present=*/true);
+  SetHardwareOffloadingStatus(
+      /*hardware_offloading_status=*/device::BluetoothAdapter::
+          LowEnergyScanSessionHardwareOffloadingStatus::kSupported);
 
   EXPECT_TRUE(feature_usage_metrics.IsAccessible().value());
   EXPECT_TRUE(feature_usage_metrics.IsEnabled());
@@ -166,6 +179,10 @@ TEST_F(FastPairFeatureUsageMetricsLoggerTest, IsAccessible_Unmanaged_Enabled) {
 TEST_F(FastPairFeatureUsageMetricsLoggerTest, IsAccessible_Unmanaged_Disabled) {
   FastPairFeatureUsageMetricsLogger feature_usage_metrics;
 
+  SetBluetoothIsPresent(/*present=*/true);
+  SetHardwareOffloadingStatus(
+      /*hardware_offloading_status=*/device::BluetoothAdapter::
+          LowEnergyScanSessionHardwareOffloadingStatus::kSupported);
   SetEnabled(/*is_enabled=*/false);
   EXPECT_TRUE(feature_usage_metrics.IsAccessible().value());
   EXPECT_FALSE(feature_usage_metrics.IsEnabled());
@@ -174,6 +191,10 @@ TEST_F(FastPairFeatureUsageMetricsLoggerTest, IsAccessible_Unmanaged_Disabled) {
 TEST_F(FastPairFeatureUsageMetricsLoggerTest, IsAccessible_Managed_Enabled) {
   FastPairFeatureUsageMetricsLogger feature_usage_metrics;
 
+  SetBluetoothIsPresent(/*present=*/true);
+  SetHardwareOffloadingStatus(
+      /*hardware_offloading_status=*/device::BluetoothAdapter::
+          LowEnergyScanSessionHardwareOffloadingStatus::kSupported);
   SetManagedEnabled(/*is_enabled=*/true);
   EXPECT_TRUE(feature_usage_metrics.IsAccessible().value());
   EXPECT_TRUE(feature_usage_metrics.IsEnabled());
@@ -182,7 +203,25 @@ TEST_F(FastPairFeatureUsageMetricsLoggerTest, IsAccessible_Managed_Enabled) {
 TEST_F(FastPairFeatureUsageMetricsLoggerTest, IsAccessible_Managed_Disabled) {
   FastPairFeatureUsageMetricsLogger feature_usage_metrics;
 
+  SetBluetoothIsPresent(/*present=*/true);
+  SetHardwareOffloadingStatus(
+      /*hardware_offloading_status=*/device::BluetoothAdapter::
+          LowEnergyScanSessionHardwareOffloadingStatus::kSupported);
   SetManagedEnabled(/*is_enabled=*/false);
+  EXPECT_FALSE(feature_usage_metrics.IsAccessible().value());
+  EXPECT_FALSE(feature_usage_metrics.IsEnabled());
+}
+
+TEST_F(FastPairFeatureUsageMetricsLoggerTest, IsAccessible_Ineligible_Enabled) {
+  FastPairFeatureUsageMetricsLogger feature_usage_metrics;
+
+  SetBluetoothIsPresent(/*present=*/false);
+  SetHardwareOffloadingStatus(
+      /*hardware_offloading_status=*/device::BluetoothAdapter::
+          LowEnergyScanSessionHardwareOffloadingStatus::kNotSupported);
+
+  EXPECT_FALSE(feature_usage_metrics.IsEligible());
+  SetManagedEnabled(/*is_enabled=*/true);
   EXPECT_FALSE(feature_usage_metrics.IsAccessible().value());
   EXPECT_FALSE(feature_usage_metrics.IsEnabled());
 }

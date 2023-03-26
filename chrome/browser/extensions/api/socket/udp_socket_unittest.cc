@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,11 @@
 #include <memory>
 #include <string>
 
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/test_timeouts.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/extension_service_test_base.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
@@ -64,7 +62,7 @@ static void OnCompleted(int bytes_read,
 }
 
 static const char kTestMessage[] = "$$TESTMESSAGETESTMESSAGETESTMESSAGETEST$$";
-static const int kTestMessageLength = base::size(kTestMessage);
+static const int kTestMessageLength = std::size(kTestMessage);
 
 net::AddressList CreateAddressList(const char* address_string, int port) {
   net::IPAddress ip;
@@ -147,7 +145,7 @@ static void SendMulticastPacket(base::OnceClosure quit_run_loop,
     scoped_refptr<net::IOBuffer> data =
         base::MakeRefCounted<net::WrappedIOBuffer>(kTestMessage);
     src->Write(data, kTestMessageLength, base::BindOnce(&OnSendCompleted));
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&SendMulticastPacket, std::move(quit_run_loop), src,
                        result),
@@ -208,7 +206,7 @@ TEST_F(UDPSocketUnitTest, MAYBE_TestUDPMulticastRecv) {
       base::BindOnce(&SendMulticastPacket, run_loop.QuitClosure(), src.get()));
 
   // If not received within the test action timeout, quit the message loop.
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, run_loop.QuitClosure(), TestTimeouts::action_timeout());
 
   run_loop.Run();

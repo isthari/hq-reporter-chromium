@@ -1,10 +1,10 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/exclusive_access/mouse_lock_controller.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -166,7 +166,7 @@ void MouseLockController::UnlockMouse() {
 
   content::RenderWidgetHostView* mouse_lock_view = nullptr;
   RenderViewHost* const rvh =
-      exclusive_access_tab()->GetMainFrame()->GetRenderViewHost();
+      exclusive_access_tab()->GetPrimaryMainFrame()->GetRenderViewHost();
   if (rvh)
     mouse_lock_view = rvh->GetWidget()->GetView();
 

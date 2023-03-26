@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 
 import android.content.ComponentName;
 import android.content.Context;
@@ -24,23 +27,38 @@ import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
+import org.mockito.InOrder;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
+import org.mockito.quality.Strictness;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.base.IntentUtils;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.UiThreadTest;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.browser.browserservices.verification.OriginVerifier;
+import org.chromium.chrome.browser.browserservices.verification.ChromeOriginVerifier;
 import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
-import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
+import org.chromium.chrome.browser.customtabs.CustomTabsIntentTestUtils;
+import org.chromium.chrome.browser.externalnav.IntentWithRequestMetadataHandler;
+import org.chromium.chrome.browser.externalnav.IntentWithRequestMetadataHandler.RequestMetadata;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.translate.TranslateIntentHandler;
 import org.chromium.chrome.browser.webapps.WebappLauncherActivity;
+import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.webapps.WebappTestHelper;
 import org.chromium.components.embedder_support.util.Origin;
 import org.chromium.components.embedder_support.util.UrlConstants;
+import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
@@ -123,6 +141,17 @@ public class IntentHandlerUnitTest {
     private IntentHandler mIntentHandler;
     private Intent mIntent;
 
+    @Rule
+    public MockitoRule mMockitoRule = MockitoJUnit.rule().strictness(Strictness.STRICT_STUBS);
+
+    @Rule
+    public Features.JUnitProcessor mFeaturesProcessor = new Features.JUnitProcessor();
+
+    @Mock
+    public IntentHandler.IntentHandlerDelegate mDelegate;
+    @Captor
+    ArgumentCaptor<LoadUrlParams> mLoadUrlParamsCaptor;
+
     private void processUrls(String[] urls, boolean isValid) {
         List<String> failedTests = new ArrayList<String>();
 
@@ -159,8 +188,52 @@ public class IntentHandlerUnitTest {
     public void setUp() {
         NativeLibraryTestUtils.loadNativeLibraryNoBrowserProcess();
         IntentHandler.setTestIntentsEnabled(false);
-        mIntentHandler = new IntentHandler(null, null);
+        mIntentHandler = new IntentHandler(null, mDelegate);
         mIntent = new Intent();
+    }
+
+    @Test
+    @SmallTest
+    @Features.EnableFeatures(ChromeFeatureList.OPAQUE_ORIGIN_FOR_INCOMING_INTENTS)
+    public void testNewIntentInitiator() throws Exception {
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setData(Uri.parse(GOOGLE_URL));
+        InOrder inOrder = Mockito.inOrder(mDelegate);
+
+        mIntentHandler.onNewIntent(intent);
+        inOrder.verify(mDelegate).processUrlViewIntent(
+                mLoadUrlParamsCaptor.capture(), anyInt(), any(), anyInt(), eq(intent));
+        Assert.assertTrue(mLoadUrlParamsCaptor.getValue().getInitiatorOrigin().isOpaque());
+
+        intent.setPackage(ContextUtils.getApplicationContext().getPackageName());
+        IntentUtils.addTrustedIntentExtras(intent);
+        mIntentHandler.onNewIntent(intent);
+        inOrder.verify(mDelegate).processUrlViewIntent(
+                mLoadUrlParamsCaptor.capture(), anyInt(), any(), anyInt(), eq(intent));
+        Assert.assertNull(mLoadUrlParamsCaptor.getValue().getInitiatorOrigin());
+    }
+
+    @Test
+    @SmallTest
+    @Features.DisableFeatures(ChromeFeatureList.OPAQUE_ORIGIN_FOR_INCOMING_INTENTS)
+    public void testNewIntentInitiatorFromRenderer() throws Exception {
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setData(Uri.parse(GOOGLE_URL));
+        InOrder inOrder = Mockito.inOrder(mDelegate);
+
+        mIntentHandler.onNewIntent(intent);
+        inOrder.verify(mDelegate).processUrlViewIntent(
+                mLoadUrlParamsCaptor.capture(), anyInt(), any(), anyInt(), eq(intent));
+        Assert.assertNull(mLoadUrlParamsCaptor.getValue().getInitiatorOrigin());
+
+        RequestMetadata metadata = new RequestMetadata(true, true);
+        IntentWithRequestMetadataHandler.getInstance().onNewIntentWithRequestMetadata(
+                intent, metadata);
+
+        mIntentHandler.onNewIntent(intent);
+        inOrder.verify(mDelegate).processUrlViewIntent(
+                mLoadUrlParamsCaptor.capture(), anyInt(), any(), anyInt(), eq(intent));
+        Assert.assertTrue(mLoadUrlParamsCaptor.getValue().getInitiatorOrigin().isOpaque());
     }
 
     @Test
@@ -354,10 +427,10 @@ public class IntentHandlerUnitTest {
     @Test
     @SmallTest
     public void testExtraHeadersVerifiedOrigin() throws Exception {
-        // Check that non-whitelisted headers from extras are passed
+        // Check that non-allowlisted headers from extras are passed
         // when origin is verified.
         Context context = InstrumentationRegistry.getTargetContext();
-        Intent headersIntent = CustomTabsTestUtils.createMinimalCustomTabIntent(
+        Intent headersIntent = CustomTabsIntentTestUtils.createMinimalCustomTabIntent(
                 context, "https://www.google.com/");
 
         Bundle headers = new Bundle();
@@ -372,7 +445,7 @@ public class IntentHandlerUnitTest {
         connection.overridePackageNameForSessionForTesting(token, "app1");
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
-                        -> OriginVerifier.addVerificationOverride("app1",
+                        -> ChromeOriginVerifier.addVerificationOverride("app1",
                                 Origin.create(headersIntent.getData()),
                                 CustomTabsService.RELATION_USE_AS_ORIGIN));
 
@@ -380,16 +453,16 @@ public class IntentHandlerUnitTest {
         assertTrue(extraHeaders.contains("bearer-token: Some token"));
         assertTrue(extraHeaders.contains("redirect-url: https://www.google.com"));
         TestThreadUtils.runOnUiThreadBlocking(
-                () -> OriginVerifier.clearCachedVerificationsForTesting());
+                () -> ChromeOriginVerifier.clearCachedVerificationsForTesting());
     }
 
     @Test
     @SmallTest
     public void testExtraHeadersNonVerifiedOrigin() throws Exception {
-        // Check that non-whitelisted headers from extras are passed
+        // Check that non-allowlisted headers from extras are passed
         // when origin is verified.
         Context context = InstrumentationRegistry.getTargetContext();
-        Intent headersIntent = CustomTabsTestUtils.createMinimalCustomTabIntent(
+        Intent headersIntent = CustomTabsIntentTestUtils.createMinimalCustomTabIntent(
                 context, "https://www.google.com/");
 
         Bundle headers = new Bundle();
@@ -404,14 +477,14 @@ public class IntentHandlerUnitTest {
         connection.overridePackageNameForSessionForTesting(token, "app1");
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
-                        -> OriginVerifier.addVerificationOverride("app2",
+                        -> ChromeOriginVerifier.addVerificationOverride("app2",
                                 Origin.create(headersIntent.getData()),
                                 CustomTabsService.RELATION_USE_AS_ORIGIN));
 
         String extraHeaders = IntentHandler.getExtraHeadersFromIntent(headersIntent);
         assertNull(extraHeaders);
         TestThreadUtils.runOnUiThreadBlocking(
-                () -> OriginVerifier.clearCachedVerificationsForTesting());
+                () -> ChromeOriginVerifier.clearCachedVerificationsForTesting());
     }
 
     @Test
@@ -420,7 +493,7 @@ public class IntentHandlerUnitTest {
     @Feature({"Android-AppBase"})
     public void testReferrerUrl_customTabIntentWithSession() {
         Context context = InstrumentationRegistry.getTargetContext();
-        Intent intent = CustomTabsTestUtils.createMinimalCustomTabIntent(
+        Intent intent = CustomTabsIntentTestUtils.createMinimalCustomTabIntent(
                 context, "https://www.google.com/");
         Assert.assertTrue(CustomTabsConnection.getInstance().newSession(
                 CustomTabsSessionToken.getSessionTokenFromIntent(intent)));
@@ -474,6 +547,18 @@ public class IntentHandlerUnitTest {
     public void testStripNonCorsSafelistedCustomHeader() {
         Bundle bundle = new Bundle();
         bundle.putString("X-Some-Header", "1");
+        Intent headersIntent = new Intent(Intent.ACTION_VIEW);
+        headersIntent.putExtra(Browser.EXTRA_HEADERS, bundle);
+        Assert.assertNull(IntentHandler.getExtraHeadersFromIntent(headersIntent));
+    }
+
+    @Test
+    @SmallTest
+    @UiThreadTest
+    @Feature({"Android-AppBase"})
+    public void testIgnoreHeaderNewLineInValue() {
+        Bundle bundle = new Bundle();
+        bundle.putString("sec-ch-ua-full", "\nCookie: secret=cookie");
         Intent headersIntent = new Intent(Intent.ACTION_VIEW);
         headersIntent.putExtra(Browser.EXTRA_HEADERS, bundle);
         Assert.assertNull(IntentHandler.getExtraHeadersFromIntent(headersIntent));
@@ -576,6 +661,45 @@ public class IntentHandlerUnitTest {
         Intent intent = new Intent(TranslateIntentHandler.ACTION_TRANSLATE_TAB);
         assertFalse(mIntentHandler.shouldIgnoreIntent(intent, /*startedActivity=*/false));
         assertTrue(mIntentHandler.shouldIgnoreIntent(intent, /*startedActivity=*/true));
+    }
+
+    /**
+     * Test that IntentHandler#shouldIgnoreIntent() returns true for Incognito non-Custom Tab
+     * Intents.
+     */
+    @Test
+    @SmallTest
+    @Feature({"Android-AppBase"})
+    public void testShouldIgnoreIncognitoIntent() {
+        Intent intent = new Intent(GOOGLE_URL);
+        intent.putExtra(IntentHandler.EXTRA_OPEN_NEW_INCOGNITO_TAB, true);
+        assertTrue(mIntentHandler.shouldIgnoreIntent(intent, /*startedActivity=*/true));
+    }
+
+    /**
+     * Test that IntentHandler#shouldIgnoreIntent() returns false for Incognito non-Custom Tab
+     * Intents if they come from Chrome.
+     */
+    @Test
+    @SmallTest
+    @Feature({"Android-AppBase"})
+    public void testShouldIgnoreIncognitoIntent_trusted() {
+        Context context = InstrumentationRegistry.getTargetContext();
+        Intent intent = IntentHandler.createTrustedOpenNewTabIntent(context, true);
+        assertFalse(mIntentHandler.shouldIgnoreIntent(intent, /*startedActivity=*/true));
+    }
+
+    /**
+     * Test that IntentHandler#shouldIgnoreIntent() returns false for Incognito Custom Tab Intents.
+     */
+    @Test
+    @SmallTest
+    @Feature({"Android-AppBase"})
+    public void testShouldIgnoreIncognitoIntent_customTab() {
+        Intent intent = new Intent(GOOGLE_URL);
+        intent.putExtra(IntentHandler.EXTRA_OPEN_NEW_INCOGNITO_TAB, true);
+        assertFalse(mIntentHandler.shouldIgnoreIntent(
+                intent, /*startedActivity=*/true, /*isCustomTab=*/true));
     }
 
     @Test

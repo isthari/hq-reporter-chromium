@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "ash/components/arc/compat_mode/arc_resize_lock_pref_delegate.h"
 #include "ash/components/arc/compat_mode/arc_window_property_util.h"
+#include "ash/components/arc/compat_mode/compat_mode_button.h"
 #include "ash/components/arc/compat_mode/resize_util.h"
 #include "ash/components/arc/vector_icons/vector_icons.h"
 #include "ash/frame/non_client_frame_view_ash.h"
@@ -15,8 +16,8 @@
 #include "ash/public/cpp/arc_resize_lock_type.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/resources/vector_icons/vector_icons.h"
-#include "base/bind.h"
-#include "base/callback_forward.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_forward.h"
 #include "chromeos/ui/frame/default_frame_header.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -76,7 +77,8 @@ void CompatModeButtonController::Update(
   if (!compat_mode_button) {
     // The ownership is transferred implicitly with AddChildView in HeaderView,
     // but ideally we want to explicitly manage the lifecycle of this resource.
-    compat_mode_button = new chromeos::FrameCenterButton(
+    compat_mode_button = new CompatModeButton(
+        this,
         base::BindRepeating(&CompatModeButtonController::ToggleResizeToggleMenu,
                             GetWeakPtr(), window, pref_delegate));
     compat_mode_button->SetSubImage(views::kMenuDropArrowIcon);
@@ -118,6 +120,11 @@ void CompatModeButtonController::Update(
   }
 
   UpdateAshAccelerator(pref_delegate, window);
+}
+
+void CompatModeButtonController::OnButtonPressed() {
+  visible_when_button_pressed_ =
+      resize_toggle_menu_ && resize_toggle_menu_->IsBubbleShown();
 }
 
 base::WeakPtr<CompatModeButtonController>
@@ -167,6 +174,8 @@ void CompatModeButtonController::ToggleResizeToggleMenu(
   const auto* compat_mode_button =
       frame_view->GetHeaderView()->GetFrameHeader()->GetCenterButton();
   if (!compat_mode_button || !compat_mode_button->GetEnabled())
+    return;
+  if (visible_when_button_pressed_)
     return;
   resize_toggle_menu_.reset();
   resize_toggle_menu_ =

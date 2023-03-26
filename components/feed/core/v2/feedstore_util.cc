@@ -1,9 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/feed/core/v2/feedstore_util.h"
 
+#include "base/base64url.h"
+#include "base/hash/hash.h"
 #include "components/feed/core/proto/v2/store.pb.h"
 #include "components/feed/core/proto/v2/wire/consistency_token.pb.h"
 #include "components/feed/core/v2/config.h"
@@ -14,18 +16,41 @@ namespace feedstore {
 using feed::LocalActionId;
 using feed::StreamType;
 
-base::StringPiece StreamId(const StreamType& stream_type) {
+std::string StreamKey(const StreamType& stream_type) {
   if (stream_type.IsForYou())
-    return kForYouStreamId;
-  DCHECK(stream_type.IsWebFeed());
-  return kFollowStreamId;
+    return kForYouStreamKey;
+  if (stream_type.IsWebFeed())
+    return kFollowStreamKey;
+  DCHECK(stream_type.IsSingleWebFeed());
+  std::string encoding;
+  base::Base64UrlEncode(stream_type.GetWebFeedId(),
+                        base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+                        &encoding);
+  return std::string(kSingleWebFeedStreamKeyPrefix) + encoding;
 }
 
+base::StringPiece StreamPrefix(feed::StreamKind stream_kind) {
+  if (stream_kind == feed::StreamKind::kForYou)
+    return kForYouStreamKey;
+  if (stream_kind == feed::StreamKind::kFollowing)
+    return kFollowStreamKey;
+  DCHECK(stream_kind == feed::StreamKind::kSingleWebFeed);
+  return kSingleWebFeedStreamKeyPrefix;
+}
 StreamType StreamTypeFromId(base::StringPiece id) {
-  if (id == kForYouStreamId)
-    return feed::kForYouStream;
-  if (id == kFollowStreamId)
-    return feed::kWebFeedStream;
+  if (id == kForYouStreamKey)
+    return StreamType(feed::StreamKind::kForYou);
+  if (id == kFollowStreamKey)
+    return StreamType(feed::StreamKind::kFollowing);
+  if (base::StartsWith(id, kSingleWebFeedStreamKeyPrefix,
+                       base::CompareCase::SENSITIVE)) {
+    std::string single_web_feed_key;
+    if (base::Base64UrlDecode(id.substr(kSingleWebFeedStreamKeyPrefix.size()),
+                              base::Base64UrlDecodePolicy::IGNORE_PADDING,
+                              &single_web_feed_key)) {
+      return StreamType(feed::StreamKind::kSingleWebFeed, single_web_feed_key);
+    }
+  }
   return {};
 }
 
@@ -35,6 +60,14 @@ int64_t ToTimestampMillis(base::Time t) {
 
 base::Time FromTimestampMillis(int64_t millis) {
   return base::Time::UnixEpoch() + base::Milliseconds(millis);
+}
+
+int64_t ToTimestampNanos(base::Time t) {
+  return (t - base::Time::UnixEpoch()).InNanoseconds();
+}
+
+base::Time FromTimestampMicros(int64_t micros) {
+  return base::Time::UnixEpoch() + base::Microseconds(micros);
 }
 
 void SetLastAddedTime(base::Time t, feedstore::StreamData& data) {
@@ -102,9 +135,9 @@ LocalActionId GetNextActionId(Metadata& metadata) {
 const Metadata::StreamMetadata* FindMetadataForStream(
     const Metadata& metadata,
     const StreamType& stream_type) {
-  base::StringPiece id = StreamId(stream_type);
+  std::string key = StreamKey(stream_type);
   for (const auto& sm : metadata.stream_metadata()) {
-    if (sm.stream_id() == id)
+    if (sm.stream_key() == key)
       return &sm;
   }
   return nullptr;
@@ -117,18 +150,19 @@ Metadata::StreamMetadata& MetadataForStream(Metadata& metadata,
   if (existing)
     return *const_cast<Metadata::StreamMetadata*>(existing);
   Metadata::StreamMetadata* sm = metadata.add_stream_metadata();
-  sm->set_stream_id(std::string(StreamId(stream_type)));
+  sm->set_stream_key(std::string(StreamKey(stream_type)));
   return *sm;
 }
 
-void SetStreamViewContentIds(Metadata& metadata,
-                             const StreamType& stream_type,
-                             const feed::ContentIdSet& content_ids) {
+void SetStreamViewContentHashes(Metadata& metadata,
+                                const StreamType& stream_type,
+                                const feed::ContentHashSet& content_hashes) {
   Metadata::StreamMetadata& stream_metadata =
       MetadataForStream(metadata, stream_type);
-  stream_metadata.clear_view_content_ids();
-  stream_metadata.mutable_view_content_ids()->Add(content_ids.values().begin(),
-                                                  content_ids.values().end());
+  stream_metadata.clear_view_content_hashes();
+  stream_metadata.mutable_view_content_hashes()->Add(
+      content_hashes.original_hashes().begin(),
+      content_hashes.original_hashes().end());
 }
 
 bool IsKnownStale(const Metadata& metadata, const StreamType& stream_type) {
@@ -159,29 +193,55 @@ feedstore::Metadata MakeMetadata(const std::string& gaia) {
   return md;
 }
 
-absl::optional<Metadata> SetStreamViewContentIds(
+absl::optional<Metadata> SetStreamViewContentHashes(
     const Metadata& metadata,
     const StreamType& stream_type,
-    const feed::ContentIdSet& content_ids) {
+    const feed::ContentHashSet& content_hashes) {
   absl::optional<Metadata> result;
-  if (!(GetViewContentIds(metadata, stream_type) == content_ids)) {
+  if (!(GetViewContentIds(metadata, stream_type) == content_hashes)) {
     result = metadata;
-    SetStreamViewContentIds(*result, stream_type, content_ids);
+    SetStreamViewContentHashes(*result, stream_type, content_hashes);
   }
   return result;
 }
 
-feed::ContentIdSet GetContentIds(const StreamData& stream_data) {
-  return feed::ContentIdSet{
-      {stream_data.content_ids().begin(), stream_data.content_ids().end()}};
+feed::ContentHashSet GetContentIds(const StreamData& stream_data) {
+  return feed::ContentHashSet{{stream_data.content_hashes().begin(),
+                               stream_data.content_hashes().end()}};
 }
-feed::ContentIdSet GetViewContentIds(const Metadata& metadata,
-                                     const StreamType& stream_type) {
+feed::ContentHashSet GetViewContentIds(const Metadata& metadata,
+                                       const StreamType& stream_type) {
   const Metadata::StreamMetadata* stream_metadata =
       FindMetadataForStream(metadata, stream_type);
   if (stream_metadata) {
-    return feed::ContentIdSet({stream_metadata->view_content_ids().begin(),
-                               stream_metadata->view_content_ids().end()});
+    return feed::ContentHashSet({stream_metadata->view_content_hashes().begin(),
+                                 stream_metadata->view_content_hashes().end()});
+  }
+  return {};
+}
+
+void SetLastServerResponseTime(Metadata& metadata,
+                               const feed::StreamType& stream_type,
+                               const base::Time& server_time) {
+  Metadata::StreamMetadata& stream_metadata =
+      MetadataForStream(metadata, stream_type);
+  stream_metadata.set_last_server_response_time_millis(
+      ToTimestampMillis(server_time));
+}
+
+int32_t ContentHashFromPrefetchMetadata(
+    const feedwire::PrefetchMetadata& prefetch_metadata) {
+  return base::PersistentHash(prefetch_metadata.uri());
+}
+
+base::flat_set<uint32_t> GetViewedContentHashes(const Metadata& metadata,
+                                                const StreamType& stream_type) {
+  const Metadata::StreamMetadata* stream_metadata =
+      FindMetadataForStream(metadata, stream_type);
+  if (stream_metadata) {
+    return base::flat_set<uint32_t>(
+        stream_metadata->viewed_content_hashes().begin(),
+        stream_metadata->viewed_content_hashes().end());
   }
   return {};
 }

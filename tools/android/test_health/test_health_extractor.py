@@ -1,11 +1,13 @@
 # Lint as: python3
-# Copyright 2022 The Chromium Authors. All rights reserved.
+# Copyright 2022 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 import dataclasses
 import datetime as dt
+import functools
 import logging
+import multiprocessing
 import os
 import pathlib
 import sys
@@ -23,12 +25,7 @@ _CHROMIUM_SRC_PATH = git_metadata_utils.get_chromium_src_path()
 _IGNORED_DIRS = ('out', 'third_party', 'clank', 'build/linux', 'native_client',
                  'tools/android/test_health/testdata')
 
-_IGNORED_FILES = {
-    # WebApkUpdateManagerUnitTest uses a method reference on an array, which
-    # is erroneously reported as a syntax error by javalang; ignoring for now.
-    'chrome/android/junit/src/org/chromium/chrome/browser/webapps/'
-    'WebApkUpdateManagerUnitTest.java'
-}
+_IGNORED_FILES = set()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -62,15 +59,15 @@ class TestHealthInfo:
     """Information about the Git repository being sampled."""
 
 
-def get_repo_test_health(
-        git_repo: pathlib.Path = _CHROMIUM_SRC_PATH,
-        *,
-        test_dir: Union[str, pathlib.Path] = pathlib.Path('.'),
-        ignored_dirs: Tuple[str, ...] = _IGNORED_DIRS,
-        ignored_files: Set[str] = _IGNORED_FILES) -> List[TestHealthInfo]:
+def get_repo_test_health(git_repo: Optional[pathlib.Path] = None,
+                         *,
+                         test_dir: Union[str, pathlib.Path, None] = None,
+                         ignored_dirs: Tuple[str, ...] = _IGNORED_DIRS,
+                         ignored_files: Set[str] = _IGNORED_FILES
+                         ) -> List[TestHealthInfo]:
     """Gets test health information and stats for a Git repository.
 
-    This function checks for Java tests annotated as disabled or flaky but could
+    This function checks for Java tests annotated as disabled but could
     be extended to check other metrics or languages in the future.
 
     Args:
@@ -90,10 +87,13 @@ def get_repo_test_health(
     Returns:
         A list of `TestHealthInfo` objects, one for each test file processed.
     """
+    git_repo = git_repo or _CHROMIUM_SRC_PATH
+    test_dir = test_dir or pathlib.Path('.')
     tests_root = (git_repo / test_dir).resolve(strict=True)
     repo_info = _get_git_repo_info(git_repo)
-    test_health_infos: list[TestHealthInfo] = []
 
+    logging.debug(f'Starting os.walk in {tests_root}')
+    test_paths = []
     for dirpath, _, filenames in os.walk(tests_root):
         if os.path.relpath(dirpath, tests_root).startswith(ignored_dirs):
             continue
@@ -106,16 +106,19 @@ def get_repo_test_health(
             if os.path.relpath(test_path, tests_root) in ignored_files:
                 continue
 
-            test_health_info = _get_test_health_info(git_repo, test_path,
-                                                     repo_info)
-            if test_health_info:
-                test_health_infos.append(test_health_info)
+            test_paths.append(test_path)
 
-    return test_health_infos
+    logging.debug(f'Parsing {len(test_paths)} test files')
+    with multiprocessing.Pool() as p:
+        test_health_infos: list[Optional[TestHealthInfo]] = p.map(
+            functools.partial(_get_test_health_info, git_repo, repo_info),
+            test_paths)
+
+    return [t for t in test_health_infos if t is not None]
 
 
-def _get_test_health_info(repo_root: pathlib.Path, test_path: pathlib.Path,
-                          repo_info: GitRepoInfo) -> Optional[TestHealthInfo]:
+def _get_test_health_info(repo_root: pathlib.Path, repo_info: GitRepoInfo,
+                          test_path: pathlib.Path) -> Optional[TestHealthInfo]:
     test_file = test_path.relative_to(repo_root)
     try:
         test_health_stats = java_test_utils.get_java_test_health(test_path)

@@ -1,10 +1,10 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/sync/sessions/sync_sessions_web_contents_router.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "build/build_config.h"
 #include "chrome/browser/sync/sessions/sync_sessions_web_contents_router_factory.h"
@@ -16,8 +16,8 @@ namespace sync_sessions {
 
 class StartSyncFlareMock {
  public:
-  StartSyncFlareMock() {}
-  ~StartSyncFlareMock() {}
+  StartSyncFlareMock() = default;
+  ~StartSyncFlareMock() = default;
 
   void StartSyncFlare(syncer::ModelType type) { was_run_ = true; }
 

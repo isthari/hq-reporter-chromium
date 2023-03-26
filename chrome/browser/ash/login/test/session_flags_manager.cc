@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <string>
 #include <vector>
 
-#include "ash/components/cryptohome/cryptohome_parameters.h"
 #include "ash/constants/ash_switches.h"
 #include "base/base64.h"
 #include "base/command_line.h"
@@ -21,7 +20,8 @@
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "chrome/common/chrome_paths.h"
-#include "chromeos/dbus/session_manager/fake_session_manager_client.h"
+#include "chromeos/ash/components/cryptohome/cryptohome_parameters.h"
+#include "chromeos/ash/components/dbus/session_manager/fake_session_manager_client.h"
 #include "components/user_manager/user_names.h"
 #include "third_party/cros_system_api/switches/chrome_switches.h"
 
@@ -232,15 +232,15 @@ base::Value SessionFlagsManager::GetSwitchesValueFromArgv(
   base::CommandLine cmd_line(base::CommandLine::NO_PROGRAM);
   cmd_line.InitFromArgv(argv);
 
-  base::Value flag_list(base::Value::Type::LIST);
+  base::Value::List flag_list;
   for (const auto& flag : cmd_line.GetSwitches()) {
-    base::Value flag_value(base::Value::Type::DICTIONARY);
-    flag_value.SetKey(kFlagNameKey, base::Value(flag.first));
-    flag_value.SetKey(kFlagValueKey, base::Value(flag.second));
+    base::Value::Dict flag_value;
+    flag_value.Set(kFlagNameKey, flag.first);
+    flag_value.Set(kFlagValueKey, flag.second);
 
     flag_list.Append(std::move(flag_value));
   }
-  return flag_list;
+  return base::Value(std::move(flag_list));
 }
 
 }  // namespace test

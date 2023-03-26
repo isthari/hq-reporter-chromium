@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,12 @@
 #include <map>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/component_export.h"
-#include "base/memory/ref_counted.h"
+#include "base/functional/callback.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/sequence_bound.h"
 #include "components/services/storage/public/mojom/storage_policy_update.mojom.h"
 #include "storage/browser/quota/special_storage_policy.h"
@@ -67,6 +68,13 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) StoragePolicyObserver {
     // Indicates the last value for `purge_on_shutdown` that was communicated.
     bool will_purge_on_shutdown = false;
   };
+
+  void OnPolicyChangedForOrigins(
+      const std::vector<std::pair<const GURL, OriginState>*>& updated_origins);
+  void AddPolicyUpdate(
+      std::pair<const GURL, OriginState>* entry,
+      std::vector<storage::mojom::StoragePolicyUpdatePtr>* policy_updates);
+
   // NOTE: The GURL key is specifically an origin GURL.
   // Special storage policy uses GURLs and not Origins, so it's simpler
   // to store everything in GURL form.

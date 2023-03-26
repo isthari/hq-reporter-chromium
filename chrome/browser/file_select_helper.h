@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,10 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "build/build_config.h"
+#include "components/enterprise/common/files_scan_data.h"
 #include "components/safe_browsing/buildflags.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_widget_host.h"
@@ -36,6 +38,10 @@ class WebContents;
 namespace ui {
 struct SelectedFileInfo;
 }
+
+namespace policy {
+FORWARD_DECLARE_TEST(DlpFilesControllerBrowserTest, FilesUploadCallerPassed);
+}  // namespace policy
 
 // This class handles file-selection requests coming from renderer processes.
 // It implements both the initialisation and listener functions for
@@ -88,8 +94,25 @@ class FileSelectHelper : public base::RefCountedThreadSafe<
                            ContentAnalysisCompletionCallback_TwoBadFiles);
   FRIEND_TEST_ALL_PREFIXES(FileSelectHelperTest,
                            ContentAnalysisCompletionCallback_OKBadFiles);
+  FRIEND_TEST_ALL_PREFIXES(
+      FileSelectHelperTest,
+      ContentAnalysisCompletionCallback_SystemFilesSkipped);
+  FRIEND_TEST_ALL_PREFIXES(FileSelectHelperTest,
+                           ContentAnalysisCompletionCallback_SystemOKBadFiles);
+  FRIEND_TEST_ALL_PREFIXES(FileSelectHelperTest,
+                           ContentAnalysisCompletionCallback_FolderUpload_OK);
+  FRIEND_TEST_ALL_PREFIXES(FileSelectHelperTest,
+                           ContentAnalysisCompletionCallback_FolderUpload_Bad);
+  FRIEND_TEST_ALL_PREFIXES(
+      FileSelectHelperTest,
+      ContentAnalysisCompletionCallback_FolderUploadBlockedThenAllowed);
+  FRIEND_TEST_ALL_PREFIXES(
+      FileSelectHelperTest,
+      ContentAnalysisCompletionCallback_FolderUpload_OKBad);
   FRIEND_TEST_ALL_PREFIXES(FileSelectHelperTest, GetFileTypesFromAcceptType);
   FRIEND_TEST_ALL_PREFIXES(FileSelectHelperTest, MultipleFileExtensionsForMime);
+  FRIEND_TEST_ALL_PREFIXES(policy::DlpFilesControllerBrowserTest,
+                           FilesUploadCallerPassed);
 
   explicit FileSelectHelper(Profile* profile);
   ~FileSelectHelper() override;
@@ -218,7 +241,28 @@ class FileSelectHelper : public base::RefCountedThreadSafe<
   void ContentAnalysisCompletionCallback(
       std::vector<blink::mojom::FileChooserFileInfoPtr> list,
       const enterprise_connectors::ContentAnalysisDelegate::Data& data,
-      const enterprise_connectors::ContentAnalysisDelegate::Result& result);
+      enterprise_connectors::ContentAnalysisDelegate::Result& result);
+#endif
+
+  // Perform a content analysis when using the file selection helper in
+  // folder selection mode.  In this case, if any one file would be blocked,
+  // the entire folder should be blocked.
+  void PerformContentAnalysisForFolderUploadIfNeeded(
+      const base::FilePath& path);
+
+#if BUILDFLAG(FULL_SAFE_BROWSING)
+  // Callback used with the FilesScanData class to calculate the files
+  // required for scanning during folder upload.
+  void ScanDataCallback(
+      const base::FilePath& path,
+      std::unique_ptr<enterprise_connectors::FilesScanData> files_scan_data);
+
+  // Callback used to receive the results of a content analysis scan
+  // when doing a folder upload.
+  void FolderUploadContentAnalysisCompletionCallback(
+      const base::FilePath& path,
+      const enterprise_connectors::ContentAnalysisDelegate::Data& data,
+      enterprise_connectors::ContentAnalysisDelegate::Result& result);
 #endif
 
   // Finish the PerformContentAnalysisIfNeeded() handling after the
@@ -243,6 +287,8 @@ class FileSelectHelper : public base::RefCountedThreadSafe<
       scoped_refptr<content::FileSelectListener> listener);
 
   void DontAbortOnMissingWebContentsForTesting();
+
+  bool IsDirectoryEnumerationStartedForTesting();
 
   // Helper method to get allowed extensions for select file dialog from
   // the specified accept types as defined in the spec:
@@ -314,6 +360,10 @@ class FileSelectHelper : public base::RefCountedThreadSafe<
 
   // Set to false in unit tests since there is no WebContents.
   bool abort_on_missing_web_contents_in_tests_ = true;
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  base::WeakPtrFactory<FileSelectHelper> weak_ptr_factory_{this};
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 };
 
 #endif  // CHROME_BROWSER_FILE_SELECT_HELPER_H_

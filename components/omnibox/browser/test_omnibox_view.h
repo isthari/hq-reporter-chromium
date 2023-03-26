@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,13 +14,13 @@
 #include "ui/gfx/range/range.h"
 
 struct AutocompleteMatch;
-class OmniboxEditController;
+class OmniboxEditModelDelegate;
 
 // Fake implementation of OmniboxView for use in tests.
 class TestOmniboxView : public OmniboxView {
  public:
-  explicit TestOmniboxView(OmniboxEditController* controller)
-      : OmniboxView(controller, nullptr) {}
+  explicit TestOmniboxView(OmniboxEditModelDelegate* edit_model_delegate)
+      : OmniboxView(edit_model_delegate, nullptr) {}
 
   TestOmniboxView(const TestOmniboxView&) = delete;
   TestOmniboxView& operator=(const TestOmniboxView&) = delete;

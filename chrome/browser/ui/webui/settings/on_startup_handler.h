@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,12 @@
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
+#include "base/values.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
 
 class Profile;
-
-namespace base {
-class ListValue;
-}
 
 namespace settings {
 
@@ -48,11 +45,11 @@ class OnStartupHandler : public SettingsPageUIHandler,
   base::Value GetNtpExtension();
 
   // Handler for the "getNtpExtension" message. No arguments.
-  void HandleGetNtpExtension(const base::ListValue* /*args*/);
+  void HandleGetNtpExtension(const base::Value::List& args);
 
   // Handles the "validateStartupPage" message. Passed a URL that might be a
   // valid startup page.
-  void HandleValidateStartupPage(const base::ListValue* args);
+  void HandleValidateStartupPage(const base::Value::List& args);
 
   // extensions::ExtensionRegistryObserver.
   void OnExtensionUnloaded(content::BrowserContext* browser_context,

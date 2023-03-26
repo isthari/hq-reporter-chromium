@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,7 +46,7 @@ void PrepareBrowserCommandLineForTests(base::CommandLine* command_line) {
     command_line->AppendSwitchASCII(switches::kEnableLogging, "stderr");
 
   // Don't install default apps.
-  command_line->AppendSwitch(switches::kDisablePreinstalledApps);
+  command_line->AppendSwitch(switches::kDisableDefaultApps);
 
 #if defined(USE_AURA)
   // Disable window animations under Ash as the animations effect the

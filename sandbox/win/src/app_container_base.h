@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "base/files/file_path.h"
-#include "base/memory/ref_counted.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/sid.h"
 #include "base/win/windows_types.h"
@@ -32,15 +31,15 @@ class AppContainerBase final : public AppContainer {
   bool GetPipePath(const wchar_t* pipe_name,
                    base::FilePath* pipe_path) override;
   bool AccessCheck(const wchar_t* object_name,
-                   SecurityObjectType object_type,
+                   base::win::SecurityObjectType object_type,
                    DWORD desired_access,
                    DWORD* granted_access,
                    BOOL* access_status) override;
-  bool AddCapability(const wchar_t* capability_name) override;
-  bool AddCapability(base::win::WellKnownCapability capability) override;
+  void AddCapability(const wchar_t* capability_name) override;
+  void AddCapability(base::win::WellKnownCapability capability) override;
   bool AddCapabilitySddl(const wchar_t* sddl_sid) override;
-  bool AddImpersonationCapability(const wchar_t* capability_name) override;
-  bool AddImpersonationCapability(
+  void AddImpersonationCapability(const wchar_t* capability_name) override;
+  void AddImpersonationCapability(
       base::win::WellKnownCapability capability) override;
   bool AddImpersonationCapabilitySddl(const wchar_t* sddl_sid) override;
   void SetEnableLowPrivilegeAppContainer(bool enable) override;
@@ -73,8 +72,7 @@ class AppContainerBase final : public AppContainer {
   static bool Delete(const wchar_t* package_name);
 
   // Build the token for the lowbox
-  ResultCode BuildLowBoxToken(base::win::ScopedHandle* token,
-                              base::win::ScopedHandle* lockdown = nullptr);
+  ResultCode BuildLowBoxToken(base::win::ScopedHandle* token);
 
  private:
   AppContainerBase(base::win::Sid& package_sid, AppContainerType type);
@@ -90,7 +88,6 @@ class AppContainerBase final : public AppContainer {
   std::vector<base::win::Sid> capabilities_;
   std::vector<base::win::Sid> impersonation_capabilities_;
   AppContainerType type_;
-  base::win::ScopedHandle lowbox_directory_;
 };
 
 }  // namespace sandbox

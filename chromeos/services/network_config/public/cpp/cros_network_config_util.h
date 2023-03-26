@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,7 @@
 
 #include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"
 
-namespace chromeos {
-namespace network_config {
+namespace chromeos::network_config {
 
 // Returns true if |network_type| matches |match_type|, which may include kAll
 // or kWireless.
@@ -29,7 +28,20 @@ int GetWirelessSignalStrength(const mojom::NetworkStateProperties* network);
 // but kNotInhibited.
 bool IsInhibited(const mojom::DeviceStateProperties* device);
 
-}  // namespace network_config
-}  // namespace chromeos
+// Returns an ONC dictionary for network with guid |network_guid| containing a
+// configuration of the network's user APN list.
+base::Value::Dict UserApnListToOnc(const std::string& network_guid,
+                                   const base::Value::List* user_apn_list);
+
+// Converts a list of APN types in the ONC representation to the Mojo enum
+// representation.
+std::vector<mojom::ApnType> OncApnTypesToMojo(
+    const std::vector<std::string>& apn_types);
+
+// Creates a Mojo APN from a ONC dictionary.
+mojom::ApnPropertiesPtr GetApnProperties(const base::Value::Dict& onc_apn,
+                                         bool is_apn_revamp_enabled);
+
+}  // namespace chromeos::network_config
 
 #endif  // CHROMEOS_SERVICES_NETWORK_CONFIG_PUBLIC_CPP_CROS_NETWORK_CONFIG_UTIL_H_

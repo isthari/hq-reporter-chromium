@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,9 @@
 #include "net/cert/sct_auditing_delegate.h"
 #include "net/cert/signed_certificate_timestamp_and_status.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "services/network/public/mojom/network_service.mojom.h"
 #include "services/network/public/proto/sct_audit_report.pb.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -52,40 +54,50 @@ class NetworkContext;
 // every session).
 class COMPONENT_EXPORT(NETWORK_SERVICE) SCTAuditingCache {
  public:
+  struct COMPONENT_EXPORT(NETWORK_SERVICE) ReportEntry {
+    ReportEntry();
+    ~ReportEntry();
+    ReportEntry(const ReportEntry&) = delete;
+    ReportEntry operator==(const ReportEntry&) = delete;
+    ReportEntry(ReportEntry&&);
+    net::HashValue key;
+    std::unique_ptr<sct_auditing::SCTClientReport> report;
+  };
+
   explicit SCTAuditingCache(size_t cache_size = 1024);
   ~SCTAuditingCache();
 
   SCTAuditingCache(const SCTAuditingCache&) = delete;
   SCTAuditingCache& operator=(const SCTAuditingCache&) = delete;
 
+  // Configures the cache. Must be called before |MaybeGenerateReportEntry| and
+  // |GetConfiguration|.
+  void Configure(mojom::SCTAuditingConfigurationPtr configuration);
+
+  // Returns a copy of the SCT configuration.
+  mojom::SCTAuditingConfigurationPtr GetConfiguration() const;
+
   // Creates a report containing the details about the connection context and
   // SCTs and adds it to the cache if the SCTs are not already in the
   // cache. If the SCTs were not already in the cache, a random sample is drawn
   // to determine whether to send a report. This means we sample a subset of
   // *certificates* rather than a subset of *connections*.
-  void MaybeEnqueueReport(
-      NetworkContext* context,
+  // Returns the report entry if the report should be sent, and absl::nullopt
+  // otherwise.
+  absl::optional<ReportEntry> MaybeGenerateReportEntry(
       const net::HostPortPair& host_port_pair,
       const net::X509Certificate* validated_certificate_chain,
       const net::SignedCertificateTimestampAndStatusList&
           signed_certificate_timestamps);
 
+  // Returns true if |sct_leaf_hash| corresponds to a known popular SCT.
+  bool IsPopularSCT(base::span<const uint8_t> sct_leaf_hash);
+
   void ClearCache();
 
-  void set_enabled(bool enabled);
-  void set_sampling_rate(double rate) { sampling_rate_ = rate; }
-  void set_report_uri(const GURL& report_uri) { report_uri_ = report_uri; }
   void set_popular_scts(std::vector<std::vector<uint8_t>> popular_scts) {
-    popular_scts_ = std::move(popular_scts);
+    popular_scts_ = popular_scts;
   }
-  void set_traffic_annotation(
-      const net::MutableNetworkTrafficAnnotationTag& traffic_annotation) {
-    traffic_annotation_ = traffic_annotation;
-  }
-  net::MutableNetworkTrafficAnnotationTag traffic_annotation() {
-    return traffic_annotation_;
-  }
-  GURL report_uri() { return report_uri_; }
 
   base::LRUCache<net::HashValue, bool>* GetCacheForTesting() {
     return &dedupe_cache_;
@@ -93,7 +105,6 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) SCTAuditingCache {
 
  private:
   void ReportHWMMetrics();
-  void SetPeriodicMetricsEnabled(bool enabled);
 
   // Value `bool` is ignored in the dedupe cache. This cache only stores
   // recently seen hashes of SCTs in order to deduplicate on SCTs, and the bool
@@ -106,10 +117,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) SCTAuditingCache {
   // as an optimization for hashdance clients.
   std::vector<std::vector<uint8_t>> popular_scts_;
 
-  bool enabled_ = false;
-  double sampling_rate_ = 0;
-  GURL report_uri_;
-  net::MutableNetworkTrafficAnnotationTag traffic_annotation_;
+  mojom::SCTAuditingConfigurationPtr configuration_;
 
   base::RepeatingTimer histogram_timer_;
 };

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,8 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/memory/singleton.h"
-#include "components/keyed_service/content/browser_context_keyed_service_factory.h"
+#include "base/time/time.h"
+#include "chrome/browser/profiles/profile_keyed_service_factory.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace base {
@@ -20,8 +21,7 @@ class BrowserContext;
 
 class CertificateReportingService;
 
-class CertificateReportingServiceFactory
-    : public BrowserContextKeyedServiceFactory {
+class CertificateReportingServiceFactory : public ProfileKeyedServiceFactory {
  public:
   // Returns singleton instance of CertificateReportingServiceFactory.
   static CertificateReportingServiceFactory* GetInstance();
@@ -56,14 +56,12 @@ class CertificateReportingServiceFactory
   // BrowserContextKeyedServiceFactory overrides:
   KeyedService* BuildServiceInstanceFor(
       content::BrowserContext* context) const override;
-  content::BrowserContext* GetBrowserContextToUse(
-      content::BrowserContext* context) const override;
 
   // Encryption parameters for certificate reports.
-  raw_ptr<uint8_t> server_public_key_;
+  raw_ptr<uint8_t, DanglingUntriaged> server_public_key_;
   uint32_t server_public_key_version_;
 
-  raw_ptr<base::Clock> clock_;
+  raw_ptr<base::Clock, DanglingUntriaged> clock_;
   base::TimeDelta queued_report_ttl_;
   size_t max_queued_report_count_;
   base::RepeatingClosure service_reset_callback_;

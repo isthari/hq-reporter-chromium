@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -134,13 +134,18 @@ std::u16string ContactInfoEditorViewController::GetSheetTitle() {
                                 IDS_PAYMENTS_ADD_CONTACT_DETAILS_LABEL);
 }
 
+base::WeakPtr<PaymentRequestSheetController>
+ContactInfoEditorViewController::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
+}
+
 void ContactInfoEditorViewController::PopulateProfile(
     autofill::AutofillProfile* profile) {
   for (const auto& field : text_fields()) {
     profile->SetInfoWithVerificationStatus(
         autofill::AutofillType(field.second.type), field.first->GetText(),
         state()->GetApplicationLocale(),
-        autofill::structured_address::VerificationStatus::kUserVerified);
+        autofill::VerificationStatus::kUserVerified);
   }
   profile->set_origin(autofill::kSettingsOrigin);
 }
@@ -180,7 +185,7 @@ ContactInfoEditorViewController::ContactInfoValidationDelegate::Format(
     const std::u16string& text) {
   return base::UTF8ToUTF16(autofill::i18n::FormatPhoneForDisplay(
       base::UTF16ToUTF8(text),
-      autofill::AutofillCountry::CountryCodeForLocale(locale_)));
+      autofill::AutofillCountry::CountryCodeForLocale(*locale_)));
 }
 
 bool ContactInfoEditorViewController::ContactInfoValidationDelegate::
@@ -228,7 +233,7 @@ bool ContactInfoEditorViewController::ContactInfoValidationDelegate::
     switch (field_.type) {
       case autofill::PHONE_HOME_WHOLE_NUMBER: {
         const std::string default_region_code =
-            autofill::AutofillCountry::CountryCodeForLocale(locale_);
+            autofill::AutofillCountry::CountryCodeForLocale(*locale_);
         if (!autofill::IsPossiblePhoneNumber(textfield->GetText(),
                                              default_region_code)) {
           is_valid = false;

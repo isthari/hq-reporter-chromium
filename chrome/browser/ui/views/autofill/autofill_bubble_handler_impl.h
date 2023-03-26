@@ -1,4 +1,4 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,7 @@ namespace autofill {
 class AutofillBubbleBase;
 class LocalCardMigrationBubbleController;
 class SaveCardBubbleController;
+class SaveIbanBubbleController;
 class SaveUPIBubble;
 
 class AutofillBubbleHandlerImpl : public AutofillBubbleHandler,
@@ -43,6 +44,9 @@ class AutofillBubbleHandlerImpl : public AutofillBubbleHandler,
       content::WebContents* web_contents,
       SaveCardBubbleController* controller,
       bool is_user_gesture) override;
+  AutofillBubbleBase* ShowSaveIbanBubble(content::WebContents* web_contents,
+                                         SaveIbanBubbleController* controller,
+                                         bool is_user_gesture) override;
   AutofillBubbleBase* ShowLocalCardMigrationBubble(
       content::WebContents* web_contents,
       LocalCardMigrationBubbleController* controller,
@@ -86,9 +90,10 @@ class AutofillBubbleHandlerImpl : public AutofillBubbleHandler,
   // Executes highlight animation on toolbar's avatar icon.
   void ShowAvatarHighlightAnimation();
 
-  raw_ptr<Browser> browser_ = nullptr;
+  raw_ptr<Browser, DanglingUntriaged> browser_ = nullptr;
 
-  raw_ptr<ToolbarButtonProvider> toolbar_button_provider_ = nullptr;
+  raw_ptr<ToolbarButtonProvider, DanglingUntriaged> toolbar_button_provider_ =
+      nullptr;
 
   // Whether a save local card sign in promo bubble could pop up from the avatar
   // button after the highlight animation finishes.

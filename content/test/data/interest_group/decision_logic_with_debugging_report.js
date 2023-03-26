@@ -1,10 +1,9 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 function scoreAd(
     adMetadata, bid, auctionConfig, trustedScoringSignals, browserSignals) {
-  // const adMetadataJSON = JSON.stringify(adMetadata);
   forDebuggingOnly.reportAdAuctionLoss(
       auctionConfig.seller + '/echo?seller_debug_report_loss/' + adMetadata);
   forDebuggingOnly.reportAdAuctionWin(
@@ -13,5 +12,5 @@ function scoreAd(
 }
 
 function reportResult(auctionConfig, browserSignals) {
-  sendReportTo(auctionConfig.seller + '/echo?report_seller');
+  sendReportTo(auctionConfig.seller + '/echoall?report_seller');
 }

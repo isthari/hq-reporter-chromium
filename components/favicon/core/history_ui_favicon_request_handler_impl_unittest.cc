@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -74,14 +74,14 @@ class MockFaviconServiceWithFake : public MockFaviconService {
  public:
   MockFaviconServiceWithFake() {
     // Fake won't respond with any icons at first.
-    ON_CALL(*this, GetRawFaviconForPageURL(_, _, _, _, _, _))
+    ON_CALL(*this, GetRawFaviconForPageURL)
         .WillByDefault([](auto, auto, auto, auto,
                           favicon_base::FaviconRawBitmapCallback callback,
                           auto) {
           std::move(callback).Run(favicon_base::FaviconRawBitmapResult());
           return kTaskId;
         });
-    ON_CALL(*this, GetFaviconImageForPageURL(_, _, _))
+    ON_CALL(*this, GetFaviconImageForPageURL)
         .WillByDefault(
             [](auto, favicon_base::FaviconImageCallback callback, auto) {
               std::move(callback).Run(favicon_base::FaviconImageResult());

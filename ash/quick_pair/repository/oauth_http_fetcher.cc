@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -96,7 +96,7 @@ void OAuthHttpFetcher::OnAccessTokenFetched(
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory =
       QuickPairBrowserDelegate::Get()->GetURLLoaderFactory();
   if (!url_loader_factory) {
-    QP_LOG(WARNING) << __func__ << ": No SharedURLLoaderFactory is available.";
+    QP_LOG(WARNING) << __func__ << ": URLLoaderFactory is not available.";
     std::move(callback_).Run(nullptr, nullptr);
     return;
   }

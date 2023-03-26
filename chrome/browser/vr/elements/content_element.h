@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,10 +23,7 @@ class TextInputDelegate;
 // the UI.
 class VR_UI_EXPORT ContentElement : public PlatformUiElement {
  public:
-  typedef typename base::RepeatingCallback<void(const gfx::SizeF&)>
-      ScreenBoundsChangedCallback;
-
-  ContentElement(ContentInputDelegate* delegate, ScreenBoundsChangedCallback);
+  explicit ContentElement(ContentInputDelegate* delegate);
 
   ContentElement(const ContentElement&) = delete;
   ContentElement& operator=(const ContentElement&) = delete;
@@ -62,7 +59,6 @@ class VR_UI_EXPORT ContentElement : public PlatformUiElement {
 
  private:
   raw_ptr<TextInputDelegate> text_input_delegate_ = nullptr;
-  ScreenBoundsChangedCallback bounds_changed_callback_;
   unsigned int overlay_texture_id_ = 0;
   bool overlay_texture_non_empty_ = false;
   GlTextureLocation overlay_texture_location_ = kGlTextureLocationExternal;
@@ -71,7 +67,7 @@ class VR_UI_EXPORT ContentElement : public PlatformUiElement {
   gfx::Transform projection_matrix_;
   bool focused_ = false;
   bool uses_quad_layer_ = false;
-  raw_ptr<ContentInputDelegate> content_delegate_ = nullptr;
+  raw_ptr<ContentInputDelegate, DanglingUntriaged> content_delegate_ = nullptr;
   base::RepeatingCallback<void(const gfx::SizeF& size)>
       on_size_changed_callback_;
 };

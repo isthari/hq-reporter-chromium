@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,6 @@
 #if BUILDFLAG(IS_ANDROID)
 #include "chrome/browser/ui/android/device_dialog/chrome_bluetooth_chooser_android_delegate.h"
 #include "chrome/browser/ui/android/device_dialog/chrome_bluetooth_scanning_prompt_android_delegate.h"
-#include "chrome/browser/vr/vr_tab_helper.h"
 #include "components/permissions/android/bluetooth_chooser_android.h"
 #include "components/permissions/android/bluetooth_scanning_prompt_android.h"
 #else
@@ -45,11 +44,6 @@ ChromeBluetoothDelegateImplClient::RunBluetoothChooser(
     content::RenderFrameHost* frame,
     const content::BluetoothChooser::EventHandler& event_handler) {
 #if BUILDFLAG(IS_ANDROID)
-  if (vr::VrTabHelper::IsUiSuppressedInVr(
-          content::WebContents::FromRenderFrameHost(frame),
-          vr::UiSuppressedElement::kBluetoothChooser)) {
-    return nullptr;
-  }
   return std::make_unique<permissions::BluetoothChooserAndroid>(
       frame, event_handler,
       std::make_unique<ChromeBluetoothChooserAndroidDelegate>());
@@ -81,21 +75,39 @@ ChromeBluetoothDelegateImplClient::ShowBluetoothScanningPrompt(
 #endif
 }
 
-void ChromeBluetoothDelegateImplClient::ShowBluetoothDeviceCredentialsDialog(
+void ChromeBluetoothDelegateImplClient::ShowBluetoothDevicePairDialog(
     content::RenderFrameHost* frame,
     const std::u16string& device_identifier,
-    content::BluetoothDelegate::CredentialsCallback callback) {
+    content::BluetoothDelegate::PairPromptCallback callback,
+    content::BluetoothDelegate::PairingKind pairing_kind,
+    const absl::optional<std::u16string>& pin) {
 #if PAIR_BLUETOOTH_ON_DEMAND()
-  chrome::ShowBluetoothDeviceCredentialsDialog(
-      content::WebContents::FromRenderFrameHost(frame), device_identifier,
-      std::move(callback));
+
+  switch (pairing_kind) {
+    case content::BluetoothDelegate::PairingKind::kProvidePin:
+      chrome::ShowBluetoothDeviceCredentialsDialog(
+          content::WebContents::FromRenderFrameHost(frame), device_identifier,
+          std::move(callback));
+      break;
+    case content::BluetoothDelegate::PairingKind::kConfirmOnly:
+    case content::BluetoothDelegate::PairingKind::kConfirmPinMatch:
+      chrome::ShowBluetoothDevicePairConfirmDialog(
+          content::WebContents::FromRenderFrameHost(frame), device_identifier,
+          pin, std::move(callback));
+      break;
+    default:
+      NOTREACHED();
+      std::move(callback).Run(content::BluetoothDelegate::PairPromptResult(
+          content::BluetoothDelegate::PairPromptStatus::kCancelled));
+      break;
+  }
+
 #else
   // WebBluetoothServiceImpl will only start the pairing process (which prompts
   // for credentials) on devices that pair on demand. This should never be
   // reached.
   NOTREACHED();
-  std::move(callback).Run(
-      content::BluetoothDelegate::DeviceCredentialsPromptResult::kCancelled,
-      u"");
+  std::move(callback).Run(content::BluetoothDelegate::PairPromptResult(
+      content::BluetoothDelegate::PairPromptStatus::kCancelled));
 #endif
 }

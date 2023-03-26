@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 The Chromium Authors. All rights reserved.
+/* Copyright 2014 The Chromium Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file. */
 
@@ -57,55 +57,7 @@
  * valid bounding box.
  */
 
-/**
- * Return whether a node is focusable. This includes nodes whose tabindex
- * attribute is set to "-1" explicitly - these nodes are not in the tab
- * order, but they should still be focused if the user navigates to them
- * using linear or smart DOM navigation.
- *
- * Note that when the tabIndex property of an Element is -1, that doesn't
- * tell us whether the tabIndex attribute is missing or set to "-1" explicitly,
- * so we have to check the attribute.
- *
- * @param {Object} targetNode The node to check if it's focusable.
- * @return {boolean} True if the node is focusable.
- */
-function isFocusable(targetNode) {
-  if (!targetNode || typeof(targetNode.tabIndex) != 'number') {
-    return false;
-  }
-
-  if (targetNode.tabIndex >= 0) {
-    return true;
-  }
-
-  if (targetNode.hasAttribute &&
-      targetNode.hasAttribute('tabindex') &&
-      targetNode.getAttribute('tabindex') == '-1') {
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * Determines whether or not a node is or is the descendant of another node.
- *
- * @param {Object} node The node to be checked.
- * @param {Object} ancestor The node to see if it's a descendant of.
- * @return {boolean} True if the node is ancestor or is a descendant of it.
- */
-function isDescendantOfNode(node, ancestor) {
-  while (node && ancestor) {
-    if (node.isSameNode(ancestor)) {
-      return true;
-    }
-    node = node.parentNode;
-  }
-  return false;
-}
-
-
+Storage.initialize();
 
 /**
  * The class handling the Caret Browsing implementation in the page.
@@ -120,46 +72,29 @@ function isDescendantOfNode(node, ancestor) {
 class CaretBrowsing {
   constructor() {
     /**
-     * Is caret browsing enabled?
-     * @type {boolean}
-     */
-    this.isEnabled = false;
-
-    /**
-     * Keep it enabled even when flipped off (for the options page)?
+     * Tracks whether to keep caret browsing enabled on this page even when it's
+     * flipped off. This is used on the options page.
      * @type {boolean}
      */
     this.forceEnabled = false;
 
     /**
-     * What to do when the caret appears?
-     * @type {string}
-     */
-    this.onEnable;
-
-    /**
-     * What to do when the caret jumps?
-     * @type {string}
-     */
-    this.onJump;
-
-    /**
-     * Is this window / iframe focused? We won't show the caret if not,
-     * especially so that carets aren't shown in two iframes of the same
-     * tab.
+     * Tracks whether this window / iframe is focused. The caret isn't shown on
+     * pages that are not focused, which is especially important so that carets
+     * aren't shown in two iframes of the same tab.
      * @type {boolean}
      */
     this.isWindowFocused = false;
 
     /**
-     * Is the caret actually visible? This is true only if isEnabled and
-     * isWindowFocused are both true.
+     * Tracks whether the caret is actually visible. This is true only if
+     * Storage.enabled and this.isWindowFocused are both true.
      * @type {boolean}
      */
     this.isCaretVisible = false;
 
     /**
-     * The actual caret element, an absolute-positioned flashing line.
+     * The actual caret HTML element, an absolute-positioned flashing line.
      * @type {Element}
      */
     this.caretElement;
@@ -189,20 +124,20 @@ class CaretBrowsing {
     this.caretHeight = 0;
 
     /**
-     * The foreground color.
+     * The caret's foreground color.
      * @type {string}
      */
     this.caretForeground = '#000';
 
     /**
-     * The background color.
+     * The caret's background color.
      * @type {string}
      */
     this.caretBackground = '#fff';
 
     /**
-     * Is the selection collapsed, i.e. are the start and end locations
-     * the same? If so, our blinking caret image is shown; otherwise
+     * Tracks whether the selection is collapsed, i.e. are the start and end
+     * locations the same? If so, our blinking caret image is shown; otherwise
      * the Chrome selection is shown.
      * @type {boolean}
      */
@@ -211,7 +146,7 @@ class CaretBrowsing {
     /**
      * The id returned by window.setInterval for our blink function, so
      * we can cancel it when caret browsing is disabled.
-     * @type {number?}
+     * @type {?number}
      */
     this.blinkFunctionId = null;
 
@@ -223,7 +158,7 @@ class CaretBrowsing {
      * so that the x position doesn't drift as you move throughout lines, but
      * stays as close as possible to the initial position. This is reset when
      * moving left or right or clicking.
-     * @type {number?}
+     * @type {?number}
      */
     this.targetX = null;
 
@@ -234,87 +169,12 @@ class CaretBrowsing {
     this.blinkFlag = true;
 
     /**
-     * Whether or not we're on a Mac - affects modifier keys.
+     * Whether or not we're on a Mac - which affects modifier keys.
      * @type {boolean}
      */
     this.isMac = (navigator.appVersion.indexOf("Mac") != -1);
 
     this.init();
-  }
-
-  /**
-   * Check if a node is a control that normally allows the user to interact
-   * with it using arrow keys. We won't override the arrow keys when such a
-   * control has focus, the user must press Escape to do caret browsing outside
-   * that control.
-   * @param {Node} node A node to check.
-   * @return {boolean} True if this node is a control that the user can
-   *     interact with using arrow keys.
-   */
-  isControlThatNeedsArrowKeys(node) {
-    if (!node) {
-      return false;
-    }
-
-    if (node == document.body || node != document.activeElement) {
-      return false;
-    }
-
-    if (node.constructor == HTMLSelectElement) {
-      return true;
-    }
-
-    if (node.constructor == HTMLInputElement) {
-      switch (node.type) {
-        case 'email':
-        case 'number':
-        case 'password':
-        case 'search':
-        case 'text':
-        case 'tel':
-        case 'url':
-        case '':
-          return true;  // All of these are text boxes.
-        case 'datetime':
-        case 'datetime-local':
-        case 'date':
-        case 'month':
-        case 'radio':
-        case 'range':
-        case 'week':
-          return true;  // These are other input elements that use arrows.
-      }
-    }
-
-    // Handle focusable ARIA controls.
-    if (node.getAttribute && isFocusable(node)) {
-      const role = node.getAttribute('role');
-      switch (role) {
-        case 'combobox':
-        case 'grid':
-        case 'gridcell':
-        case 'listbox':
-        case 'menu':
-        case 'menubar':
-        case 'menuitem':
-        case 'menuitemcheckbox':
-        case 'menuitemradio':
-        case 'option':
-        case 'radiogroup':
-        case 'scrollbar':
-        case 'slider':
-        case 'spinbutton':
-        case 'tab':
-        case 'tablist':
-        case 'textbox':
-        case 'tree':
-        case 'treegrid':
-        case 'treeitem':
-          return true;
-      }
-    }
-
-    return false;
   }
 
   /**
@@ -334,45 +194,7 @@ class CaretBrowsing {
     if (result == null) {
       return;
     }
-    this.setAndValidateSelection(start, start);
-  }
-
-  /**
-   * Set focus to a node if it's focusable. If it's an input element,
-   * select the text, otherwise it doesn't appear focused to the user.
-   * Every other control behaves normally if you just call focus() on it.
-   * @param {Node} node The node to focus.
-   * @return {boolean} True if the node was focused.
-   */
-  setFocusToNode(node) {
-    while (node && node != document.body) {
-      if (isFocusable(node) && node.constructor != HTMLIFrameElement) {
-        node.focus();
-        if (node.constructor == HTMLInputElement && node.select) {
-          node.select();
-        }
-        return true;
-      }
-      node = node.parentNode;
-    }
-
-    return false;
-  }
-
-  /**
-   * Set focus to the first focusable node in the given list.
-   * select the text, otherwise it doesn't appear focused to the user.
-   * Every other control behaves normally if you just call focus() on it.
-   * @param {Array<Node>} nodeList An array of nodes to focus.
-   * @return {boolean} True if the node was focused.
-   */
-  setFocusToFirstFocusable(nodeList) {
-    for (let i = 0; i < nodeList.length; i++) {
-      if (this.setFocusToNode(nodeList[i])) {
-        return true;
-      }
-    }
-    return false;
+    SelectionUtil.setAndValidateSelection(start, start);
   }
 
   /**
@@ -453,9 +275,9 @@ class CaretBrowsing {
     document.body.appendChild(element);
     this.caretElement = element;
 
-    if (this.onEnable == 'anim') {
+    if (Storage.onEnable === FlourishType.ANIMATE) {
       this.animateCaretElement();
-    } else if (this.onEnable == 'flash') {
+    } else if (Storage.onEnable === FlourishType.FLASH) {
       this.flashCaretElement();
     } else {
       this.setCaretElementNormalStyle();
@@ -473,68 +295,6 @@ class CaretBrowsing {
       this.caretElement = null;
       this.updateIsCaretVisible();
     }
-  }
-
-  /**
-   * Get the rectangle for a cursor position. This is tricky because
-   * you can't get the bounding rectangle of an empty range, so this function
-   * computes the rect by trying a range including one character earlier or
-   * later than the cursor position.
-   * @param {Cursor} cursor A single cursor position.
-   * @return {{left: number, top: number, width: number, height: number}}
-   *     The bounding rectangle of the cursor.
-   */
-  getCursorRect(cursor) {
-    let node = cursor.node;
-    const index = cursor.index;
-    const rect = {
-      left: 0,
-      top: 0,
-      width: 1,
-      height: 0
-    };
-    if (node.constructor == Text) {
-      let left = index;
-      let right = index;
-      const max = node.data.length;
-      const newRange = document.createRange();
-      while (left > 0 || right < max) {
-        if (left > 0) {
-          left--;
-          newRange.setStart(node, left);
-          newRange.setEnd(node, index);
-          const rangeRect = newRange.getBoundingClientRect();
-          if (rangeRect && rangeRect.width && rangeRect.height) {
-            rect.left = rangeRect.right;
-            rect.top = rangeRect.top;
-            rect.height = rangeRect.height;
-            break;
-          }
-        }
-        if (right < max) {
-          right++;
-          newRange.setStart(node, index);
-          newRange.setEnd(node, right);
-          const rangeRect = newRange.getBoundingClientRect();
-          if (rangeRect && rangeRect.width && rangeRect.height) {
-            rect.left = rangeRect.left;
-            rect.top = rangeRect.top;
-            rect.height = rangeRect.height;
-            break;
-          }
-        }
-      }
-    } else {
-      rect.height = node.offsetHeight;
-      while (node !== null) {
-        rect.left += node.offsetLeft;
-        rect.top += node.offsetTop;
-        node = node.offsetParent;
-      }
-    }
-    rect.left += window.pageXOffset;
-    rect.top += window.pageYOffset;
-    return rect;
   }
 
   /**
@@ -565,7 +325,7 @@ class CaretBrowsing {
       return;
     }
 
-    if (this.isControlThatNeedsArrowKeys(document.activeElement)) {
+    if (NodeUtil.isControlThatNeedsArrowKeys(document.activeElement)) {
       let node = document.activeElement;
       this.caretWidth = node.offsetWidth;
       this.caretHeight = node.offsetHeight;
@@ -577,8 +337,9 @@ class CaretBrowsing {
         node = node.offsetParent;
       }
       this.isSelectionCollapsed = false;
-    } else if (range.startOffset != range.endOffset ||
-               range.startContainer != range.endContainer) {
+    } else if (
+        range.startOffset != range.endOffset ||
+        range.startContainer != range.endContainer) {
       const rect = range.getBoundingClientRect();
       if (!rect) {
         return;
@@ -589,10 +350,9 @@ class CaretBrowsing {
       this.caretHeight = rect.height;
       this.isSelectionCollapsed = false;
     } else {
-      const rect = this.getCursorRect(
-          new Cursor(range.startContainer,
-                     range.startOffset,
-                     TraverseUtil.getNodeText(range.startContainer)));
+      const rect = SelectionUtil.getCursorRect(new Cursor(
+          range.startContainer, range.startOffset,
+          TraverseUtil.getNodeText(range.startContainer)));
       this.caretX = rect.left;
       this.caretY = rect.top;
       this.caretWidth = rect.width;
@@ -627,9 +387,9 @@ class CaretBrowsing {
     if (scrollToSelection) {
       // Scroll just to the "focus" position of the selection,
       // the part the user is manipulating.
-      const rect = this.getCursorRect(
-          new Cursor(sel.focusNode, sel.focusOffset,
-                     TraverseUtil.getNodeText(sel.focusNode)));
+      const rect = SelectionUtil.getCursorRect(new Cursor(
+          sel.focusNode, sel.focusOffset,
+          TraverseUtil.getNodeText(sel.focusNode)));
 
       const yscroll = window.pageYOffset;
       const pageHeight = window.innerHeight;
@@ -644,113 +404,12 @@ class CaretBrowsing {
 
     if (Math.abs(previousX - this.caretX) > 500 ||
         Math.abs(previousY - this.caretY) > 100) {
-      if (this.onJump == 'anim') {
+      if (Storage.onJump === FlourishType.ANIMATE) {
         this.animateCaretElement();
-      } else if (this.onJump == 'flash') {
+      } else if (Storage.onJump === FlourishType.FLASH) {
         this.flashCaretElement();
       }
     }
-  }
-
-  /**
-   * Return true if the selection directionality is ambiguous, which happens
-   * if, for example, the user double-clicks in the middle of a word to select
-   * it. In that case, the selection should extend by the right edge if the
-   * user presses right, and by the left edge if the user presses left.
-   * @param {Selection} sel The selection.
-   * @return {boolean} True if the selection directionality is ambiguous.
-   */
-  isAmbiguous(sel) {
-    return (sel.anchorNode != sel.baseNode ||
-            sel.anchorOffset != sel.baseOffset ||
-            sel.focusNode != sel.extentNode ||
-            sel.focusOffset != sel.extentOffset);
-  }
-
-  /**
-   * Create a Cursor from the anchor position of the selection, the
-   * part that doesn't normally move.
-   * @param {Selection} sel The selection.
-   * @return {Cursor} A cursor pointing to the selection's anchor location.
-   */
-  makeAnchorCursor(sel) {
-    return new Cursor(sel.anchorNode, sel.anchorOffset,
-                      TraverseUtil.getNodeText(sel.anchorNode));
-  }
-
-  /**
-   * Create a Cursor from the focus position of the selection.
-   * @param {Selection} sel The selection.
-   * @return {Cursor} A cursor pointing to the selection's focus location.
-   */
-  makeFocusCursor(sel) {
-    return new Cursor(sel.focusNode, sel.focusOffset,
-                      TraverseUtil.getNodeText(sel.focusNode));
-  }
-
-  /**
-   * Create a Cursor from the left boundary of the selection - the boundary
-   * closer to the start of the document.
-   * @param {Selection} sel The selection.
-   * @return {Cursor} A cursor pointing to the selection's left boundary.
-   */
-  makeLeftCursor(sel) {
-    const range = sel.rangeCount == 1 ? sel.getRangeAt(0) : null;
-    if (range &&
-        range.endContainer == sel.anchorNode &&
-        range.endOffset == sel.anchorOffset) {
-      return this.makeFocusCursor(sel);
-    } else {
-      return this.makeAnchorCursor(sel);
-    }
-  }
-
-  /**
-   * Create a Cursor from the right boundary of the selection - the boundary
-   * closer to the end of the document.
-   * @param {Selection} sel The selection.
-   * @return {Cursor} A cursor pointing to the selection's right boundary.
-   */
-  makeRightCursor(sel) {
-    const range = sel.rangeCount == 1 ? sel.getRangeAt(0) : null;
-    if (range &&
-        range.endContainer == sel.anchorNode &&
-        range.endOffset == sel.anchorOffset) {
-      return this.makeAnchorCursor(sel);
-    } else {
-      return this.makeFocusCursor(sel);
-    }
-  }
-
-  /**
-   * Try to set the window's selection to be between the given start and end
-   * cursors, and return whether or not it was successful.
-   * @param {Cursor} start The start position.
-   * @param {Cursor} end The end position.
-   * @return {boolean} True if the selection was successfully set.
-   */
-  setAndValidateSelection(start, end) {
-    const sel = window.getSelection();
-    sel.setBaseAndExtent(start.node, start.index, end.node, end.index);
-
-    if (sel.rangeCount != 1) {
-      return false;
-    }
-
-    return (sel.anchorNode == start.node &&
-            sel.anchorOffset == start.index &&
-            sel.focusNode == end.node &&
-            sel.focusOffset == end.index);
-  }
-
-  /**
-   * Note: the built-in function by the same name is unreliable.
-   * @param {Selection} sel The selection.
-   * @return {boolean} True if the start and end positions are the same.
-   */
-  isCollapsed(sel) {
-    return (sel.anchorOffset == sel.focusOffset &&
-            sel.anchorNode == sel.focusNode);
   }
 
   /**
@@ -826,18 +485,18 @@ class CaretBrowsing {
     this.targetX = null;
 
     const sel = window.getSelection();
-    if (!evt.shiftKey && !this.isCollapsed(sel)) {
-      const right = this.makeRightCursor(sel);
-      this.setAndValidateSelection(right, right);
+    if (!evt.shiftKey && !SelectionUtil.isCollapsed(sel)) {
+      const right = SelectionUtil.makeRightCursor(sel);
+      SelectionUtil.setAndValidateSelection(right, right);
       return false;
     }
 
-    const start = this.isAmbiguous(sel) ?
-                this.makeLeftCursor(sel) :
-                this.makeAnchorCursor(sel);
-    const end = this.isAmbiguous(sel) ?
-              this.makeRightCursor(sel) :
-              this.makeFocusCursor(sel);
+    const start = SelectionUtil.isAmbiguous(sel) ?
+        SelectionUtil.makeLeftCursor(sel) :
+        SelectionUtil.makeAnchorCursor(sel);
+    const end = SelectionUtil.isAmbiguous(sel) ?
+        SelectionUtil.makeRightCursor(sel) :
+        SelectionUtil.makeFocusCursor(sel);
     let previousEnd = end.clone();
     const nodesCrossed = [];
     while (true) {
@@ -853,7 +512,7 @@ class CaretBrowsing {
         return this.moveLeft(evt);
       }
 
-      if (this.setAndValidateSelection(
+      if (SelectionUtil.setAndValidateSelection(
               evt.shiftKey ? start : end, end)) {
         break;
       }
@@ -861,7 +520,7 @@ class CaretBrowsing {
 
     if (!evt.shiftKey) {
       nodesCrossed.push(end.node);
-      this.setFocusToFirstFocusable(nodesCrossed);
+      NodeUtil.setFocusToFirstFocusable(nodesCrossed);
     }
 
     return false;
@@ -878,18 +537,18 @@ class CaretBrowsing {
     this.targetX = null;
 
     const sel = window.getSelection();
-    if (!evt.shiftKey && !this.isCollapsed(sel)) {
-      const left = this.makeLeftCursor(sel);
-      this.setAndValidateSelection(left, left);
+    if (!evt.shiftKey && !SelectionUtil.isCollapsed(sel)) {
+      const left = SelectionUtil.makeLeftCursor(sel);
+      SelectionUtil.setAndValidateSelection(left, left);
       return false;
     }
 
-    const start = this.isAmbiguous(sel) ?
-                this.makeLeftCursor(sel) :
-                this.makeFocusCursor(sel);
-    const end = this.isAmbiguous(sel) ?
-              this.makeRightCursor(sel) :
-              this.makeAnchorCursor(sel);
+    const start = SelectionUtil.isAmbiguous(sel) ?
+        SelectionUtil.makeLeftCursor(sel) :
+        SelectionUtil.makeFocusCursor(sel);
+    const end = SelectionUtil.isAmbiguous(sel) ?
+        SelectionUtil.makeRightCursor(sel) :
+        SelectionUtil.makeAnchorCursor(sel);
     let previousStart = start.clone();
     const nodesCrossed = [];
     while (true) {
@@ -906,7 +565,7 @@ class CaretBrowsing {
         break;
       }
 
-      if (this.setAndValidateSelection(
+      if (SelectionUtil.setAndValidateSelection(
               evt.shiftKey ? end : start, start)) {
         break;
       }
@@ -914,7 +573,7 @@ class CaretBrowsing {
 
     if (!evt.shiftKey) {
       nodesCrossed.push(start.node);
-      this.setFocusToFirstFocusable(nodesCrossed);
+      NodeUtil.setFocusToFirstFocusable(nodesCrossed);
     }
 
     return false;
@@ -932,19 +591,19 @@ class CaretBrowsing {
    */
   moveDown(evt) {
     const sel = window.getSelection();
-    if (!evt.shiftKey && !this.isCollapsed(sel)) {
-      const right = this.makeRightCursor(sel);
-      this.setAndValidateSelection(right, right);
+    if (!evt.shiftKey && !SelectionUtil.isCollapsed(sel)) {
+      const right = SelectionUtil.makeRightCursor(sel);
+      SelectionUtil.setAndValidateSelection(right, right);
       return false;
     }
 
-    const start = this.isAmbiguous(sel) ?
-                this.makeLeftCursor(sel) :
-                this.makeAnchorCursor(sel);
-    const end = this.isAmbiguous(sel) ?
-              this.makeRightCursor(sel) :
-              this.makeFocusCursor(sel);
-    const endRect = this.getCursorRect(end);
+    const start = SelectionUtil.isAmbiguous(sel) ?
+        SelectionUtil.makeLeftCursor(sel) :
+        SelectionUtil.makeAnchorCursor(sel);
+    const end = SelectionUtil.isAmbiguous(sel) ?
+        SelectionUtil.makeRightCursor(sel) :
+        SelectionUtil.makeFocusCursor(sel);
+    const endRect = SelectionUtil.getCursorRect(end);
     if (this.targetX === null) {
       this.targetX = endRect.left;
     }
@@ -959,8 +618,8 @@ class CaretBrowsing {
     let y = -1;
     while (true) {
       if (null === this.forwards(rightPos, nodesCrossed)) {
-        if (this.setAndValidateSelection(
-              evt.shiftKey ? start : leftPos, leftPos)) {
+        if (SelectionUtil.setAndValidateSelection(
+                evt.shiftKey ? start : leftPos, leftPos)) {
           break;
         } else {
           return this.moveLeft(evt);
@@ -976,7 +635,7 @@ class CaretBrowsing {
 
         // Return the best match so far if we get half a line past the best.
         if (bestY != null && y > bestY + bestHeight / 2) {
-          if (this.setAndValidateSelection(
+          if (SelectionUtil.setAndValidateSelection(
                   evt.shiftKey ? start : bestPos, bestPos)) {
             break;
           } else {
@@ -987,7 +646,7 @@ class CaretBrowsing {
         // Stop here if we're an entire line the wrong direction
         // (for example, we reached the top of the next column).
         if (y < endRect.top - endRect.height) {
-          if (this.setAndValidateSelection(
+          if (SelectionUtil.setAndValidateSelection(
                   evt.shiftKey ? start : leftPos, leftPos)) {
             break;
           }
@@ -1017,7 +676,7 @@ class CaretBrowsing {
           if (bestDelta != null &&
               deltaLeft > bestDelta &&
               deltaRight > bestDelta) {
-            if (this.setAndValidateSelection(
+            if (SelectionUtil.setAndValidateSelection(
                     evt.shiftKey ? start : bestPos, bestPos)) {
               break;
             } else {
@@ -1030,7 +689,7 @@ class CaretBrowsing {
     }
 
     if (!evt.shiftKey) {
-      this.setFocusToNode(leftPos.node);
+      NodeUtil.setFocusToNode(leftPos.node);
     }
 
     return false;
@@ -1047,19 +706,19 @@ class CaretBrowsing {
    */
   moveUp(evt) {
     const sel = window.getSelection();
-    if (!evt.shiftKey && !this.isCollapsed(sel)) {
-      const left = this.makeLeftCursor(sel);
-      this.setAndValidateSelection(left, left);
+    if (!evt.shiftKey && !SelectionUtil.isCollapsed(sel)) {
+      const left = SelectionUtil.makeLeftCursor(sel);
+      SelectionUtil.setAndValidateSelection(left, left);
       return false;
     }
 
-    const start = this.isAmbiguous(sel) ?
-                this.makeLeftCursor(sel) :
-                this.makeFocusCursor(sel);
-    const end = this.isAmbiguous(sel) ?
-              this.makeRightCursor(sel) :
-              this.makeAnchorCursor(sel);
-    const startRect = this.getCursorRect(start);
+    const start = SelectionUtil.isAmbiguous(sel) ?
+        SelectionUtil.makeLeftCursor(sel) :
+        SelectionUtil.makeFocusCursor(sel);
+    const end = SelectionUtil.isAmbiguous(sel) ?
+        SelectionUtil.makeRightCursor(sel) :
+        SelectionUtil.makeAnchorCursor(sel);
+    const startRect = SelectionUtil.getCursorRect(start);
     if (this.targetX === null) {
       this.targetX = startRect.left;
     }
@@ -1074,7 +733,7 @@ class CaretBrowsing {
     let y = 999999;
     while (true) {
       if (null === this.backwards(leftPos, nodesCrossed)) {
-        this.setAndValidateSelection(
+        SelectionUtil.setAndValidateSelection(
             evt.shiftKey ? end : rightPos, rightPos);
         break;
       }
@@ -1087,7 +746,7 @@ class CaretBrowsing {
 
         // Return the best match so far if we get half a line past the best.
         if (bestY != null && y < bestY - bestHeight / 2) {
-          if (this.setAndValidateSelection(
+          if (SelectionUtil.setAndValidateSelection(
                   evt.shiftKey ? end : bestPos, bestPos)) {
             break;
           } else {
@@ -1098,7 +757,7 @@ class CaretBrowsing {
         // Exit if we're an entire line the wrong direction
         // (for example, we reached the bottom of the previous column.)
         if (y > startRect.top + startRect.height) {
-          if (this.setAndValidateSelection(
+          if (SelectionUtil.setAndValidateSelection(
                   evt.shiftKey ? end : rightPos, rightPos)) {
             break;
           }
@@ -1128,7 +787,7 @@ class CaretBrowsing {
           if (bestDelta != null &&
               deltaLeft > bestDelta &&
               deltaRight > bestDelta) {
-            if (this.setAndValidateSelection(
+            if (SelectionUtil.setAndValidateSelection(
                     evt.shiftKey ? end : bestPos, bestPos)) {
               break;
             } else {
@@ -1141,7 +800,7 @@ class CaretBrowsing {
     }
 
     if (!evt.shiftKey) {
-      this.setFocusToNode(rightPos.node);
+      NodeUtil.setFocusToNode(rightPos.node);
     }
 
     return false;
@@ -1179,7 +838,7 @@ class CaretBrowsing {
       if (null === this.forwards(end, nodesCrossed)) {
         break;
       }
-      if (isDescendantOfNode(end.node, control)) {
+      if (NodeUtil.isDescendantOfNode(end.node, control)) {
         previousEnd = end.clone();
         continue;
       }
@@ -1192,15 +851,15 @@ class CaretBrowsing {
       }
     }
 
-    if (!isDescendantOfNode(previousStart.node, control)) {
+    if (!NodeUtil.isDescendantOfNode(previousStart.node, control)) {
       start = previousStart.clone();
     }
 
-    if (!isDescendantOfNode(previousEnd.node, control)) {
+    if (!NodeUtil.isDescendantOfNode(previousEnd.node, control)) {
       end = previousEnd.clone();
     }
 
-    this.setAndValidateSelection(start, end);
+    SelectionUtil.setAndValidateSelection(start, end);
 
     window.setTimeout(() => {
       this.updateCaretOrSelection(true);
@@ -1216,10 +875,7 @@ class CaretBrowsing {
       return;
     }
 
-    this.isEnabled = !this.isEnabled;
-    const obj = {};
-    obj['enabled'] = this.isEnabled;
-    chrome.storage.sync.set(obj);
+    Storage.enabled = !Storage.enabled;
     this.updateIsCaretVisible();
   }
 
@@ -1237,12 +893,13 @@ class CaretBrowsing {
       this.toggle();
     }
 
-    if (!this.isEnabled) {
+    if (!Storage.enabled) {
       return true;
     }
 
-    if (evt.target && this.isControlThatNeedsArrowKeys(
-        /** @type (Node) */(evt.target))) {
+    if (evt.target &&
+        NodeUtil.isControlThatNeedsArrowKeys(
+            /** @type (Node) */ (evt.target))) {
       if (evt.keyCode == 27) {
         this.escapeFromControl(/** @type {Node} */(evt.target));
         evt.preventDefault();
@@ -1309,7 +966,7 @@ class CaretBrowsing {
    * @return {boolean} True if the default action should be performed.
    */
   onClick(evt) {
-    if (!this.isEnabled) {
+    if (!Storage.enabled) {
       return true;
     }
     window.setTimeout(() => {
@@ -1342,7 +999,7 @@ class CaretBrowsing {
    */
   updateIsCaretVisible() {
     this.isCaretVisible =
-        (this.isEnabled && this.isWindowFocused);
+        (Storage.enabled && this.isWindowFocused);
     if (this.isCaretVisible && !this.caretElement) {
       this.setInitialCursor();
       this.updateCaretOrSelection(true);
@@ -1366,14 +1023,7 @@ class CaretBrowsing {
    * Called when the prefs get updated.
    */
   onPrefsUpdated() {
-    chrome.storage.sync.get(null /* get all */, (result) => {
-      if (!this.forceEnabled) {
-        this.isEnabled = result['enabled'];
-      }
-      this.onEnable = result['onenable'];
-      this.onJump = result['onjump'];
-      this.recreateCaretElement();
-    });
+    this.recreateCaretElement();
   }
 
   /**
@@ -1415,13 +1065,14 @@ window.setTimeout(() => {
 
     if (document.body.getAttribute('caretbrowsing') == 'on') {
       caretBrowsing.forceEnabled = true;
-      caretBrowsing.isEnabled = true;
+      Storage.enabled = true;
       caretBrowsing.updateIsCaretVisible();
     }
 
-    chrome.storage.onChanged.addListener(() => {
-      caretBrowsing.onPrefsUpdated();
-    });
+    Storage.ENABLED.listeners.push(() => caretBrowsing.onPrefsUpdated());
+    Storage.ON_ENABLE.listeners.push(() => caretBrowsing.onPrefsUpdated());
+    Storage.ON_JUMP.listeners.push(() => caretBrowsing.onPrefsUpdated());
+
     caretBrowsing.onPrefsUpdated();
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -285,8 +285,10 @@ base::StringPiece IPAddressSpaceToStringPiece(IPAddressSpace space) {
 IPAddressSpace TransportInfoToIPAddressSpace(const net::TransportInfo& info) {
   switch (info.type) {
     case net::TransportType::kDirect:
+    case net::TransportType::kCached:
       return IPEndPointToIPAddressSpace(info.endpoint);
     case net::TransportType::kProxied:
+    case net::TransportType::kCachedFromProxy:
       return mojom::IPAddressSpace::kUnknown;
   }
 }

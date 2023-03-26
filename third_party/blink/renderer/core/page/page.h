@@ -25,31 +25,38 @@
 
 #include <memory>
 
+#include "base/check_op.h"
 #include "base/dcheck_is_on.h"
 #include "base/types/pass_key.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/common/metrics/document_update_reason.h"
 #include "third_party/blink/public/mojom/devtools/inspector_issue.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/fenced_frame/fenced_frame.mojom-blink.h"
 #include "third_party/blink/public/mojom/frame/text_autosizer_page_info.mojom-blink.h"
 #include "third_party/blink/public/mojom/page/page.mojom-blink.h"
 #include "third_party/blink/public/mojom/page/page_visibility_state.mojom-blink.h"
 #include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
 #include "third_party/blink/public/platform/scheduler/web_scoped_virtual_time_pauser.h"
+#include "third_party/blink/public/web/web_lifecycle_update.h"
 #include "third_party/blink/public/web/web_window_features.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/vision_deficiency.h"
-#include "third_party/blink/renderer/core/frame/deprecation.h"
+#include "third_party/blink/renderer/core/frame/deprecation/deprecation.h"
 #include "third_party/blink/renderer/core/frame/settings_delegate.h"
 #include "third_party/blink/renderer/core/inspector/inspector_issue_storage.h"
-#include "third_party/blink/renderer/core/page/page_animator.h"
 #include "third_party/blink/renderer/core/page/page_visibility_observer.h"
 #include "third_party/blink/renderer/core/page/viewport_description.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/heap_observer_set.h"
+#include "third_party/blink/renderer/platform/scheduler/public/agent_group_scheduler.h"
 #include "third_party/blink/renderer/platform/scheduler/public/page_lifecycle_state.h"
 #include "third_party/blink/renderer/platform/scheduler/public/page_scheduler.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
-#include "third_party/blink/renderer/platform/wtf/hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace cc {
@@ -72,6 +79,7 @@ class LocalFrame;
 class LocalFrameView;
 class MediaFeatureOverrides;
 class OverscrollController;
+class PageAnimator;
 struct PageScaleConstraints;
 class PageScaleConstraintsSet;
 class PluginData;
@@ -88,8 +96,6 @@ class VisualViewport;
 
 typedef uint64_t LinkHash;
 
-float DeviceScaleFactorDeprecated(LocalFrame*);
-
 // A Page roughly corresponds to a tab or popup window in a browser. It owns a
 // tree of frames (a blink::FrameTree). The root frame is called the main frame.
 //
@@ -102,19 +108,17 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
 
  public:
   // Any pages not owned by a web view should be created using this method.
-  static Page* CreateNonOrdinary(
-      ChromeClient& chrome_client,
-      scheduler::WebAgentGroupScheduler& agent_group_scheduler);
+  static Page* CreateNonOrdinary(ChromeClient& chrome_client,
+                                 AgentGroupScheduler& agent_group_scheduler);
 
   // An "ordinary" page is a fully-featured page owned by a web view.
-  static Page* CreateOrdinary(
-      ChromeClient& chrome_client,
-      Page* opener,
-      scheduler::WebAgentGroupScheduler& agent_group_scheduler);
+  static Page* CreateOrdinary(ChromeClient& chrome_client,
+                              Page* opener,
+                              AgentGroupScheduler& agent_group_scheduler);
 
   Page(base::PassKey<Page>,
        ChromeClient& chrome_client,
-       scheduler::WebAgentGroupScheduler& agent_group_scheduler,
+       AgentGroupScheduler& agent_group_scheduler,
        bool is_ordinary);
   Page(const Page&) = delete;
   Page& operator=(const Page&) = delete;
@@ -138,6 +142,9 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   // https://html.spec.whatwg.org/C/#unit-of-related-browsing-contexts
   HeapVector<Member<Page>> RelatedPages();
 
+  // Should be called when |GetScrollbarTheme().UsesOverlayScrollbars()|
+  // changes.
+  static void UsesOverlayScrollbarsChanged();
   static void PlatformColorsChanged();
   static void ColorSchemeChanged();
   static void ColorProvidersChanged();
@@ -159,6 +166,13 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   // TODO(npm): update the |page_scheduler_| directly in this method.
   void SetMainFrame(Frame*);
   Frame* MainFrame() const { return main_frame_; }
+
+  void SetPreviousMainFrameForLocalSwap(
+      LocalFrame* previous_main_frame_for_local_swap) {
+    previous_main_frame_for_local_swap_ = previous_main_frame_for_local_swap;
+  }
+  Frame* TakePreviousMainFrameForLocalSwap();
+
   // Escape hatch for existing code that assumes that the root frame is
   // always a LocalFrame. With OOPI, this is not always the case. Code that
   // depends on this will generally have to be rewritten to propagate any
@@ -167,6 +181,14 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   LocalFrame* DeprecatedLocalMainFrame() const;
 
   void DocumentDetached(Document*);
+
+  void Animate(base::TimeTicks monotonic_frame_begin_time);
+
+  // The |root| argument indicates a root LocalFrame from which to start
+  // performing the operation. See comment on WebWidget::UpdateLifecycle.
+  void UpdateLifecycle(LocalFrame& root,
+                       WebLifecycleUpdate requested_update,
+                       DocumentUpdateReason reason);
 
   bool OpenedByDOM() const;
   void SetOpenedByDOM();
@@ -253,18 +275,12 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   void SetPageScaleFactor(float);
   float PageScaleFactor() const;
 
-  // Corresponds to pixel density of the device where this Page is
-  // being displayed. In multi-monitor setups this can vary between pages.
-  // This value does not account for Page zoom, use LocalFrame::devicePixelRatio
-  // instead.  This is to be deprecated. Use this with caution.
-  // 1) If you need to scale the content per device scale factor, this is still
-  //    valid.  In use-zoom-for-dsf mode, this is always 1, and will be remove
-  //    when transition is complete.
-  // 2) If you want to compute the device related measure (such as device pixel
-  //    height, or the scale factor for drag image), use
-  //    ChromeClient::screenInfo() instead.
-  float DeviceScaleFactorDeprecated() const { return device_scale_factor_; }
-  void SetDeviceScaleFactorDeprecated(float);
+  float InspectorDeviceScaleFactorOverride() const {
+    return inspector_device_scale_factor_override_;
+  }
+  void SetInspectorDeviceScaleFactorOverride(float override) {
+    inspector_device_scale_factor_override_ = override;
+  }
 
   static void AllVisitedStateChanged(bool invalidate_visited_link_hashes);
   static void VisitedStateChanged(LinkHash visited_hash);
@@ -303,8 +319,8 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
 
   void Trace(Visitor*) const override;
 
-  void AnimationHostInitialized(cc::AnimationHost&, LocalFrameView*);
-  void WillCloseAnimationHost(LocalFrameView*);
+  void DidInitializeCompositing(cc::AnimationHost&);
+  void WillStopCompositing();
 
   void WillBeDestroyed();
 
@@ -312,7 +328,7 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
 
   ScrollbarTheme& GetScrollbarTheme() const;
 
-  scheduler::WebAgentGroupScheduler& GetAgentGroupScheduler() const;
+  AgentGroupScheduler& GetAgentGroupScheduler() const;
   PageScheduler* GetPageScheduler() const;
 
   // PageScheduler::Delegate implementation.
@@ -390,6 +406,11 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   // Returns if the main frame of this frame tree is a fenced frame.
   bool IsMainFrameFencedFrameRoot() const;
 
+  void SetFencedFrameMode(mojom::blink::FencedFrameMode mode) {
+    fenced_frame_mode_ = mode;
+  }
+  mojom::blink::FencedFrameMode FencedFrameMode() { return fenced_frame_mode_; }
+
  private:
   friend class ScopedPagePauser;
 
@@ -415,9 +436,25 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   // each other, thus keeping each other alive. The call to willBeDestroyed()
   // breaks this cycle, so the frame is still properly destroyed once no
   // longer needed.
+  // Note that the main frame can either be a LocalFrame or a RemoteFrame. When
+  // the main frame is a RemoteFrame, it's possible for the RemoteFrame to not
+  // be connected to any RenderFrameProxyHost on the browser side, if the Page
+  // is a new page created for a provisional main frame. In that case, the main
+  // frame is solely used as a placeholder to be swapped out by the provisional
+  // main frame later on.
+  // See comments in `AgentSchedulingGroup::CreateWebView()` for more details.
   Member<Frame> main_frame_;
 
-  scheduler::WebAgentGroupScheduler& agent_group_scheduler_;
+  // When a Page is created for a provisional main frame, which is intended to
+  // do a local main frame swap when its navigation commits, this will point to
+  // the previous Page's main frame. This is so that the provisional main frame
+  // can trigger the detach and "swap out" the previous Page's main frame. This
+  // is a WeakMember because the lifetime of this page and the previous Page
+  // should be independent. If the previous Page gets destroyed, the provisional
+  // Page can still exist (but the browser might trigger its deletion later on).
+  WeakMember<LocalFrame> previous_main_frame_for_local_swap_;
+
+  Member<AgentGroupScheduler> agent_group_scheduler_;
   Member<PageAnimator> animator_;
   const Member<AutoscrollController> autoscroll_controller_;
   Member<ChromeClient> chrome_client_;
@@ -457,7 +494,7 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
 
   bool tab_key_cycles_through_elements_;
 
-  float device_scale_factor_;
+  float inspector_device_scale_factor_override_;
 
   mojom::blink::PageLifecycleStatePtr lifecycle_state_;
 
@@ -504,7 +541,7 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   bool inside_portal_ = false;
 
   // Whether the page is being prerendered by the Prerender2
-  // feature. See content/browser/prerender/README.md.
+  // feature. See content/browser/preloading/prerender/README.md.
   //
   // This is ordinarily initialized by WebViewImpl immediately after creating
   // this Page. Once initialized, it can only transition from true to false on
@@ -515,6 +552,12 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   // only set for the MPArch implementation and is true when the corresponding
   // browser side FrameTree has the FrameTree::Type of kFencedFrame.
   bool is_fenced_frame_tree_ = false;
+
+  // If the page is hosted inside an MPArch fenced frame, this tracks the
+  // mode that the fenced frame is set to. This will always be set to kDefault
+  // for the ShadowDOM implementation of fenced frames.
+  mojom::blink::FencedFrameMode fenced_frame_mode_ =
+      mojom::blink::FencedFrameMode::kDefault;
 
   mojom::blink::TextAutosizerPageInfo web_text_autosizer_page_info_;
 

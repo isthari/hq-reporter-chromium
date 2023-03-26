@@ -1,8 +1,13 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/arc/instance_throttle/arc_power_throttle_observer.h"
+#include "base/time/time.h"
+
+// Enable VLOG level 1.
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
 
 namespace arc {
 
@@ -12,11 +17,14 @@ namespace {
 constexpr base::TimeDelta kHandleDefaultAnrTime = base::Seconds(10);
 // Time to recover ANR in services.
 constexpr base::TimeDelta kHandleServiceAnrTime = base::Seconds(20);
+// Time to recover ANR in broadcast queue.
+// TODO(khmel): This might require to separate foreground/background queue.
+constexpr base::TimeDelta kHandleBroadcastAnrTime = base::Seconds(10);
 
 }  // namespace
 
 ArcPowerThrottleObserver::ArcPowerThrottleObserver()
-    : ThrottleObserver("ArcPower") {}
+    : ThrottleObserver(kArcPowerThrottleObserverName) {}
 
 ArcPowerThrottleObserver::~ArcPowerThrottleObserver() = default;
 
@@ -56,6 +64,9 @@ void ArcPowerThrottleObserver::OnPreAnr(mojom::AnrType type) {
     case mojom::AnrType::FOREGROUND_SERVICE:
     case mojom::AnrType::BACKGROUND_SERVICE:
       delta = kHandleServiceAnrTime;
+      break;
+    case mojom::AnrType::BROADCAST:
+      delta = kHandleBroadcastAnrTime;
       break;
     default:
       delta = kHandleDefaultAnrTime;

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,15 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "ash/webui/shimless_rma/backend/version_updater.h"
 #include "ash/webui/shimless_rma/mojom/shimless_rma.mojom.h"
-#include "chromeos/dbus/rmad/rmad.pb.h"
-#include "chromeos/dbus/rmad/rmad_client.h"
-#include "chromeos/dbus/update_engine/update_engine.pb.h"
+#include "base/containers/flat_set.h"
+#include "chromeos/ash/components/dbus/rmad/rmad.pb.h"
+#include "chromeos/ash/components/dbus/rmad/rmad_client.h"
+#include "chromeos/ash/components/dbus/update_engine/update_engine.pb.h"
+#include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote_set.h"
@@ -24,7 +27,7 @@ namespace shimless_rma {
 class ShimlessRmaDelegate;
 
 class ShimlessRmaService : public mojom::ShimlessRmaService,
-                           public chromeos::RmadClient::Observer {
+                           public RmadClient::Observer {
  public:
   ShimlessRmaService(
       std::unique_ptr<ShimlessRmaDelegate> shimless_rma_delegate);
@@ -41,6 +44,7 @@ class ShimlessRmaService : public mojom::ShimlessRmaService,
 
   void BeginFinalization(BeginFinalizationCallback callback) override;
 
+  void TrackConfiguredNetworks() override;
   void NetworkSelectionComplete(
       NetworkSelectionCompleteCallback callback) override;
 
@@ -48,9 +52,12 @@ class ShimlessRmaService : public mojom::ShimlessRmaService,
   void CheckForOsUpdates(CheckForOsUpdatesCallback callback) override;
   void UpdateOs(UpdateOsCallback callback) override;
   void UpdateOsSkipped(UpdateOsSkippedCallback callback) override;
+  VersionUpdater* GetVersionUpdaterForTesting();
 
   void SetSameOwner(SetSameOwnerCallback callback) override;
   void SetDifferentOwner(SetDifferentOwnerCallback callback) override;
+
+  void SetWipeDevice(bool wipe_device, SetWipeDeviceCallback) override;
 
   void ChooseManuallyDisableWriteProtect(
       ChooseManuallyDisableWriteProtectCallback callback) override;
@@ -68,8 +75,6 @@ class ShimlessRmaService : public mojom::ShimlessRmaService,
 
   void WriteProtectManuallyDisabled(
       WriteProtectManuallyDisabledCallback callback) override;
-  void GetWriteProtectManuallyDisabledInstructions(
-      GetWriteProtectManuallyDisabledInstructionsCallback callback) override;
 
   void GetWriteProtectDisableCompleteAction(
       GetWriteProtectDisableCompleteActionCallback callback) override;
@@ -128,14 +133,16 @@ class ShimlessRmaService : public mojom::ShimlessRmaService,
       WriteProtectManuallyEnabledCallback callback) override;
 
   void GetLog(GetLogCallback callback) override;
+  void SaveLog(SaveLogCallback callback) override;
+  void GetPowerwashRequired(GetPowerwashRequiredCallback callback) override;
   void LaunchDiagnostics() override;
-  void EndRmaAndReboot(EndRmaAndRebootCallback callback) override;
-  void EndRmaAndShutdown(EndRmaAndShutdownCallback callback) override;
-  void EndRmaAndCutoffBattery(EndRmaAndCutoffBatteryCallback callback) override;
+  void EndRma(rmad::RepairCompleteState::ShutdownMethod shutdown_method,
+              EndRmaCallback callback) override;
 
   void CriticalErrorExitToLogin(
       CriticalErrorExitToLoginCallback callback) override;
   void CriticalErrorReboot(CriticalErrorRebootCallback callback) override;
+  void ShutDownAfterHardwareError() override;
 
   void ObserveError(
       ::mojo::PendingRemote<mojom::ErrorObserver> observer) override;
@@ -150,6 +157,9 @@ class ShimlessRmaService : public mojom::ShimlessRmaService,
           observer) override;
   void ObservePowerCableState(
       ::mojo::PendingRemote<mojom::PowerCableStateObserver> observer) override;
+  void ObserveExternalDiskState(
+      ::mojo::PendingRemote<mojom::ExternalDiskStateObserver> observer)
+      override;
   void ObserveHardwareVerificationStatus(
       ::mojo::PendingRemote<mojom::HardwareVerificationStatusObserver> observer)
       override;
@@ -170,36 +180,122 @@ class ShimlessRmaService : public mojom::ShimlessRmaService,
   void ProvisioningProgress(const rmad::ProvisionStatus& status) override;
   void HardwareWriteProtectionState(bool enabled) override;
   void PowerCableState(bool plugged_in) override;
+  void ExternalDiskState(bool detected) override;
   void HardwareVerificationResult(
       const rmad::HardwareVerificationResult& result) override;
   void FinalizationProgress(const rmad::FinalizeStatus& status) override;
   void RoFirmwareUpdateProgress(rmad::UpdateRoFirmwareStatus status) override;
 
-  void OsUpdateProgress(update_engine::Operation operation, double progress);
+  void OsUpdateProgress(update_engine::Operation operation,
+                        double progress,
+                        update_engine::ErrorCode error_code);
+
+  // Sends a metric to the platform side when the Diagnostics app is launched.
+  void SendMetricOnLaunchDiagnostics();
+
+  // Sends a metric to the platform side when an OS update is requested.
+  void SendMetricOnUpdateOs();
+
+  // Sets the critical_error_occurred_ variable, so that the tests can call
+  // functions that request reboots after an error.
+  void SetCriticalErrorOccurredForTest(bool critical_error_occurred);
 
  private:
   using TransitionStateCallback =
-      base::OnceCallback<void(mojom::State, bool, bool, rmad::RmadErrorCode)>;
+      base::OnceCallback<void(mojom::StateResultPtr)>;
+
+  mojom::StateResultPtr CreateStateResult(mojom::State,
+                                          bool can_exit,
+                                          bool can_go_back,
+                                          rmad::RmadErrorCode);
+  mojom::StateResultPtr CreateStateResultForInvalidRequest();
+
+  enum StateResponseCalledFrom {
+    kTransitPreviousState = 0,
+    kGetCurrentState,
+    kTransitNextState,
+  };
 
   template <class Callback>
   void TransitionNextStateGeneric(Callback callback);
   template <class Callback>
   void OnGetStateResponse(Callback callback,
+                          StateResponseCalledFrom called_from,
                           absl::optional<rmad::GetStateReply> response);
   void OnAbortRmaResponse(AbortRmaCallback callback,
                           bool reboot,
                           absl::optional<rmad::AbortRmaReply> response);
-  void OnGetLog(GetLogCallback callback, absl::optional<std::string> log);
+  void AbortRmaForgetNetworkResponse(
+      AbortRmaCallback callback,
+      bool reboot,
+      absl::optional<rmad::AbortRmaReply> response);
+  void EndRmaForgetNetworkResponse(
+      rmad::RepairCompleteState::ShutdownMethod shutdown_method,
+      EndRmaCallback callback);
+  void OnGetLog(GetLogCallback callback,
+                absl::optional<rmad::GetLogReply> response);
+  void OnSaveLog(SaveLogCallback callback,
+                 absl::optional<rmad::SaveLogReply> response);
 
   void OnOsUpdateStatusCallback(update_engine::Operation operation,
                                 double progress,
                                 bool rollback,
                                 bool powerwash,
                                 const std::string& version,
-                                int64_t update_size);
+                                int64_t update_size,
+                                update_engine::ErrorCode error_code);
 
   void OsUpdateOrNextRmadStateCallback(TransitionStateCallback callback,
                                        const std::string& version);
+
+  // Indicate if user has seen the NetworkPage. It helps to check if user
+  // will skip the NetworkPage when clicking back button.
+  bool user_has_seen_network_page_ = false;
+
+  // Saves existing configured networks to `existing_saved_network_guids_`.
+  void OnTrackConfiguredNetworks(
+      std::vector<chromeos::network_config::mojom::NetworkStatePropertiesPtr>
+          networks);
+
+  // Fetches the list of configured networks on RMA completion/exit.
+  void ForgetNewNetworkConnections(base::OnceClosure end_rma_callback);
+
+  // Compares the saved and current list of configured networks and attempts to
+  // drop any new network configurations.
+  void OnForgetNewNetworkConnections(
+      std::vector<chromeos::network_config::mojom::NetworkStatePropertiesPtr>
+          networks);
+
+  // Confirms if the network was dropped. Invokes `end_rma_callback_` once all
+  // the expected networks are dropped.
+  void OnForgetNetwork(const std::string& guid, bool success);
+
+  // Handles responses from the platform to diagnostics requests.
+  void OnMetricsReply(
+      absl::optional<rmad::RecordBrowserActionMetricReply> response);
+
+  // Handles the response when the RSU QR code is generated.
+  void OnQrCodeGenerated(
+      GetRsuDisableWriteProtectChallengeQrCodeCallback callback,
+      const std::string& qr_code_image);
+
+  // Remote for sending requests to the CrosNetworkConfig service.
+  mojo::Remote<chromeos::network_config::mojom::CrosNetworkConfig>
+      remote_cros_network_config_;
+
+  // The GUIDs of the saved network configurations prior to starting RMA. Needed
+  // to track network connections added during RMA. This only gets created if
+  // the user gets to the `kConfigureNetwork` state.
+  absl::optional<base::flat_set<std::string>> existing_saved_network_guids_;
+
+  // The set of guids for networks to be removed from the device before RMA
+  // exit. After each response from ForgetNetwork(), the corresponding guid is
+  // removed from the set.
+  base::flat_set<std::string> pending_network_guids_to_forget_;
+
+  // The callback invoked once to end RMA when all the expected networks have
+  // been forgotten.
+  base::OnceClosure end_rma_callback_;
 
   rmad::RmadState state_proto_;
   bool can_abort_ = false;
@@ -207,12 +303,17 @@ class ShimlessRmaService : public mojom::ShimlessRmaService,
   // Used to validate mojo only states such as kConfigureNetwork
   mojom::State mojo_state_;
 
+  // These variables are used to save the most recent values of the
+  // corresponding variables, in case if the rmad client has already sent them,
+  // but the front end observer isn't connected yet. The value will be passed to
+  // the front end observer when it connects.
   absl::optional<rmad::CalibrationComponentStatus> last_calibration_progress_;
   absl::optional<rmad::CalibrationOverallStatus>
       last_calibration_overall_progress_;
   absl::optional<rmad::ProvisionStatus> last_provisioning_progress_;
   absl::optional<bool> last_hardware_protection_state_;
   absl::optional<bool> last_power_cable_state_;
+  absl::optional<bool> last_external_disk_state_;
   absl::optional<rmad::HardwareVerificationResult>
       last_hardware_verification_result_;
   absl::optional<rmad::FinalizeStatus> last_finalization_progress_;
@@ -226,6 +327,10 @@ class ShimlessRmaService : public mojom::ShimlessRmaService,
   mojo::Remote<mojom::HardwareWriteProtectionStateObserver>
       hwwp_state_observer_;
   mojo::Remote<mojom::PowerCableStateObserver> power_cable_observer_;
+  // ExternalDiskStateObserver is used to detect external disks for saving logs
+  // and installing firmware.
+  mojo::RemoteSet<mojom::ExternalDiskStateObserver>
+      external_disk_state_observers_;
   // HardwareVerificationStatusObserver is used by landing and OS update pages.
   mojo::RemoteSet<mojom::HardwareVerificationStatusObserver>
       hardware_verification_observers_;

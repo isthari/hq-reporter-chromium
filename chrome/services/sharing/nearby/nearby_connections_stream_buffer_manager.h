@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,9 @@
 #include <memory>
 #include <unordered_map>
 
-#include "third_party/nearby/src/cpp/core/payload.h"
-#include "third_party/nearby/src/cpp/platform/base/byte_array.h"
+#include "third_party/nearby/src/connections/payload.h"
+#include "third_party/nearby/src/internal/platform/byte_array.h"
 
-namespace location {
 namespace nearby {
 namespace connections {
 
@@ -68,6 +67,5 @@ class NearbyConnectionsStreamBufferManager {
 
 }  // namespace connections
 }  // namespace nearby
-}  // namespace location
 
 #endif  // CHROME_SERVICES_SHARING_NEARBY_NEARBY_CONNECTIONS_STREAM_BUFFER_MANAGER_H_

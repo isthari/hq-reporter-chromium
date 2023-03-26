@@ -1,28 +1,30 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/settings/google_services/accounts_table_view_controller.h"
 
 #import "base/mac/foundation_util.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/metrics/user_metrics.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/strings/utf_string_conversions.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/metrics/user_metrics.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/strings/utf_string_conversions.h"
 #import "components/signin/public/identity_manager/identity_manager.h"
 #import "components/signin/public/identity_manager/objc/identity_manager_observer_bridge.h"
-#include "components/strings/grit/components_strings.h"
-#include "components/sync/driver/sync_service.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
-#include "ios/chrome/browser/main/browser.h"
+#import "components/strings/grit/components_strings.h"
+#import "components/sync/driver/sync_service.h"
+#import "ios/chrome/browser/application_context/application_context.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/net/crurl.h"
 #import "ios/chrome/browser/signin/authentication_service.h"
-#include "ios/chrome/browser/signin/authentication_service_factory.h"
+#import "ios/chrome/browser/signin/authentication_service_factory.h"
 #import "ios/chrome/browser/signin/chrome_account_manager_service.h"
 #import "ios/chrome/browser/signin/chrome_account_manager_service_factory.h"
 #import "ios/chrome/browser/signin/chrome_account_manager_service_observer_bridge.h"
-#include "ios/chrome/browser/signin/identity_manager_factory.h"
+#import "ios/chrome/browser/signin/identity_manager_factory.h"
+#import "ios/chrome/browser/signin/system_identity.h"
+#import "ios/chrome/browser/signin/system_identity_manager.h"
 #import "ios/chrome/browser/ui/alert_coordinator/action_sheet_coordinator.h"
 #import "ios/chrome/browser/ui/alert_coordinator/alert_coordinator.h"
 #import "ios/chrome/browser/ui/authentication/authentication_ui_util.h"
@@ -33,6 +35,7 @@
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
 #import "ios/chrome/browser/ui/commands/show_signin_command.h"
 #import "ios/chrome/browser/ui/icons/chrome_icon.h"
+#import "ios/chrome/browser/ui/icons/symbols.h"
 #import "ios/chrome/browser/ui/settings/google_services/accounts_table_view_controller_constants.h"
 #import "ios/chrome/browser/ui/settings/sync/utils/sync_util.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_detail_text_item.h"
@@ -41,16 +44,14 @@
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_item.h"
 #import "ios/chrome/browser/ui/table_view/table_view_model.h"
 #import "ios/chrome/browser/ui/table_view/table_view_utils.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/browser/url/chrome_url_constants.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
-#include "ios/chrome/grit/ios_chromium_strings.h"
-#include "ios/chrome/grit/ios_strings.h"
-#import "ios/public/provider/chrome/browser/chrome_browser_provider.h"
-#import "ios/public/provider/chrome/browser/signin/chrome_identity.h"
-#import "ios/public/provider/chrome/browser/signin/chrome_identity_service.h"
+#import "ios/chrome/grit/ios_chromium_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "net/base/mac/url_conversions.h"
-#include "ui/base/l10n/l10n_util_mac.h"
-#include "url/gurl.h"
+#import "ui/base/l10n/l10n_util_mac.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -58,8 +59,12 @@
 
 using signin_metrics::AccessPoint;
 using signin_metrics::PromoAction;
+using DismissViewCallback = SystemIdentityManager::DismissViewCallback;
 
 namespace {
+
+// The size of the symbol image.
+const CGFloat kSymbolAddAccountPointSize = 20;
 
 typedef NS_ENUM(NSInteger, SectionIdentifier) {
   SectionIdentifierAccounts = kSectionIdentifierEnumZero,
@@ -108,10 +113,6 @@ typedef NS_ENUM(NSInteger, ItemType) {
 @property(nonatomic, strong)
     AlertCoordinator* removeOrMyGoogleChooserAlertCoordinator;
 
-// Callback to dismiss MyGoogle (Account Detail).
-@property(nonatomic, copy)
-    ios::DismissASMViewControllerBlock dismissAccountDetailsViewControllerBlock;
-
 // Modal alert for confirming account removal.
 @property(nonatomic, strong) AlertCoordinator* removeAccountCoordinator;
 
@@ -130,9 +131,10 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 @end
 
-@implementation AccountsTableViewController
-
-@synthesize dispatcher = _dispatcher;
+@implementation AccountsTableViewController {
+  // Callback to dismiss MyGoogle (Account Detail).
+  DismissViewCallback _dismissAccountDetailsViewController;
+}
 
 - (instancetype)initWithBrowser:(Browser*)browser
       closeSettingsOnAddAccount:(BOOL)closeSettingsOnAddAccount {
@@ -188,7 +190,11 @@ typedef NS_ENUM(NSInteger, ItemType) {
   [self.removeAccountCoordinator stop];
   self.removeAccountCoordinator = nil;
   [self stopBrowserStateServiceObservers];
+  _accountManagerServiceObserver.reset();
   _browser = nullptr;
+  _accountManagerService = nullptr;
+
+  _isBeingDismissed = YES;
 }
 
 #pragma mark - SettingsRootTableViewController
@@ -211,20 +217,22 @@ typedef NS_ENUM(NSInteger, ItemType) {
     return;
 
   // Update the title with the name with the currently signed-in account.
-  ChromeIdentity* authenticatedIdentity =
-      [self authService]->GetPrimaryIdentity(signin::ConsentLevel::kSignin);
+  AuthenticationService* authService = self.authService;
+  id<SystemIdentity> authenticatedIdentity =
+      authService->GetPrimaryIdentity(signin::ConsentLevel::kSignin);
+
   NSString* title = nil;
   if (authenticatedIdentity) {
-    title = [authenticatedIdentity userFullName];
+    title = authenticatedIdentity.userFullName;
     if (!title) {
-      title = [authenticatedIdentity userEmail];
+      title = authenticatedIdentity.userEmail;
     }
   }
   self.title = title;
 
   [super loadModel];
 
-  if (![self authService]->HasPrimaryIdentity(signin::ConsentLevel::kSignin))
+  if (!authService->HasPrimaryIdentity(signin::ConsentLevel::kSignin))
     return;
 
   TableViewModel* model = self.tableViewModel;
@@ -239,9 +247,9 @@ typedef NS_ENUM(NSInteger, ItemType) {
   signin::IdentityManager* identityManager =
       IdentityManagerFactory::GetForBrowserState(_browser->GetBrowserState());
 
-  NSString* authenticatedEmail = [authenticatedIdentity userEmail];
+  NSString* authenticatedEmail = authenticatedIdentity.userEmail;
   for (const auto& account : identityManager->GetAccountsWithRefreshTokens()) {
-    ChromeIdentity* identity =
+    id<SystemIdentity> identity =
         self.accountManagerService->GetIdentityWithGaiaID(account.gaia);
     if (!identity) {
       // Ignore the case in which the identity is invalid at lookup time. This
@@ -276,12 +284,12 @@ typedef NS_ENUM(NSInteger, ItemType) {
   [model addSectionWithIdentifier:SectionIdentifierSignOut];
   [model addItem:[self signOutItem]
       toSectionWithIdentifier:SectionIdentifierSignOut];
-  AuthenticationService* authService = [self authService];
 
   BOOL hasSyncConsent =
       authService->HasPrimaryIdentity(signin::ConsentLevel::kSync);
   TableViewLinkHeaderFooterItem* footerItem = nil;
-  if (IsForceSignInEnabled()) {
+  if ([self authService]->GetServiceStatus() ==
+      AuthenticationService::ServiceStatus::SigninForcedByPolicy) {
     if (authService->HasPrimaryIdentity(signin::ConsentLevel::kSignin)) {
       footerItem =
           [self signOutSyncingFooterItemForForcedSignin:hasSyncConsent];
@@ -343,7 +351,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
   return footer;
 }
 
-- (TableViewItem*)accountItem:(ChromeIdentity*)identity {
+- (TableViewItem*)accountItem:(id<SystemIdentity>)identity {
   TableViewAccountItem* item =
       [[TableViewAccountItem alloc] initWithType:ItemTypeAccount];
   [self updateAccountItem:item withIdentity:identity];
@@ -351,11 +359,11 @@ typedef NS_ENUM(NSInteger, ItemType) {
 }
 
 - (void)updateAccountItem:(TableViewAccountItem*)item
-             withIdentity:(ChromeIdentity*)identity {
+             withIdentity:(id<SystemIdentity>)identity {
   item.image = self.accountManagerService->GetIdentityAvatarWithIdentity(
       identity, IdentityAvatarSize::TableViewIcon);
   item.text = identity.userEmail;
-  item.chromeIdentity = identity;
+  item.identity = identity;
   item.accessibilityIdentifier = identity.userEmail;
   item.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
 }
@@ -366,8 +374,12 @@ typedef NS_ENUM(NSInteger, ItemType) {
   item.text =
       l10n_util::GetNSString(IDS_IOS_OPTIONS_ACCOUNTS_ADD_ACCOUNT_BUTTON);
   item.accessibilityIdentifier = kSettingsAccountsTableViewAddAccountCellId;
-  item.image = [[UIImage imageNamed:@"settings_accounts_add_account"]
-      imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+  item.image =
+      UseSymbols()
+          ? CustomSymbolWithPointSize(kPlusCircleFillSymbol,
+                                      kSymbolAddAccountPointSize)
+          : [[UIImage imageNamed:@"settings_accounts_add_account"]
+                imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
   return item;
 }
 
@@ -388,7 +400,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
     viewForFooterInSection:(NSInteger)section {
   UIView* view = [super tableView:tableView viewForFooterInSection:section];
   NSInteger sectionIdentifier =
-      [self.tableViewModel sectionIdentifierForSection:section];
+      [self.tableViewModel sectionIdentifierForSectionIndex:section];
   switch (sectionIdentifier) {
     case SectionIdentifierAccounts:
     case SectionIdentifierSignOut: {
@@ -408,9 +420,9 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 - (void)tableView:(UITableView*)tableView
     didSelectRowAtIndexPath:(NSIndexPath*)indexPath {
-  // If there is an operation in process that does not allow selecting a cell
-  // exit without performing the selection.
-  if (self.uiDisabled) {
+  // If there is an operation in process that does not allow selecting a cell or
+  // if the settings will be dismissed, exit without performing the selection.
+  if (self.uiDisabled || _isBeingDismissed) {
     return;
   }
 
@@ -423,11 +435,11 @@ typedef NS_ENUM(NSInteger, ItemType) {
       TableViewAccountItem* item =
           base::mac::ObjCCastStrict<TableViewAccountItem>(
               [self.tableViewModel itemAtIndexPath:indexPath]);
-      DCHECK(item.chromeIdentity);
+      DCHECK(item.identity);
 
       UIView* itemView =
           [[tableView cellForRowAtIndexPath:indexPath] contentView];
-      [self showAccountDetails:item.chromeIdentity itemView:itemView];
+      [self showAccountDetails:item.identity itemView:itemView];
       break;
     }
     case ItemTypeAddAccount: {
@@ -468,27 +480,32 @@ typedef NS_ENUM(NSInteger, ItemType) {
   DCHECK(!self.removeOrMyGoogleChooserAlertCoordinator);
   _authenticationOperationInProgress = YES;
 
+  // TODO(crbug.com/1338990): Remove the following line when todo bug will be
+  // fixed.
+  [self preventUserInteraction];
   __weak __typeof(self) weakSelf = self;
   ShowSigninCommand* command = [[ShowSigninCommand alloc]
-      initWithOperation:AUTHENTICATION_OPERATION_ADD_ACCOUNT
+      initWithOperation:AuthenticationOperationAddAccount
                identity:nil
             accessPoint:AccessPoint::ACCESS_POINT_SETTINGS
             promoAction:PromoAction::PROMO_ACTION_NO_SIGNIN_PROMO
                callback:^(BOOL success) {
                  [weakSelf handleDidAddAccount:success];
                }];
-  DCHECK(self.dispatcher);
-  [self.dispatcher showSignin:command baseViewController:self];
+  [self.applicationCommandsHandler showSignin:command baseViewController:self];
 }
 
 - (void)handleDidAddAccount:(BOOL)success {
+  // TODO(crbug.com/1338990): Remove the following line when todo bug will be
+  // fixed.
+  [self allowUserInteraction];
   [self handleAuthenticationOperationDidFinish];
   if (success && _closeSettingsOnAddAccount) {
-    [self.dispatcher closeSettingsUI];
+    [self.applicationCommandsHandler closeSettingsUI];
   }
 }
 
-- (void)showAccountDetails:(ChromeIdentity*)identity
+- (void)showAccountDetails:(id<SystemIdentity>)identity
                   itemView:(UIView*)itemView {
   DCHECK(!self.removeOrMyGoogleChooserAlertCoordinator);
   self.removeOrMyGoogleChooserAlertCoordinator = [[ActionSheetCoordinator alloc]
@@ -523,26 +540,26 @@ typedef NS_ENUM(NSInteger, ItemType) {
 }
 
 // Handles the manage Google account action from
-// |self.removeOrMyGoogleChooserAlertCoordinator|. Action sheet created in
-// |showAccountDetails:itemView:|
-- (void)handleManageGoogleAccountWithIdentity:(ChromeIdentity*)identity {
+// `self.removeOrMyGoogleChooserAlertCoordinator`. Action sheet created in
+// `showAccountDetails:itemView:`
+- (void)handleManageGoogleAccountWithIdentity:(id<SystemIdentity>)identity {
   DCHECK(self.removeOrMyGoogleChooserAlertCoordinator);
-  // |self.removeOrMyGoogleChooserAlertCoordinator| should not be stopped, since
+  // `self.removeOrMyGoogleChooserAlertCoordinator` should not be stopped, since
   // the coordinator has been confirmed.
   self.removeOrMyGoogleChooserAlertCoordinator = nil;
-  self.dismissAccountDetailsViewControllerBlock =
-      ios::GetChromeBrowserProvider()
-          .GetChromeIdentityService()
+  _dismissAccountDetailsViewController =
+      GetApplicationContext()
+          ->GetSystemIdentityManager()
           ->PresentAccountDetailsController(identity, self,
                                             /*animated=*/YES);
 }
 
 // Handles the secondary account remove action from
-// |self.removeOrMyGoogleChooserAlertCoordinator|. Action sheet created in
-// |showAccountDetails:itemView:|
-- (void)handleRemoveSecondaryAccountWithIdentity:(ChromeIdentity*)identity {
+// `self.removeOrMyGoogleChooserAlertCoordinator`. Action sheet created in
+// `showAccountDetails:itemView:`
+- (void)handleRemoveSecondaryAccountWithIdentity:(id<SystemIdentity>)identity {
   DCHECK(self.removeOrMyGoogleChooserAlertCoordinator);
-  // |self.removeOrMyGoogleChooserAlertCoordinator| should not be stopped, since
+  // `self.removeOrMyGoogleChooserAlertCoordinator` should not be stopped, since
   // the coordinator has been confirmed.
   self.removeOrMyGoogleChooserAlertCoordinator = nil;
   DCHECK(!self.removeAccountCoordinator);
@@ -572,16 +589,19 @@ typedef NS_ENUM(NSInteger, ItemType) {
   [self.removeAccountCoordinator start];
 }
 
-- (void)removeSecondaryIdentity:(ChromeIdentity*)identity {
+- (void)removeSecondaryIdentity:(id<SystemIdentity>)identity {
   DCHECK(self.removeAccountCoordinator);
   self.removeAccountCoordinator = nil;
   self.uiDisabled = YES;
-  ios::GetChromeBrowserProvider().GetChromeIdentityService()->ForgetIdentity(
-      identity, ^(NSError* error) {
-        self.uiDisabled = NO;
-      });
+  __weak __typeof(self) weakSelf = self;
+  GetApplicationContext()->GetSystemIdentityManager()->ForgetIdentity(
+      identity, base::BindOnce(^(NSError* error) {
+        weakSelf.uiDisabled = NO;
+      }));
 }
 
+// Offer the user to sign-out near itemView
+// If they sync, they can keep or delete their data.
 - (void)showSignOutWithItemView:(UIView*)itemView {
   DCHECK(!self.signoutCoordinator);
   if (_authenticationOperationInProgress ||
@@ -593,7 +613,9 @@ typedef NS_ENUM(NSInteger, ItemType) {
       initWithBaseViewController:self
                          browser:_browser
                             rect:itemView.frame
-                            view:itemView];
+                            view:itemView
+                      withSource:signin_metrics::ProfileSignout::
+                                     kUserClickedSignoutSettings];
   __weak AccountsTableViewController* weakSelf = self;
   self.signoutCoordinator.completion = ^(BOOL success) {
     [weakSelf.signoutCoordinator stop];
@@ -606,31 +628,6 @@ typedef NS_ENUM(NSInteger, ItemType) {
   [self.signoutCoordinator start];
 }
 
-- (void)handleSignOutWithForceClearData:(BOOL)forceClearData {
-  if (!_browser)
-    return;
-
-  // |self.removeOrMyGoogleChooserAlertCoordinator| should not be stopped, since
-  // the coordinator has been confirmed.
-  DCHECK(self.removeOrMyGoogleChooserAlertCoordinator);
-  self.removeOrMyGoogleChooserAlertCoordinator = nil;
-
-  AuthenticationService* authService = [self authService];
-  if (authService->HasPrimaryIdentity(signin::ConsentLevel::kSignin)) {
-    _authenticationOperationInProgress = YES;
-    [self preventUserInteraction];
-    __weak AccountsTableViewController* weakSelf = self;
-    authService->SignOut(
-        signin_metrics::USER_CLICKED_SIGNOUT_SETTINGS, forceClearData, ^{
-          // Metrics logging must occur before dismissing the currently
-          // presented view controller from |handleSignoutDidFinish|.
-          [weakSelf logSignoutMetricsWithForceClearData:forceClearData];
-          [weakSelf allowUserInteraction];
-          [weakSelf handleAuthenticationOperationDidFinish];
-        });
-  }
-}
-
 // Logs the UMA metrics to record the data retention option selected by the user
 // on signout. If the account is managed the data will always be cleared.
 - (void)logSignoutMetricsWithForceClearData:(BOOL)forceClearData {
@@ -640,23 +637,21 @@ typedef NS_ENUM(NSInteger, ItemType) {
                           forceClearData);
   }
   if (forceClearData) {
-    base::RecordAction(base::UserMetricsAction(
-        "Signin_SignoutClearData_FromAccountListSettings"));
+    base::RecordAction(base::UserMetricsAction("Signin_SignoutClearData"));
   } else {
-    base::RecordAction(
-        base::UserMetricsAction("Signin_Signout_FromAccountListSettings"));
+    base::RecordAction(base::UserMetricsAction("Signin_Signout"));
   }
 }
 
-// Handles the cancel action for |self.removeOrMyGoogleChooserAlertCoordinator|.
+// Handles the cancel action for `self.removeOrMyGoogleChooserAlertCoordinator`.
 - (void)handleAlertCoordinatorCancel {
   DCHECK(self.removeOrMyGoogleChooserAlertCoordinator);
-  // |self.removeOrMyGoogleChooserAlertCoordinator| should not be stopped, since
+  // `self.removeOrMyGoogleChooserAlertCoordinator` should not be stopped, since
   // the coordinator has been cancelled.
   self.removeOrMyGoogleChooserAlertCoordinator = nil;
 }
 
-// Sets |_authenticationOperationInProgress| to NO and pops this accounts
+// Sets `_authenticationOperationInProgress` to NO and pops this accounts
 // table view controller if the user is signed out.
 - (void)handleAuthenticationOperationDidFinish {
   DCHECK(_authenticationOperationInProgress);
@@ -686,24 +681,23 @@ typedef NS_ENUM(NSInteger, ItemType) {
         weakSelf.navigationController)
         popViewControllerOrCloseSettingsAnimated:YES];
   };
-  if (self.dismissAccountDetailsViewControllerBlock) {
+  if (!_dismissAccountDetailsViewController.is_null()) {
     DCHECK(self.presentedViewController);
     DCHECK(!self.removeOrMyGoogleChooserAlertCoordinator);
     DCHECK(!self.removeAccountCoordinator);
     DCHECK(!self.signoutCoordinator);
     // TODO(crbug.com/1221066): Need to add a completion block in
-    // |dismissAccountDetailsViewControllerBlock| callback, to trigger
-    // |popAccountsTableViewController()|.
-    // Once we have a completion block, we can set |animated| to YES.
-    self.dismissAccountDetailsViewControllerBlock(/*animated=*/NO);
-    self.dismissAccountDetailsViewControllerBlock = nil;
+    // `dismissAccountDetailsViewControllerBlock` callback, to trigger
+    // `popAccountsTableViewController()`.
+    // Once we have a completion block, we can set `animated` to YES.
+    std::move(_dismissAccountDetailsViewController).Run(/*animated*/ false);
     popAccountsTableViewController();
   } else if (self.removeOrMyGoogleChooserAlertCoordinator ||
              self.removeAccountCoordinator || self.signoutCoordinator) {
     DCHECK(self.presentedViewController);
-    // If |self| is presenting a view controller (like
-    // |self.removeOrMyGoogleChooserAlertCoordinator|,
-    // |self.removeAccountCoordinator|, it has to be dismissed before |self| can
+    // If `self` is presenting a view controller (like
+    // `self.removeOrMyGoogleChooserAlertCoordinator`,
+    // `self.removeAccountCoordinator`, it has to be dismissed before `self` can
     // be poped from the navigation controller.
     // This issue can be easily reproduced with EG tests, but not with Chrome
     // app itself.
@@ -722,7 +716,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
                            }];
   } else {
     DCHECK(!self.presentedViewController);
-    // Pops |self|.
+    // Pops `self`.
     popAccountsTableViewController();
   }
 }
@@ -737,7 +731,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 #pragma mark - ChromeAccountManagerServiceObserver
 
-- (void)identityChanged:(ChromeIdentity*)identity {
+- (void)identityUpdated:(id<SystemIdentity>)identity {
   TableViewAccountItem* item = base::mac::ObjCCastStrict<TableViewAccountItem>(
       [_identityMap objectForKey:identity.gaiaID]);
   if (!item) {
@@ -773,11 +767,9 @@ typedef NS_ENUM(NSInteger, ItemType) {
 #pragma mark - TableViewLinkHeaderFooterItemDelegate
 
 - (void)view:(TableViewLinkHeaderFooterView*)view didTapLinkURL:(CrURL*)URL {
-  // Subclass must have a valid dispatcher assigned.
-  DCHECK(self.dispatcher);
   OpenNewTabCommand* command =
       [OpenNewTabCommand commandWithURLFromChrome:URL.gurl];
-  [self.dispatcher closeSettingsUIAndOpenURL:command];
+  [self.applicationCommandsHandler closeSettingsUIAndOpenURL:command];
 }
 
 @end

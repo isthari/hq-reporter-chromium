@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,11 +10,7 @@
 // Used to simulate methods in NativeTaskBridge
 @interface FakeNativeTaskBridge : DownloadNativeTaskBridge
 
-// Used in testing to initialize ivars for a proper fake download and is only
-// available in iOS 15+ as it uses |download|
-- (void)downloadInitialized API_AVAILABLE(ios(15));
-
-// Called in |_startDownloadBlock| in DownloadNativeTaskBridge to check if the
+// Called in `_startDownloadBlock` in DownloadNativeTaskBridge to check if the
 // block was called.
 @property(nonatomic, readwrite) BOOL calledStartDownloadBlock;
 

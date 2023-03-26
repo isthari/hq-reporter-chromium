@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,13 @@
 
 #include <vector>
 
+#include "chromeos/printing/cups_printer_status.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace chromeos {
+namespace ash {
 
+using ::chromeos::CupsPrinterStatus;
 using CupsReason = CupsPrinterStatus::CupsPrinterStatusReason::Reason;
 using CupsSeverity = CupsPrinterStatus::CupsPrinterStatusReason::Severity;
 using ReasonFromPrinter = printing::PrinterStatus::PrinterReason::Reason;
@@ -30,8 +32,10 @@ TEST(CupsPrinterStatusCreatorTest, PrinterStatusToCupsPrinterStatus) {
   printer_status.reasons.push_back(reason2);
 
   std::string printer_id = "id";
+  chromeos::PrinterAuthenticationInfo auth_info{.oauth_server = "a",
+                                                .oauth_scope = "b"};
   CupsPrinterStatus cups_printer_status =
-      PrinterStatusToCupsPrinterStatus(printer_id, printer_status);
+      PrinterStatusToCupsPrinterStatus(printer_id, printer_status, auth_info);
 
   EXPECT_EQ("id", cups_printer_status.GetPrinterId());
   EXPECT_EQ(2u, cups_printer_status.GetStatusReasons().size());
@@ -42,6 +46,9 @@ TEST(CupsPrinterStatusCreatorTest, PrinterStatusToCupsPrinterStatus) {
       CupsPrinterStatus::CupsPrinterStatusReason(CupsReason::kDoorOpen,
                                                  CupsSeverity::kWarning)};
   EXPECT_THAT(cups_printer_status.GetStatusReasons(), expected_reasons);
+
+  EXPECT_EQ(cups_printer_status.GetAuthenticationInfo().oauth_server, "a");
+  EXPECT_EQ(cups_printer_status.GetAuthenticationInfo().oauth_scope, "b");
 }
 
 TEST(CupsPrinterStatusCreatorTest, PrinterSeverityToCupsSeverity) {
@@ -145,4 +152,4 @@ TEST(CupsPrinterStatusCreatorTest, PrinterReasonToCupsReason) {
             PrinterReasonToCupsReason(ReasonFromPrinter::kUnknownReason));
 }
 
-}  // namespace chromeos
+}  // namespace ash

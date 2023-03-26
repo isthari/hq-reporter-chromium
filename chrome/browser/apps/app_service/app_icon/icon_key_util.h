@@ -1,4 +1,4 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 // Utility classes for providing an App Service IconKey.
 
 #include "components/services/app_service/public/cpp/icon_types.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
 
 namespace apps_util {
 
@@ -23,8 +22,6 @@ namespace apps_util {
 //
 // The IconKey.resource_id is always zero, as resource-backed icons do not
 // change without a browser re-start.
-//
-// TODO(crbug.com/1253250): Remove MakeIconKey.
 class IncrementingIconKeyFactory {
  public:
   IncrementingIconKeyFactory();
@@ -32,12 +29,10 @@ class IncrementingIconKeyFactory {
   IncrementingIconKeyFactory& operator=(const IncrementingIconKeyFactory&) =
       delete;
 
-  apps::mojom::IconKeyPtr MakeIconKey(uint32_t icon_effects);
-
   std::unique_ptr<apps::IconKey> CreateIconKey(uint32_t icon_effects);
 
  private:
-  uint64_t last_timeline_;
+  uint64_t last_timeline_ = 0;
 };
 
 }  // namespace apps_util

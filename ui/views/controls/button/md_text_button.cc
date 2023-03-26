@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,12 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/i18n/case_conversion.h"
 #include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/color/color_id.h"
 #include "ui/color/color_provider.h"
 #include "ui/gfx/canvas.h"
@@ -49,7 +50,10 @@ MdTextButton::MdTextButton(PressedCallback callback,
       },
       this));
 
-  SetCornerRadius(LayoutProvider::Get()->GetCornerRadiusMetric(Emphasis::kLow));
+  if (!features::IsChromeRefresh2023())
+    SetCornerRadius(
+        LayoutProvider::Get()->GetCornerRadiusMetric(Emphasis::kLow));
+
   SetHorizontalAlignment(gfx::ALIGN_CENTER);
 
   const int minimum_width = LayoutProvider::Get()->GetDistanceMetric(
@@ -72,18 +76,27 @@ MdTextButton::MdTextButton(PressedCallback callback,
 MdTextButton::~MdTextButton() = default;
 
 void MdTextButton::SetProminent(bool is_prominent) {
-  if (is_prominent_ == is_prominent)
-    return;
-
-  is_prominent_ = is_prominent;
-  SetProperty(kDrawFocusRingBackgroundOutline, is_prominent);
-
+  SetStyle(is_prominent ? Style::kProminent : Style::kDefault);
   UpdateColors();
-  OnPropertyChanged(&is_prominent_, kPropertyEffectsNone);
 }
 
 bool MdTextButton::GetProminent() const {
-  return is_prominent_;
+  return style_ == Style::kProminent;
+}
+
+void MdTextButton::SetStyle(views::MdTextButton::Style button_style) {
+  if (style_ == button_style) {
+    return;
+  }
+
+  style_ = button_style;
+  SetProperty(kDrawFocusRingBackgroundOutline,
+              button_style == Style::kProminent);
+  UpdateColors();
+}
+
+views::MdTextButton::Style MdTextButton::GetStyle() const {
+  return style_;
 }
 
 void MdTextButton::SetBgColorOverride(const absl::optional<SkColor>& color) {
@@ -102,11 +115,10 @@ void MdTextButton::SetCornerRadius(float radius) {
   if (corner_radius_ == radius)
     return;
   corner_radius_ = radius;
-  InkDrop::Get(this)->SetSmallCornerRadius(corner_radius_);
-  InkDrop::Get(this)->SetLargeCornerRadius(corner_radius_);
-  views::InstallRoundRectHighlightPathGenerator(this, gfx::Insets(),
-                                                corner_radius_);
-  OnPropertyChanged(&corner_radius_, kPropertyEffectsPaint);
+  LabelButton::SetFocusRingCornerRadius(corner_radius_);
+  // UpdateColors also updates the background border radius.
+  UpdateColors();
+  OnPropertyChanged(&corner_radius_, kPropertyEffectsNone);
 }
 
 float MdTextButton::GetCornerRadius() const {
@@ -133,6 +145,15 @@ void MdTextButton::OnBlur() {
   UpdateColors();
 }
 
+void MdTextButton::OnBoundsChanged(const gfx::Rect& previous_bounds) {
+  LabelButton::OnBoundsChanged(previous_bounds);
+
+  if (features::IsChromeRefresh2023()) {
+    SetCornerRadius(LayoutProvider::Get()->GetCornerRadiusMetric(
+        Emphasis::kMaximum, size()));
+  }
+}
+
 void MdTextButton::SetEnabledTextColors(absl::optional<SkColor> color) {
   LabelButton::SetEnabledTextColors(std::move(color));
   UpdateColors();
@@ -154,8 +175,7 @@ void MdTextButton::SetText(const std::u16string& text) {
 }
 
 PropertyEffects MdTextButton::UpdateStyleToIndicateDefaultStatus() {
-  is_prominent_ = is_prominent_ || GetIsDefault();
-  UpdateColors();
+  SetProminent(style_ == Style::kProminent || GetIsDefault());
   return kPropertyEffectsNone;
 }
 
@@ -184,19 +204,23 @@ gfx::Insets MdTextButton::CalculateDefaultPadding() const {
   // we apply the MD treatment to all buttons, even GTK buttons?
   const int horizontal_padding = LayoutProvider::Get()->GetDistanceMetric(
       DISTANCE_BUTTON_HORIZONTAL_PADDING);
-  return gfx::Insets(top_padding, horizontal_padding, bottom_padding,
-                     horizontal_padding);
+  return gfx::Insets::TLBR(top_padding, horizontal_padding, bottom_padding,
+                           horizontal_padding);
 }
 
 void MdTextButton::UpdateTextColor() {
   if (explicitly_set_normal_color())
     return;
 
-  SkColor enabled_text_color =
-      style::GetColor(*this, label()->GetTextContext(),
-                      is_prominent_ ? style::STYLE_DIALOG_BUTTON_DEFAULT
-                                    : style::STYLE_PRIMARY);
+  style::TextStyle text_style = style::STYLE_PRIMARY;
+  if (style_ == Style::kProminent) {
+    text_style = style::STYLE_DIALOG_BUTTON_DEFAULT;
+  } else if (style_ == Style::kTonal) {
+    text_style = style::STYLE_DIALOG_BUTTON_TONAL;
+  }
 
+  SkColor enabled_text_color =
+      style::GetColor(*this, label()->GetTextContext(), text_style);
   const auto colors = explicitly_set_colors();
   LabelButton::SetEnabledTextColors(enabled_text_color);
   // Disabled buttons need the disabled color explicitly set.
@@ -218,7 +242,7 @@ void MdTextButton::UpdateBackgroundColor() {
 
   if (bg_color_override_) {
     bg_color = *bg_color_override_;
-  } else if (is_prominent_) {
+  } else if (style_ == Style::kProminent) {
     bg_color = color_provider->GetColor(
         HasFocus() ? ui::kColorButtonBackgroundProminentFocused
                    : ui::kColorButtonBackgroundProminent);
@@ -226,18 +250,24 @@ void MdTextButton::UpdateBackgroundColor() {
       bg_color =
           color_provider->GetColor(ui::kColorButtonBackgroundProminentDisabled);
     }
+  } else if (style_ == Style::kTonal) {
+    bg_color = color_provider->GetColor(
+        HasFocus() ? ui::kColorButtonBackgroundTonalFocused
+                   : ui::kColorButtonBackgroundTonal);
+    if (is_disabled) {
+      bg_color =
+          color_provider->GetColor(ui::kColorButtonBackgroundTonalDisabled);
+    }
   }
 
   if (GetState() == STATE_PRESSED) {
     bg_color = GetNativeTheme()->GetSystemButtonPressedColor(bg_color);
   }
 
-  SkColor stroke_color;
-  if (is_prominent_) {
+  SkColor stroke_color = color_provider->GetColor(
+      is_disabled ? ui::kColorButtonBorderDisabled : ui::kColorButtonBorder);
+  if (style_ == Style::kProminent) {
     stroke_color = SK_ColorTRANSPARENT;
-  } else {
-    stroke_color = color_provider->GetColor(
-        is_disabled ? ui::kColorButtonBorderDisabled : ui::kColorButtonBorder);
   }
 
   SetBackground(

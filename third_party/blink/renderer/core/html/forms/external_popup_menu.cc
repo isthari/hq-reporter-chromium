@@ -30,6 +30,7 @@
 
 #include "third_party/blink/renderer/core/html/forms/external_popup_menu.h"
 
+#include "base/numerics/safe_conversions.h"
 #include "build/build_config.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/common/input/web_coalesced_input_event.h"
@@ -38,6 +39,7 @@
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/events/current_input_event.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/exported/web_view_impl.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
@@ -63,9 +65,7 @@ float GetDprForSizeAdjustment(const Element& owner_element) {
 #ifndef OS_ANDROID
   LocalFrame* frame = owner_element.GetDocument().GetFrame();
   const Page* page = frame ? frame->GetPage() : nullptr;
-  if (Platform::Current()->IsUseZoomForDSFEnabled() && page) {
-    dpr = page->GetChromeClient().GetScreenInfo(*frame).device_scale_factor;
-  }
+  dpr = page->GetChromeClient().GetScreenInfo(*frame).device_scale_factor;
 #endif
   return dpr;
 }
@@ -108,7 +108,7 @@ bool ExternalPopupMenu::ShowInternal() {
   bool allow_multiple_selection;
   GetPopupMenuInfo(*owner_element_, &item_height, &font_size, &selected_item,
                    &menu_items, &right_aligned, &allow_multiple_selection);
-  if (menu_items.IsEmpty())
+  if (menu_items.empty())
     return false;
 
   auto* execution_context = owner_element_->GetExecutionContext();
@@ -191,8 +191,8 @@ void ExternalPopupMenu::UpdateFromElement(UpdateReason reason) {
       needs_update_ = true;
       owner_element_->GetDocument()
           .GetTaskRunner(TaskType::kUserInteraction)
-          ->PostTask(FROM_HERE, WTF::Bind(&ExternalPopupMenu::Update,
-                                          WrapPersistent(this)));
+          ->PostTask(FROM_HERE, WTF::BindOnce(&ExternalPopupMenu::Update,
+                                              WrapPersistent(this)));
       break;
 
     case kByStyleChange:
@@ -239,15 +239,15 @@ void ExternalPopupMenu::DidAcceptIndices(const Vector<int32_t>& indices) {
   HTMLSelectElement* owner_element = owner_element_;
   owner_element->PopupDidHide();
 
-  if (indices.IsEmpty()) {
+  if (indices.empty()) {
     owner_element->SelectOptionByPopup(-1);
   } else if (!owner_element->IsMultiple()) {
     owner_element->SelectOptionByPopup(
         ToPopupMenuItemIndex(indices[indices.size() - 1], *owner_element));
   } else {
     Vector<int> list_indices;
-    wtf_size_t list_count = SafeCast<wtf_size_t>(indices.size());
-    list_indices.ReserveCapacity(list_count);
+    wtf_size_t list_count = base::checked_cast<wtf_size_t>(indices.size());
+    list_indices.reserve(list_count);
     for (wtf_size_t i = 0; i < list_count; ++i)
       list_indices.push_back(ToPopupMenuItemIndex(indices[i], *owner_element));
     owner_element->SelectMultipleOptionsByPopup(list_indices);

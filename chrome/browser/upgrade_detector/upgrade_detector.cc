@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,17 @@
 #include <algorithm>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/check.h"
 #include "base/command_line.h"
+#include "base/debug/alias.h"
+#include "base/debug/dump_without_crashing.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/memory/weak_ptr.h"
+#include "base/observer_list.h"
 #include "base/rand_util.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/clock.h"
 #include "base/time/tick_clock.h"
 #include "base/values.h"
@@ -76,7 +80,28 @@ base::Time ComputeRelaunchWindowStartForDay(
     } else {
       --window_start_exploded.hour;
     }
-    CHECK(base::Time::FromLocalExploded(window_start_exploded, &window_start));
+
+    // The adjusted time could still fail `Time::FromLocalExploded`. This
+    // happens on ARM devices in ChromeOS. Once it happens, it could be sticky
+    // and creates a crash loop. Return the unadjusted time in this case.
+    // See http://crbug/1307913
+    if (!base::Time::FromLocalExploded(window_start_exploded, &window_start)) {
+      LOG(ERROR) << "FromLocalExploded failed with time=" << time
+                 << ", now=" << base::Time::Now()
+                 << ", year=" << window_start_exploded.year
+                 << ", month=" << window_start_exploded.month
+                 << ", day=" << window_start_exploded.day_of_month;
+
+      base::debug::Alias(&window_start_exploded);
+
+      // Dump once per chrome run.
+      static bool dumped = false;
+      if (!dumped) {
+        dumped = base::debug::DumpWithoutCrashing();
+      }
+
+      return time;
+    }
   }
   return window_start;
 }
@@ -346,6 +371,15 @@ void UpgradeDetector::NotifyCriticalUpgradeInstalled() {
     observer.OnCriticalUpgradeInstalled();
 }
 
+void UpgradeDetector::NotifyUpdateDeferred(bool use_notification) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (observer_list_.empty())
+    return;
+
+  for (auto& observer : observer_list_)
+    observer.OnUpdateDeferred(use_notification);
+}
+
 void UpgradeDetector::NotifyUpdateOverCellularAvailable() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (observer_list_.empty())
@@ -423,7 +457,7 @@ void UpgradeDetector::OnRelaunchPrefChanged() {
     return;
 
   pref_change_task_pending_ = true;
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(
                      [](base::WeakPtr<UpgradeDetector> weak_this) {
                        if (weak_this) {

@@ -1,10 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/history_clusters/core/on_device_clustering_util.h"
 
+#include <iterator>
+
 #include "base/containers/contains.h"
+#include "base/time/time.h"
+#include "components/history_clusters/core/config.h"
+#include "components/history_clusters/core/history_clusters_util.h"
 #include "components/history_clusters/core/on_device_clustering_features.h"
 
 namespace history_clusters {
@@ -73,45 +78,40 @@ void MergeDuplicateVisitIntoCanonicalVisit(
       std::max(canonical_visit.annotated_visit.visit_row.visit_time,
                duplicate_visit.annotated_visit.visit_row.visit_time);
 
-  canonical_visit.duplicate_visits.push_back(std::move(duplicate_visit));
-}
+  canonical_visit.duplicate_visits.push_back(
+      {duplicate_visit.annotated_visit.visit_row.visit_id,
+       duplicate_visit.annotated_visit.url_row.url(),
+       duplicate_visit.annotated_visit.visit_row.visit_time});
 
-void SortClusters(std::vector<history::Cluster>* clusters) {
-  DCHECK(clusters);
-  // Within each cluster, sort visits from best to worst using score.
-  // TODO(crbug.com/1184879): Once cluster persistence is done, maybe we can
-  //  eliminate this sort step, if they are stored in-order.
-  for (auto& cluster : *clusters) {
-    base::ranges::stable_sort(cluster.visits, [](auto& v1, auto& v2) {
-      if (v1.score != v2.score) {
-        // Use v1 > v2 to get higher scored visits BEFORE lower scored visits.
-        return v1.score > v2.score;
-      }
-
-      // Use v1 > v2 to get more recent visits BEFORE older visits.
-      return v1.annotated_visit.visit_row.visit_time >
-             v2.annotated_visit.visit_row.visit_time;
-    });
+  // If duplicate visit is 0, make sure that it is maintained.
+  if (duplicate_visit.score == 0.0) {
+    canonical_visit.score = 0.0;
   }
-
-  // After that, sort clusters reverse-chronologically based on their highest
-  // scored visit.
-  base::ranges::stable_sort(*clusters, [&](auto& c1, auto& c2) {
-    DCHECK(!c1.visits.empty());
-    base::Time c1_time = c1.visits.front().annotated_visit.visit_row.visit_time;
-
-    DCHECK(!c2.visits.empty());
-    base::Time c2_time = c2.visits.front().annotated_visit.visit_row.visit_time;
-
-    // Use c1 > c2 to get more recent clusters BEFORE older clusters.
-    return c1_time > c2_time;
-  });
 }
 
 bool IsNoisyVisit(const history::ClusterVisit& visit) {
   return visit.engagement_score >
-             features::NoisyClusterVisitEngagementThreshold() &&
-         !visit.is_search_visit;
+             GetConfig().noisy_cluster_visits_engagement_threshold &&
+         visit.annotated_visit.content_annotations.search_terms.empty();
+}
+
+void AppendClusterVisits(history::Cluster& cluster1,
+                         history::Cluster& cluster2) {
+  cluster1.visits.insert(cluster1.visits.end(),
+                         std::make_move_iterator(cluster2.visits.begin()),
+                         std::make_move_iterator(cluster2.visits.end()));
+  cluster2.visits.clear();
+}
+
+void RemoveEmptyClusters(std::vector<history::Cluster>* clusters) {
+  auto it = clusters->begin();
+  while (it != clusters->end()) {
+    if (it->visits.empty()) {
+      it = clusters->erase(it);
+    } else {
+      it++;
+    }
+  }
 }
 
 }  // namespace history_clusters

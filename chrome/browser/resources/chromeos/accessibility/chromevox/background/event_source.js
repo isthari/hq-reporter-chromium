@@ -1,42 +1,37 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 /**
  * @fileoverview Tracks event sources.
  */
+import {BridgeConstants} from '../common/bridge_constants.js';
+import {BridgeHelper} from '../common/bridge_helper.js';
+import {EventSourceType} from '../common/event_source_type.js';
 
-goog.provide('EventSourceState');
-goog.provide('EventSourceType');
+export class EventSource {
+  constructor() {
+    /** @private {!EventSourceType} */
+    this.state_ = chrome.accessibilityPrivate.IS_DEFAULT_EVENT_SOURCE_TOUCH ?
+        EventSourceType.TOUCH_GESTURE :
+        EventSourceType.NONE;
+  }
 
-/** @enum {string} */
-EventSourceType = {
-  NONE: 'none',
-  BRAILLE_KEYBOARD: 'brailleKeyboard',
-  STANDARD_KEYBOARD: 'standardKeyboard',
-  TOUCH_GESTURE: 'touchGesture'
-};
+  static init() {
+    EventSource.instance = new EventSource();
 
-/**
- * Sets the current event source.
- * @param {EventSourceType} source
- */
-EventSourceState.set = function(source) {
-  EventSource.current_ = source;
-};
+    BridgeHelper.registerHandler(
+        BridgeConstants.EventSource.TARGET,
+        BridgeConstants.EventSource.Action.GET, () => EventSource.get());
+  }
 
-/**
- * Gets the current event source.
- * @return {EventSourceType}
- */
-EventSourceState.get = function() {
-  return EventSource.current_;
-};
+  /** @param {!EventSourceType} source */
+  static set(source) {
+    EventSource.instance.state_ = source;
+  }
 
-/**
- * @private {EventSourceType}
- */
-EventSource.current_ =
-    chrome.accessibilityPrivate.IS_DEFAULT_EVENT_SOURCE_TOUCH ?
-    EventSourceType.TOUCH_GESTURE :
-    EventSourceType.NONE;
+  /** @return {!EventSourceType} */
+  static get() {
+    return EventSource.instance.state_;
+  }
+}

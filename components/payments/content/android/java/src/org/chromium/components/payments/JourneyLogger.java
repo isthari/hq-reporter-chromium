@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -77,6 +77,13 @@ public class JourneyLogger {
     public void setHasEnrolledInstrumentValue(boolean value) {
         JourneyLoggerJni.get().setHasEnrolledInstrumentValue(
                 mJourneyLoggerAndroid, JourneyLogger.this, value);
+    }
+
+    /**
+     * Records that an Opt Out experience is being offered to the user in the current UI flow.
+     */
+    public void setOptOutOffered() {
+        JourneyLoggerJni.get().setOptOutOffered(mJourneyLoggerAndroid, JourneyLogger.this);
     }
 
     /**
@@ -197,15 +204,11 @@ public class JourneyLogger {
     }
 
     /**
-     * Records amount of completed/triggered transactions separated by currency.
-     *
-     * @param curreny A string indicating the curreny of the transaction.
-     * @param value A string indicating the value of the transaction.
-     * @param completed A boolean indicating whether the transaction has completed or not.
+     * Records that the No Matching Credentials UX was shown to the user.
      */
-    public void recordTransactionAmount(String currency, String value, boolean completed) {
-        JourneyLoggerJni.get().recordTransactionAmount(
-                mJourneyLoggerAndroid, JourneyLogger.this, currency, value, completed);
+    public void setNoMatchingCredentialsShown() {
+        JourneyLoggerJni.get().setNoMatchingCredentialsShown(
+                mJourneyLoggerAndroid, JourneyLogger.this);
     }
 
     /**
@@ -214,13 +217,6 @@ public class JourneyLogger {
      */
     public void recordCheckoutStep(int step) {
         JourneyLoggerJni.get().recordCheckoutStep(mJourneyLoggerAndroid, JourneyLogger.this, step);
-    }
-
-    /**
-     * Records the time when request.show() is called.
-     */
-    public void setTriggerTime() {
-        JourneyLoggerJni.get().setTriggerTime(mJourneyLoggerAndroid, JourneyLogger.this);
     }
 
     /**
@@ -243,6 +239,7 @@ public class JourneyLogger {
                 long nativeJourneyLoggerAndroid, JourneyLogger caller, boolean value);
         void setHasEnrolledInstrumentValue(
                 long nativeJourneyLoggerAndroid, JourneyLogger caller, boolean value);
+        void setOptOutOffered(long nativeJourneyLoggerAndroid, JourneyLogger caller);
         void setSkippedShow(long nativeJourneyLoggerAndroid, JourneyLogger caller);
         void setShown(long nativeJourneyLoggerAndroid, JourneyLogger caller);
         void setReceivedInstrumentDetails(long nativeJourneyLoggerAndroid, JourneyLogger caller);
@@ -259,10 +256,8 @@ public class JourneyLogger {
         void setCompleted(long nativeJourneyLoggerAndroid, JourneyLogger caller);
         void setAborted(long nativeJourneyLoggerAndroid, JourneyLogger caller, int reason);
         void setNotShown(long nativeJourneyLoggerAndroid, JourneyLogger caller, int reason);
-        void recordTransactionAmount(long nativeJourneyLoggerAndroid, JourneyLogger caller,
-                String currency, String value, boolean completed);
+        void setNoMatchingCredentialsShown(long nativeJourneyLoggerAndroid, JourneyLogger caller);
         void recordCheckoutStep(long nativeJourneyLoggerAndroid, JourneyLogger caller, int step);
-        void setTriggerTime(long nativeJourneyLoggerAndroid, JourneyLogger caller);
         void setPaymentAppUkmSourceId(
                 long nativeJourneyLoggerAndroid, JourneyLogger caller, long sourceId);
     }

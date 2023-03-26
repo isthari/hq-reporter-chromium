@@ -1,4 +1,4 @@
-# Copyright 2015 The Chromium Authors. All rights reserved.
+# Copyright 2015 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -76,7 +76,6 @@ class PerfBenchmark(benchmark.Benchmark):
 
   def SetExtraBrowserOptions(self, options):
     """To be overridden by perf benchmarks."""
-    pass
 
   def CustomizeOptions(self, finder_options, possible_browser=None):
     # Subclass of PerfBenchmark should override  SetExtraBrowserOptions to add
@@ -143,11 +142,17 @@ class PerfBenchmark(benchmark.Benchmark):
     if not possible_browser:
       return []
 
-    chrome_root = finder_options.chrome_root
-    if chrome_root is None:
-      chrome_root = path_module.GetChromiumSrcDir()
+    # Because of binary size constraints, Android cannot use the
+    # "--enable-field-trial-config" flag. For Android, we instead generate
+    # browser args from the fieldtrial_testing_config.json config file. For
+    # other OSes, we simply pass the "--enable-field-trial-config" flag. See the
+    # FIELDTRIAL_TESTING_ENABLED buildflag definition in
+    # components/variations/service/BUILD.gn for more details.
+    if not self.IsAndroid(possible_browser):
+      return '--enable-field-trial-config'
 
-    variations_dir = os.path.join(chrome_root, 'testing', 'variations')
+    variations_dir = os.path.join(path_module.GetChromiumSrcDir(), 'testing',
+                                  'variations')
 
     return fieldtrial_util.GenerateArgs(
         os.path.join(variations_dir, 'fieldtrial_testing_config.json'),
@@ -184,6 +189,11 @@ class PerfBenchmark(benchmark.Benchmark):
         self.GetExtraOutDirectories())
 
     return next((p for p in possible_directories if os.path.exists(p)), None)
+
+  @staticmethod
+  def IsAndroid(possible_browser):
+    """Returns whether a possible_browser is on an Android build."""
+    return possible_browser.target_os.startswith('android')
 
   @staticmethod
   def IsSvelte(possible_browser):

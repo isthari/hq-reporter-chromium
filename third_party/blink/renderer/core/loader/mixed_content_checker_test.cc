@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,6 +56,7 @@ TEST(MixedContentCheckerTest, IsMixedContent) {
       {"https://example.com/foo", "ws://example.com/foo", true},
       {"https://example.com/foo", "ws://google.com/foo", true},
       {"https://example.com/foo", "http://192.168.1.1/", true},
+      {"https://example.com/foo", "http://8.8.8.8/", true},
       {"https://example.com/foo", "blob:http://example.com/foo", true},
       {"https://example.com/foo", "blob:null/foo", true},
       {"https://example.com/foo", "filesystem:http://example.com/foo", true},
@@ -196,6 +197,9 @@ TEST(MixedContentCheckerTest, DetectMixedFavicon) {
 
   KURL http_favicon_url("http://example.test/favicon.png");
   KURL https_favicon_url("https://example.test/favicon.png");
+  KURL http_ip_address_favicon_url("http://8.8.8.8/favicon.png");
+  KURL http_local_ip_address_favicon_url("http://127.0.0.1/favicon.png");
+  KURL http_ip_address_audio_url("http://8.8.8.8/test.mp3");
 
   // Set up the mock content security notifier.
   testing::StrictMock<MockContentSecurityNotifier> mock_notifier;
@@ -205,16 +209,60 @@ TEST(MixedContentCheckerTest, DetectMixedFavicon) {
   // Test that a mixed content favicon is correctly blocked.
   EXPECT_TRUE(MixedContentChecker::ShouldBlockFetch(
       &dummy_page_holder->GetFrame(), mojom::blink::RequestContextType::FAVICON,
-      http_favicon_url, ResourceRequest::RedirectStatus::kNoRedirect,
-      http_favicon_url, absl::optional<String>(),
-      ReportingDisposition::kSuppressReporting, *notifier_remote));
+      network::mojom::blink::IPAddressSpace::kPublic, http_favicon_url,
+      ResourceRequest::RedirectStatus::kNoRedirect, http_favicon_url,
+      absl::optional<String>(), ReportingDisposition::kSuppressReporting,
+      *notifier_remote));
 
   // Test that a secure favicon is not blocked.
   EXPECT_FALSE(MixedContentChecker::ShouldBlockFetch(
       &dummy_page_holder->GetFrame(), mojom::blink::RequestContextType::FAVICON,
-      https_favicon_url, ResourceRequest::RedirectStatus::kNoRedirect,
-      https_favicon_url, absl::optional<String>(),
+      network::mojom::blink::IPAddressSpace::kPublic, https_favicon_url,
+      ResourceRequest::RedirectStatus::kNoRedirect, https_favicon_url,
+      absl::optional<String>(), ReportingDisposition::kSuppressReporting,
+      *notifier_remote));
+
+  EXPECT_TRUE(MixedContentChecker::ShouldBlockFetch(
+      &dummy_page_holder->GetFrame(), mojom::blink::RequestContextType::FAVICON,
+      network::mojom::blink::IPAddressSpace::kPublic,
+      http_ip_address_favicon_url, ResourceRequest::RedirectStatus::kNoRedirect,
+      http_ip_address_favicon_url, absl::optional<String>(),
       ReportingDisposition::kSuppressReporting, *notifier_remote));
+
+  EXPECT_FALSE(MixedContentChecker::ShouldBlockFetch(
+      &dummy_page_holder->GetFrame(), mojom::blink::RequestContextType::FAVICON,
+      network::mojom::blink::IPAddressSpace::kPublic,
+      http_local_ip_address_favicon_url,
+      ResourceRequest::RedirectStatus::kNoRedirect,
+      http_local_ip_address_favicon_url, absl::optional<String>(),
+      ReportingDisposition::kSuppressReporting, *notifier_remote));
+}
+
+TEST(MixedContentCheckerTest, DetectUpgradeableMixedContent) {
+  KURL main_resource_url("https://example.test/");
+  auto dummy_page_holder = std::make_unique<DummyPageHolder>(
+      gfx::Size(1, 1), nullptr, MakeGarbageCollected<EmptyLocalFrameClient>());
+  dummy_page_holder->GetFrame().Loader().CommitNavigation(
+      WebNavigationParams::CreateWithHTMLBufferForTesting(
+          SharedBuffer::Create(), main_resource_url),
+      nullptr /* extra_data */);
+  blink::test::RunPendingTasks();
+  dummy_page_holder->GetFrame().GetSettings()->SetAllowRunningOfInsecureContent(
+      false);
+
+  KURL http_ip_address_audio_url("http://8.8.8.8/test.mp3");
+
+  // Set up the mock content security notifier.
+  testing::StrictMock<MockContentSecurityNotifier> mock_notifier;
+  mojo::Remote<mojom::blink::ContentSecurityNotifier> notifier_remote;
+  notifier_remote.Bind(mock_notifier.BindNewPipeAndPassRemote());
+
+  EXPECT_TRUE(MixedContentChecker::ShouldBlockFetch(
+      &dummy_page_holder->GetFrame(), mojom::blink::RequestContextType::AUDIO,
+      network::mojom::blink::IPAddressSpace::kPublic, http_ip_address_audio_url,
+      ResourceRequest::RedirectStatus::kNoRedirect, http_ip_address_audio_url,
+      absl::optional<String>(), ReportingDisposition::kSuppressReporting,
+      *notifier_remote));
 }
 
 class TestFetchClientSettingsObject : public FetchClientSettingsObject {
@@ -237,9 +285,6 @@ class TestFetchClientSettingsObject : public FetchClientSettingsObject {
   AllowedByNosniff::MimeTypeCheck MimeTypeCheckForClassicWorkerScript()
       const override {
     return AllowedByNosniff::MimeTypeCheck::kStrict;
-  }
-  network::mojom::IPAddressSpace GetAddressSpace() const override {
-    return network::mojom::IPAddressSpace::kLocal;
   }
   const InsecureNavigationsSet& GetUpgradeInsecureNavigationsSet()
       const override {
@@ -282,6 +327,40 @@ TEST(MixedContentCheckerTest, AutoupgradedMixedContentHasUpgradeIfInsecureSet) {
 
   EXPECT_TRUE(request.IsAutomaticUpgrade());
   EXPECT_TRUE(request.UpgradeIfInsecure());
+}
+
+TEST(MixedContentCheckerTest,
+     AutoupgradeMixedContentWithLiteralLocalIpAddress) {
+  ResourceRequest request;
+  request.SetUrl(KURL("http://127.0.0.1/"));
+  request.SetRequestContext(mojom::blink::RequestContextType::AUDIO);
+  TestFetchClientSettingsObject settings;
+  // Used to get a non-null document.
+  DummyPageHolder holder;
+
+  MixedContentChecker::UpgradeInsecureRequest(
+      request, &settings, holder.GetDocument().GetExecutionContext(),
+      mojom::RequestContextFrameType::kTopLevel, nullptr);
+
+  EXPECT_FALSE(request.IsAutomaticUpgrade());
+  EXPECT_FALSE(request.UpgradeIfInsecure());
+}
+
+TEST(MixedContentCheckerTest,
+     NotAutoupgradeMixedContentWithLiteralNonLocalIpAddress) {
+  ResourceRequest request;
+  request.SetUrl(KURL("http://8.8.8.8/"));
+  request.SetRequestContext(mojom::blink::RequestContextType::AUDIO);
+  TestFetchClientSettingsObject settings;
+  // Used to get a non-null document.
+  DummyPageHolder holder;
+
+  MixedContentChecker::UpgradeInsecureRequest(
+      request, &settings, holder.GetDocument().GetExecutionContext(),
+      mojom::RequestContextFrameType::kTopLevel, nullptr);
+
+  EXPECT_FALSE(request.IsAutomaticUpgrade());
+  EXPECT_FALSE(request.UpgradeIfInsecure());
 }
 
 }  // namespace blink

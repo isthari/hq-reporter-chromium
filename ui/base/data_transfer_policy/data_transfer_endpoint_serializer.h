@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@
 // The MIME type data is a JSON string in the form:
 // {
 //   "endpoint_type": "<endpoint type>",
-//   "url_origin": "https://www.google.com"
+//   "url": "https://www.google.com"
 // }
 
 namespace ui {
@@ -25,7 +25,7 @@ COMPONENT_EXPORT(UI_BASE_DATA_TRANSFER_POLICY)
 std::string ConvertDataTransferEndpointToJson(const DataTransferEndpoint& dte);
 
 // Decodes JSON strings into DataTransferEndpoint objects.
-// If no type or origin found, nullptr is returned.
+// If no type or url found, nullptr is returned.
 COMPONENT_EXPORT(UI_BASE_DATA_TRANSFER_POLICY)
 std::unique_ptr<DataTransferEndpoint> ConvertJsonToDataTransferEndpoint(
     std::string json);

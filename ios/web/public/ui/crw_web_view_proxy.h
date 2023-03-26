@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #import <UIKit/UIKit.h>
 
+@class CRWContextMenuItem;
 @class CRWWebViewScrollViewProxy;
 
 // Provides an interface for embedders to access the WebState's web view in a
@@ -43,6 +44,9 @@
 // Returns the webview's gesture recognizers.
 @property(nonatomic, readonly) NSArray* gestureRecognizers;
 
+// A Boolean value indicating whether or not the web page is in fullscreen mode.
+@property(nonatomic, readonly) BOOL isWebPageInFullscreenMode;
+
 // Adds a webview gesture recognizers.
 - (void)addGestureRecognizer:(UIGestureRecognizer*)gestureRecognizer;
 
@@ -50,7 +54,7 @@
 - (void)removeGestureRecognizer:(UIGestureRecognizer*)gestureRecognizer;
 
 // Whether or not the content view should use the content inset when setting
-// |contentInset|. Implementations may or may not respect the setting of this
+// `contentInset`. Implementations may or may not respect the setting of this
 // property.
 @property(nonatomic, assign) BOOL shouldUseViewContentInset;
 
@@ -59,6 +63,12 @@
 
 // Unregister the registered insets for the given caller.
 - (void)unregisterInsetsForCaller:(id)caller;
+
+// Sets the content view to `nil` and adds a placeholder scroll view if needed.
+// Setting up the placeholder can be costly, so we don't want to proceed with
+// the setup when clearing the content view, unless we intend to set a non-nil
+// content view in the future and wish to preserve state.
+- (void)clearContentViewAndAddPlaceholder:(BOOL)addPlaceholder;
 
 // Wrapper around the addSubview method of the webview.
 - (void)addSubview:(UIView*)view;
@@ -72,6 +82,11 @@
 // Notifies the web view controller that the surface size has changed due to
 // multiwindow action or orientation change.
 - (void)surfaceSizeChanged;
+
+// Shows a custom iOS context menu with the given `items` for options targeted
+// to the data visible in given window `rect`.
+- (void)showMenuWithItems:(NSArray<CRWContextMenuItem*>*)items
+                     rect:(CGRect)rect;
 
 @end
 

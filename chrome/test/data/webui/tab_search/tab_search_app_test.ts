@@ -1,15 +1,17 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'chrome://webui-test/mojo_webui_test_support.js';
 
+import {MetricsReporterImpl} from 'chrome://resources/js/metrics_reporter/metrics_reporter.js';
 import {keyDownOn} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
-import {ProfileData, RecentlyClosedTab, Tab, TabAlertState, TabGroupColor, TabSearchApiProxyImpl, TabSearchAppElement, TabSearchItem} from 'chrome://tab-search.top-chrome/tab_search.js';
+import {ProfileData, RecentlyClosedTab, Tab, TabGroupColor, TabSearchApiProxyImpl, TabSearchAppElement, TabSearchItem} from 'chrome://tab-search.top-chrome/tab_search.js';
 import {assertEquals, assertFalse, assertNotEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {flushTasks, waitAfterNextRender} from 'chrome://webui-test/test_util.js';
+import {MockedMetricsReporter} from 'chrome://webui-test/mocked_metrics_reporter.js';
+import {flushTasks, waitAfterNextRender} from 'chrome://webui-test/polymer_test_util.js';
 
-import {createProfileData, createTab, generateSampleDataFromSiteNames, generateSampleRecentlyClosedTabs, generateSampleRecentlyClosedTabsFromSiteNames, generateSampleTabsFromSiteNames, SAMPLE_RECENTLY_CLOSED_DATA, SAMPLE_WINDOW_DATA, SAMPLE_WINDOW_DATA_WITH_MEDIA_TAB, SAMPLE_WINDOW_HEIGHT, sampleToken} from './tab_search_test_data.js';
+import {createProfileData, createTab, generateSampleDataFromSiteNames, generateSampleRecentlyClosedTabs, generateSampleRecentlyClosedTabsFromSiteNames, generateSampleTabsFromSiteNames, SAMPLE_RECENTLY_CLOSED_DATA, SAMPLE_WINDOW_HEIGHT, sampleToken} from './tab_search_test_data.js';
 import {initLoadTimeDataWithDefaults} from './tab_search_test_helper.js';
 import {TestTabSearchApiProxy} from './test_tab_search_api_proxy.js';
 
@@ -42,13 +44,15 @@ suite('TabSearchAppTest', () => {
       loadTimeOverriddenData?: {[key: string]: number|string|boolean}) {
     initLoadTimeDataWithDefaults(loadTimeOverriddenData);
 
+    MetricsReporterImpl.setInstanceForTest(new MockedMetricsReporter());
+
     testProxy = new TestTabSearchApiProxy();
     testProxy.setProfileData(sampleData);
     TabSearchApiProxyImpl.setInstance(testProxy);
 
     tabSearchApp = document.createElement('tab-search-app');
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     document.body.appendChild(tabSearchApp);
     await flushTasks();
   }
@@ -78,7 +82,7 @@ suite('TabSearchAppTest', () => {
             title: 'Reading List',
             tabCount: sampleTabCount,
             lastActiveTime: {internalValue: BigInt(sampleTabCount + 1)},
-            lastActiveElapsedText: ''
+            lastActiveElapsedText: '',
           }],
           recentlyClosedSectionExpanded: true,
         },
@@ -114,7 +118,7 @@ suite('TabSearchAppTest', () => {
           }],
           recentlyClosedTabs: generateSampleRecentlyClosedTabsFromSiteNames(
               ['RecentlyClosedTab1', 'RecentlyClosedTab2']),
-          recentlyClosedSectionExpanded: true
+          recentlyClosedSectionExpanded: true,
         }),
         {
           recentlyClosedDefaultItemDisplayCount: 1,
@@ -131,10 +135,12 @@ suite('TabSearchAppTest', () => {
   });
 
   test('Search text changes tab items', async () => {
-    await setupTest(createProfileData({
-      recentlyClosedTabs: SAMPLE_RECENTLY_CLOSED_DATA,
-      recentlyClosedSectionExpanded: true,
-    }));
+    await setupTest(
+        createProfileData({
+          recentlyClosedTabs: SAMPLE_RECENTLY_CLOSED_DATA,
+          recentlyClosedSectionExpanded: true,
+        }),
+        {useFuzzySearch: false});
     const searchField = tabSearchApp.$.searchField;
     searchField.setValue('bing');
     await flushTasks();
@@ -166,7 +172,7 @@ suite('TabSearchAppTest', () => {
             title: 'Reading List',
             tabCount: sampleTabCount,
             lastActiveTime: {internalValue: BigInt(sampleTabCount + 1)},
-            lastActiveElapsedText: ''
+            lastActiveElapsedText: '',
           })],
           recentlyClosedSectionExpanded: true,
         }),
@@ -212,12 +218,8 @@ suite('TabSearchAppTest', () => {
     const tabSearchItemCloseButton =
         tabSearchItem.shadowRoot!.querySelector('cr-icon-button')!;
     tabSearchItemCloseButton.click();
-    const [tabId, withSearch, isMediaTab, closedTabIndex] =
-        await testProxy.whenCalled('closeTab');
+    const [tabId] = await testProxy.whenCalled('closeTab');
     assertEquals(tabData.tabId, tabId);
-    assertFalse(withSearch);
-    assertFalse(isMediaTab);
-    assertEquals(0, closedTabIndex);
   });
 
   test('Click on recently closed tab item triggers action', async () => {
@@ -226,7 +228,6 @@ suite('TabSearchAppTest', () => {
       title: 'PayPal',
       url: {url: 'https://www.paypal.com'},
       lastActiveElapsedText: '',
-      groupId: undefined,
       lastActiveTime: {internalValue: BigInt(11)},
     };
 
@@ -238,13 +239,13 @@ suite('TabSearchAppTest', () => {
           title: 'Google',
           url: {url: 'https://www.google.com'},
           lastActiveTimeTicks: {internalValue: BigInt(4)},
-        })]
+        })],
       }],
       recentlyClosedTabs: [tabData],
-      recentlyClosedSectionExpanded: true
+      recentlyClosedSectionExpanded: true,
     }));
 
-    let tabSearchItem = tabSearchApp.$.tabsList.querySelector<HTMLElement>(
+    const tabSearchItem = tabSearchApp.$.tabsList.querySelector<HTMLElement>(
         'tab-search-item[id="100"]')!;
     tabSearchItem.click();
     const [tabId, withSearch, isTab, index] =
@@ -274,13 +275,13 @@ suite('TabSearchAppTest', () => {
           title: 'Google',
           url: {url: 'https://www.google.com'},
           lastActiveTimeTicks: {internalValue: BigInt(4)},
-        })]
+        })],
       }],
       recentlyClosedTabGroups: [tabGroupData],
-      recentlyClosedSectionExpanded: true
+      recentlyClosedSectionExpanded: true,
     }));
 
-    let tabSearchItem =
+    const tabSearchItem =
         tabSearchApp.$.tabsList.querySelector('tab-search-group-item')!;
     tabSearchItem.click();
     const [id, withSearch, isTab, index] =
@@ -395,7 +396,7 @@ suite('TabSearchAppTest', () => {
       windows: [{
         active: true,
         height: SAMPLE_WINDOW_HEIGHT,
-        tabs: [testData.windows[0]!.tabs[0]!]
+        tabs: [testData.windows[0]!.tabs[0]!],
       }],
     }));
     await flushTasks();
@@ -492,7 +493,6 @@ suite('TabSearchAppTest', () => {
         url: {url: 'https://www.sampletab.com'},
         lastActiveTime: {internalValue: BigInt(3)},
         lastActiveElapsedText: '',
-        groupId: undefined,
       }],
     });
     await flushTasks();
@@ -549,7 +549,7 @@ suite('TabSearchAppTest', () => {
     assertEquals(0, tabSearchApp.getSelectedIndex());
   });
 
-  test('Verify tab switch is logged correctly', async () => {
+  test('Verify tab switch is called correctly', async () => {
     await setupTest(createProfileData());
     // Make sure that tab data has been recieved.
     verifyTabIds(queryRows(), [1, 5, 6, 2, 3, 4]);
@@ -560,13 +560,9 @@ suite('TabSearchAppTest', () => {
     tabSearchItem.click();
 
     // Assert switchToTab() was called appropriately for an unfiltered tab list.
-    await testProxy.whenCalled('switchToTab')
-        .then(([tabInfo, withSearch, isMediaTab, switchedTabIndex]) => {
-          assertEquals(1, tabInfo.tabId);
-          assertFalse(withSearch);
-          assertFalse(isMediaTab);
-          assertEquals(0, switchedTabIndex);
-        });
+    await testProxy.whenCalled('switchToTab').then(([tabInfo]) => {
+      assertEquals(1, tabInfo.tabId);
+    });
 
     testProxy.reset();
     // Click the first element with tabId 6.
@@ -575,13 +571,9 @@ suite('TabSearchAppTest', () => {
     tabSearchItem.click();
 
     // Assert switchToTab() was called appropriately for an unfiltered tab list.
-    await testProxy.whenCalled('switchToTab')
-        .then(([tabInfo, withSearch, isMediaTab, switchedTabIndex]) => {
-          assertEquals(6, tabInfo.tabId);
-          assertFalse(withSearch);
-          assertFalse(isMediaTab);
-          assertEquals(2, switchedTabIndex);
-        });
+    await testProxy.whenCalled('switchToTab').then(([tabInfo]) => {
+      assertEquals(6, tabInfo.tabId);
+    });
 
     // Force a change to filtered tab data that would result in a
     // re-render.
@@ -598,25 +590,21 @@ suite('TabSearchAppTest', () => {
 
     // Assert switchToTab() was called appropriately for a tab list fitlered by
     // the search query.
-    await testProxy.whenCalled('switchToTab')
-        .then(([tabInfo, withSearch, isMediaTab, switchedTabIndex]) => {
-          assertEquals(2, tabInfo.tabId);
-          assertTrue(withSearch);
-          assertFalse(isMediaTab);
-          assertEquals(0, switchedTabIndex);
-        });
+    await testProxy.whenCalled('switchToTab').then(([tabInfo]) => {
+      assertEquals(2, tabInfo.tabId);
+    });
   });
 
-  test('Verify showUI() is called correctly', async () => {
+  test('Verify showUi() is called correctly', async () => {
     await setupTest(createProfileData());
     await waitAfterNextRender(tabSearchApp);
 
     // Make sure that tab data has been received.
     verifyTabIds(queryRows(), [1, 5, 6, 2, 3, 4]);
 
-    // Ensure that showUI() has been called after the initial data has been
+    // Ensure that showUi() has been called after the initial data has been
     // rendered.
-    await testProxy.whenCalled('showUI');
+    await testProxy.whenCalled('showUi');
 
     // Force a change to filtered tab data that would result in a
     // re-render.
@@ -626,8 +614,8 @@ suite('TabSearchAppTest', () => {
     await waitAfterNextRender(tabSearchApp);
     verifyTabIds(queryRows(), [2]);
 
-    // |showUI()| should still have only been called once.
-    assertEquals(1, testProxy.getCallCount('showUI'));
+    // |showUi()| should still have only been called once.
+    assertEquals(1, testProxy.getCallCount('showUi'));
   });
 
   test('Sort by most recent active tabs', async () => {
@@ -691,7 +679,7 @@ suite('TabSearchAppTest', () => {
       tabGroups: [tabGroup],
     }));
 
-    let tabSearchItem = tabSearchApp.$.tabsList.querySelector<TabSearchItem>(
+    const tabSearchItem = tabSearchApp.$.tabsList.querySelector<TabSearchItem>(
         'tab-search-item[id="1"]')!;
     assertEquals('Google', tabSearchItem.data.tab.title);
     assertEquals('Search Engines', tabSearchItem.data.tabGroup!.title);
@@ -729,169 +717,30 @@ suite('TabSearchAppTest', () => {
     assertEquals(3, queryRows().length);
   });
 
-  test('Show media tab in Audio & Video section', async () => {
-    await setupTest(
-        createProfileData({
-          windows: SAMPLE_WINDOW_DATA_WITH_MEDIA_TAB,
-        }),
-        {alsoShowMediaTabsinOpenTabsSection: false});
-    // One media tab and one non-media tab.
-    assertEquals(2, queryRows().length);
-    // "Audio and Video" and "Open Tabs" section should both exist.
-    assertEquals(2, queryListTitle().length);
-  });
+  [true, false].forEach((windowActive) => {
+    test(
+        `Available height set correctly when the window's active state is ${
+            windowActive}`,
+        async () => {
+          await setupTest(
+              createProfileData({
+                windows: [{
+                  active: windowActive,
+                  height: SAMPLE_WINDOW_HEIGHT,
+                  tabs: generateSampleTabsFromSiteNames(['OpenTab1'], true),
+                }],
+                recentlyClosedTabs:
+                    generateSampleRecentlyClosedTabsFromSiteNames(
+                        ['RecentlyClosedTab1', 'RecentlyClosedTab2']),
+                recentlyClosedSectionExpanded: true,
+              }),
+              {
+                recentlyClosedDefaultItemDisplayCount: 1,
+              });
 
-  test(
-      'Show media tab in Audio & Video section and Open Tabs section',
-      async () => {
-        await setupTest(
-            createProfileData({
-              windows: SAMPLE_WINDOW_DATA_WITH_MEDIA_TAB,
-            }),
-            {alsoShowMediaTabsinOpenTabsSection: true});
-        // Only the two media tabs should be duplicated.
-        assertEquals(3, queryRows().length);
-        // "Audio and Video" and "Open Tabs" section should both exist.
-        assertEquals(2, queryListTitle().length);
-      });
-
-  test('Tab is no longer media tab', async () => {
-    await setupTest(
-        createProfileData({
-          windows: SAMPLE_WINDOW_DATA_WITH_MEDIA_TAB,
-        }),
-        {alsoShowMediaTabsinOpenTabsSection: false});
-
-    const updatedTab: Tab = createTab({
-      alertStates: [],
-      tabId: 1,
-      lastActiveTimeTicks: {internalValue: BigInt(5)},
-    });
-
-    const tabUpdateInfo = {
-      inActiveWindow: true,
-      tab: updatedTab,
-    };
-    testProxy.getCallbackRouterRemote().tabUpdated(tabUpdateInfo);
-    await flushTasks();
-    // Two non-media tabs
-    assertEquals(2, queryRows().length);
-    // Only "Open Tabs" section should exist.
-    assertEquals(1, queryListTitle().length);
-  });
-
-  test(
-      'Tab is no longer media tab with media tabs also shown in Open Tabs section ',
-      async () => {
-        await setupTest(
-            createProfileData({
-              windows: SAMPLE_WINDOW_DATA_WITH_MEDIA_TAB,
-            }),
-            {alsoShowMediaTabsinOpenTabsSection: true});
-
-        const updatedTab: Tab = createTab({
-          alertStates: [],
-          tabId: 1,
-          lastActiveTimeTicks: {internalValue: BigInt(1)},
+          assertEquals(
+              SAMPLE_WINDOW_HEIGHT,
+              tabSearchApp.getAvailableHeightForTesting());
         });
-
-        const tabUpdateInfo = {
-          inActiveWindow: true,
-          tab: updatedTab,
-        };
-        testProxy.getCallbackRouterRemote().tabUpdated(tabUpdateInfo);
-        await flushTasks();
-        // Two non-media tabs
-        assertEquals(2, queryRows().length);
-        // Only "Open Tabs" section should exist.
-        assertEquals(1, queryListTitle().length);
-      });
-
-  test('Non-media tab becomes media tab', async () => {
-    await setupTest(
-        createProfileData({
-          windows: SAMPLE_WINDOW_DATA,
-        }),
-        {alsoShowMediaTabsinOpenTabsSection: false});
-
-    assertEquals(1, queryListTitle().length);
-
-    const updatedTab: Tab = createTab({
-      alertStates: [TabAlertState.kAudioPlaying],
-      tabId: 5,
-      lastActiveTimeTicks: {internalValue: BigInt(1)},
-    });
-
-    const tabUpdateInfo = {
-      inActiveWindow: true,
-      tab: updatedTab,
-    };
-    testProxy.getCallbackRouterRemote().tabUpdated(tabUpdateInfo);
-    await flushTasks();
-    // One media tab, the rest are non-media tabs.
-    assertEquals(6, queryRows().length);
-    // "Audio and Video" and "Open Tabs" section should both exist.
-    assertEquals(2, queryListTitle().length);
   });
-
-  test(
-      'Non-media tab becomes media tab with media tabs also shown in Open Tabs section ',
-      async () => {
-        await setupTest(
-            createProfileData({
-              windows: SAMPLE_WINDOW_DATA,
-            }),
-            {alsoShowMediaTabsinOpenTabsSection: true});
-
-        assertEquals(1, queryListTitle().length);
-
-        const updatedTab: Tab = createTab({
-          alertStates: [TabAlertState.kAudioPlaying],
-          tabId: 5,
-          lastActiveTimeTicks: {internalValue: BigInt(1)},
-        });
-
-        const tabUpdateInfo = {
-          inActiveWindow: true,
-          tab: updatedTab,
-        };
-
-        testProxy.getCallbackRouterRemote().tabUpdated(tabUpdateInfo);
-        await flushTasks();
-        // One media tab is duplicated, the rest are non-media tabs.
-        assertEquals(7, queryRows().length);
-        // "Audio and Video" and "Open Tabs" section should both exist.
-        assertEquals(2, queryListTitle().length);
-      });
-
-  test('Search for media tab', async () => {
-    await setupTest(
-        createProfileData({
-          windows: SAMPLE_WINDOW_DATA_WITH_MEDIA_TAB,
-        }),
-        {alsoShowMediaTabsinOpenTabsSection: false});
-
-    const searchField = tabSearchApp.$.searchField;
-    searchField.setValue('meet');
-    await flushTasks();
-    assertEquals(1, queryListTitle().length);
-  });
-
-  test(
-      'Search for media tab with media tabs also shown in Open Tabs section',
-      async () => {
-        await setupTest(
-            createProfileData({
-              windows: SAMPLE_WINDOW_DATA_WITH_MEDIA_TAB,
-            }),
-            {alsoShowMediaTabsinOpenTabsSection: true});
-
-        const searchField = tabSearchApp.$.searchField;
-        searchField.setValue('meet');
-        await flushTasks();
-        // Media tab is only shown in the Open Tabs section when a search
-        // criteria is applied.
-        assertEquals(1, queryListTitle().length);
-      });
-
 });

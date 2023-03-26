@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,9 @@
 #import <AppKit/AppKit.h>
 
 #include "base/check.h"
+#include "base/mac/mac_util.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/scoped_policy.h"
 #include "base/strings/sys_string_conversions.h"
 #include "skia/ext/skia_utils_mac.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -15,7 +18,7 @@
 #include "ui/message_center/public/cpp/notifier_id.h"
 
 @interface StatusItemController : NSObject {
-  StatusIconMac* _statusIcon; // weak
+  raw_ptr<StatusIconMac> _statusIcon;  // weak
 }
 - (instancetype)initWithIcon:(StatusIconMac*)icon;
 - (void)handleClick:(id)sender;
@@ -40,42 +43,49 @@
 
 @end
 
-StatusIconMac::StatusIconMac()
-    : item_(NULL) {
+StatusIconMac::StatusIconMac() {
   controller_.reset([[StatusItemController alloc] initWithIcon:this]);
 }
 
 StatusIconMac::~StatusIconMac() {
   // Remove the status item from the status bar.
-  if (item_)
-    [[NSStatusBar systemStatusBar] removeStatusItem:item_];
+  if (item_) {
+    [NSStatusBar.systemStatusBar removeStatusItem:item_];
+  }
 }
 
 NSStatusItem* StatusIconMac::item() {
   if (!item_.get()) {
     // Create a new status item.
-    item_.reset([[[NSStatusBar systemStatusBar]
-                  statusItemWithLength:NSSquareStatusItemLength] retain]);
-    [item_ setEnabled:YES];
-    [item_ setTarget:controller_];
-    [item_ setAction:@selector(handleClick:)];
-    [item_ setHighlightMode:YES];
+    item_.reset([NSStatusBar.systemStatusBar
+                    statusItemWithLength:NSSquareStatusItemLength],
+                base::scoped_policy::RETAIN);
+    NSButton* item_button = item_.get().button;
+    item_button.enabled = YES;
+    item_button.target = controller_;
+    item_button.action = @selector(handleClick:);
+    NSButtonCell* item_button_cell = item_button.cell;
+    item_button_cell.highlightsBy =
+        NSContentsCellMask | NSChangeBackgroundCellMask;
   }
   return item_.get();
 }
 
 void StatusIconMac::SetImage(const gfx::ImageSkia& image) {
   if (!image.isNull()) {
-    NSImage* ns_image = skia::SkBitmapToNSImage(*image.bitmap());
-    if (ns_image)
-      [item() setImage:ns_image];
+    NSImage* ns_image = skia::SkBitmapToNSImageWithColorSpace(
+        *image.bitmap(), base::mac::GetSRGBColorSpace());
+    if (ns_image) {
+      item().button.image = ns_image;
+    }
   }
 }
 
 void StatusIconMac::SetToolTip(const std::u16string& tool_tip) {
   // If we have a status icon menu, make the tool tip part of the menu instead
   // of a pop-up tool tip when hovering the mouse over the image.
-  toolTip_.reset([base::SysUTF16ToNSString(tool_tip) retain]);
+  toolTip_.reset(base::SysUTF16ToNSString(tool_tip),
+                 base::scoped_policy::RETAIN);
   if (menu_.get()) {
     SetToolTip(nil);
     CreateMenu([menu_ model], toolTip_.get());
@@ -89,7 +99,8 @@ void StatusIconMac::DisplayBalloon(
     const std::u16string& title,
     const std::u16string& contents,
     const message_center::NotifierId& notifier_id) {
-  notification_.DisplayBalloon(icon, title, contents, notifier_id);
+  notification_.DisplayBalloon(ui::ImageModel::FromImageSkia(icon), title,
+                               contents, notifier_id);
 }
 
 bool StatusIconMac::HasStatusIconMenu() {
@@ -105,10 +116,10 @@ void StatusIconMac::UpdatePlatformContextMenu(StatusIconMenuModel* model) {
   }
 }
 
-void StatusIconMac::CreateMenu(ui::MenuModel* model, NSString* toolTip) {
+void StatusIconMac::CreateMenu(ui::MenuModel* model, NSString* tool_tip) {
   DCHECK(model);
 
-  if (!toolTip) {
+  if (!tool_tip) {
     menu_.reset([[MenuControllerCocoa alloc] initWithModel:model
                                                   delegate:nil
                                     useWithPopUpButtonCell:NO]);
@@ -118,12 +129,12 @@ void StatusIconMac::CreateMenu(ui::MenuModel* model, NSString* toolTip) {
     menu_.reset([[MenuControllerCocoa alloc] initWithModel:model
                                                   delegate:nil
                                     useWithPopUpButtonCell:YES]);
-    NSMenuItem* toolTipItem = [[menu_ menu] itemAtIndex:0];
-    [toolTipItem setTitle:toolTip];
+    NSMenuItem* tool_tip_item = [[menu_ menu] itemAtIndex:0];
+    [tool_tip_item setTitle:tool_tip];
   }
-  [item() setMenu:[menu_ menu]];
+  item().menu = [menu_ menu];
 }
 
-void StatusIconMac::SetToolTip(NSString* toolTip) {
-  [item() setToolTip:toolTip];
+void StatusIconMac::SetToolTip(NSString* tool_tip) {
+  item().button.toolTip = tool_tip;
 }

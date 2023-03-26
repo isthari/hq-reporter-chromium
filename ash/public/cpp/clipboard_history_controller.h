@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <set>
 
 #include "ash/public/cpp/ash_public_export.h"
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/observer_list_types.h"
 #include "base/values.h"
 #include "chromeos/crosapi/mojom/clipboard_history.mojom.h"
@@ -43,7 +43,6 @@ class ASH_PUBLIC_EXPORT ClipboardHistoryController {
     // Called when the clipboard history changes.
     virtual void OnClipboardHistoryItemListAddedOrRemoved() {}
     // Called when existing clipboard items in the history have changes.
-    // virtual void OnClipboardHistoryItemsUpdated(
     virtual void OnClipboardHistoryItemsUpdated(
         const std::vector<base::UnguessableToken>& menu_item_ids) {}
   };
@@ -51,8 +50,8 @@ class ASH_PUBLIC_EXPORT ClipboardHistoryController {
   // Returns the singleton instance.
   static ClipboardHistoryController* Get();
 
-  virtual void AddObserver(Observer* observer) const = 0;
-  virtual void RemoveObserver(Observer* observer) const = 0;
+  virtual void AddObserver(Observer* observer) = 0;
+  virtual void RemoveObserver(Observer* observer) = 0;
 
   // Returns whether the clipboard history menu is able to show.
   virtual bool CanShowMenu() const = 0;
@@ -64,11 +63,6 @@ class ASH_PUBLIC_EXPORT ClipboardHistoryController {
       ui::MenuSourceType source_type,
       crosapi::mojom::ClipboardHistoryControllerShowSource show_source) = 0;
 
-  // Whether 'new' feature badge should be applied to clipboard menu.
-  virtual bool ShouldShowNewFeatureBadge() const = 0;
-  // Increment the 'new' feature badge shown count.
-  virtual void MarkNewFeatureBadgeShown() = 0;
-
   // Notify the clipboard history that a screenshot notification was created.
   virtual void OnScreenshotNotificationCreated() = 0;
 
@@ -76,9 +70,12 @@ class ASH_PUBLIC_EXPORT ClipboardHistoryController {
   // its lifetime.
   virtual std::unique_ptr<ScopedClipboardHistoryPause> CreateScopedPause() = 0;
 
-  // Returns the history which tracks what is being copied to the clipboard.
-  // Only the items listed in |item_id_filter| are returned. If |item_id_filter|
-  // is empty, then all items in the history are returned.
+  // Calls `callback` with the clipboard history list, which tracks what has
+  // been copied to the clipboard. Only the items listed in |item_id_filter| are
+  // returned. If |item_id_filter| is empty, then all items in the history are
+  // returned. If clipboard history is disabled in the current mode, `callback`
+  // will be called with an empty history list.
+  // TODO(crbug.com/1309666): Remove const ref from |item_id_filter| param type.
   virtual void GetHistoryValues(const std::set<std::string>& item_id_filter,
                                 GetHistoryValuesCallback callback) const = 0;
 

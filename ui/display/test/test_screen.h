@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,9 +21,11 @@ class TestScreen : public ScreenBase {
  public:
   static constexpr gfx::Rect kDefaultScreenBounds = gfx::Rect(0, 0, 800, 600);
 
+  static TestScreen* Get();
+
   // TODO(weili): Split this into a protected no-argument constructor for
   // subclass uses and the public one with gfx::Size argument.
-  explicit TestScreen(bool create_display = true);
+  explicit TestScreen(bool create_display = true, bool register_screen = false);
   TestScreen(const TestScreen&) = delete;
   TestScreen& operator=(const TestScreen&) = delete;
   ~TestScreen() override;
@@ -40,6 +42,7 @@ class TestScreen : public ScreenBase {
 
  private:
   gfx::Point cursor_screen_point_;
+  bool register_screen_ = false;
 };
 
 }  // namespace test

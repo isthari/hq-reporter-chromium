@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,10 @@
 #include <tuple>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/no_destructor.h"
@@ -25,6 +25,7 @@
 #include "chrome/browser/extensions/updater/extension_updater.h"
 #include "chrome/browser/first_run/first_run_internal.h"
 #include "chrome/browser/google/google_brand.h"
+#include "chrome/browser/headless/headless_mode_util.h"
 #include "chrome/browser/importer/external_process_importer_host.h"
 #include "chrome/browser/importer/importer_list.h"
 #include "chrome/browser/importer/importer_progress_observer.h"
@@ -65,10 +66,6 @@ namespace {
 // AutoImport. This is used in testing to verify import startup actions that
 // occur before an observer can be registered in the test.
 uint16_t g_auto_import_state = first_run::AUTO_IMPORT_NONE;
-
-// Flags for functions of similar name.
-bool g_should_show_welcome_page = false;
-bool g_should_do_autofill_personal_data_manager_first_run = false;
 
 // Indicates whether this is first run. Populated when IsChromeFirstRun
 // is invoked, then used as a cache on subsequent calls.
@@ -201,7 +198,7 @@ base::FilePath& GetInitialPrefsPathForTesting() {
 void ProcessDefaultBrowserPolicy(bool make_chrome_default_for_user) {
   // Only proceed if chrome can be made default unattended. In other cases, this
   // is handled by the first run default browser prompt (on Windows 8+).
-  if (shell_integration::GetDefaultWebClientSetPermission() ==
+  if (shell_integration::GetDefaultBrowserSetPermission() ==
       shell_integration::SET_DEFAULT_UNATTENDED) {
     // The policy has precedence over the user's choice.
     if (g_browser_process->local_state()->IsManagedPreference(
@@ -363,29 +360,9 @@ void ResetCachedSentinelDataForTesting() {
   g_first_run = first_run::internal::FIRST_RUN_UNKNOWN;
 }
 
-void SetShouldShowWelcomePage() {
-  g_should_show_welcome_page = true;
-}
-
-bool ShouldShowWelcomePage() {
-  bool retval = g_should_show_welcome_page;
-  g_should_show_welcome_page = false;
-  return retval;
-}
-
 bool IsOnWelcomePage(content::WebContents* contents) {
   return contents->GetVisibleURL().GetWithEmptyPath() ==
          GURL(chrome::kChromeUIWelcomeURL);
-}
-
-void SetShouldDoPersonalDataManagerFirstRun() {
-  g_should_do_autofill_personal_data_manager_first_run = true;
-}
-
-bool ShouldDoPersonalDataManagerFirstRun() {
-  bool retval = g_should_do_autofill_personal_data_manager_first_run;
-  g_should_do_autofill_personal_data_manager_first_run = false;
-  return retval;
 }
 
 void SetInitialPrefsPathForTesting(const base::FilePath& initial_prefs) {
@@ -394,11 +371,19 @@ void SetInitialPrefsPathForTesting(const base::FilePath& initial_prefs) {
 
 std::unique_ptr<installer::InitialPreferences> LoadInitialPrefs() {
   base::FilePath initial_prefs_path;
-  if (!GetInitialPrefsPathForTesting().empty())
+  if (!GetInitialPrefsPathForTesting().empty()) {
     initial_prefs_path = GetInitialPrefsPathForTesting();
-  else
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  } else if (const base::CommandLine* command_line =
+                 base::CommandLine::ForCurrentProcess();
+             command_line->HasSwitch(switches::kInitialPreferencesFile)) {
+    initial_prefs_path =
+        command_line->GetSwitchValuePath(switches::kInitialPreferencesFile);
+#endif
+  } else {
     initial_prefs_path =
         base::FilePath(first_run::internal::InitialPrefsPath());
+  }
 
   if (initial_prefs_path.empty())
     return nullptr;
@@ -416,15 +401,19 @@ ProcessInitialPreferencesResult ProcessInitialPreferences(
   DCHECK(!user_data_dir.empty());
 
   if (initial_prefs.get()) {
-    if (!internal::ShowPostInstallEULAIfNeeded(initial_prefs.get()))
+    // Don't show EULA when running in headless mode since this would
+    // effectively block the UI because there is no one to accept it.
+    if (!headless::IsHeadlessMode() &&
+        !internal::ShowPostInstallEULAIfNeeded(initial_prefs.get())) {
       return EULA_EXIT_NOW;
+    }
 
-    std::unique_ptr<base::DictionaryValue> initial_dictionary =
-        initial_prefs->initial_dictionary().CreateDeepCopy();
+    base::Value::Dict initial_dictionary =
+        initial_prefs->initial_dictionary().Clone();
     // The distribution dictionary (and any prefs below it) are never registered
     // for use in Chrome's PrefService. Strip them from the initial dictionary
     // before mapping it to prefs.
-    initial_dictionary->RemoveKey(installer::initial_preferences::kDistroDict);
+    initial_dictionary.Remove(installer::initial_preferences::kDistroDict);
 
     if (!chrome_prefs::InitializePrefsFromMasterPrefs(
             profiles::GetDefaultProfileDir(user_data_dir),
@@ -432,8 +421,8 @@ ProcessInitialPreferencesResult ProcessInitialPreferences(
       DLOG(ERROR) << "Failed to initialize from initial preferences.";
     }
 
-    base::DictionaryValue* extensions = 0;
-    if (initial_prefs->GetExtensionsBlock(&extensions)) {
+    const base::Value::Dict* extensions = nullptr;
+    if (initial_prefs->GetExtensionsBlock(extensions)) {
       DVLOG(1) << "Extensions block found in initial preferences";
       extensions::ExtensionUpdater::UpdateImmediatelyForFirstRun();
     }
@@ -498,15 +487,12 @@ void AutoImport(
     ImportFromFile(profile, import_bookmarks_path);
 }
 
-void DoPostImportTasks(Profile* profile, bool make_chrome_default_for_user) {
+void DoPostImportTasks(bool make_chrome_default_for_user) {
   // Only set default browser after import as auto import relies on the current
   // default browser to know what to import from.
   ProcessDefaultBrowserPolicy(make_chrome_default_for_user);
 
-  SetShouldShowWelcomePage();
-  SetShouldDoPersonalDataManagerFirstRun();
-
-  internal::DoPostImportPlatformSpecificTasks(profile);
+  internal::DoPostImportPlatformSpecificTasks();
 }
 
 uint16_t auto_import_state() {

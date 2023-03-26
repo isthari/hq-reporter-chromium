@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,7 @@ class MockMediaItemManager : public MediaItemManager {
   MOCK_METHOD(void, RemoveItemProducer, (MediaItemProducer*));
   MOCK_METHOD(void, ShowItem, (const std::string&));
   MOCK_METHOD(void, HideItem, (const std::string&));
+  MOCK_METHOD(void, RefreshItem, (const std::string&));
   MOCK_METHOD(void, OnItemsChanged, ());
   MOCK_METHOD(void, SetDialogDelegate, (MediaDialogDelegate*));
   MOCK_METHOD(void,

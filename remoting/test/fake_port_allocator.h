@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,9 @@
 #include <memory>
 #include <set>
 
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "remoting/protocol/port_allocator_factory.h"
+#include "third_party/abseil-cpp/absl/strings/string_view.h"
 #include "third_party/webrtc/p2p/client/basic_port_allocator.h"
 
 namespace remoting {
@@ -31,10 +32,10 @@ class FakePortAllocator : public cricket::BasicPortAllocator {
 
   // cricket::BasicPortAllocator overrides.
   cricket::PortAllocatorSession* CreateSessionInternal(
-      const std::string& content_name,
+      absl::string_view content_name,
       int component,
-      const std::string& ice_username_fragment,
-      const std::string& ice_password) override;
+      absl::string_view ice_username_fragment,
+      absl::string_view ice_password) override;
 
  private:
   scoped_refptr<protocol::TransportContext> transport_context_;
@@ -52,7 +53,7 @@ class FakePortAllocatorFactory : public protocol::PortAllocatorFactory {
 
   FakePacketSocketFactory* socket_factory() { return socket_factory_.get(); }
 
-   // PortAllocatorFactory interface.
+  // PortAllocatorFactory interface.
   std::unique_ptr<cricket::PortAllocator> CreatePortAllocator(
       scoped_refptr<protocol::TransportContext> transport_context,
       base::WeakPtr<protocol::SessionOptionsProvider> session_options_provider)

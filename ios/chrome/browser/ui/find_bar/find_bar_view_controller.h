@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,11 @@
 #import <UIKit/UIKit.h>
 
 @class FindBarView;
+
+@protocol FindBarViewControllerDelegate
+// Called to dismiss the find bar.
+- (void)dismiss;
+@end
 
 @interface FindBarViewController : UIViewController
 
@@ -19,8 +24,10 @@
 - (instancetype)initWithCoder:(NSCoder*)coder NS_UNAVAILABLE;
 
 // The FindBarView managed by this view controller. This is the same as the
-// |view| property.
+// `view` property.
 @property(nonatomic, strong, readonly) FindBarView* findBarView;
+// The delegate is called to dismiss the find bar.
+@property(nonatomic, weak) id<FindBarViewControllerDelegate> delegate;
 
 @end
 

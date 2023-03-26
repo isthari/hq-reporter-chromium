@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,21 +53,21 @@ class DataTypeManager {
     DataTypeStatusTable data_type_status_table;
   };
 
-  virtual ~DataTypeManager() {}
+  virtual ~DataTypeManager() = default;
 
   // Convert a ConfigureStatus to string for debug purposes.
   static std::string ConfigureStatusToString(ConfigureStatus status);
 
   // Begins asynchronous configuration of data types.  Any currently
-  // running data types that are not in the desired_types set will be
-  // stopped.  Any stopped data types that are in the desired_types
+  // running data types that are not in the preferred_types set will be
+  // stopped.  Any stopped data types that are in the preferred_types
   // set will be started.  All other data types are left in their
   // current state.
   //
   // Note that you may call Configure() while configuration is in
   // progress.  Configuration will be complete only when the
-  // desired_types supplied in the last call to Configure is achieved.
-  virtual void Configure(ModelTypeSet desired_types,
+  // preferred_types supplied in the last call to Configure is achieved.
+  virtual void Configure(ModelTypeSet preferred_types,
                          const ConfigureContext& context) = 0;
 
   // Informs the data type manager that the ready-for-start status of a
@@ -81,11 +81,13 @@ class DataTypeManager {
 
   virtual void PurgeForMigration(ModelTypeSet undesired_types) = 0;
 
-  // Synchronously stops all registered data types. If called after
-  // Configure() is called but before it finishes, it will abort the
-  // configure and any data types that have been started will be
-  // stopped.
-  // If called with reason |DISABLE_SYNC|, purges sync data for all datatypes.
+  // Synchronously stops all registered data types. If called after Configure()
+  // is called but before it finishes, it will abort the configure and any data
+  // types that have been started will be stopped. If called with reason
+  // |DISABLE_SYNC_AND_CLEAR_DATA|, purges sync data for all datatypes.
+  // TODO(crbug.com/1400437): Replace ShutdownReason with SyncStopMetadataFate,
+  // so it's clear that |BROWSER_SHUTDOWN_AND_KEEP_DATA| isn't propagated. This
+  // will also mean KEEP_METADATA can be interpreted as paused.
   virtual void Stop(ShutdownReason reason) = 0;
 
   // Get the set of current active data types (those chosen or configured by the
@@ -100,6 +102,10 @@ class DataTypeManager {
   // datatypes, which doesn't necessarily mean the sync metadata was cleared, if
   // KEEP_DATA was used when stopping (or if the datatype was never started).
   virtual ModelTypeSet GetPurgedDataTypes() const = 0;
+
+  // Returns the datatypes that are configured but not connected to the sync
+  // engine. Note that during configuration, this will be empty.
+  virtual ModelTypeSet GetActiveProxyDataTypes() const = 0;
 
   // The current state of the data type manager.
   virtual State state() const = 0;

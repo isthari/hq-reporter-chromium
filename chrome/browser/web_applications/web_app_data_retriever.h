@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,12 @@
 #include <memory>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/web_applications/web_app_icon_downloader.h"
 #include "chrome/browser/web_applications/web_app_install_utils.h"
+#include "components/webapps/browser/installable/installable_logging.h"
+#include "components/webapps/browser/installable/installable_params.h"
 #include "components/webapps/common/web_page_metadata.mojom-forward.h"
 #include "components/webapps/common/web_page_metadata_agent.mojom-forward.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -42,15 +44,19 @@ class WebAppDataRetriever : content::WebContentsObserver {
   // Returns nullptr for WebAppInstallInfo if error.
   using GetWebAppInstallInfoCallback =
       base::OnceCallback<void(std::unique_ptr<WebAppInstallInfo>)>;
-  // |is_installable| represents installability check result.
-  // If |is_installable| then |valid_manifest_for_web_app| is true.
+  // |error_code| is the result of the installability check.
+  // |webapps::InstallableStatusCode::NO_ERROR_DETECTED| equates to positive
+  // installability. All other values correspond to negative installability and
+  // first specific error encountered.
+  // If |error_code| is |webapps::InstallableStatusCode::NO_ERROR_DETECTED| then
+  // |valid_manifest_for_web_app| must be true.
   // If manifest is present then it is non-empty.
   // |manifest_url| is empty if manifest is empty.
   using CheckInstallabilityCallback =
       base::OnceCallback<void(blink::mojom::ManifestPtr opt_manifest,
                               const GURL& manifest_url,
                               bool valid_manifest_for_web_app,
-                              bool is_installable)>;
+                              webapps::InstallableStatusCode)>;
 
   using GetIconsCallback = WebAppIconDownloader::WebAppIconDownloaderCallback;
 
@@ -59,8 +65,10 @@ class WebAppDataRetriever : content::WebContentsObserver {
   WebAppDataRetriever& operator=(const WebAppDataRetriever&) = delete;
   ~WebAppDataRetriever() override;
 
-  // Runs |callback| with the result of retrieving the WebAppInstallInfo from
-  // |web_contents|.
+  // Runs `callback` with a `WebAppInstallInfo` generated from the
+  // `web_contents`. This tries to populated the following fields based on both
+  // the `web_contents` and it's `WebPageMetadata`: title, description,
+  // start_url, icons, and mobile_capable.
   virtual void GetWebAppInstallInfo(content::WebContents* web_contents,
                                     GetWebAppInstallInfoCallback callback);
 
@@ -68,12 +76,13 @@ class WebAppDataRetriever : content::WebContentsObserver {
   virtual void CheckInstallabilityAndRetrieveManifest(
       content::WebContents* web_contents,
       bool bypass_service_worker_check,
-      CheckInstallabilityCallback callback);
+      CheckInstallabilityCallback callback,
+      absl::optional<webapps::InstallableParams> params = absl::nullopt);
 
   // Downloads icons from |icon_urls|. Runs |callback| with a map of
   // the retrieved icons.
   virtual void GetIcons(content::WebContents* web_contents,
-                        const std::vector<GURL>& icon_urls,
+                        base::flat_set<GURL> icon_urls,
                         bool skip_page_favicons,
                         GetIconsCallback callback);
 
@@ -93,13 +102,15 @@ class WebAppDataRetriever : content::WebContentsObserver {
                          IconsMap icons_map,
                          DownloadedIconsHttpResults icons_http_results);
 
-  void CallCallbackOnError();
+  void CallCallbackOnError(
+      absl::optional<webapps::InstallableStatusCode> error_code);
   bool ShouldStopRetrieval() const;
 
-  std::unique_ptr<WebAppInstallInfo> preinstalled_web_application_info_;
+  std::unique_ptr<WebAppInstallInfo> fallback_install_info_;
   GetWebAppInstallInfoCallback get_web_app_info_callback_;
 
   CheckInstallabilityCallback check_installability_callback_;
+
   GetIconsCallback get_icons_callback_;
 
   std::unique_ptr<WebAppIconDownloader> icon_downloader_;

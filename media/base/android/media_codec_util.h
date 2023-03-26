@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "media/base/android/media_codec_direction.h"
 #include "media/base/audio_codecs.h"
 #include "media/base/media_export.h"
+#include "media/base/sample_format.h"
 #include "media/base/video_codecs.h"
 
 namespace media {
@@ -26,15 +27,12 @@ namespace media {
 class MEDIA_EXPORT MediaCodecUtil {
  public:
   static std::string CodecToAndroidMimeType(AudioCodec codec);
+  static std::string CodecToAndroidMimeType(AudioCodec codec,
+                                            SampleFormat sample_format);
   static std::string CodecToAndroidMimeType(VideoCodec codec);
 
   // Returns true if MediaCodec supports CBCS Encryption.
   static bool PlatformSupportsCbcsEncryption(int sdk);
-
-#if BUILDFLAG(ENABLE_PLATFORM_DOLBY_VISION)
-  // Indicates if Dolby Vision decoder is available on this device.
-  static bool IsDolbyVisionDecoderAvailable();
-#endif
 
   // Indicates if the vp8 decoder or encoder is available on this device.
   static bool IsVp8DecoderAvailable();
@@ -82,10 +80,9 @@ class MEDIA_EXPORT MediaCodecUtil {
 
   // Indicates if the h264 encoder is available on this device.
   //
-  // WARNING: If |use_codec_list| is true, this can't be used from the renderer
-  // process since it attempts to access MediaCodecList (which requires
-  // permissions).
-  static bool IsH264EncoderAvailable(bool use_codec_list = true);
+  // This can't be used from the renderer process since it attempts to
+  // access MediaCodecList (which requires permissions).
+  static bool IsH264EncoderAvailable();
 
   // Returns a vector of supported codecs profiles and levels.
   //

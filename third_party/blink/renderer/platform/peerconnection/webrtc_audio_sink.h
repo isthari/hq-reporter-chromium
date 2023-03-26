@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,18 +11,19 @@
 #include <memory>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "base/memory/scoped_refptr.h"
 #include "base/synchronization/lock.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
+#include "base/time/time.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/audio_push_fifo.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_audio_sink.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_audio_level_calculator.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_copier.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/webrtc/api/media_stream_interface.h"
 #include "third_party/webrtc/api/media_stream_track.h"
 #include "third_party/webrtc/rtc_base/time_utils.h"
@@ -143,8 +144,6 @@ class PLATFORM_EXPORT WebRtcAudioSink : public WebMediaStreamAudioSink {
 
     // Task runner used for the final de-referencing of |audio_processor_| at
     // destruction time.
-    //
-    // TODO(miu): Remove this once MediaStreamAudioProcessor is fixed.
     const scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
 
     // The audio processsor that applies audio post-processing on the source
@@ -162,7 +161,7 @@ class PLATFORM_EXPORT WebRtcAudioSink : public WebMediaStreamAudioSink {
 
     // A vector of pointers to unowned WebRTC-internal objects which each
     // receive the audio data.
-    std::vector<webrtc::AudioTrackSinkInterface*> sinks_;
+    Vector<webrtc::AudioTrackSinkInterface*> sinks_;
 
     // Used for getting capture timestamps referenced on the rtc::TimeMicros()
     // clock. See the comment at the implementation of UpdateTimestampAligner()

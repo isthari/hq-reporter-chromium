@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,10 +16,9 @@ import org.chromium.base.annotations.NativeMethods;
 @JNINamespace("translate::android")
 public class TranslateFeatureList {
     /** Alphabetical: */
+    public static final String CONTENT_LANGUAGES_DISABLE_OBSERVERS_PARAM = "disable_observers";
     public static final String CONTENT_LANGUAGES_IN_LANGUAGE_PICKER =
             "ContentLanguagesInLanguagePicker";
-    public static final String CONTENT_LANGUAGES_DISABLE_OBSERVERS_PARAM = "disable_observers";
-    public static final String DETECTED_SOURCE_LANGUAGE_OPTION = "DetectedSourceLanguageOption";
 
     // Do not instantiate this class.
     private TranslateFeatureList() {}

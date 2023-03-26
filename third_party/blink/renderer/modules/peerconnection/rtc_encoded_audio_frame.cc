@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,12 +25,7 @@ RTCEncodedAudioFrame::RTCEncodedAudioFrame(
         webrtc_audio_frame) {
   Vector<uint32_t> contributing_sources;
   if (webrtc_audio_frame) {
-    wtf_size_t num_csrcs = webrtc_audio_frame->GetHeader().numCSRCs;
-    contributing_sources.ReserveInitialCapacity(num_csrcs);
-    for (wtf_size_t i = 0; i < num_csrcs; i++) {
-      contributing_sources.push_back(
-          webrtc_audio_frame->GetHeader().arrOfCSRCs[i]);
-    }
+    contributing_sources.assign(webrtc_audio_frame->GetContributingSources());
   }
   delegate_ = base::MakeRefCounted<RTCEncodedAudioFrameDelegate>(
       std::move(webrtc_audio_frame), std::move(contributing_sources));

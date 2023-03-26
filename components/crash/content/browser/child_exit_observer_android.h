@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,16 +11,16 @@
 
 #include "base/android/application_status_listener.h"
 #include "base/android/child_process_binding_types.h"
-#include "base/lazy_instance.h"
 #include "base/process/process.h"
 #include "base/scoped_observation.h"
 #include "base/synchronization/lock.h"
 #include "components/crash/content/browser/crash_handler_host_linux.h"
 #include "content/public/browser/browser_child_process_observer.h"
+#include "content/public/browser/child_process_host.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/common/child_process_host.h"
+#include "content/public/browser/render_process_host_creation_observer.h"
 #include "content/public/common/process_type.h"
 #include "third_party/blink/public/common/oom_intervention/oom_intervention_types.h"
 
@@ -34,6 +34,7 @@ namespace crash_reporter {
 // purpose of reacting to child process crashes.
 // The ChildExitObserver instance exists on the browser main thread.
 class ChildExitObserver : public content::BrowserChildProcessObserver,
+                          public content::RenderProcessHostCreationObserver,
                           public content::NotificationObserver,
                           public crashpad::CrashHandlerHost::Observer {
  public:
@@ -74,14 +75,6 @@ class ChildExitObserver : public content::BrowserChildProcessObserver,
         base::android::ChildBindingState::UNBOUND;
     bool threw_exception_during_init = false;
     bool was_killed_intentionally_by_browser = false;
-    int best_effort_reverse_rank = -1;
-
-    // Note this is slightly different |has_oom_protection_bindings|.
-    // This is equivalent to status == TERMINATION_STATUS_NORMAL_TERMINATION,
-    // which historically also checked whether app is in foreground, using
-    // a slightly different implementation than
-    // ApplicationStatusListener::GetState.
-    bool was_oom_protected_status = false;
 
     // Applies to renderer process only. Generally means renderer is hosting
     // one or more visible tabs.
@@ -118,16 +111,8 @@ class ChildExitObserver : public content::BrowserChildProcessObserver,
 
     virtual ~Client() {}
   };
-
-  // The global ChildExitObserver instance is created by calling
-  // Create (on the UI thread), and lives until process exit. Tests
-  // making use of this class should register an AtExitManager.
-  static void Create();
-
-  // Fetch a pointer to the global ChildExitObserver instance. The
-  // global instance must have been created by the time GetInstance is
-  // called.
-  static ChildExitObserver* GetInstance();
+  ChildExitObserver();
+  ~ChildExitObserver() override;
 
   ChildExitObserver(const ChildExitObserver&) = delete;
   ChildExitObserver& operator=(const ChildExitObserver&) = delete;
@@ -137,12 +122,10 @@ class ChildExitObserver : public content::BrowserChildProcessObserver,
   // crashpad::CrashHandlerHost::Observer
   void ChildReceivedCrashSignal(base::ProcessId pid, int signo) override;
 
+  // content::RenderProcessHostCreationObserver implementation.
+  void OnRenderProcessHostCreated(content::RenderProcessHost* host) override;
+
  private:
-  friend struct base::LazyInstanceTraitsBase<ChildExitObserver>;
-
-  ChildExitObserver();
-  ~ChildExitObserver() override;
-
   // content::BrowserChildProcessObserver implementation:
   void BrowserChildProcessHostDisconnected(
       const content::ChildProcessData& data) override;

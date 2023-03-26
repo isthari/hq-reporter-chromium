@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include <memory>
 #include <ostream>
 #include <set>
-#include <unordered_set>
 #include <vector>
 
 #include "base/debug/crash_logging.h"
@@ -202,13 +201,13 @@ class AXTreeSerializer {
   ClientTreeNode* GetClientTreeNodeParent(ClientTreeNode* obj);
 
   // The tree source.
-  raw_ptr<AXTreeSource<AXSourceNode>> tree_;
+  raw_ptr<AXTreeSource<AXSourceNode>, DanglingUntriaged> tree_;
 
   // The tree data most recently sent to the client.
   AXTreeData client_tree_data_;
 
   // Our representation of the client tree.
-  raw_ptr<ClientTreeNode> client_root_ = nullptr;
+  raw_ptr<ClientTreeNode, DanglingUntriaged> client_root_ = nullptr;
 
   // A map from IDs to nodes in the client tree.
   std::map<AXNodeID, ClientTreeNode*> client_id_map_;
@@ -245,7 +244,7 @@ struct AX_EXPORT ClientTreeNode {
   ClientTreeNode();
   virtual ~ClientTreeNode();
   AXNodeID id;
-  raw_ptr<ClientTreeNode> parent;
+  raw_ptr<ClientTreeNode, DanglingUntriaged> parent;
   std::vector<ClientTreeNode*> children;
   bool ignored;
   bool invalid;
@@ -261,7 +260,9 @@ template <typename AXSourceNode>
 AXTreeSerializer<AXSourceNode>::~AXTreeSerializer() {
   // Clear |tree_| to prevent any additional calls to the tree source
   // during teardown.
+  // TODO(accessibility) How would that happen?
   tree_ = nullptr;
+  // Free up any resources allocated on the heap that are stored with raw_ptr.
   Reset();
 }
 
@@ -279,11 +280,8 @@ void AXTreeSerializer<AXSourceNode>::InternalReset() {
   // but Reset() needs to work even if the tree is in a broken state.
   // Instead, iterate over |client_id_map_| to ensure we clear all nodes and
   // start from scratch.
-  for (auto&& item : client_id_map_) {
-    if (tree_)
-      tree_->SerializerClearedNode(item.first);
+  for (auto&& item : client_id_map_)
     delete item.second;
-  }
   client_id_map_.clear();
   client_root_ = nullptr;
 }
@@ -322,16 +320,14 @@ AXSourceNode AXTreeSerializer<AXSourceNode>::LeastCommonAncestor(
   // client ancestor chain disagree. The last node before they disagree
   // is the LCA.
   AXSourceNode lca = tree_->GetNull();
-  int source_index = static_cast<int>(ancestors.size() - 1);
-  int client_index = static_cast<int>(client_ancestors.size() - 1);
-  while (source_index >= 0 && client_index >= 0) {
-    if (tree_->GetId(ancestors[source_index]) !=
-            client_ancestors[client_index]->id) {
+  for (size_t source_index = ancestors.size(),
+              client_index = client_ancestors.size();
+       source_index > 0 && client_index > 0; --source_index, --client_index) {
+    if (tree_->GetId(ancestors[source_index - 1]) !=
+        client_ancestors[client_index - 1]->id) {
       return lca;
     }
-    lca = ancestors[source_index];
-    source_index--;
-    client_index--;
+    lca = ancestors[source_index - 1];
   }
   return lca;
 }
@@ -372,6 +368,7 @@ bool AXTreeSerializer<AXSourceNode>::AnyDescendantWasReparented(
   tree_->GetChildren(node, &children);
   for (size_t i = 0; i < children.size(); ++i) {
     AXSourceNode& child = children[i];
+    DCHECK(tree_->IsValid(child));
     int child_id = tree_->GetId(child);
     ClientTreeNode* client_child = ClientTreeNodeById(child_id);
     if (client_child) {
@@ -542,6 +539,11 @@ bool AXTreeSerializer<AXSourceNode>::IsInClientTree(AXSourceNode node) {
 template <typename AXSourceNode>
 void AXTreeSerializer<AXSourceNode>::InvalidateClientSubtree(
     ClientTreeNode* client_node) {
+  // Return early if already marked invalid, in order to avoid duplicate work in
+  // subtree, as the only method that marks nodes invalid is this one.
+  if (client_node->invalid) {
+    return;
+  }
   client_node->invalid = true;
   for (size_t i = 0; i < client_node->children.size(); ++i)
     InvalidateClientSubtree(client_node->children[i]);
@@ -565,7 +567,6 @@ void AXTreeSerializer<AXSourceNode>::DeleteClientSubtree(
 #endif
   } else {
     DeleteDescendants(client_node);
-    tree_->SerializerClearedNode(client_node->id);
     client_id_map_.erase(client_node->id);
     delete client_node;
   }
@@ -617,6 +618,8 @@ bool AXTreeSerializer<AXSourceNode>::SerializeChangedNodes(
     client_node->parent = nullptr;
     client_id_map_[client_node->id] = client_node;
   }
+
+  DCHECK_EQ(tree_->GetId(tree_->GetRoot()), client_root_->id);
 
   // We're about to serialize it, so mark it as valid.
   client_node->invalid = false;
@@ -720,8 +723,25 @@ bool AXTreeSerializer<AXSourceNode>::SerializeChangedNodes(
     AXNodeData* serialized_node = &out_update->nodes[serialized_node_index];
 
     tree_->SerializeNode(node, serialized_node);
-    if (serialized_node->id == client_root_->id)
+    if (serialized_node->id == client_root_->id) {
       out_update->root_id = serialized_node->id;
+      CHECK(!client_root_->parent) << "The root cannot have a parent:";
+      // << "\n* Root: "
+      // << tree_->GetDebugString(tree_->GetFromId(out_update->root_id))
+      // << "\n* Root's parent: "
+      // << tree_->GetDebugString(tree_->GetFromId(client_root_->parent->id));
+
+    } else {
+      DCHECK(serialized_node->role != ax::mojom::Role::kRootWebArea)
+          << "A kRootWebArea role was used on an object that is not the root: "
+          << "\n* Actual root: " << tree_->GetDebugString(tree_->GetRoot())
+          << "\n* Illegal node with root web area role: "
+          << tree_->GetDebugString(tree_->GetFromId(serialized_node->id))
+          << "\n* Parent of illegal node: "
+          << (client_node->parent ? tree_->GetDebugString(tree_->GetFromId(
+                                        client_node->parent->id))
+                                  : "");
+    }
   }
 
   // Iterate over the children, serialize them, and update the ClientTreeNode
@@ -733,8 +753,11 @@ bool AXTreeSerializer<AXSourceNode>::SerializeChangedNodes(
     int child_id = tree_->GetId(child);
 
     // Skip if the child isn't valid.
-    if (!tree_->IsValid(child))
+    // TODO(accessibility) Turn into a DCHECK() once it's proven not to occur.
+    if (!tree_->IsValid(child)) {
+      NOTREACHED();
       continue;
+    }
 
     // Skip if the same child is included more than once.
     if (new_child_ids.find(child_id) == new_child_ids.end())

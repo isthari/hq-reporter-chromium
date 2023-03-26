@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/lacros/window_utility.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chromeos/crosapi/mojom/test_controller.mojom-test-utils.h"
@@ -26,16 +27,18 @@ IN_PROC_BROWSER_TEST_F(TabletModeBrowserTest, Smoke) {
   ASSERT_TRUE(lacros_service->IsAvailable<crosapi::mojom::TestController>());
   // This test requires the tablet mode API.
   if (lacros_service->GetInterfaceVersion(
-          crosapi::mojom::TestController::Uuid_) < 2) {
+          crosapi::mojom::TestController::Uuid_) <
+      static_cast<int>(crosapi::mojom::TestController::MethodMinVersions::
+                           kEnterTabletModeMinVersion)) {
     LOG(WARNING) << "Unsupported ash version.";
     return;
   }
 
   // Wait for the window to be visible.
   aura::Window* main_window = browser()->window()->GetNativeWindow();
-  std::string main_id =
-      browser_test_util::GetWindowId(main_window->GetRootWindow());
-  browser_test_util::WaitForWindowCreation(main_id);
+  std::string main_id = lacros_window_utility::GetRootWindowUniqueId(
+      main_window->GetRootWindow());
+  ASSERT_TRUE(browser_test_util::WaitForWindowCreation(main_id));
 
   // Create an incognito window and make it visible.
   Browser* incognito_browser = Browser::Create(Browser::CreateParams(
@@ -44,9 +47,9 @@ IN_PROC_BROWSER_TEST_F(TabletModeBrowserTest, Smoke) {
   AddBlankTabAndShow(incognito_browser);
   aura::Window* incognito_window =
       incognito_browser->window()->GetNativeWindow();
-  std::string incognito_id =
-      browser_test_util::GetWindowId(incognito_window->GetRootWindow());
-  browser_test_util::WaitForWindowCreation(incognito_id);
+  std::string incognito_id = lacros_window_utility::GetRootWindowUniqueId(
+      incognito_window->GetRootWindow());
+  ASSERT_TRUE(browser_test_util::WaitForWindowCreation(incognito_id));
 
   // Enter tablet mode.
   crosapi::mojom::TestControllerAsyncWaiter waiter(
@@ -56,7 +59,7 @@ IN_PROC_BROWSER_TEST_F(TabletModeBrowserTest, Smoke) {
   // Close the incognito window by closing all tabs and wait for it to stop
   // existing in ash.
   incognito_browser->tab_strip_model()->CloseAllTabs();
-  browser_test_util::WaitForWindowDestruction(incognito_id);
+  ASSERT_TRUE(browser_test_util::WaitForWindowDestruction(incognito_id));
 
   // Exit tablet mode.
   waiter.ExitTabletMode();

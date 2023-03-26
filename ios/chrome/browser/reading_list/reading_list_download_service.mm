@@ -1,27 +1,28 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/reading_list/reading_list_download_service.h"
+#import "ios/chrome/browser/reading_list/reading_list_download_service.h"
 
-#include <memory>
-#include <utility>
+#import <memory>
+#import <utility>
 
-#include "base/bind.h"
-#include "base/files/file_enumerator.h"
-#include "base/files/file_path.h"
-#include "base/files/file_util.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/strings/string_util.h"
-#include "base/task/post_task.h"
-#include "base/task/thread_pool.h"
-#include "components/reading_list/core/offline_url_utils.h"
-#include "components/reading_list/core/reading_list_entry.h"
-#include "components/reading_list/core/reading_list_model.h"
-#include "ios/chrome/browser/application_context.h"
-#include "ios/chrome/browser/reading_list/reading_list_distiller_page_factory.h"
-#include "net/base/network_change_notifier.h"
-#include "services/network/public/cpp/shared_url_loader_factory.h"
+#import "base/files/file_enumerator.h"
+#import "base/files/file_path.h"
+#import "base/files/file_util.h"
+#import "base/functional/bind.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/strings/string_util.h"
+#import "base/task/sequenced_task_runner.h"
+#import "base/task/single_thread_task_runner.h"
+#import "base/task/thread_pool.h"
+#import "components/reading_list/core/offline_url_utils.h"
+#import "components/reading_list/core/reading_list_entry.h"
+#import "components/reading_list/core/reading_list_model.h"
+#import "ios/chrome/browser/application_context/application_context.h"
+#import "ios/chrome/browser/reading_list/reading_list_distiller_page_factory.h"
+#import "net/base/network_change_notifier.h"
+#import "services/network/public/cpp/shared_url_loader_factory.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -48,8 +49,8 @@ const int kNumberOfFailsBeforeWifiOnly = 5;
 // it.
 const int kNumberOfFailsBeforeStop = 7;
 
-// Scans |root| directory and deletes all subdirectories not listed
-// in |directories_to_keep|.
+// Scans `root` directory and deletes all subdirectories not listed
+// in `directories_to_keep`.
 // Must be called on File thread.
 void CleanUpFiles(base::FilePath root,
                   const std::set<std::string>& processed_directories) {
@@ -89,20 +90,14 @@ ReadingListDownloadService::ReadingListDownloadService(
                           base::Unretained(this)),
       base::BindRepeating(&ReadingListDownloadService::OnDeleteEnd,
                           base::Unretained(this)));
-
-  GetApplicationContext()
-      ->GetNetworkConnectionTracker()
-      ->AddNetworkConnectionObserver(this);
+  network_observation_.Observe(
+      GetApplicationContext()->GetNetworkConnectionTracker());
 }
 
-ReadingListDownloadService::~ReadingListDownloadService() {
-  GetApplicationContext()
-      ->GetNetworkConnectionTracker()
-      ->RemoveNetworkConnectionObserver(this);
-}
+ReadingListDownloadService::~ReadingListDownloadService() = default;
 
 void ReadingListDownloadService::Initialize() {
-  reading_list_model_->AddObserver(this);
+  model_observation_.Observe(reading_list_model_);
 }
 
 base::FilePath ReadingListDownloadService::OfflineRoot() const {
@@ -110,7 +105,8 @@ base::FilePath ReadingListDownloadService::OfflineRoot() const {
 }
 
 void ReadingListDownloadService::Shutdown() {
-  reading_list_model_->RemoveObserver(this);
+  model_observation_.Reset();
+  network_observation_.Reset();
 }
 
 void ReadingListDownloadService::ReadingListModelLoaded(
@@ -159,7 +155,7 @@ void ReadingListDownloadService::SyncWithModel() {
   DCHECK(reading_list_model_->loaded());
   std::set<std::string> processed_directories;
   std::set<GURL> unprocessed_entries;
-  for (const auto& url : reading_list_model_->Keys()) {
+  for (const auto& url : reading_list_model_->GetKeys()) {
     const ReadingListEntry* entry = reading_list_model_->GetEntryByURL(url);
     switch (entry->DistilledState()) {
       case ReadingListEntry::PROCESSED:
@@ -198,7 +194,7 @@ void ReadingListDownloadService::ScheduleDownloadEntry(const GURL& url) {
       entry->DistilledState() == ReadingListEntry::PROCESSED || entry->IsRead())
     return;
   GURL local_url(url);
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&ReadingListDownloadService::DownloadEntry,
                      weak_ptr_factory_.GetWeakPtr(), local_url),
@@ -226,8 +222,8 @@ void ReadingListDownloadService::DownloadEntry(const GURL& url) {
   // There is a connection.
   if (entry->FailedDownloadCounter() < kNumberOfFailsBeforeWifiOnly) {
     // Try to download the page, whatever the connection.
-    reading_list_model_->SetEntryDistilledState(entry->URL(),
-                                                ReadingListEntry::PROCESSING);
+    reading_list_model_->SetEntryDistilledStateIfExists(
+        entry->URL(), ReadingListEntry::PROCESSING);
     url_downloader_->DownloadOfflineURL(entry->URL());
 
   } else if (entry->FailedDownloadCounter() < kNumberOfFailsBeforeStop) {
@@ -242,8 +238,8 @@ void ReadingListDownloadService::DownloadEntry(const GURL& url) {
                        weak_ptr_factory_.GetWeakPtr()));
     if (connection_type == network::mojom::ConnectionType::CONNECTION_WIFI) {
       // The connection is wifi, download the page.
-      reading_list_model_->SetEntryDistilledState(entry->URL(),
-                                                  ReadingListEntry::PROCESSING);
+      reading_list_model_->SetEntryDistilledStateIfExists(
+          entry->URL(), ReadingListEntry::PROCESSING);
       url_downloader_->DownloadOfflineURL(entry->URL());
 
     } else {
@@ -274,12 +270,12 @@ void ReadingListDownloadService::OnDownloadEnd(
   switch (real_success_value) {
     case URLDownloader::DOWNLOAD_SUCCESS:
     case URLDownloader::DOWNLOAD_EXISTS: {
-      reading_list_model_->SetEntryDistilledInfo(
+      reading_list_model_->SetEntryDistilledInfoIfExists(
           url, distilled_path, distilled_url, size, base::Time::Now());
 
       std::string trimmed_title = base::CollapseWhitespaceASCII(title, false);
       if (!trimmed_title.empty())
-        reading_list_model_->SetEntryTitle(url, trimmed_title);
+        reading_list_model_->SetEntryTitleIfExists(url, trimmed_title);
 
       const ReadingListEntry* entry = reading_list_model_->GetEntryByURL(url);
       if (entry)
@@ -295,7 +291,7 @@ void ReadingListDownloadService::OnDownloadEnd(
       // Add this failure to the total failure count.
       if (entry && real_success_value == URLDownloader::ERROR &&
           entry->FailedDownloadCounter() + 1 < kNumberOfFailsBeforeStop) {
-        reading_list_model_->SetEntryDistilledState(
+        reading_list_model_->SetEntryDistilledStateIfExists(
             url, ReadingListEntry::WILL_RETRY);
         ScheduleDownloadEntry(url);
         UMA_HISTOGRAM_ENUMERATION("ReadingList.Download.Status", RETRY,
@@ -303,7 +299,7 @@ void ReadingListDownloadService::OnDownloadEnd(
       } else {
         UMA_HISTOGRAM_ENUMERATION("ReadingList.Download.Status", FAILURE,
                                   STATUS_MAX);
-        reading_list_model_->SetEntryDistilledState(
+        reading_list_model_->SetEntryDistilledStateIfExists(
             url, ReadingListEntry::DISTILLATION_ERROR);
       }
       break;

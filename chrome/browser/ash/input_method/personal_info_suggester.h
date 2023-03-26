@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,14 @@
 
 #include <string>
 
-#include "ash/services/ime/public/cpp/suggestions.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/input_method/input_method_engine.h"
 #include "chrome/browser/ash/input_method/suggester.h"
 #include "chrome/browser/ash/input_method/suggestion_enums.h"
 #include "chrome/browser/ash/input_method/suggestion_handler_interface.h"
 #include "chrome/browser/extensions/api/input_ime/input_ime_api.h"
+#include "chromeos/ash/services/ime/public/cpp/assistive_suggestions.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace autofill {
 class PersonalDataManager;
@@ -51,17 +52,17 @@ class PersonalInfoSuggester : public Suggester {
   void OnFocus(int context_id) override;
   void OnBlur() override;
   void OnExternalSuggestionsUpdated(
-      const std::vector<ime::TextSuggestion>& suggestions) override;
+      const std::vector<ime::AssistiveSuggestion>& suggestions) override;
   SuggestionStatus HandleKeyEvent(const ui::KeyEvent& event) override;
-  bool Suggest(const std::u16string& text,
-               size_t cursor_pos,
-               size_t anchor_pos) override;
+  bool TrySuggestWithSurroundingText(const std::u16string& text,
+                                     int cursor_pos,
+                                     int anchor_pos) override;
   // index defaults to 0 as not required for this suggester.
   bool AcceptSuggestion(size_t index = 0) override;
   void DismissSuggestion() override;
   AssistiveType GetProposeActionType() override;
   bool HasSuggestions() override;
-  std::vector<ime::TextSuggestion> GetSuggestions() override;
+  std::vector<ime::AssistiveSuggestion> GetSuggestions() override;
 
  private:
   // Get the suggestion according to |text|.
@@ -82,8 +83,8 @@ class PersonalInfoSuggester : public Suggester {
 
   SuggestionHandlerInterface* const suggestion_handler_;
 
-  // ID of the focused text field, 0 if none is focused.
-  int context_id_ = -1;
+  // ID of the focused text field, nullopt if nothing is focused.
+  absl::optional<int> focused_context_id_;
 
   // Assistive type of the last proposed assistive action.
   AssistiveType proposed_action_type_ = AssistiveType::kGenericAction;
@@ -107,8 +108,6 @@ class PersonalInfoSuggester : public Suggester {
   int highlighted_index_;
   ui::ime::AssistiveWindowButton suggestion_button_;
   ui::ime::AssistiveWindowButton settings_button_;
-
-  base::TimeTicks session_start_;
 };
 
 }  // namespace input_method

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,13 +26,27 @@ const CGFloat kSpotlightHeight = 36.0f;
 
 - (void)setDimmed:(BOOL)dimmed {
   [super setDimmed:dimmed];
-
-  self.spotlightView.hidden = dimmed && !self.spotlighted;
+  [self updateSpotlightViewHiddenState];
 }
 
 - (void)setSpotlighted:(BOOL)spotlighted {
   [super setSpotlighted:spotlighted];
-  self.spotlightView.hidden = !spotlighted && self.dimmed;
+  [self updateSpotlightViewHiddenState];
+}
+
+- (void)setIphHighlighted:(BOOL)iphHighlighted {
+  [super setIphHighlighted:iphHighlighted];
+  [self updateSpotlightViewHiddenState];
+}
+
+- (void)setToolbarConfiguration:(ToolbarConfiguration*)toolbarConfiguration {
+  [super setToolbarConfiguration:toolbarConfiguration];
+  [self updateSpotlightViewHiddenState];
+}
+
+- (void)updateSpotlightViewHiddenState {
+  self.spotlightView.hidden =
+      self.dimmed && !self.spotlighted && !self.iphHighlighted;
 }
 
 #pragma mark - Subclassing

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,30 @@ class AuthIconView;
 // lock screen.
 class ASH_EXPORT SmartLockAuthFactorModel : public AuthFactorModel {
  public:
+  class Factory {
+   public:
+    Factory() = default;
+    Factory(const Factory&) = delete;
+    Factory& operator=(const Factory&) = delete;
+
+    static std::unique_ptr<SmartLockAuthFactorModel> Create(
+        SmartLockState initial_state,
+        base::RepeatingCallback<void()> arrow_button_tap_callback);
+
+    static void SetFactoryForTesting(Factory* factory);
+
+   protected:
+    virtual ~Factory() = default;
+    virtual std::unique_ptr<SmartLockAuthFactorModel> CreateInstance(
+        SmartLockState initial_state,
+        base::RepeatingCallback<void()> arrow_button_tap_callback) = 0;
+
+   private:
+    static Factory* factory_instance_;
+  };
+
   SmartLockAuthFactorModel(
+      SmartLockState initial_state,
       base::RepeatingCallback<void()> arrow_button_tap_callback);
   SmartLockAuthFactorModel(SmartLockAuthFactorModel&) = delete;
   SmartLockAuthFactorModel& operator=(SmartLockAuthFactorModel&) = delete;
@@ -30,6 +53,9 @@ class ASH_EXPORT SmartLockAuthFactorModel : public AuthFactorModel {
 
   void SetSmartLockState(SmartLockState state);
   void NotifySmartLockAuthResult(bool result);
+
+ protected:
+  SmartLockState state_;
 
  private:
   // AuthFactorModel:
@@ -43,7 +69,7 @@ class ASH_EXPORT SmartLockAuthFactorModel : public AuthFactorModel {
   void DoHandleErrorTimeout() override;
 
   base::RepeatingCallback<void()> arrow_button_tap_callback_;
-  SmartLockState state_ = SmartLockState::kInactive;
+
   absl::optional<bool> auth_result_;
 };
 

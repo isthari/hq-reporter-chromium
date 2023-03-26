@@ -1,10 +1,12 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef IOS_CHROME_BROWSER_CRASH_REPORT_CRASH_HELPER_H_
 #define IOS_CHROME_BROWSER_CRASH_REPORT_CRASH_HELPER_H_
 
+#include "base/feature_list.h"
+#include "base/time/time.h"
 
 namespace crash_helper {
 
@@ -37,7 +39,7 @@ void ProcessIntermediateReportsForSafeMode();
 int GetPendingCrashReportCount();
 
 // Gets the number of pending crash reports on a background thread and invokes
-// |callback| with the result when complete.
+// `callback` with the result when complete.
 void GetPendingCrashReportCount(void (^callback)(int));
 
 // Check if there is currently a crash report to upload. This function will wait
@@ -54,6 +56,9 @@ void StartUploadingReportsInRecoveryMode();
 
 // Resets the Breakpad configuration from the main bundle.
 void RestoreDefaultConfiguration();
+
+// Deletes any reports that were recorded or uploaded within the time range.
+void ClearReportsBetween(base::Time delete_begin, base::Time delete_end);
 
 }  // namespace crash_helper
 

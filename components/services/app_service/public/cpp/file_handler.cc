@@ -1,10 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/services/app_service/public/cpp/file_handler.h"
 
 #include <tuple>
+
+#include "base/strings/string_util.h"
 
 namespace apps {
 
@@ -42,6 +44,9 @@ base::Value FileHandler::AsDebugValue() const {
   for (const IconInfo& entry : downloaded_icons)
     icons_json.Append(entry.AsDebugValue());
   root.SetStringKey("name", display_name);
+  root.SetStringKey("launch_type", launch_type == LaunchType::kSingleClient
+                                       ? "kSingleClient"
+                                       : "kMultipleClients");
 
   return root;
 }
@@ -81,9 +86,11 @@ std::set<std::string> GetFileExtensionsFromFileHandlers(
 std::set<std::string> GetFileExtensionsFromFileHandler(
     const FileHandler& file_handler) {
   std::set<std::string> file_extensions;
-  for (const auto& accept_entry : file_handler.accept)
-    file_extensions.insert(accept_entry.file_extensions.begin(),
-                           accept_entry.file_extensions.end());
+  for (const auto& accept_entry : file_handler.accept) {
+    for (const std::string& extension : accept_entry.file_extensions) {
+      file_extensions.insert(base::ToLowerASCII(extension));
+    }
+  }
   return file_extensions;
 }
 
@@ -96,9 +103,9 @@ bool operator==(const FileHandler::AcceptEntry& accept_entry1,
 bool operator==(const FileHandler& file_handler1,
                 const FileHandler& file_handler2) {
   return std::tie(file_handler1.action, file_handler1.accept,
-                  file_handler1.display_name) ==
+                  file_handler1.display_name, file_handler1.launch_type) ==
          std::tie(file_handler2.action, file_handler2.accept,
-                  file_handler2.display_name);
+                  file_handler2.display_name, file_handler2.launch_type);
 }
 
 bool operator!=(const FileHandler::AcceptEntry& accept_entry1,

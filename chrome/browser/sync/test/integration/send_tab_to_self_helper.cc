@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -146,8 +146,6 @@ bool SendTabToSelfModelEqualityChecker::IsExitConditionSatisfied(
         entry0->GetURL() != entry1->GetURL() ||
         entry0->GetTitle() != entry1->GetTitle() ||
         entry0->GetSharedTime() != entry1->GetSharedTime() ||
-        entry0->GetOriginalNavigationTime() !=
-            entry1->GetOriginalNavigationTime() ||
         entry0->GetDeviceName() != entry1->GetDeviceName()) {
       return false;
     }
@@ -215,11 +213,12 @@ SendTabToSelfMultiDeviceActiveChecker::
 bool SendTabToSelfMultiDeviceActiveChecker::IsExitConditionSatisfied(
     std::ostream* os) {
   *os << "Waiting for multiple devices to be active.";
-  const std::map<sync_pb::SyncEnums_DeviceType, int> device_count_by_type =
+  const std::map<syncer::DeviceInfo::FormFactor, int> device_count_by_type =
       tracker_->CountActiveDevicesByType();
   int total = 0;
-  for (const auto& [type, count] : device_count_by_type)
+  for (const auto& [type, count] : device_count_by_type) {
     total += count;
+  }
   return total > 1;
 }
 

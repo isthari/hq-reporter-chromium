@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,8 @@
 #include <string>
 #include <tuple>
 
-#include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/task/sequenced_task_runner.h"
 #include "components/feedback/pii_types.h"
@@ -21,7 +21,12 @@
 
 // The error code that a Support Tool component can return.
 enum class SupportToolErrorCode {
+  // Errors that occurred in individual DataCollector level. An error in a
+  // DataCollector instance won't disturb the execution of the caller of
+  // DataCollector functions.
   kDataCollectorError,
+  // Errors that occur during the data export process of the caller of
+  // DataCollector instances.
   kDataExportError,
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -92,7 +92,7 @@ class SearchTabHelper : public content::WebContentsObserver,
   void OnUndoAllMostVisitedDeletions() override;
 
   // Overridden from InstantServiceObserver:
-  void NtpThemeChanged(const NtpTheme& theme) override;
+  void NtpThemeChanged(NtpTheme theme) override;
   void MostVisitedInfoChanged(
       const InstantMostVisitedInfo& most_visited_info) override;
 

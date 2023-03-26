@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,7 @@
 
 #include <vector>
 
-#include "base/cxx17_backports.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "gin/public/isolate_holder.h"
 #include "pdf/pdfium/pdfium_engine.h"
@@ -87,7 +86,7 @@ class FormFillerTest : public PDFiumTestBase {
 #endif  // defined(PDF_ENABLE_V8)
 };
 
-TEST_F(FormFillerTest, DoURIActionWithKeyboardModifier) {
+TEST_P(FormFillerTest, DoURIActionWithKeyboardModifier) {
   FormFillerTestClient client;
   std::unique_ptr<PDFiumEngine> engine = InitializeEngine(
       &client, FILE_PATH_LITERAL("annotation_form_fields.pdf"));
@@ -139,7 +138,7 @@ TEST_F(FormFillerTest, DoURIActionWithKeyboardModifier) {
   TriggerDoURIActionWithKeyboardModifier(engine.get(), kUri, modifiers);
 }
 
-TEST_F(FormFillerTest, FormOnFocusChange) {
+TEST_P(FormFillerTest, FormOnFocusChange) {
   struct {
     // Initial scroll position of the document.
     gfx::Point initial_position;
@@ -188,6 +187,8 @@ TEST_F(FormFillerTest, FormOnFocusChange) {
   }
 }
 
+INSTANTIATE_TEST_SUITE_P(All, FormFillerTest, testing::Bool());
+
 #if defined(PDF_ENABLE_V8)
 class FormFillerJavaScriptTest : public FormFillerTest {
  public:
@@ -199,7 +200,7 @@ class FormFillerJavaScriptTest : public FormFillerTest {
   ~FormFillerJavaScriptTest() override { ShutdownSDK(); }
 };
 
-TEST_F(FormFillerJavaScriptTest, IsolateScoping) {
+TEST_P(FormFillerJavaScriptTest, IsolateScoping) {
   // Enter the embedder's isolate so it can be captured when the
   // `PDFiumFormFiller` is created.
   v8::Isolate* embedder_isolate = blink::MainThreadIsolate();
@@ -209,7 +210,7 @@ TEST_F(FormFillerJavaScriptTest, IsolateScoping) {
   PDFiumEngine engine(&client, PDFiumFormFiller::ScriptOption::kJavaScript);
 
   gin::IsolateHolder pdfium_test_isolate_holder(
-      base::ThreadTaskRunnerHandle::Get(),
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
       gin::IsolateHolder::IsolateType::kTest);
   v8::Isolate* pdfium_test_isolate = pdfium_test_isolate_holder.isolate();
 
@@ -225,9 +226,9 @@ TEST_F(FormFillerJavaScriptTest, IsolateScoping) {
   EXPECT_EQ(v8::Isolate::TryGetCurrent(), pdfium_test_isolate);
 }
 
-TEST_F(FormFillerJavaScriptTest, GetFilePath) {
+TEST_P(FormFillerJavaScriptTest, GetFilePath) {
   constexpr char kTestPath[] = "https://www.example.com/path/to/the.pdf";
-  constexpr int kTestPathSize = static_cast<int>(base::size(kTestPath));
+  constexpr int kTestPathSize = static_cast<int>(std::size(kTestPath));
 
   FormFillerTestClient client;
   EXPECT_CALL(client, GetURL).Times(2).WillRepeatedly(Return(kTestPath));
@@ -242,7 +243,7 @@ TEST_F(FormFillerJavaScriptTest, GetFilePath) {
   EXPECT_STREQ(buffer.data(), kTestPath);
 }
 
-TEST_F(FormFillerJavaScriptTest, GetFilePathEmpty) {
+TEST_P(FormFillerJavaScriptTest, GetFilePathEmpty) {
   FormFillerTestClient client;
   EXPECT_CALL(client, GetURL).Times(2).WillRepeatedly(Return(std::string()));
   PDFiumEngine engine(&client, PDFiumFormFiller::ScriptOption::kJavaScript);
@@ -256,9 +257,9 @@ TEST_F(FormFillerJavaScriptTest, GetFilePathEmpty) {
   EXPECT_STREQ(buffer, "");
 }
 
-TEST_F(FormFillerJavaScriptTest, GetFilePathShortBuffer) {
+TEST_P(FormFillerJavaScriptTest, GetFilePathShortBuffer) {
   constexpr char kTestPath[] = "https://www.example.com/path/to/the.pdf";
-  constexpr int kTestPathSize = static_cast<int>(base::size(kTestPath));
+  constexpr int kTestPathSize = static_cast<int>(std::size(kTestPath));
 
   FormFillerTestClient client;
   EXPECT_CALL(client, GetURL).WillRepeatedly(Return(kTestPath));
@@ -272,6 +273,8 @@ TEST_F(FormFillerJavaScriptTest, GetFilePathShortBuffer) {
   // trailing null.
   EXPECT_THAT(buffer, Contains('X').Times(buffer.size()));
 }
+
+INSTANTIATE_TEST_SUITE_P(All, FormFillerJavaScriptTest, testing::Bool());
 #endif  // defined(PDF_ENABLE_V8)
 
 }  // namespace chrome_pdf

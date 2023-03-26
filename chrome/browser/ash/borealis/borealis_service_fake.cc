@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,11 +63,6 @@ BorealisShutdownMonitor& BorealisServiceFake::ShutdownMonitor() {
   return *shutdown_monitor_;
 }
 
-BorealisWaylandInterface& BorealisServiceFake::WaylandInterface() {
-  CHECK(wayland_interface_);
-  return *wayland_interface_;
-}
-
 BorealisWindowManager& BorealisServiceFake::WindowManager() {
   CHECK(window_manager_);
   return *window_manager_;
@@ -104,11 +99,6 @@ void BorealisServiceFake::SetInstallerForTesting(BorealisInstaller* installer) {
 void BorealisServiceFake::SetShutdownMonitorForTesting(
     BorealisShutdownMonitor* shutdown_monitor) {
   shutdown_monitor_ = shutdown_monitor;
-}
-
-void BorealisServiceFake::SetWaylandInterfaceForTesting(
-    BorealisWaylandInterface* wayland_interface) {
-  wayland_interface_ = wayland_interface;
 }
 
 void BorealisServiceFake::SetWindowManagerForTesting(

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/base64.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_value_converter.h"
 #include "base/json/json_writer.h"
@@ -71,11 +71,11 @@ base::Value AvailableContentToValue(const AvailableOfflineContentPtr& content) {
 
 base::Value AvailableContentListToValue(
     const std::vector<AvailableOfflineContentPtr>& content_list) {
-  base::Value value(base::Value::Type::LIST);
+  base::Value::List value;
   for (const auto& content : content_list) {
     value.Append(AvailableContentToValue(content));
   }
-  return value;
+  return base::Value(std::move(value));
 }
 
 void RecordSuggestionPresented(

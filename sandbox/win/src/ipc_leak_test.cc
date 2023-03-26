@@ -1,14 +1,14 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <ntstatus.h>
+#include <stdlib.h>
 #include <windows.h>
+#include <winternl.h>
 
 #include <memory>
 
-#include <stdlib.h>
-
-#include "base/cxx17_backports.h"
 #include "base/memory/page_size.h"
 #include "base/win/win_util.h"
 #include "sandbox/win/src/crosscall_client.h"
@@ -24,10 +24,6 @@
 #include "sandbox/win/src/sharedmem_ipc_client.h"
 #include "sandbox/win/tests/common/controller.h"
 #include "testing/gtest/include/gtest/gtest.h"
-
-#define BINDNTDLL(name)                                   \
-  name##Function name = reinterpret_cast<name##Function>( \
-      ::GetProcAddress(::GetModuleHandle(L"ntdll.dll"), #name));
 
 namespace sandbox {
 
@@ -96,7 +92,6 @@ void TestNtCreateFile() {
   OBJECT_ATTRIBUTES attr;
   IO_STATUS_BLOCK iosb;
   HANDLE handle = INVALID_HANDLE_VALUE;
-  BINDNTDLL(RtlInitUnicodeString);
   RtlInitUnicodeString(&path_str, L"\\??\\leak");
   InitializeObjectAttributes(&attr, &path_str, OBJ_CASE_INSENSITIVE, nullptr,
                              nullptr);
@@ -124,7 +119,6 @@ void TestNtOpenFile() {
   OBJECT_ATTRIBUTES attr;
   IO_STATUS_BLOCK iosb;
   HANDLE handle = INVALID_HANDLE_VALUE;
-  BINDNTDLL(RtlInitUnicodeString);
   RtlInitUnicodeString(&path_str, L"\\??\\leak");
   InitializeObjectAttributes(&attr, &path_str, OBJ_CASE_INSENSITIVE, nullptr,
                              nullptr);
@@ -274,7 +268,7 @@ TEST(IPCTest, IPCLeak) {
                    {TESTIPC_CREATENAMEDPIPEW, "TESTIPC_CREATENAMEDPIPEW",
                     INVALID_HANDLE_VALUE}};
 
-  static_assert(base::size(test_data) == TESTIPC_LAST, "Not enough tests.");
+  static_assert(std::size(test_data) == TESTIPC_LAST, "Not enough tests.");
   for (auto test : test_data) {
     TestRunner runner;
     std::wstring command = std::wstring(L"IPC_Leak ");

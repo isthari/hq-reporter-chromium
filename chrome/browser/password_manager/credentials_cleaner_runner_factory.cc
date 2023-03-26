@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,11 @@
 
 #include "base/no_destructor.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/password_manager/core/browser/credentials_cleaner_runner.h"
 #include "content/public/browser/browser_context.h"
 
 CredentialsCleanerRunnerFactory::CredentialsCleanerRunnerFactory()
-    : BrowserContextKeyedServiceFactory(
-          "CredentialsCleanerRunner",
-          BrowserContextDependencyManager::GetInstance()) {}
+    : ProfileKeyedServiceFactory("CredentialsCleanerRunner") {}
 
 CredentialsCleanerRunnerFactory::~CredentialsCleanerRunnerFactory() = default;
 

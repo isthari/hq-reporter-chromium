@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,12 +11,14 @@ class ChromeBrowserState;
 
 namespace bookmarks {
 class BookmarkNode;
+class BookmarkModel;
 }  // namespace bookmarks
 
 namespace user_prefs {
 class PrefRegistrySyncable;
 }  // namespace user_prefs
 
+class PrefService;
 class GURL;
 @class MDCSnackbarMessage;
 @class URLWithTitle;
@@ -25,27 +27,25 @@ class GURL;
 @interface BookmarkMediator : NSObject
 
 - (instancetype)init NS_UNAVAILABLE;
-- (instancetype)initWithBrowserState:(ChromeBrowserState*)browserState
+- (instancetype)initWithWithBookmarkModel:
+                    (bookmarks::BookmarkModel*)bookmarkModel
+                                    prefs:(PrefService*)prefs
     NS_DESIGNATED_INITIALIZER;
 
 // Registers the feature preferences.
 + (void)registerBrowserStatePrefs:(user_prefs::PrefRegistrySyncable*)registry;
 
-// Accesses the default folder for bookmarks. The default folder is Mobile
-// Bookmarks.
-+ (const bookmarks::BookmarkNode*)folderForNewBookmarksInBrowserState:
-    (ChromeBrowserState*)browserState;
 + (void)setFolderForNewBookmarks:(const bookmarks::BookmarkNode*)folder
                   inBrowserState:(ChromeBrowserState*)browserState;
 
-// Adds a bookmark with a |title| and a |URL| and display a snackbar with an
-// |editAction|. Returns a message to be displayed after the Bookmark has been
+// Adds a bookmark with a `title` and a `URL` and display a snackbar with an
+// `editAction`. Returns a message to be displayed after the Bookmark has been
 // added.
 - (MDCSnackbarMessage*)addBookmarkWithTitle:(NSString*)title
                                         URL:(const GURL&)URL
                                  editAction:(void (^)())editAction;
 
-// Adds bookmarks for |URLs| into |folder|. Returns a message to be displayed
+// Adds bookmarks for `URLs` into `folder`. Returns a message to be displayed
 // after the Bookmark has been added.
 - (MDCSnackbarMessage*)addBookmarks:(NSArray<URLWithTitle*>*)URLs
                            toFolder:(const bookmarks::BookmarkNode*)folder;

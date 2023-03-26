@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <wayland-server-core.h>
 #include <wayland-server-protocol-core.h>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 
 // These structs are populated with function pointers and values from the v1 and
 // v2 remote shell protocol.

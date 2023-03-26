@@ -1,19 +1,25 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ssl/https_only_mode_upgrade_interceptor.h"
 
+#include "base/functional/bind.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ssl/https_only_mode_tab_helper.h"
 #include "chrome/browser/ssl/https_only_mode_upgrade_url_loader.h"
 #include "chrome/browser/ssl/stateful_ssl_host_state_delegate_factory.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/security_interstitials/content/stateful_ssl_host_state_delegate.h"
+#include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/buildflags/buildflags.h"
+#include "mojo/public/cpp/bindings/callback_helpers.h"
 #include "net/base/url_util.h"
+#include "services/network/public/mojom/network_context.mojom.h"
 #include "third_party/blink/public/mojom/loader/resource_load_info.mojom.h"
 #include "url/gurl.h"
 #include "url/url_constants.h"
@@ -37,7 +43,8 @@ int g_http_port_for_testing = 0;
 // proceeding through the interstitial.
 bool ShouldCreateLoader(const network::ResourceRequest& resource_request,
                         HttpsOnlyModeTabHelper* tab_helper) {
-  if (resource_request.is_main_frame && resource_request.method == "GET" &&
+  if (resource_request.is_outermost_main_frame &&
+      resource_request.method == "GET" &&
       !net::IsLocalhost(resource_request.url) &&
       (resource_request.url.SchemeIs(url::kHttpScheme) ||
        tab_helper->is_navigation_fallback())) {
@@ -62,7 +69,8 @@ void HttpsOnlyModeUpgradeInterceptor::MaybeCreateLoader(
 
   // If there isn't a BrowserContext/Profile for this, then just allow it.
   Profile* profile = Profile::FromBrowserContext(browser_context);
-  if (!profile) {
+  if (!profile ||
+      !g_browser_process->profile_manager()->IsValidProfile(profile)) {
     std::move(callback).Run({});
     return;
   }
@@ -91,10 +99,42 @@ void HttpsOnlyModeUpgradeInterceptor::MaybeCreateLoader(
   }
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
-  // TODO(crbug.com/1228188) There might be a race condition where we
-  // get here before there is a tab. If the issue was caused by web
-  // contents, profile or tab helper being null, try to determine the
-  // actual cause using DCHECKs.
+  // Check whether this host would be upgraded to HTTPS by HSTS. This requires a
+  // Mojo call to the network service, so set up a callback to continue the rest
+  // of the MaybeCreateLoader() logic (passing along the necessary state). The
+  // HSTS status will be passed as a boolean to
+  // MaybeCreateLoaderOnHstsQueryCompleted(). If the Mojo call fails, this will
+  // default to passing `false` and continuing as though the host does not have
+  // HSTS (i.e., it will proceed with the HTTPS-First Mode logic).
+  auto query_complete_callback = base::BindOnce(
+      &HttpsOnlyModeUpgradeInterceptor::MaybeCreateLoaderOnHstsQueryCompleted,
+      weak_factory_.GetWeakPtr(), tentative_resource_request, browser_context,
+      std::move(callback), profile, prefs, web_contents);
+  network::mojom::NetworkContext* network_context =
+      profile->GetDefaultStoragePartition()->GetNetworkContext();
+  network_context->IsHSTSActiveForHost(
+      tentative_resource_request.url.host(),
+      mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+          std::move(query_complete_callback),
+          /*is_hsts_active_for_host=*/false));
+}
+
+void HttpsOnlyModeUpgradeInterceptor::MaybeCreateLoaderOnHstsQueryCompleted(
+    const network::ResourceRequest& tentative_resource_request,
+    content::BrowserContext* browser_context,
+    content::URLLoaderRequestInterceptor::LoaderCallback callback,
+    Profile* profile,
+    PrefService* prefs,
+    content::WebContents* web_contents,
+    bool is_hsts_active_for_host) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  // Don't upgrade this request if HSTS is active for this host.
+  if (is_hsts_active_for_host) {
+    std::move(callback).Run({});
+    return;
+  }
+
   auto* tab_helper = HttpsOnlyModeTabHelper::FromWebContents(web_contents);
   if (!tab_helper) {
     HttpsOnlyModeTabHelper::CreateForWebContents(web_contents);
@@ -116,8 +156,18 @@ void HttpsOnlyModeUpgradeInterceptor::MaybeCreateLoader(
         static_cast<StatefulSSLHostStateDelegate*>(
             profile->GetSSLHostStateDelegate());
     // StatefulSSLHostStateDelegate can be null during tests.
-    if (state && state->IsHttpAllowedForHost(
-                     tentative_resource_request.url.host(), web_contents)) {
+    auto* storage_partition =
+        web_contents->GetPrimaryMainFrame()->GetStoragePartition();
+    if (state &&
+        state->IsHttpAllowedForHost(tentative_resource_request.url.host(),
+                                    storage_partition)) {
+      // Renew the allowlist expiration for this host as the user is still
+      // actively using it. This means that the allowlist entry will stay
+      // valid until the user stops visiting this host for the entire
+      // expiration period (one week).
+      state->AllowHttpForHost(tentative_resource_request.url.host(),
+                              storage_partition);
+
       std::move(callback).Run({});
       return;
     }

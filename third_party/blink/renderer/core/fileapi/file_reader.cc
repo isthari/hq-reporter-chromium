@@ -34,6 +34,7 @@
 #include "base/timer/elapsed_timer.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_arraybuffer_string.h"
+#include "third_party/blink/renderer/core/event_target_names.h"
 #include "third_party/blink/renderer/core/events/progress_event.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/fileapi/file.h"
@@ -131,7 +132,7 @@ class FileReader::ThrottlingController final
 
  private:
   void PushReader(FileReader* reader) {
-    if (pending_readers_.IsEmpty() &&
+    if (pending_readers_.empty() &&
         running_readers_.size() < max_running_readers_) {
       reader->ExecutePendingRead();
       DCHECK(!running_readers_.Contains(reader));
@@ -170,7 +171,7 @@ class FileReader::ThrottlingController final
     if (GetSupplementable()->IsContextDestroyed())
       return;
     while (running_readers_.size() < max_running_readers_) {
-      if (pending_readers_.IsEmpty())
+      if (pending_readers_.empty())
         return;
       FileReader* reader = pending_readers_.TakeFirst();
       reader->ExecutePendingRead();

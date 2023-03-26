@@ -1,16 +1,17 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "media/mojo/services/video_decode_perf_history.h"
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/format_macros.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/single_thread_task_runner.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/key_systems.h"
 #include "media/base/media_switches.h"
@@ -118,8 +119,8 @@ void VideoDecodePerfHistory::OnDatabaseInit(bool success) {
 
   // Post all the deferred API calls as if they're just now coming in.
   for (auto& deferred_call : init_deferred_api_calls_) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  std::move(deferred_call));
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, std::move(deferred_call));
   }
   init_deferred_api_calls_.clear();
 }

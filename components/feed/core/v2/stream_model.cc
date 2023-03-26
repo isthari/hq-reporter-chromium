@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/check.h"
 #include "base/check_op.h"
 #include "base/json/string_escape.h"
+#include "base/observer_list.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "components/feed/core/proto/v2/store.pb.h"
@@ -294,7 +295,7 @@ const std::string& StreamModel::GetNextPageToken() const {
 base::Time StreamModel::GetLastAddedTime() const {
   return feedstore::GetLastAddedTime(stream_data_);
 }
-ContentIdSet StreamModel::GetContentIds() const {
+ContentHashSet StreamModel::GetContentIds() const {
   return feedstore::GetContentIds(stream_data_);
 }
 

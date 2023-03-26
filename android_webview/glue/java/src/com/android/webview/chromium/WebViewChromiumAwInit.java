@@ -1,10 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package com.android.webview.chromium;
 
 import android.Manifest;
+import android.app.compat.CompatChanges;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
@@ -15,10 +16,9 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
+import android.webkit.WebSettings;
 import android.webkit.WebStorage;
 import android.webkit.WebViewDatabase;
-
-import androidx.annotation.IntDef;
 
 import org.chromium.android_webview.AwBrowserContext;
 import org.chromium.android_webview.AwBrowserProcess;
@@ -26,8 +26,10 @@ import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.AwContentsStatics;
 import org.chromium.android_webview.AwCookieManager;
 import org.chromium.android_webview.AwDarkMode;
+import org.chromium.android_webview.AwFeatureList;
 import org.chromium.android_webview.AwLocaleConfig;
 import org.chromium.android_webview.AwNetworkChangeNotifierRegistrationPolicy;
+import org.chromium.android_webview.AwOriginVerificationScheduler;
 import org.chromium.android_webview.AwProxyController;
 import org.chromium.android_webview.AwServiceWorkerController;
 import org.chromium.android_webview.AwThreadUtils;
@@ -36,6 +38,7 @@ import org.chromium.android_webview.HttpAuthDatabase;
 import org.chromium.android_webview.ProductConfig;
 import org.chromium.android_webview.R;
 import org.chromium.android_webview.WebViewChromiumRunQueue;
+import org.chromium.android_webview.common.AwFeatures;
 import org.chromium.android_webview.common.AwResource;
 import org.chromium.android_webview.common.AwSwitches;
 import org.chromium.android_webview.gfx.AwDrawFnImpl;
@@ -53,8 +56,8 @@ import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.ScopedSysTraceEvent;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.build.BuildConfig;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.base.ResourceBundle;
@@ -101,17 +104,6 @@ public class WebViewChromiumAwInit {
 
     private final WebViewChromiumFactoryProvider mFactory;
 
-    // These values are persisted to logs. Entries should not be renumbered and
-    // numeric values should never be reused.
-    @IntDef({WebViewInitType.SYNC, WebViewInitType.ASYNC, WebViewInitType.BOTH})
-    private @interface WebViewInitType {
-        int SYNC = 0;
-        int ASYNC = 1;
-        int BOTH = 2;
-        int COUNT = 3;
-    }
-
-    private boolean mIsInitializedFromUIThread;
     private boolean mIsPostedFromBackgroundThread;
 
     WebViewChromiumAwInit(WebViewChromiumFactoryProvider factory) {
@@ -159,17 +151,6 @@ public class WebViewChromiumAwInit {
             if (mInitState == INIT_FINISHED) {
                 return;
             }
-
-            @WebViewInitType
-            int type;
-            if (mIsPostedFromBackgroundThread) {
-                type = mIsInitializedFromUIThread ? WebViewInitType.BOTH : WebViewInitType.ASYNC;
-            } else {
-                type = WebViewInitType.SYNC;
-            }
-
-            RecordHistogram.recordEnumeratedHistogram(
-                    "Android.WebView.Startup.InitType", type, WebViewInitType.COUNT);
 
             final Context context = ContextUtils.getApplicationContext();
 
@@ -251,21 +232,27 @@ public class WebViewChromiumAwInit {
                         mFactory, awBrowserContext.getGeolocationPermissions());
                 mWebStorage =
                         new WebStorageAdapter(mFactory, mBrowserContext.getQuotaManagerBridge());
+                if (AwFeatureList.isEnabled(AwFeatures.WEBVIEW_RESTRICT_SENSITIVE_CONTENT)) {
+                    AwOriginVerificationScheduler.initAndScheduleAll(null);
+                }
                 mAwTracingController = getTracingController();
                 mServiceWorkerController = awBrowserContext.getServiceWorkerController();
                 mAwProxyController = new AwProxyController();
             }
 
-            mFactory.getRunQueue().drainQueue();
-
-            if (BuildInfo.isAtLeastT() ? mFactory.shouldEnableSimplifiedDarkMode()
-                                       : BuildInfo.targetsAtLeastT()) {
+            if (BuildInfo.isAtLeastT()
+                            ? CompatChanges.isChangeEnabled(WebSettings.ENABLE_SIMPLIFIED_DARK_MODE)
+                            : BuildInfo.targetsAtLeastT()) {
                 AwDarkMode.enableSimplifiedDarkMode();
             }
 
             if (CommandLine.getInstance().hasSwitch(AwSwitches.WEBVIEW_VERBOSE_LOGGING)) {
                 logCommandLineAndActiveTrials();
             }
+
+            // This runs all the pending tasks queued for after Chromium init is finished,
+            // so should be the last thing that happens in startChromiumLocked.
+            mFactory.getRunQueue().drainQueue();
         }
         RecordHistogram.recordTimesHistogram(
                 "Android.WebView.Startup.CreationTime.StartChromiumLocked",
@@ -343,7 +330,6 @@ public class WebViewChromiumAwInit {
             // If we are currently running on the UI thread then we must do init now. If there was
             // already a task posted to the UI thread from another thread to do it, it will just
             // no-op when it runs.
-            mIsInitializedFromUIThread = true;
             startChromiumLocked();
             return;
         }
@@ -543,14 +529,18 @@ public class WebViewChromiumAwInit {
 
     // Log extra information, for debugging purposes. Do the work asynchronously to avoid blocking
     // startup.
-    private static void logCommandLineAndActiveTrials() {
-        PostTask.postTask(UiThreadTaskTraits.BEST_EFFORT, () -> {
+    private void logCommandLineAndActiveTrials() {
+        PostTask.postTask(TaskTraits.BEST_EFFORT, () -> {
             // TODO(ntfschr): CommandLine can change at any time. For simplicity, only log it
             // once during startup.
             AwContentsStatics.logCommandLineForDebugging();
             // Field trials can be activated at any time. We'll continue logging them as they're
             // activated.
             FieldTrialList.logActiveTrials();
+            // SafeMode was already determined earlier during the startup sequence, this just
+            // fetches the cached boolean state. If SafeMode was enabled, we already logged detailed
+            // information about the SafeMode config.
+            Log.i(TAG, "SafeMode enabled: " + mFactory.isSafeModeEnabled());
         });
     }
 

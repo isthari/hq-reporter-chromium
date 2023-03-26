@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 
 #include "chrome/browser/ash/system_extensions/system_extension.h"
 #include "chrome/browser/ash/system_extensions/system_extensions_status_or.h"
+
+namespace ash {
 
 enum class SystemExtensionsInstallStatus {
   // This is used for the default constructor of `StatusOrSystemExtension`.
@@ -31,5 +33,7 @@ using InstallStatusOrSystemExtension =
 
 using InstallStatusOrSystemExtensionId =
     SystemExtensionsStatusOr<SystemExtensionsInstallStatus, SystemExtensionId>;
+
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_SYSTEM_EXTENSIONS_SYSTEM_EXTENSIONS_INSTALL_STATUS_H_

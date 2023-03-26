@@ -1,5 +1,6 @@
 <head>
   <title>This tests the new EditContext APIs regarding DOM mutation</title>
+  <meta charset="utf8">
   <script src="../../resources/testharness.js"></script>
   <script src="../../resources/testharnessreport.js"></script>
 </head>
@@ -55,7 +56,7 @@
   if (onMacPlatform) {
     formatCommands = [{'modifier': 'metaKey', 'key': 'b', 'command': 'formatBold'},
                       {'modifier': 'metaKey', 'key': 'i', 'command': 'formatItalic'},
-                      {'modifier': 'ctrlKey', 'key': 'u', 'command': 'formatUnderline'}];
+                      {'modifier': 'metaKey', 'key': 'u', 'command': 'formatUnderline'}];
   } else {
     formatCommands = [{'modifier': 'ctrlKey', 'key': 'b', 'command': 'formatBold'},
                       {'modifier': 'ctrlKey', 'key': 'i', 'command': 'formatItalic'},

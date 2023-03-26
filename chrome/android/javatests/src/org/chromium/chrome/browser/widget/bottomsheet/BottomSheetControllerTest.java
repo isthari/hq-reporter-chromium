@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@ import static org.junit.Assert.assertTrue;
 import android.support.test.InstrumentationRegistry;
 import android.view.View;
 
+import androidx.test.espresso.Espresso;
 import androidx.test.filters.MediumTest;
 import androidx.test.filters.SmallTest;
 
@@ -25,10 +26,11 @@ import org.junit.runner.RunWith;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.layouts.LayoutTestUtils;
 import org.chromium.chrome.browser.layouts.LayoutType;
@@ -42,6 +44,8 @@ import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
 import org.chromium.chrome.test.util.ChromeTabUtils;
+import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
+import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetContent;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController.SheetState;
@@ -50,6 +54,7 @@ import org.chromium.components.browser_ui.bottomsheet.BottomSheetObserver;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetTestSupport;
 import org.chromium.components.browser_ui.bottomsheet.EmptyBottomSheetObserver;
 import org.chromium.components.browser_ui.bottomsheet.TestBottomSheetContent;
+import org.chromium.components.browser_ui.widget.gesture.BackPressHandler;
 import org.chromium.components.browser_ui.widget.scrim.ScrimCoordinator;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -179,6 +184,7 @@ public class BottomSheetControllerTest {
         expandSheet();
         assertEquals("The bottom sheet should be expanded.", SheetState.HALF,
                 mSheetController.getSheetState());
+        assertEquals("Back press event should be consumed", Boolean.TRUE, getBackPressState());
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             mTestSupport.handleBackPress();
             mTestSupport.endAllAnimations();
@@ -195,6 +201,7 @@ public class BottomSheetControllerTest {
         expandSheet();
         assertEquals("The bottom sheet should be expanded.", SheetState.HALF,
                 mSheetController.getSheetState());
+        assertEquals("Back press event should be consumed", Boolean.TRUE, getBackPressState());
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             mTestSupport.handleBackPress();
             mTestSupport.endAllAnimations();
@@ -292,7 +299,7 @@ public class BottomSheetControllerTest {
     }
 
     @Test
-    @FlakyTest(message = "https://crbug.com/837809")
+    @DisabledTest(message = "https://crbug.com/837809")
     @MediumTest
     @Feature({"BottomSheetController"})
     public void testSwitchTabsMultipleTimes() throws TimeoutException {
@@ -498,6 +505,7 @@ public class BottomSheetControllerTest {
 
     @Test
     @MediumTest
+    @DisableFeatures({ChromeFeatureList.BACK_GESTURE_REFACTOR})
     public void testHandleBackpress() {
         requestContentInSheet(mBackInterceptingContent, true);
 
@@ -509,10 +517,44 @@ public class BottomSheetControllerTest {
                     mTestSupport.handleBackPress());
             mTestSupport.endAllAnimations();
         });
+
+        assertEquals("The sheet should be in the peeking state.", SheetState.PEEK,
+                mSheetController.getSheetState());
+    }
+
+    /**
+     * "Refactored" suffix means compared with non-suffix version, this test is executed with
+     * BACK_GESTURE_REFACTORED enabled. This feature involves a new way of handling back press.
+     * The test flow is basically same with non-suffix version, but suffixed version includes more
+     * statements to verify the values of refactor-related variables.
+     */
+    @Test
+    @MediumTest
+    @EnableFeatures({ChromeFeatureList.BACK_GESTURE_REFACTOR})
+    public void testHandleBackpress_Refactored() {
+        requestContentInSheet(mBackInterceptingContent, true);
+        mActivity.getBackPressManagerForTesting().resetLastCalledHandlerForTesting();
+
+        // Fake a back button press on the controller.
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            assertEquals("The sheet should be in the peeking state.", SheetState.PEEK,
+                    mSheetController.getSheetState());
+            assertTrue("Bottom sheet controller should be ready for handling back press.",
+                    getBackPressState());
+        });
+        Espresso.pressBack();
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            assertFalse(
+                    "Bottom sheet controller should have handled back press.", getBackPressState());
+            assertEquals(BackPressHandler.Type.BOTTOM_SHEET,
+                    mActivity.getBackPressManagerForTesting().getLastCalledHandlerForTesting());
+            mTestSupport.endAllAnimations();
+        });
     }
 
     @Test
     @MediumTest
+    @DisableFeatures({ChromeFeatureList.BACK_GESTURE_REFACTOR})
     public void testHandleBackpress_sheetOpen() {
         requestContentInSheet(mBackInterceptingContent, true);
         expandSheet();
@@ -532,8 +574,40 @@ public class BottomSheetControllerTest {
 
     @Test
     @MediumTest
+    @EnableFeatures({ChromeFeatureList.BACK_GESTURE_REFACTOR})
+    public void testHandleBackpress_sheetOpen_Refactored() {
+        requestContentInSheet(mBackInterceptingContent, true);
+        mActivity.getBackPressManagerForTesting().resetLastCalledHandlerForTesting();
+        expandSheet();
+
+        // Fake a back button press on the controller.
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            assertEquals("The sheet should be in the half state.", SheetState.HALF,
+                    mSheetController.getSheetState());
+            assertTrue("Bottom sheet controller should be ready for handling back press.",
+                    getBackPressState());
+        });
+
+        Espresso.pressBack();
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            assertTrue("The sheet should still be ready for back press if content handled it",
+                    getBackPressState());
+            assertEquals(BackPressHandler.Type.BOTTOM_SHEET,
+                    mActivity.getBackPressManagerForTesting().getLastCalledHandlerForTesting());
+            mTestSupport.endAllAnimations();
+        });
+
+        assertEquals("The sheet should be at the half state if the content handled the back event.",
+                SheetState.HALF, mSheetController.getSheetState());
+    }
+
+    @Test
+    @MediumTest
+    @DisableFeatures({ChromeFeatureList.BACK_GESTURE_REFACTOR})
     public void testHandleBackpress_noIntercept() {
-        mBackInterceptingContent.setHandleBackPress(false);
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> mBackInterceptingContent.setHandleBackPress(false));
         requestContentInSheet(mBackInterceptingContent, true);
 
         // Fake a back button press on the controller.
@@ -547,8 +621,28 @@ public class BottomSheetControllerTest {
 
     @Test
     @MediumTest
+    @EnableFeatures({ChromeFeatureList.BACK_GESTURE_REFACTOR})
+    public void testHandleBackpress_noIntercept_Refactored() {
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> mBackInterceptingContent.setHandleBackPress(false));
+        requestContentInSheet(mBackInterceptingContent, true);
+        mActivity.getBackPressManagerForTesting().resetLastCalledHandlerForTesting();
+
+        // Fake a back button press on the controller.
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            assertEquals("The sheet should be in the peeking state.", SheetState.PEEK,
+                    mSheetController.getSheetState());
+            assertFalse("Bottom sheet controller should not be ready for handling back press.",
+                    getBackPressState());
+        });
+    }
+
+    @Test
+    @MediumTest
+    @DisableFeatures({ChromeFeatureList.BACK_GESTURE_REFACTOR})
     public void testHandleBackpress_noIntercept_sheetOpen() {
-        mBackInterceptingContent.setHandleBackPress(false);
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> mBackInterceptingContent.setHandleBackPress(false));
         requestContentInSheet(mBackInterceptingContent, true);
         expandSheet();
 
@@ -565,6 +659,48 @@ public class BottomSheetControllerTest {
 
         assertEquals("The sheet should be peeking if the content didn't handle the back event.",
                 SheetState.PEEK, mSheetController.getSheetState());
+    }
+
+    @Test
+    @MediumTest
+    @EnableFeatures({ChromeFeatureList.BACK_GESTURE_REFACTOR})
+    public void testHandleBackpress_noIntercept_sheetOpen_Refactored() {
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> mBackInterceptingContent.setHandleBackPress(false));
+        mActivity.getBackPressManagerForTesting().resetLastCalledHandlerForTesting();
+        requestContentInSheet(mBackInterceptingContent, true);
+        expandSheet();
+        // Fake a back button press on the controller.
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            assertEquals("The sheet should be in the half state.", SheetState.HALF,
+                    mSheetController.getSheetState());
+            assertFalse("The back event should not be handled by the content.",
+                    mBackInterceptingContent.getBackPressStateChangedSupplier().get());
+            assertTrue("Bottom sheet controller should be ready for handling back press.",
+                    getBackPressState());
+            mSheetController.getBottomSheetBackPressHandler().handleBackPress();
+            mTestSupport.endAllAnimations();
+        });
+
+        assertEquals("The sheet should be peeking if the content didn't handle the back event.",
+                SheetState.PEEK, mSheetController.getSheetState());
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"BottomSheetController"})
+    public void testHandleBackPress_withCustomScrimLifecycle() {
+        mPeekableContent.setHasCustomScrimLifecycle(true);
+        requestContentInSheet(mPeekableContent, true);
+        TestThreadUtils.runOnUiThreadBlocking(() -> { mPeekableContent.setHandleBackPress(true); });
+        expandSheet();
+        assertEquals("The bottom sheet should be expanded.", SheetState.HALF,
+                mSheetController.getSheetState());
+        assertEquals("Back press event should be consumed", Boolean.TRUE, getBackPressState());
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mTestSupport.handleBackPress();
+            mTestSupport.endAllAnimations();
+        });
     }
 
     @Test
@@ -594,6 +730,33 @@ public class BottomSheetControllerTest {
                 () -> mTestSupport.unsuppressSheet(mSuppressionToken));
 
         assertEquals("The high priority content should be shown.", mHighPriorityContent,
+                mSheetController.getCurrentSheetContent());
+    }
+
+    @Test
+    @MediumTest
+    public void testOpenTwiceWhileInQueue() {
+        requestContentInSheet(mHighPriorityContent, true);
+        expandSheet();
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            // While high priority content is visible, request new content to be shown twice.
+            mSheetController.requestShowContent(mLowPriorityContent, false);
+            mSheetController.requestShowContent(mLowPriorityContent, false);
+
+            // Now hide high priority content, this should cause low priority content to be shown.
+            mSheetController.hideContent(mHighPriorityContent, false);
+        });
+        BottomSheetTestSupport.waitForState(mSheetController, SheetState.PEEK);
+        assertEquals("The low priority content should be shown.", mLowPriorityContent,
+                mSheetController.getCurrentSheetContent());
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mSheetController.hideContent(mLowPriorityContent, false);
+            mTestSupport.endAllAnimations();
+        });
+        assertEquals("The bottom sheet should be hidden.", SheetState.HIDDEN,
+                mSheetController.getSheetState());
+        assertEquals("The bottom sheet is showing incorrect content.", null,
                 mSheetController.getCurrentSheetContent());
     }
 
@@ -646,19 +809,12 @@ public class BottomSheetControllerTest {
     /**
      * Set the tab switcher state and wait for that state to be settled.
      * @param shown Whether the tab switcher should be shown.
-     * @throws TimeoutException
      */
-    private void setTabSwitcherState(boolean shown) throws TimeoutException {
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            if (shown) {
-                mActivity.getLayoutManager().showOverview(false);
-            } else {
-                mActivity.getLayoutManager().hideOverview(false);
-            }
-        });
-
-        LayoutTestUtils.waitForLayout(mActivity.getLayoutManager(),
-                shown ? LayoutType.TAB_SWITCHER : LayoutType.BROWSING);
+    private void setTabSwitcherState(boolean shown) {
+        @LayoutType
+        int targetLayout = shown ? LayoutType.TAB_SWITCHER : LayoutType.BROWSING;
+        LayoutTestUtils.startShowingAndWaitForLayout(
+                mActivity.getLayoutManager(), targetLayout, false);
         TestThreadUtils.runOnUiThreadBlocking(mTestSupport::endAllAnimations);
     }
 
@@ -692,5 +848,14 @@ public class BottomSheetControllerTest {
         ChromeTabUtils.fullyLoadUrlInNewTab(
                 InstrumentationRegistry.getInstrumentation(), mActivity, "about:blank", false);
         TestThreadUtils.runOnUiThreadBlocking(mTestSupport::endAllAnimations);
+    }
+
+    /**
+     * Whether back press will be consumed by bottom sheet.
+     */
+    private Boolean getBackPressState() {
+        return mSheetController.getBottomSheetBackPressHandler()
+                .getHandleBackPressChangedSupplier()
+                .get();
     }
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
@@ -20,7 +20,6 @@
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/dm_auth.h"
 #include "components/policy/policy_export.h"
-#include "components/policy/proto/device_management_backend.pb.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -77,6 +76,7 @@ class POLICY_EXPORT DeviceManagementService {
   static constexpr int kPendingApproval = 412;
   static constexpr int kRequestTooLarge = 413;
   static constexpr int kConsumerAccountWithPackagedLicense = 417;
+  static constexpr int kInvalidPackagedDeviceForKiosk = 418;
   static constexpr int kTooManyRequests = 429;
   static constexpr int kInternalServerError = 500;
   static constexpr int kServiceUnavailable = 503;
@@ -277,6 +277,8 @@ class POLICY_EXPORT DeviceManagementService {
                                    int net_error,
                                    int response_code,
                                    const std::string& response_body) = 0;
+
+    virtual absl::optional<base::TimeDelta> GetTimeoutDuration() = 0;
   };
 
   explicit DeviceManagementService(
@@ -367,6 +369,7 @@ class POLICY_EXPORT JobConfigurationBase
   DeviceManagementService::Job::RetryMethod ShouldRetry(
       int response_code,
       const std::string& response_body) override;
+  absl::optional<base::TimeDelta> GetTimeoutDuration() override;
 
  protected:
   JobConfigurationBase(JobType type,
@@ -383,6 +386,9 @@ class POLICY_EXPORT JobConfigurationBase
 
   // Derived classes should return the base URL for the request.
   virtual GURL GetURL(int last_error) const = 0;
+
+  // Timeout for job request
+  absl::optional<base::TimeDelta> timeout_;
 
  private:
   JobType type_;

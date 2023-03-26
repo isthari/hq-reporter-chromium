@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,18 @@
 
 namespace base {
 
-TEST(XmlUnitTestResultPrinterTest, LinkInXmlFile) {
+class XmlUnitTestResultPrinterTest : public ::testing::Test {
+ public:
+  void SetUp() override {
+    if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+            switches::kTestLauncherOutput)) {
+      GTEST_SKIP() << "XmlUnitTestResultPrinterTest is not initialized "
+                   << "for single process tests.";
+    }
+  }
+};
+
+TEST_F(XmlUnitTestResultPrinterTest, LinkInXmlFile) {
   XmlUnitTestResultPrinter::Get()->AddLink("unique_link", "http://google.com");
   std::string file_path =
       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
@@ -31,7 +42,7 @@ TEST(XmlUnitTestResultPrinterTest, LinkInXmlFile) {
       << expected_content << " not found in " << content;
 }
 
-TEST(XmlUnitTestResultPrinterTest, EscapedLinkInXmlFile) {
+TEST_F(XmlUnitTestResultPrinterTest, EscapedLinkInXmlFile) {
   XmlUnitTestResultPrinter::Get()->AddLink(
       "unique_link", "http://google.com/path?id=\"'<>&\"");
   std::string file_path =
@@ -45,6 +56,23 @@ TEST(XmlUnitTestResultPrinterTest, EscapedLinkInXmlFile) {
        "classname=\"XmlUnitTestResultPrinterTest\" "
        "link_name=\"unique_link\">",
        "http://google.com/path?id=&quot;&apos;&lt;&gt;&amp;&quot;", "</link>"});
+  EXPECT_TRUE(content.find(expected_content) != std::string::npos)
+      << expected_content << " not found in " << content;
+}
+
+TEST_F(XmlUnitTestResultPrinterTest, TagInXmlFile) {
+  XmlUnitTestResultPrinter::Get()->AddTag("tag_name", "tag_value");
+  std::string file_path =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          switches::kTestLauncherOutput);
+  std::string content;
+  ASSERT_TRUE(
+      base::ReadFileToString(FilePath::FromUTF8Unsafe(file_path), &content));
+  std::string expected_content =
+      base::StrCat({"<tag name=\"TagInXmlFile\" "
+                    "classname=\"XmlUnitTestResultPrinterTest\" "
+                    "tag_name=\"tag_name\">",
+                    "tag_value", "</tag>"});
   EXPECT_TRUE(content.find(expected_content) != std::string::npos)
       << expected_content << " not found in " << content;
 }

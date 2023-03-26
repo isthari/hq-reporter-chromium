@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -143,13 +143,12 @@ GLImageTestDelegateBase::GetPreferedGLImplementation() const {
   return absl::nullopt;
 }
 
-bool GLImageTestDelegateBase::SkipTest() const {
+bool GLImageTestDelegateBase::SkipTest(GLDisplay*) const {
   return false;
 }
 
 // These suites are instantiated in binaries that use //ui/gl:test_support.
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(GLImageTest);
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(GLImageOddSizeTest);
-GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(GLImageCopyTest);
 
 }  // namespace gl

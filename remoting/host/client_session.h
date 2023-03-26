@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,13 @@
 #define REMOTING_HOST_CLIENT_SESSION_H_
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner_helpers.h"
@@ -42,8 +44,10 @@
 #include "remoting/protocol/input_filter.h"
 #include "remoting/protocol/input_stub.h"
 #include "remoting/protocol/mouse_input_filter.h"
+#include "remoting/protocol/observing_input_filter.h"
 #include "remoting/protocol/pairing_registry.h"
 #include "remoting/protocol/video_stream.h"
+#include "third_party/webrtc/modules/desktop_capture/desktop_capture_metadata.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_capture_types.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_geometry.h"
 #include "third_party/webrtc/modules/desktop_capture/mouse_cursor.h"
@@ -111,14 +115,13 @@ class ClientSession : public protocol::HostStub,
 
   // |event_handler| and |desktop_environment_factory| must outlive |this|.
   // All |HostExtension|s in |extensions| must outlive |this|.
-  ClientSession(
-      EventHandler* event_handler,
-      std::unique_ptr<protocol::ConnectionToClient> connection,
-      DesktopEnvironmentFactory* desktop_environment_factory,
-      const DesktopEnvironmentOptions& desktop_environment_options,
-      const base::TimeDelta& max_duration,
-      scoped_refptr<protocol::PairingRegistry> pairing_registry,
-      const std::vector<HostExtension*>& extensions);
+  ClientSession(EventHandler* event_handler,
+                std::unique_ptr<protocol::ConnectionToClient> connection,
+                DesktopEnvironmentFactory* desktop_environment_factory,
+                const DesktopEnvironmentOptions& desktop_environment_options,
+                const base::TimeDelta& max_duration,
+                scoped_refptr<protocol::PairingRegistry> pairing_registry,
+                const std::vector<HostExtension*>& extensions);
 
   ClientSession(const ClientSession&) = delete;
   ClientSession& operator=(const ClientSession&) = delete;
@@ -141,6 +144,7 @@ class ClientSession : public protocol::HostStub,
       const protocol::SelectDesktopDisplayRequest& select_display) override;
   void ControlPeerConnection(
       const protocol::PeerConnectionParameters& parameters) override;
+  void SetVideoLayout(const protocol::VideoLayout& video_layout) override;
 
   // protocol::ConnectionToClient::EventHandler interface.
   void OnConnectionAuthenticating() override;
@@ -247,6 +251,19 @@ class ClientSession : public protocol::HostStub,
       const std::string& channel_name,
       std::unique_ptr<protocol::MessagePipe> pipe);
 
+  void CreatePerMonitorVideoStreams();
+
+  // True if |index| corresponds with an existing display (or the combined
+  // display).
+  bool IsValidDisplayIndex(webrtc::ScreenId index) const;
+
+  // Boosts the framerate using |capture_interval| for |boost_duration| based on
+  // the type of input |event| received.
+  void BoostFramerateOnInput(base::TimeDelta capture_interval,
+                             base::TimeDelta boost_duration,
+                             bool& mouse_button_down,
+                             protocol::ObservingInputFilter::Event event);
+
   raw_ptr<EventHandler> event_handler_;
 
   // Used to create a DesktopEnvironment instance for this session.
@@ -269,6 +286,9 @@ class ClientSession : public protocol::HostStub,
 
   // Filter used to clamp mouse events to the current display dimensions.
   protocol::MouseInputFilter mouse_clamping_filter_;
+
+  // Filter used to notify listeners when remote input events are received.
+  protocol::ObservingInputFilter observing_input_filter_;
 
   // Filter used to detect transitions into and out of client-side pointer lock,
   // and to monitor local input to determine whether or not to include the mouse
@@ -301,7 +321,8 @@ class ClientSession : public protocol::HostStub,
   base::OneShotTimer max_duration_timer_;
 
   // Objects responsible for sending video, audio.
-  std::unique_ptr<protocol::VideoStream> video_stream_;
+  std::map<webrtc::ScreenId, std::unique_ptr<protocol::VideoStream>>
+      video_streams_;
   std::unique_ptr<protocol::AudioStream> audio_stream_;
 
   // The set of all capabilities supported by the client.
@@ -360,10 +381,8 @@ class ClientSession : public protocol::HostStub,
   // Set to true after all data channels have been connected.
   bool channels_connected_ = false;
 
-  // Used to store video channel pause & lossless parameters.
+  // Used to store video channel pause parameter.
   bool pause_video_ = false;
-  bool lossless_video_encode_ = false;
-  bool lossless_video_color_ = false;
 
   // VideoLayout is sent only after the control channel is connected. Until
   // then it's stored in |pending_video_layout_message_|.
@@ -385,9 +404,6 @@ class ClientSession : public protocol::HostStub,
   // Objects to monitor and send updates for mouse shape and keyboard layout.
   std::unique_ptr<MouseShapePump> mouse_shape_pump_;
   std::unique_ptr<KeyboardLayoutMonitor> keyboard_layout_monitor_;
-
-  base::WeakPtr<DesktopAndCursorConditionalComposer>
-      desktop_and_cursor_composer_;
 
   base::WeakPtr<RemoteWebAuthnMessageHandler> remote_webauthn_message_handler_;
   base::WeakPtr<RemoteOpenUrlMessageHandler> remote_open_url_message_handler_;

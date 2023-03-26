@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,8 +26,8 @@ DTKeyTrustLevel ConvertTrustLevel(BPKUR::KeyTrustLevel trust_level) {
   switch (trust_level) {
     case BPKUR::KEY_TRUST_LEVEL_UNSPECIFIED:
       return DTKeyTrustLevel::kUnspecified;
-    case BPKUR::CHROME_BROWSER_TPM_KEY:
-      return DTKeyTrustLevel::kTpm;
+    case BPKUR::CHROME_BROWSER_HW_KEY:
+      return DTKeyTrustLevel::kHw;
     case BPKUR::CHROME_BROWSER_OS_KEY:
       return DTKeyTrustLevel::kOs;
   }
@@ -53,6 +53,14 @@ DTKeyRotationResult ResultFromStatus(KeyRotationCommand::Status status) {
       return DTKeyRotationResult::kFailed;
     case KeyRotationCommand::Status::TIMED_OUT:
       return DTKeyRotationResult::kTimedOut;
+    case KeyRotationCommand::Status::FAILED_KEY_CONFLICT:
+      return DTKeyRotationResult::kFailedKeyConflict;
+    case KeyRotationCommand::Status::FAILED_OS_RESTRICTION:
+      return DTKeyRotationResult::kFailedOSRestriction;
+    case KeyRotationCommand::Status::FAILED_INVALID_PERMISSIONS:
+      return DTKeyRotationResult::kFailedInvalidPermissions;
+    case KeyRotationCommand::Status::FAILED_INVALID_INSTALLATION:
+      return DTKeyRotationResult::kFailedInvalidInstallation;
   }
 }
 
@@ -74,6 +82,12 @@ void LogKeyRotationResult(bool had_nonce, KeyRotationCommand::Status status) {
   base::UmaHistogramEnumeration(
       had_nonce ? kKeyRotationResultHistogram : kKeyCreationResultHistogram,
       ResultFromStatus(status));
+}
+
+void LogSynchronizationError(DTSynchronizationError error) {
+  static constexpr char kSynchronizationErrorHistogram[] =
+      "Enterprise.DeviceTrust.SyncSigningKey.ClientError";
+  base::UmaHistogramEnumeration(kSynchronizationErrorHistogram, error);
 }
 
 }  // namespace enterprise_connectors

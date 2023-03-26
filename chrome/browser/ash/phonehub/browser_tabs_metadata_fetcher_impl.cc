@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/phonehub/browser_tabs_metadata_fetcher_impl.h"
 
 #include "base/barrier_closure.h"
+#include "base/time/time.h"
 #include "components/favicon/core/history_ui_favicon_request_handler.h"
 #include "components/favicon_base/favicon_types.h"
 #include "components/sync_sessions/synced_session.h"

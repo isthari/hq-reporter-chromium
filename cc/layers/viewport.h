@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -118,7 +118,7 @@ class CC_EXPORT Viewport {
   // Sends the delta to the browser controls, returns the amount applied.
   gfx::Vector2dF ScrollBrowserControls(const gfx::Vector2dF& delta);
 
-  gfx::PointF MaxTotalScrollOffset() const;
+  float MaxUserReachableTotalScrollOffsetY() const;
 
   ScrollNode* InnerScrollNode() const;
   ScrollNode* OuterScrollNode() const;

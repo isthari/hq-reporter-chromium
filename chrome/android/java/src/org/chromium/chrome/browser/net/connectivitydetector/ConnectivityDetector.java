@@ -1,15 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.net.connectivitydetector;
 
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
-import android.os.Build;
 import android.os.Handler;
 import android.os.SystemClock;
 
@@ -141,17 +139,13 @@ public class ConnectivityDetector implements NetworkChangeNotifier.ConnectionTyp
      * Implementation that talks with the Android connectivity manager service.
      */
     public class DelegateImpl implements Delegate {
-        @TargetApi(Build.VERSION_CODES.M)
         @Override
         public @ConnectionState int inferConnectionStateFromSystem() {
             // NET_CAPABILITY_VALIDATED and NET_CAPABILITY_CAPTIVE_PORTAL are only available on
             // Marshmallow and later versions.
-            ConnectivityManager connectivityManager = null;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                connectivityManager =
-                        (ConnectivityManager) ContextUtils.getApplicationContext().getSystemService(
-                                Context.CONNECTIVITY_SERVICE);
-            }
+            ConnectivityManager connectivityManager =
+                    (ConnectivityManager) ContextUtils.getApplicationContext().getSystemService(
+                            Context.CONNECTIVITY_SERVICE);
 
             if (connectivityManager == null) return ConnectionState.NONE;
 
@@ -396,7 +390,7 @@ public class ConnectivityDetector implements NetworkChangeNotifier.ConnectionTyp
             protected Integer doInBackground() {
                 HttpURLConnection urlConnection = null;
                 try {
-                    RecordHistogram.recordCountHistogram(
+                    RecordHistogram.recordCount1MHistogram(
                             "ConnectivityDetector.SentHttpProbe." + mClientName, 1);
                     Log.i(TAG, "Sending HTTP Probe now to url:" + urlString);
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -74,9 +74,10 @@ class FullscreenInteractiveBrowserTest : public InProcessBrowserTest {
   }
 };
 
-// https://crbug.com/1087875: Flaky on Linux and Mac.
+// https://crbug.com/1087875: Flaky on Linux, Mac and Windows.
 // TODO(crbug.com/1278361): Flaky on Chrome OS.
-#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \
+    BUILDFLAG(IS_WIN)
 #define MAYBE_NotifyFullscreenAcquired DISABLED_NotifyFullscreenAcquired
 #else
 #define MAYBE_NotifyFullscreenAcquired NotifyFullscreenAcquired
@@ -89,7 +90,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenInteractiveBrowserTest,
   GURL url = embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(b{allowfullscreen})");
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
-  content::RenderFrameHost* main_frame = web_contents->GetMainFrame();
+  content::RenderFrameHost* main_frame = web_contents->GetPrimaryMainFrame();
   content::RenderFrameHost* child_frame = ChildFrameAt(main_frame, 0);
 
   // Make the top page fullscreen.
@@ -129,7 +130,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenInteractiveBrowserTest,
   GURL url = embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(a{allowfullscreen})");
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
-  content::RenderFrameHost* main_frame = web_contents->GetMainFrame();
+  content::RenderFrameHost* main_frame = web_contents->GetPrimaryMainFrame();
   content::RenderFrameHost* child_frame = ChildFrameAt(main_frame, 0);
 
   // Make the top page fullscreen.

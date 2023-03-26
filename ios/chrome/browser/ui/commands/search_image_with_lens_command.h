@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,23 @@
 
 #import <UIKit/UIkit.h>
 
+enum class LensEntrypoint;
+
 // An instance of this class contains the data needed to do a Lens search.
 @interface SearchImageWithLensCommand : NSObject
 
-// Initializes to search for |image|.
-- (instancetype)initWithImage:(UIImage*)image NS_DESIGNATED_INITIALIZER;
+// Initializes to search for `image`.
+- (instancetype)initWithImage:(UIImage*)image
+                   entryPoint:(LensEntrypoint)entryPoint
+    NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)init NS_UNAVAILABLE;
 
+// The image to search with Lens.
 @property(nonatomic, strong, readonly) UIImage* image;
+
+// The entry point to pass to Lens.
+@property(nonatomic, assign) LensEntrypoint entryPoint;
 
 @end
 

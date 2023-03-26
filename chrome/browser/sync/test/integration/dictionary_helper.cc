@@ -1,10 +1,9 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/sync/test/integration/dictionary_helper.h"
 
-#include <algorithm>
 #include <set>
 
 #include "base/format_macros.h"
@@ -48,14 +47,15 @@ SpellcheckCustomDictionary* GetDictionary(int index) {
 }
 
 void LoadDictionary(SpellcheckCustomDictionary* dictionary) {
-  if (dictionary->IsLoaded())
+  if (dictionary->IsLoaded()) {
     return;
+  }
   base::RunLoop run_loop;
   DictionaryLoadObserver observer(
       content::GetDeferredQuitTaskForRunLoop(&run_loop));
   dictionary->AddObserver(&observer);
   dictionary->Load();
-  content::RunThisRunLoop(&run_loop);
+  run_loop.Run();
   dictionary->RemoveObserver(&observer);
   ASSERT_TRUE(dictionary->IsLoaded());
 }

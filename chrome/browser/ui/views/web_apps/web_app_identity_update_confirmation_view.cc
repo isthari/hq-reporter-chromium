@@ -1,18 +1,22 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/web_apps/web_app_identity_update_confirmation_view.h"
 
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/web_apps/web_app_uninstall_dialog_view.h"
 #include "chrome/browser/web_applications/web_app_callback_app_identity.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
+#include "chrome/browser/web_applications/web_app_ui_manager.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "components/vector_icons/vector_icons.h"
 #include "components/webapps/browser/installable/installable_metrics.h"
+#include "components/webapps/browser/uninstall_result_code.h"
 #include "content/public/browser/web_contents.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -34,12 +38,6 @@ const int kArrowIconSizeDp = 32;
 // The width of the columns left and right of the arrow (containing the name
 // of the app (before and after).
 const int kNameColumnWidth = 170;
-
-// Keeps track of whether the testing code has set an action to be performed
-// when the dialog is set to show (and what that action should be: true = accept
-// the dialog, false = do not accept).
-absl::optional<bool> g_auto_resolve_app_identity_update_dialog_for_testing;
-
 }  // namespace
 
 WebAppIdentityUpdateConfirmationView::~WebAppIdentityUpdateConfirmationView() =
@@ -88,8 +86,11 @@ WebAppIdentityUpdateConfirmationView::WebAppIdentityUpdateConfirmationView(
                   DISTANCE_CONTROL_LIST_VERTICAL)))
       .AddChildren(
           views::Builder<views::Label>()
+              .SetID(VIEW_ID_APP_IDENTITY_UPDATE_HEADER)
               .SetTextContext(views::style::CONTEXT_LABEL)
-              .SetText(l10n_util::GetStringUTF16(IDS_WEBAPP_UPDATE_EXPLANATION))
+              .SetText(icon_change ? l10n_util::GetStringUTF16(
+                                         IDS_WEBAPP_UPDATE_EXPLANATION)
+                                   : std::u16string())
               .SetHorizontalAlignment(gfx::ALIGN_LEFT)
               .SetMultiLine(true),
           views::Builder<views::TableLayoutView>()
@@ -151,10 +152,7 @@ WebAppIdentityUpdateConfirmationView::WebAppIdentityUpdateConfirmationView(
 
   auto* provider = web_app::WebAppProvider::GetForWebApps(profile_);
   DCHECK(provider);
-  registrar_observation_.Observe(&provider->registrar());
-
-  chrome::RecordDialogCreation(
-      chrome::DialogIdentifier::APP_IDENTITY_UPDATE_CONFIRMATION);
+  install_manager_observation_.Observe(&provider->install_manager());
 }
 
 void WebAppIdentityUpdateConfirmationView::OnWebAppWillBeUninstalled(
@@ -163,8 +161,8 @@ void WebAppIdentityUpdateConfirmationView::OnWebAppWillBeUninstalled(
     GetWidget()->Close();
 }
 
-void WebAppIdentityUpdateConfirmationView::OnAppRegistrarDestroyed() {
-  registrar_observation_.Reset();
+void WebAppIdentityUpdateConfirmationView::OnWebAppInstallManagerDestroyed() {
+  install_manager_observation_.Reset();
   GetWidget()->Close();
 }
 
@@ -177,9 +175,11 @@ void WebAppIdentityUpdateConfirmationView::OnDialogAccepted() {
 }
 
 void WebAppIdentityUpdateConfirmationView::OnWebAppUninstallDialogClosed(
-    bool uninstalled) {
-  if (uninstalled)
+    webapps::UninstallResultCode code) {
+  if (code == webapps::UninstallResultCode::kSuccess ||
+      code == webapps::UninstallResultCode::kNoAppToUninstall) {
     GetWidget()->Close();  // An uninstall is already in progress.
+  }
 }
 
 bool WebAppIdentityUpdateConfirmationView::Cancel() {
@@ -208,8 +208,8 @@ void ShowWebAppIdentityUpdateDialog(
     const SkBitmap& new_icon,
     content::WebContents* web_contents,
     web_app::AppIdentityDialogCallback callback) {
-  if (g_auto_resolve_app_identity_update_dialog_for_testing &&
-      *g_auto_resolve_app_identity_update_dialog_for_testing == false) {
+  if (web_app::GetIdentityUpdateDialogActionForTesting() ==  // IN-TEST
+      web_app::AppIdentityUpdate::kSkipped) {
     std::move(callback).Run(web_app::AppIdentityUpdate::kSkipped);
     return;
   }
@@ -224,14 +224,10 @@ void ShowWebAppIdentityUpdateDialog(
           dialog, web_contents->GetTopLevelNativeWindow());
   dialog_widget->Show();
 
-  if (g_auto_resolve_app_identity_update_dialog_for_testing &&
-      *g_auto_resolve_app_identity_update_dialog_for_testing) {
+  if (web_app::GetIdentityUpdateDialogActionForTesting() ==  // IN-TEST
+      web_app::AppIdentityUpdate::kAllowed) {
     dialog->AcceptDialog();
   }
-}
-
-void SetAutoAcceptAppIdentityUpdateForTesting(bool auto_accept) {
-  g_auto_resolve_app_identity_update_dialog_for_testing = auto_accept;
 }
 
 }  // namespace chrome

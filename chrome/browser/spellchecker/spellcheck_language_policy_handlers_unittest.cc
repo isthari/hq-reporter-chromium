@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "base/containers/contains.h"
 #include "base/strings/string_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/values.h"
@@ -91,8 +92,7 @@ class SpellcheckLanguagePolicyHandlersTest
 
       for (const auto& language : languages_list->GetList()) {
         EXPECT_TRUE(language.is_string());
-        EXPECT_TRUE(std::find(expected.begin(), expected.end(),
-                              language.GetString()) != expected.end());
+        EXPECT_TRUE(base::Contains(expected, language.GetString()));
       }
     } else {
       EXPECT_FALSE(is_spellcheck_enabled_pref_set);
@@ -106,9 +106,6 @@ TEST_P(SpellcheckLanguagePolicyHandlersTest, ApplyPolicySettings) {
 #if BUILDFLAG(IS_WIN) && BUILDFLAG(USE_BROWSER_SPELLCHECKER)
   base::test::ScopedFeatureList feature_list;
   if (GetParam().windows_spellchecker_enabled) {
-    if (!spellcheck::WindowsVersionSupportsSpellchecker())
-      return;
-
     // Force Windows native spellchecking to be enabled.
     feature_list.InitAndEnableFeature(spellcheck::kWinUseBrowserSpellChecker);
   } else {

@@ -1,16 +1,45 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_CHROMEOS_EXTENSIONS_FILE_SYSTEM_PROVIDER_FILE_SYSTEM_PROVIDER_API_H_
 #define CHROME_BROWSER_CHROMEOS_EXTENSIONS_FILE_SYSTEM_PROVIDER_FILE_SYSTEM_PROVIDER_API_H_
 
-#include "chrome/browser/chromeos/extensions/file_system_provider/provider_function.h"
+#include "base/files/file.h"
+#include "base/values.h"
+#include "build/chromeos_buildflags.h"
+#include "chromeos/crosapi/mojom/file_system_provider.mojom.h"
 #include "extensions/browser/extension_function.h"
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chromeos/lacros/lacros_service.h"
+#include "mojo/public/cpp/bindings/remote.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 namespace extensions {
 
-class FileSystemProviderMountFunction : public ExtensionFunction {
+class FileSystemProviderBase : public ExtensionFunction {
+ protected:
+  ~FileSystemProviderBase() override {}
+  std::string GetProviderId() const;
+  void RespondWithError(const std::string& error);
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // Whether ash supports the FileSystemProviderService interface, and in
+  // particular its `MountFinished` method..
+  bool MountFinishedInterfaceAvailable();
+
+  // Whether ash supports the FileSystemProviderService interface, and in
+  // particular its `OperationFinished` method..
+  bool OperationFinishedInterfaceAvailable();
+
+  // A helper function that returns a reference to a functional remote. Should
+  // only be called if the needed interface method is supported.
+  mojo::Remote<crosapi::mojom::FileSystemProviderService>& GetRemote();
+#endif
+};
+
+class FileSystemProviderMountFunction : public FileSystemProviderBase {
  public:
   DECLARE_EXTENSION_FUNCTION("fileSystemProvider.mount",
                              FILESYSTEMPROVIDER_MOUNT)
@@ -20,7 +49,7 @@ class FileSystemProviderMountFunction : public ExtensionFunction {
   ResponseAction Run() override;
 };
 
-class FileSystemProviderUnmountFunction : public ExtensionFunction {
+class FileSystemProviderUnmountFunction : public FileSystemProviderBase {
  public:
   DECLARE_EXTENSION_FUNCTION("fileSystemProvider.unmount",
                              FILESYSTEMPROVIDER_UNMOUNT)
@@ -30,26 +59,28 @@ class FileSystemProviderUnmountFunction : public ExtensionFunction {
   ResponseAction Run() override;
 };
 
-class FileSystemProviderGetAllFunction : public ExtensionFunction {
+class FileSystemProviderGetAllFunction : public FileSystemProviderBase {
  public:
   DECLARE_EXTENSION_FUNCTION("fileSystemProvider.getAll",
                              FILESYSTEMPROVIDER_GETALL)
 
  protected:
+  void RespondWithInfos(std::vector<crosapi::mojom::FileSystemInfoPtr>);
   ~FileSystemProviderGetAllFunction() override {}
   ResponseAction Run() override;
 };
 
-class FileSystemProviderGetFunction : public ExtensionFunction {
+class FileSystemProviderGetFunction : public FileSystemProviderBase {
  public:
   DECLARE_EXTENSION_FUNCTION("fileSystemProvider.get", FILESYSTEMPROVIDER_GET)
 
  protected:
+  void RespondWithInfo(crosapi::mojom::FileSystemInfoPtr info);
   ~FileSystemProviderGetFunction() override {}
   ResponseAction Run() override;
 };
 
-class FileSystemProviderNotifyFunction : public ExtensionFunction {
+class FileSystemProviderNotifyFunction : public FileSystemProviderBase {
  public:
   DECLARE_EXTENSION_FUNCTION("fileSystemProvider.notify",
                              FILESYSTEMPROVIDER_NOTIFY)
@@ -63,8 +94,60 @@ class FileSystemProviderNotifyFunction : public ExtensionFunction {
   void OnNotifyCompleted(base::File::Error result);
 };
 
+class FileSystemProviderInternal : public FileSystemProviderBase {
+ protected:
+  ~FileSystemProviderInternal() override {}
+
+  // Returns the operation metadata from FileSystemProviderInternal methods via
+  // output parameters.
+  template <typename Params>
+  void GetOperationMetadata(const Params& params,
+                            crosapi::mojom::FileSystemIdPtr* file_system_id,
+                            int64_t* request_id) {
+    *file_system_id = crosapi::mojom::FileSystemId::New();
+    (*file_system_id)->provider = GetProviderId();
+    (*file_system_id)->id = params->file_system_id;
+    *request_id = params->request_id;
+  }
+
+  // Forwards the result of the mount request to the file system provider
+  // service. Returns false if the forwarding failed.
+  bool ForwardMountResult(int64_t request_id, base::Value::List& args);
+
+  // Forwards the result of the operation to the file system provider service.
+  // Returns false if the forwarding failed.
+  template <typename Params>
+  bool ForwardOperationResult(const Params& params,
+                              base::Value::List& args,
+                              crosapi::mojom::FSPOperationResponse response) {
+    crosapi::mojom::FileSystemIdPtr file_system_id;
+    int64_t request_id;
+    GetOperationMetadata(params, &file_system_id, &request_id);
+    return ForwardOperationResultImpl(response, std::move(file_system_id),
+                                      request_id, std::move(args));
+  }
+
+ private:
+  bool ForwardOperationResultImpl(
+      crosapi::mojom::FSPOperationResponse response,
+      crosapi::mojom::FileSystemIdPtr file_system_id,
+      int request_id,
+      base::Value::List args);
+};
+
+class FileSystemProviderInternalRespondToMountRequestFunction
+    : public FileSystemProviderInternal {
+ public:
+  DECLARE_EXTENSION_FUNCTION("fileSystemProviderInternal.respondToMountRequest",
+                             FILESYSTEMPROVIDERINTERNAL_RESPONDTOMOUNTREQUEST)
+
+ protected:
+  ~FileSystemProviderInternalRespondToMountRequestFunction() override = default;
+  ResponseAction Run() override;
+};
+
 class FileSystemProviderInternalUnmountRequestedSuccessFunction
-    : public FileSystemProviderInternalFunction {
+    : public FileSystemProviderInternal {
  public:
   DECLARE_EXTENSION_FUNCTION(
       "fileSystemProviderInternal.unmountRequestedSuccess",
@@ -76,7 +159,7 @@ class FileSystemProviderInternalUnmountRequestedSuccessFunction
 };
 
 class FileSystemProviderInternalGetMetadataRequestedSuccessFunction
-    : public FileSystemProviderInternalFunction {
+    : public FileSystemProviderInternal {
  public:
   DECLARE_EXTENSION_FUNCTION(
       "fileSystemProviderInternal.getMetadataRequestedSuccess",
@@ -88,7 +171,7 @@ class FileSystemProviderInternalGetMetadataRequestedSuccessFunction
 };
 
 class FileSystemProviderInternalGetActionsRequestedSuccessFunction
-    : public FileSystemProviderInternalFunction {
+    : public FileSystemProviderInternal {
  public:
   DECLARE_EXTENSION_FUNCTION(
       "fileSystemProviderInternal.getActionsRequestedSuccess",
@@ -100,7 +183,7 @@ class FileSystemProviderInternalGetActionsRequestedSuccessFunction
 };
 
 class FileSystemProviderInternalReadDirectoryRequestedSuccessFunction
-    : public FileSystemProviderInternalFunction {
+    : public FileSystemProviderInternal {
  public:
   DECLARE_EXTENSION_FUNCTION(
       "fileSystemProviderInternal.readDirectoryRequestedSuccess",
@@ -112,7 +195,7 @@ class FileSystemProviderInternalReadDirectoryRequestedSuccessFunction
 };
 
 class FileSystemProviderInternalReadFileRequestedSuccessFunction
-    : public FileSystemProviderInternalFunction {
+    : public FileSystemProviderInternal {
  public:
   DECLARE_EXTENSION_FUNCTION(
       "fileSystemProviderInternal.readFileRequestedSuccess",
@@ -124,7 +207,7 @@ class FileSystemProviderInternalReadFileRequestedSuccessFunction
 };
 
 class FileSystemProviderInternalOperationRequestedSuccessFunction
-    : public FileSystemProviderInternalFunction {
+    : public FileSystemProviderInternal {
  public:
   DECLARE_EXTENSION_FUNCTION(
       "fileSystemProviderInternal.operationRequestedSuccess",
@@ -136,7 +219,7 @@ class FileSystemProviderInternalOperationRequestedSuccessFunction
 };
 
 class FileSystemProviderInternalOperationRequestedErrorFunction
-    : public FileSystemProviderInternalFunction {
+    : public FileSystemProviderInternal {
  public:
   DECLARE_EXTENSION_FUNCTION(
       "fileSystemProviderInternal.operationRequestedError",

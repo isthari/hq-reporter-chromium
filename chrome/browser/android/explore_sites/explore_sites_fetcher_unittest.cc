@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,14 @@
 
 #include <map>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_callback.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_mock_time_task_runner.h"
+#include "base/time/time.h"
 #include "chrome/browser/android/explore_sites/catalog.pb.h"
 #include "chrome/browser/android/explore_sites/explore_sites_feature.h"
 #include "chrome/browser/android/explore_sites/explore_sites_types.h"
@@ -33,7 +34,6 @@ using testing::SaveArg;
 
 namespace {
 const char kAcceptLanguages[] = "en-US,en;q=0.5";
-const char kExperimentData[] = "FooBar";
 const char kTestData[] = "Any data.";
 }  // namespace
 
@@ -354,21 +354,6 @@ TEST_F(ExploreSitesFetcherTest, TestHeaders) {
   // The finch header should not be set since the experiment is not on.
   success = headers.HasHeader("X-Goog-Chrome-Experiment-Tag");
   EXPECT_FALSE(success);
-}
-
-TEST_F(ExploreSitesFetcherTest, TestFinchHeader) {
-  // Set up the Finch experiment.
-  SetUpExperimentOption("exp", kExperimentData);
-
-  std::string data;
-  EXPECT_EQ(ExploreSitesRequestStatus::kSuccess,
-            RunFetcherWithData(kTestData, &data));
-
-  net::HttpRequestHeaders headers = last_resource_request.headers;
-  std::string header_text;
-
-  headers.GetHeader("X-Goog-Chrome-Experiment-Tag", &header_text);
-  EXPECT_EQ(std::string(kExperimentData), header_text);
 }
 
 TEST_F(ExploreSitesFetcherTest, OneBackoffForImmediateFetch) {

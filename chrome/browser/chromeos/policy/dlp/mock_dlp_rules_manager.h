@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,8 +21,10 @@ class MockDlpRulesManager : public DlpRulesManager {
   MOCK_CONST_METHOD2(IsRestricted,
                      Level(const GURL& source, Restriction restriction));
 
-  MOCK_CONST_METHOD2(IsRestrictedByAnyRule,
-                     Level(const GURL& source, Restriction restriction));
+  MOCK_CONST_METHOD3(IsRestrictedByAnyRule,
+                     Level(const GURL& source,
+                           Restriction restriction,
+                           std::string* out_source_pattern));
 
   MOCK_CONST_METHOD5(IsRestrictedDestination,
                      Level(const GURL& source,
@@ -37,9 +39,23 @@ class MockDlpRulesManager : public DlpRulesManager {
                            Restriction restriction,
                            std::string* out_source_pattern));
 
+  MOCK_METHOD(AggregatedDestinations,
+              GetAggregatedDestinations,
+              (const GURL& source, Restriction restriction),
+              (override, const));
+
+  MOCK_METHOD(AggregatedComponents,
+              GetAggregatedComponents,
+              (const GURL& source, Restriction restriction),
+              (override, const));
+
   MOCK_CONST_METHOD0(IsReportingEnabled, bool());
 
   MOCK_CONST_METHOD0(GetReportingManager, DlpReportingManager*());
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  MOCK_CONST_METHOD0(GetDlpFilesController, DlpFilesController*());
+#endif
 
   MOCK_CONST_METHOD3(GetSourceUrlPattern,
                      std::string(const GURL& source_url,
@@ -47,6 +63,8 @@ class MockDlpRulesManager : public DlpRulesManager {
                                  Level level));
 
   MOCK_CONST_METHOD0(GetClipboardCheckSizeLimitInBytes, size_t());
+
+  MOCK_METHOD(bool, IsFilesPolicyEnabled, (), (override, const));
 
   MOCK_CONST_METHOD2(
       GetDisallowedFileTransfers,

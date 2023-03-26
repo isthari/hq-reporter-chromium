@@ -3,23 +3,28 @@ Tests Application Panel WebSQL support.
 Initial state:
 Application
   Manifest (selected)
+    Identity
+    Presentation
+    Protocol Handlers
+    Icons
   Service Workers
   Storage
 Storage
   Local Storage
-    http://127.0.0.1:8000
+    http://127.0.0.1:8000/
   Session Storage
-    http://127.0.0.1:8000
+    http://127.0.0.1:8000/
   IndexedDB
   Web SQL
   Cookies
     http://127.0.0.1:8000
   Trust Tokens
   Interest Groups
-Cache
+  Shared Storage
+    http://127.0.0.1:8000
   Cache Storage
-  Back/forward cache
 Background Services
+  Back/forward cache
   Background Fetch
   Background Sync
   Notifications
@@ -36,13 +41,17 @@ Found: true
 Database created state:
 Application
   Manifest
+    Identity
+    Presentation
+    Protocol Handlers
+    Icons
   Service Workers
   Storage
 Storage
   Local Storage
-    http://127.0.0.1:8000
+    http://127.0.0.1:8000/
   Session Storage
-    http://127.0.0.1:8000
+    http://127.0.0.1:8000/
   IndexedDB
   Web SQL
     inspector-test-db (selected)
@@ -50,10 +59,11 @@ Storage
     http://127.0.0.1:8000
   Trust Tokens
   Interest Groups
-Cache
+  Shared Storage
+    http://127.0.0.1:8000
   Cache Storage
-  Back/forward cache
 Background Services
+  Back/forward cache
   Background Fetch
   Background Sync
   Notifications
@@ -69,13 +79,17 @@ Frames
 Table added:
 Application
   Manifest
+    Identity
+    Presentation
+    Protocol Handlers
+    Icons
   Service Workers
   Storage
 Storage
   Local Storage
-    http://127.0.0.1:8000
+    http://127.0.0.1:8000/
   Session Storage
-    http://127.0.0.1:8000
+    http://127.0.0.1:8000/
   IndexedDB
   Web SQL
     inspector-test-db (selected)
@@ -84,10 +98,11 @@ Storage
     http://127.0.0.1:8000
   Trust Tokens
   Interest Groups
-Cache
+  Shared Storage
+    http://127.0.0.1:8000
   Cache Storage
-  Back/forward cache
 Background Services
+  Back/forward cache
   Background Fetch
   Background Sync
   Notifications

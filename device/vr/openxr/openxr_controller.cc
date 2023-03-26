@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,13 @@
 #include <stdint.h>
 
 #include "base/check.h"
-#include "base/cxx17_backports.h"
 #include "base/notreached.h"
 #include "device/gamepad/public/cpp/gamepads.h"
 #include "device/vr/openxr/openxr_util.h"
 #include "device/vr/util/xr_standard_gamepad_builder.h"
+#include "ui/gfx/geometry/decomposed_transform.h"
 #include "ui/gfx/geometry/quaternion.h"
-#include "ui/gfx/geometry/transform_util.h"
+#include "ui/gfx/geometry/transform.h"
 
 namespace device {
 
@@ -186,11 +186,11 @@ XrResult OpenXrController::Initialize(
       XR_TYPE_ACTION_SET_CREATE_INFO};
 
   errno_t error = strcpy_s(action_set_create_info.actionSetName,
-                           base::size(action_set_create_info.actionSetName),
+                           std::size(action_set_create_info.actionSetName),
                            action_set_name.c_str());
   DCHECK(!error);
   error = strcpy_s(action_set_create_info.localizedActionSetName,
-                   base::size(action_set_create_info.localizedActionSetName),
+                   std::size(action_set_create_info.localizedActionSetName),
                    action_set_name.c_str());
   DCHECK(!error);
 
@@ -560,7 +560,7 @@ absl::optional<gfx::Transform> OpenXrController::GetTransformFromSpaces(
     *emulated_position = false;
   }
 
-  return gfx::ComposeTransform(decomp);
+  return gfx::Transform::Compose(decomp);
 }
 
 XrResult OpenXrController::CreateActionsForButton(
@@ -622,10 +622,10 @@ XrResult OpenXrController::CreateAction(XrActionType type,
 
   errno_t error =
       strcpy_s(action_create_info.actionName,
-               base::size(action_create_info.actionName), action_name.data());
+               std::size(action_create_info.actionName), action_name.data());
   DCHECK(error == 0);
   error = strcpy_s(action_create_info.localizedActionName,
-                   base::size(action_create_info.localizedActionName),
+                   std::size(action_create_info.localizedActionName),
                    action_name.data());
   DCHECK(error == 0);
   return xrCreateAction(action_set_, &action_create_info, action);

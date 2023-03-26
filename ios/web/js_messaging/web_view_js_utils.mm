@@ -1,17 +1,17 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/web/js_messaging/web_view_js_utils.h"
 
-#include <CoreFoundation/CoreFoundation.h>
+#import <CoreFoundation/CoreFoundation.h>
 #import <WebKit/WebKit.h>
 
-#include "base/logging.h"
-#include "base/mac/foundation_util.h"
-#include "base/notreached.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/values.h"
+#import "base/logging.h"
+#import "base/mac/foundation_util.h"
+#import "base/notreached.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/values.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -20,7 +20,7 @@
 namespace {
 
 // Converts result of WKWebView script evaluation to base::Value, parsing
-// |wk_result| up to a depth of |max_depth|.
+// `wk_result` up to a depth of `max_depth`.
 std::unique_ptr<base::Value> ValueResultFromWKResult(id wk_result,
                                                      int max_depth) {
   if (!wk_result)
@@ -47,28 +47,28 @@ std::unique_ptr<base::Value> ValueResultFromWKResult(id wk_result,
     result = std::make_unique<base::Value>();
     DCHECK(result->is_none());
   } else if (result_type == CFDictionaryGetTypeID()) {
-    std::unique_ptr<base::DictionaryValue> dictionary =
-        std::make_unique<base::DictionaryValue>();
+    base::Value::Dict dictionary;
     for (id key in wk_result) {
       NSString* obj_c_string = base::mac::ObjCCast<NSString>(key);
       const std::string path = base::SysNSStringToUTF8(obj_c_string);
       std::unique_ptr<base::Value> value =
           ValueResultFromWKResult(wk_result[obj_c_string], max_depth - 1);
       if (value) {
-        dictionary->Set(path, std::move(value));
+        dictionary.SetByDottedPath(
+            path, base::Value::FromUniquePtrValue(std::move(value)));
       }
     }
-    result = std::move(dictionary);
+    result = std::make_unique<base::Value>(std::move(dictionary));
   } else if (result_type == CFArrayGetTypeID()) {
-    std::unique_ptr<base::ListValue> list = std::make_unique<base::ListValue>();
+    base::Value::List list;
     for (id list_item in wk_result) {
       std::unique_ptr<base::Value> value =
           ValueResultFromWKResult(list_item, max_depth - 1);
       if (value) {
-        list->Append(std::move(value));
+        list.Append(base::Value::FromUniquePtrValue(std::move(value)));
       }
     }
-    result = std::move(list);
+    result = std::make_unique<base::Value>(std::move(list));
   } else {
     NOTREACHED();  // Convert other types as needed.
   }
@@ -113,42 +113,28 @@ void ExecuteJavaScript(WKWebView* web_view,
   [web_view evaluateJavaScript:script completionHandler:completion_handler];
 }
 
-#if defined(__IPHONE_14_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_14_0
 void ExecuteJavaScript(WKWebView* web_view,
                        WKContentWorld* content_world,
                        WKFrameInfo* frame_info,
                        NSString* script,
-                       void (^completion_handler)(id, NSError*))
-    API_AVAILABLE(ios(14.0)) {
-  if (!content_world && !frame_info) {
-    // The -[WKWebView evaluateJavaScript:inFrame:inContentWorld:
-    // completionHandler:] API requires a content_world. However, if no specific
-    // world or frame is specified, this implies executing the JavaScript in the
-    // main frame of the page content world and can be executed.
-    ExecuteJavaScript(web_view, script, completion_handler);
-    return;
-  }
+                       void (^completion_handler)(id, NSError*)) {
+  DCHECK(content_world);
+  // `frame_info` is required to ensure `script` is executed on the correct
+  // webpage. This works because a `frame_info` instance is associated with a
+  // particular loaded webpage/navigation and the script execution will only
+  // happen in the web view if the current frame_info matches.
+  DCHECK(frame_info);
 
   DCHECK([script length] > 0);
-  DCHECK(content_world);
   if (!web_view && completion_handler) {
     NotifyCompletionHandlerNullWebView(completion_handler);
     return;
   }
-
-  // If |content_world| is not the page world, a |frame_info| must be specified.
-  // |frame_info| is required to ensure |script| is executed on the correct
-  // webpage.
-  // NOTE: The page content world uses windowID to ensure that |script| is being
-  // executed on the intended page. Both windowID and |frame_info| are
-  // associated with the loaded page and are destroyed on navigation.
-  DCHECK(content_world == WKContentWorld.pageWorld || frame_info);
 
   [web_view evaluateJavaScript:script
                        inFrame:frame_info
                 inContentWorld:content_world
              completionHandler:completion_handler];
 }
-#endif  // defined(__IPHONE14_0)
 
 }  // namespace web

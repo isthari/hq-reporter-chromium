@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@ import android.app.Activity;
 import android.content.ComponentName;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
-import android.os.Build;
 import android.view.View;
 
 import androidx.fragment.app.FragmentActivity;
@@ -120,7 +119,8 @@ public class NoteCreationCoordinatorImpl implements NoteCreationCoordinator, Top
         int selectedNoteIndex = mDialog.getSelectedItemIndex();
         NoteCreationMetrics.recordNoteTemplateSelected(getTimeElapsedSinceCreationStart(),
                 mDialog.getNbTemplateSwitches(),
-                mListModel.get(selectedNoteIndex).model.get(NoteProperties.TEMPLATE).id);
+                mListModel.get(selectedNoteIndex).model.get(NoteProperties.TEMPLATE).id,
+                selectedNoteIndex);
 
         View noteView = mDialog.getNoteViewAt(selectedNoteIndex);
 
@@ -204,9 +204,7 @@ public class NoteCreationCoordinatorImpl implements NoteCreationCoordinator, Top
      * Retrieves the user's preferred locale from the app's configurations.
      */
     private Locale getPreferredLocale() {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
-                ? mActivity.getResources().getConfiguration().getLocales().get(0)
-                : mActivity.getResources().getConfiguration().locale;
+        return mActivity.getResources().getConfiguration().getLocales().get(0);
     }
 
     private String addQuotes(String text) {

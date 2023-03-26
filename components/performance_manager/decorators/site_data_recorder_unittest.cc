@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include "base/location.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
 #include "base/test/bind.h"
 #include "base/threading/sequence_bound.h"
 #include "components/performance_manager/graph/page_node_impl.h"
@@ -66,7 +65,7 @@ class LenientMockDataWriter : public SiteDataWriter {
     on_destroy_indicator_ = on_destroy_indicator;
   }
 
-  const url::Origin& Origin() const { return origin_; }
+  const url::Origin& Origin() const override { return origin_; }
 
  private:
   raw_ptr<bool> on_destroy_indicator_ = nullptr;

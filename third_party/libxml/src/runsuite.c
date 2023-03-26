@@ -9,13 +9,8 @@
 #include "libxml.h"
 #include <stdio.h>
 
-#if !defined(_WIN32) || defined(__CYGWIN__)
-#include <unistd.h>
-#endif
 #include <string.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 
 #include <libxml/parser.h>
 #include <libxml/parserInternals.h>
@@ -48,7 +43,7 @@ static int checkTestFile(const char *filename) {
     if (stat(filename, &buf) == -1)
         return(0);
 
-#if defined(_WIN32) && !defined(__CYGWIN__)
+#if defined(_WIN32)
     if (!(buf.st_mode & _S_IFREG))
         return(0);
 #else
@@ -325,6 +320,7 @@ xsdIncorrectTestCase(xmlNodePtr cur) {
         fprintf(stderr, "out of memory !\n");
 	fatalError();
     }
+    xmlBufferSetAllocationScheme(buf, XML_BUFFER_ALLOC_DOUBLEIT);
     xmlNodeDump(buf, test->doc, test, 0, 0);
     pctxt = xmlRelaxNGNewMemParserCtxt((const char *)buf->content, buf->use);
     xmlRelaxNGSetParserErrors(pctxt, testErrorHandler, testErrorHandler,
@@ -363,6 +359,7 @@ installResources(xmlNodePtr tst, const xmlChar *base) {
         fprintf(stderr, "out of memory !\n");
 	fatalError();
     }
+    xmlBufferSetAllocationScheme(buf, XML_BUFFER_ALLOC_DOUBLEIT);
     xmlNodeDump(buf, tst->doc, tst, 0, 0);
 
     while (tst != NULL) {
@@ -458,6 +455,7 @@ xsdTestCase(xmlNodePtr tst) {
         fprintf(stderr, "out of memory !\n");
 	fatalError();
     }
+    xmlBufferSetAllocationScheme(buf, XML_BUFFER_ALLOC_DOUBLEIT);
     xmlNodeDump(buf, test->doc, test, 0, 0);
     pctxt = xmlRelaxNGNewMemParserCtxt((const char *)buf->content, buf->use);
     xmlRelaxNGSetParserErrors(pctxt, testErrorHandler, testErrorHandler,
@@ -1051,13 +1049,18 @@ main(int argc ATTRIBUTE_UNUSED, char **argv ATTRIBUTE_UNUSED) {
     old_tests = nb_tests;
     old_leaks = nb_leaks;
     xsdTest();
-    if ((nb_errors == old_errors) && (nb_leaks == old_leaks))
-	printf("Ran %d tests, no errors\n", nb_tests - old_tests);
-    else
-	printf("Ran %d tests, %d errors, %d leaks\n",
-	       nb_tests - old_tests,
-	       nb_errors - old_errors,
-	       nb_leaks - old_leaks);
+    printf("Ran %d tests, %d errors, %d leaks\n",
+           nb_tests - old_tests,
+           nb_errors - old_errors,
+           nb_leaks - old_leaks);
+    if (nb_errors - old_errors == 10) {
+        printf("10 errors were expected\n");
+        nb_errors = old_errors;
+    } else {
+        printf("10 errors were expected, got %d errors\n",
+               nb_errors - old_errors);
+        nb_errors = old_errors + 1;
+    }
     old_errors = nb_errors;
     old_tests = nb_tests;
     old_leaks = nb_leaks;

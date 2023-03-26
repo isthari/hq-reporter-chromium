@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,24 +6,23 @@
 import 'chrome://resources/cr_elements/cr_drawer/cr_drawer.js';
 
 import {CrDrawerElement} from 'chrome://resources/cr_elements/cr_drawer/cr_drawer.js';
-
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-
+import {getTrustedHtml} from 'chrome://webui-test/trusted_html.js';
 import {assertEquals, assertFalse, assertNotEquals, assertThrows, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {eventToPromise} from 'chrome://webui-test/test_util.js';
 // clang-format on
 
 suite('cr-drawer', function() {
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
   });
 
   function createDrawer(align: string): CrDrawerElement {
-    document.body.innerHTML = `
+    document.body.innerHTML = getTrustedHtml(`
       <cr-drawer id="drawer" align="${align}">
         <div slot="body">Test content</div>
       </cr-drawer>
-    `;
+    `);
     flush();
     return document.body.querySelector('cr-drawer')!;
   }

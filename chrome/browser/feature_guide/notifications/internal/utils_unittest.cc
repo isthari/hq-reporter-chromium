@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,14 @@ TEST(FeatureNotificationUtilsTest, FeatureToCustomData) {
   std::map<std::string, std::string> custom_data;
   FeatureToCustomData(FeatureType::kVoiceSearch, &custom_data);
   EXPECT_EQ(FeatureType::kVoiceSearch, FeatureFromCustomData(custom_data));
+}
+
+TEST(FeatureNotificationUtilsTest, LowEngagedUsersCheck) {
+  EXPECT_EQ(true, ShouldTargetLowEngagedUsers(FeatureType::kIncognitoTab));
+  EXPECT_EQ(true, ShouldTargetLowEngagedUsers(FeatureType::kVoiceSearch));
+  EXPECT_EQ(true, ShouldTargetLowEngagedUsers(FeatureType::kNTPSuggestionCard));
+  EXPECT_EQ(false, ShouldTargetLowEngagedUsers(FeatureType::kDefaultBrowser));
+  EXPECT_EQ(false, ShouldTargetLowEngagedUsers(FeatureType::kSignIn));
 }
 
 }  // namespace feature_guide

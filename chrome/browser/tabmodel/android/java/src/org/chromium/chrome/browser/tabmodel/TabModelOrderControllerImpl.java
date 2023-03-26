@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,7 +27,9 @@ class TabModelOrderControllerImpl implements TabModelOrderController {
 
     @Override
     public int determineInsertionIndex(@TabLaunchType int type, int position, Tab newTab) {
-        if (type == TabLaunchType.FROM_BROWSER_ACTIONS) return -1;
+        if (type == TabLaunchType.FROM_BROWSER_ACTIONS || type == TabLaunchType.FROM_RECENT_TABS) {
+            return -1;
+        }
         if (linkClicked(type)) {
             position = determineInsertionIndex(type, newTab);
         }
@@ -37,6 +39,13 @@ class TabModelOrderControllerImpl implements TabModelOrderController {
             // too confusing by having multiple groups active at the same time.
             forgetAllOpeners();
         }
+
+        // TODO(crbug/1383067): This is a bandaid fix to ensure tab groups are contiguous such that
+        // no tabs within a group are separate from one another and that no tab that is not part of
+        // a group can be added in-between members of a group. This doesn't address the issue of
+        // moving tabs to be between members of a group, however when a group is moved it is moved
+        // tab-by-tab so it is difficult to enforce anything there without significant refactoring.
+        position = getValidPositionConsideringRelatedTabs(newTab, position);
 
         return position;
     }
@@ -105,6 +114,12 @@ class TabModelOrderControllerImpl implements TabModelOrderController {
         return NO_TAB;
     }
 
+    private int getValidPositionConsideringRelatedTabs(Tab newTab, int position) {
+        TabModelFilter filter = mTabModelSelector.getTabModelFilterProvider().getTabModelFilter(
+                newTab.isIncognito());
+        return filter.getValidPosition(newTab, position);
+    }
+
     /**
      * Clear the opener attribute on all tabs in the model.
      */
@@ -123,7 +138,8 @@ class TabModelOrderControllerImpl implements TabModelOrderController {
     static boolean linkClicked(@TabLaunchType int type) {
         return type == TabLaunchType.FROM_LINK || type == TabLaunchType.FROM_LONGPRESS_FOREGROUND
                 || type == TabLaunchType.FROM_LONGPRESS_BACKGROUND
-                || type == TabLaunchType.FROM_LONGPRESS_BACKGROUND_IN_GROUP;
+                || type == TabLaunchType.FROM_LONGPRESS_BACKGROUND_IN_GROUP
+                || type == TabLaunchType.FROM_LONGPRESS_INCOGNITO;
     }
 
     @Override
@@ -134,6 +150,7 @@ class TabModelOrderControllerImpl implements TabModelOrderController {
         }
         return type != TabLaunchType.FROM_LONGPRESS_BACKGROUND
                 && type != TabLaunchType.FROM_LONGPRESS_BACKGROUND_IN_GROUP
+                && type != TabLaunchType.FROM_RECENT_TABS
                 || (!mTabModelSelector.isIncognitoSelected() && isNewTabIncognito);
     }
 

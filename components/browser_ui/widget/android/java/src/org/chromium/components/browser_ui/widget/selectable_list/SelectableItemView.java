@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,12 +18,13 @@ import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.widget.AppCompatImageButton;
+import androidx.core.widget.ImageViewCompat;
 import androidx.vectordrawable.graphics.drawable.AnimatedVectorDrawableCompat;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.components.browser_ui.styles.SemanticColorUtils;
 import org.chromium.components.browser_ui.widget.R;
 import org.chromium.components.browser_ui.widget.TintedDrawable;
+import org.chromium.ui.base.ViewUtils;
 
 /**
  * Default implementation of SelectableItemViewBase. Contains a start icon, title, description, and
@@ -35,6 +36,8 @@ public abstract class SelectableItemView<E> extends SelectableItemViewBase<E> {
     protected final int mDefaultLevel;
     protected final int mSelectedLevel;
     protected final AnimatedVectorDrawableCompat mCheckDrawable;
+
+    protected int mStartIconViewSize;
 
     /**
      * The LinearLayout containing the rest of the views for the selectable item.
@@ -117,8 +120,9 @@ public abstract class SelectableItemView<E> extends SelectableItemViewBase<E> {
         return mVisualRefreshEnabled;
     }
 
-    protected void enableVisualRefresh() {
+    protected void enableVisualRefresh(int startIconViewSize) {
         mVisualRefreshEnabled = true;
+        mStartIconViewSize = startIconViewSize;
 
         mStartIconBackgroundRes = R.drawable.list_item_icon_modern_bg_rect;
         mLayoutRes = R.layout.modern_list_item_view_v2;
@@ -147,12 +151,16 @@ public abstract class SelectableItemView<E> extends SelectableItemViewBase<E> {
 
         if (mStartIconView != null) {
             mStartIconView.setBackgroundResource(mStartIconBackgroundRes);
-            ApiCompatibilityUtils.setImageTintList(mStartIconView, getDefaultStartIconTint());
+            ImageViewCompat.setImageTintList(mStartIconView, getDefaultStartIconTint());
         }
 
         if (isVisualRefreshEnabled()) {
             mEndStartButtonView = findViewById(R.id.optional_button);
             mCustomContentContainer = findViewById(R.id.custom_content_container);
+            mStartIconView.getLayoutParams().width = mStartIconViewSize;
+            mStartIconView.getLayoutParams().height = mStartIconViewSize;
+            ViewUtils.requestLayout(
+                    mStartIconView, "SelectableItemView.inflateAndPopulateViewVariables");
         }
     }
 
@@ -199,12 +207,12 @@ public abstract class SelectableItemView<E> extends SelectableItemViewBase<E> {
         if (isChecked()) {
             mStartIconView.getBackground().setLevel(mSelectedLevel);
             mStartIconView.setImageDrawable(mCheckDrawable);
-            ApiCompatibilityUtils.setImageTintList(mStartIconView, mStartIconSelectedColorList);
+            ImageViewCompat.setImageTintList(mStartIconView, mStartIconSelectedColorList);
             if (animate) mCheckDrawable.start();
         } else {
             mStartIconView.getBackground().setLevel(mDefaultLevel);
             mStartIconView.setImageDrawable(mStartIconDrawable);
-            ApiCompatibilityUtils.setImageTintList(mStartIconView, getDefaultStartIconTint());
+            ImageViewCompat.setImageTintList(mStartIconView, getDefaultStartIconTint());
         }
     }
 

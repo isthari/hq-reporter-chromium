@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -76,7 +76,8 @@ float TestLayer::invert() const {
 
 TestHostClient::TestHostClient(ThreadInstance thread_instance)
     : host_(AnimationHost::CreateForTesting(thread_instance)),
-      mutators_need_commit_(false) {
+      mutators_need_commit_(false),
+      property_trees_(*this) {
   host_->SetMutatorHostClient(this);
 }
 
@@ -97,6 +98,7 @@ bool TestHostClient::IsOwnerThread() const {
 bool TestHostClient::InProtectedSequence() const {
   return false;
 }
+void TestHostClient::WaitForProtectedSequenceCompletion() const {}
 
 bool TestHostClient::IsElementInPropertyTrees(ElementId element_id,
                                               ElementListType list_type) const {
@@ -196,16 +198,10 @@ void TestHostClient::RegisterElementId(ElementId element_id,
                                              : layers_in_pending_tree_;
   DCHECK(layers_in_tree.find(element_id) == layers_in_tree.end());
   layers_in_tree[element_id] = TestLayer::Create();
-
-  DCHECK(host_);
-  host_->RegisterElementId(element_id, list_type);
 }
 
 void TestHostClient::UnregisterElementId(ElementId element_id,
                                          ElementListType list_type) {
-  DCHECK(host_);
-  host_->UnregisterElementId(element_id, list_type);
-
   ElementIdToTestLayer& layers_in_tree = list_type == ElementListType::ACTIVE
                                              ? layers_in_active_tree_
                                              : layers_in_pending_tree_;
@@ -515,8 +511,8 @@ void AnimationTimelinesTest::TickAnimationsTransferEvents(
 
 KeyframeEffect* AnimationTimelinesTest::GetKeyframeEffectForElementId(
     ElementId element_id) {
-  const scoped_refptr<ElementAnimations> element_animations =
-      host_->GetElementAnimationsForElementId(element_id);
+  const scoped_refptr<const ElementAnimations> element_animations =
+      host_->GetElementAnimationsForElementIdForTesting(element_id);
   return element_animations
              ? element_animations->FirstKeyframeEffectForTesting()
              : nullptr;
@@ -524,8 +520,8 @@ KeyframeEffect* AnimationTimelinesTest::GetKeyframeEffectForElementId(
 
 KeyframeEffect* AnimationTimelinesTest::GetImplKeyframeEffectForLayerId(
     ElementId element_id) {
-  const scoped_refptr<ElementAnimations> element_animations =
-      host_impl_->GetElementAnimationsForElementId(element_id);
+  const scoped_refptr<const ElementAnimations> element_animations =
+      host_impl_->GetElementAnimationsForElementIdForTesting(element_id);
   return element_animations
              ? element_animations->FirstKeyframeEffectForTesting()
              : nullptr;

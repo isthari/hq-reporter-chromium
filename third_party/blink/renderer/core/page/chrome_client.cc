@@ -161,7 +161,7 @@ void ChromeClient::MouseDidMoveOverElement(LocalFrame& frame,
     WebPrescientNetworking* web_prescient_networking =
         frame.PrescientNetworking();
     if (web_prescient_networking) {
-      web_prescient_networking->PrefetchDNS(result.AbsoluteLinkURL().Host());
+      web_prescient_networking->PrefetchDNS(result.AbsoluteLinkURL());
     }
   }
 
@@ -206,7 +206,7 @@ void ChromeClient::UpdateTooltipUnderCursor(LocalFrame& frame,
   // The ::UpdateTooltipUnderCursor overload, which is be called down the road,
   // ensures a new tooltip to be displayed with the new context.
   if (result.InnerNodeOrImageMapImage() != last_mouse_over_node_ &&
-      !last_tool_tip_text_.IsEmpty() && tool_tip == last_tool_tip_text_)
+      !last_tool_tip_text_.empty() && tool_tip == last_tool_tip_text_)
     ClearToolTip(frame);
 
   last_tool_tip_point_ = location.Point();
@@ -226,7 +226,7 @@ void ChromeClient::ElementFocusedFromKeypress(LocalFrame& frame,
   if (layout_object) {
     TextDirection tooltip_direction = layout_object->StyleRef().Direction();
     UpdateTooltipFromKeyboard(frame, tooltip_text, tooltip_direction,
-                              element->BoundsInViewport());
+                              element->BoundsInWidget());
   }
 }
 
@@ -251,8 +251,11 @@ bool ChromeClient::Print(LocalFrame* frame) {
     frame->Console().AddMessage(MakeGarbageCollected<ConsoleMessage>(
         mojom::blink::ConsoleMessageSource::kSecurity,
         mojom::blink::ConsoleMessageLevel::kError,
-        "Ignored call to 'print()'. The document is sandboxed, and the "
-        "'allow-modals' keyword is not set."));
+        frame->IsInFencedFrameTree()
+            ? "Ignored call to 'print()'. The document is in a fenced frame "
+              "tree."
+            : "Ignored call to 'print()'. The document is sandboxed, and the "
+              "'allow-modals' keyword is not set."));
     return false;
   }
 
@@ -263,14 +266,6 @@ bool ChromeClient::Print(LocalFrame* frame) {
         mojom::blink::ConsoleMessageSource::kJavaScript,
         mojom::blink::ConsoleMessageLevel::kError,
         "Ignored call to 'print()' during prerendering."));
-    return false;
-  }
-
-  if (frame->IsInFencedFrameTree()) {
-    frame->Console().AddMessage(MakeGarbageCollected<ConsoleMessage>(
-        mojom::blink::ConsoleMessageSource::kSecurity,
-        mojom::blink::ConsoleMessageLevel::kError,
-        "Ignored call to 'print()'. The document is in a fenced frame."));
     return false;
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@ package org.chromium.components.signin;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -23,7 +25,6 @@ import android.os.UserManager;
 
 import androidx.test.rule.GrantPermissionRule;
 
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -34,24 +35,26 @@ import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 import org.mockito.quality.Strictness;
 import org.robolectric.RuntimeEnvironment;
-import org.robolectric.android.util.concurrent.RoboExecutorService;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.LooperMode;
 import org.robolectric.shadows.ShadowAccountManager;
 import org.robolectric.shadows.ShadowUserManager;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.UmaRecorder;
 import org.chromium.base.metrics.UmaRecorderHolder;
-import org.chromium.base.task.PostTask;
 import org.chromium.base.task.test.CustomShadowAsyncTask;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.components.externalauth.ExternalAuthUtils;
 import org.chromium.components.signin.AccountManagerDelegate.CapabilityResponse;
 import org.chromium.components.signin.AccountManagerFacade.ChildAccountStatusListener;
+import org.chromium.components.signin.base.AccountCapabilities;
+import org.chromium.components.signin.base.CoreAccountInfo;
 import org.chromium.components.signin.test.util.AccountHolder;
 import org.chromium.components.signin.test.util.FakeAccountManagerDelegate;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Robolectric tests for {@link AccountManagerFacade}. See also {@link AccountManagerFacadeTest}.
@@ -59,6 +62,7 @@ import java.util.List;
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(shadows = {CustomShadowAsyncTask.class, ShadowUserManager.class,
                 ShadowAccountManager.class})
+@LooperMode(LooperMode.Mode.LEGACY)
 public class AccountManagerFacadeImplTest {
     private static final String TEST_TOKEN_SCOPE = "test-token-scope";
 
@@ -93,7 +97,6 @@ public class AccountManagerFacadeImplTest {
 
     @Before
     public void setUp() {
-        PostTask.setPrenativeThreadPoolExecutorForTesting(new RoboExecutorService());
         UmaRecorderHolder.setNonNativeDelegate(mUmaRecorderMock);
         when(mExternalAuthUtilsMock.canUseGooglePlayServices()).thenReturn(true);
         ExternalAuthUtils.setInstanceForTesting(mExternalAuthUtilsMock);
@@ -109,19 +112,16 @@ public class AccountManagerFacadeImplTest {
                 new AccountManagerFacadeImpl(new SystemAccountManagerDelegate());
     }
 
-    @After
-    public void tearDown() {
-        PostTask.resetPrenativeThreadPoolExecutorForTesting();
-    }
-
     @Test
     public void testAccountsChangerObservationInitialization() {
         mFacadeWithSystemDelegate.addObserver(mObserverMock);
         verify(mObserverMock, never()).onAccountsChanged();
+        verify(mObserverMock, never()).onCoreAccountInfosChanged();
 
         mContext.sendBroadcast(new Intent(AccountManager.LOGIN_ACCOUNTS_CHANGED_ACTION));
 
         verify(mObserverMock).onAccountsChanged();
+        verify(mObserverMock).onCoreAccountInfosChanged();
     }
 
     @Test
@@ -174,6 +174,56 @@ public class AccountManagerFacadeImplTest {
 
         removeTestAccount(account2);
         Assert.assertEquals(List.of(account, account3), mFacade.getAccounts().getResult());
+    }
+
+    @Test
+    public void testGetCoreAccountInfos() {
+        Account account1 = addTestAccount("test1@gmail.com");
+        Account account2 = addTestAccount("test2@gmail.com");
+
+        final List<CoreAccountInfo> coreAccountInfos = mFacade.getCoreAccountInfos().getResult();
+
+        final CoreAccountInfo coreAccountInfo1 = CoreAccountInfo.createFromEmailAndGaiaId(
+                account1.name, mFacade.getAccountGaiaId(account1.name));
+        final CoreAccountInfo coreAccountInfo2 = CoreAccountInfo.createFromEmailAndGaiaId(
+                account2.name, mFacade.getAccountGaiaId(account2.name));
+        Assert.assertEquals(List.of(coreAccountInfo1, coreAccountInfo2), coreAccountInfos);
+    }
+
+    @Test
+    public void testGetCoreAccountInfosWhenGaiaIdIsNull() {
+        final String accountName = "test@gmail.com";
+        AtomicBoolean accountRemoved = new AtomicBoolean(false);
+        doAnswer(invocation -> {
+            // Simulate removal of account during the gaia-id fetch process.
+            // This method may be called after the account is already removed. Without this check
+            // FakeAccountManagerDelegate.removeAccount() will crash because the account doesn't
+            // exist.
+            if (!accountRemoved.get()) {
+                removeTestAccount(AccountUtils.createAccountFromName(invocation.getArgument(0)));
+                accountRemoved.set(true);
+            }
+            return null;
+        })
+                .when(mDelegate)
+                .getAccountGaiaId(accountName);
+
+        addTestAccount(accountName);
+        final List<CoreAccountInfo> coreAccountInfos = mFacade.getCoreAccountInfos().getResult();
+
+        verify(mDelegate, atLeastOnce()).getAccountGaiaId(accountName);
+        Assert.assertTrue(coreAccountInfos.isEmpty());
+    }
+
+    @Test
+    public void testCoreAccountInfosAreCached() {
+        final Account account = addTestAccount("test@gmail.com");
+
+        mFacade.getCoreAccountInfos().getResult();
+        mFacade.getCoreAccountInfos().getResult();
+
+        // The second call to getCoreAccountInfos() should not re-fetch gaia id.
+        verify(mDelegate).getAccountGaiaId(account.name);
     }
 
     @Test
@@ -257,37 +307,13 @@ public class AccountManagerFacadeImplTest {
     }
 
     @Test
-    public void testCheckChildAccountForRegularChild() {
-        final Account account = setFeaturesForAccount(
-                "uca@gmail.com", AccountManagerFacadeImpl.FEATURE_IS_CHILD_ACCOUNT_KEY);
-
-        mFacadeWithSystemDelegate.checkChildAccountStatus(account, mChildAccountStatusListenerMock);
-
-        verify(mChildAccountStatusListenerMock)
-                .onStatusReady(ChildAccountStatus.REGULAR_CHILD, account);
-    }
-
-    @Test
-    public void testCheckChildAccountForUSMChild() {
+    public void testCheckChildAccount() {
         final Account account = setFeaturesForAccount(
                 "usm@gmail.com", AccountManagerFacadeImpl.FEATURE_IS_USM_ACCOUNT_KEY);
 
         mFacadeWithSystemDelegate.checkChildAccountStatus(account, mChildAccountStatusListenerMock);
 
-        verify(mChildAccountStatusListenerMock)
-                .onStatusReady(ChildAccountStatus.USM_CHILD, account);
-    }
-
-    @Test
-    public void testCheckChildAccountForRegularUSMChild() {
-        final Account account = setFeaturesForAccount("usm_uca@gmail.com",
-                AccountManagerFacadeImpl.FEATURE_IS_USM_ACCOUNT_KEY,
-                AccountManagerFacadeImpl.FEATURE_IS_CHILD_ACCOUNT_KEY);
-
-        mFacadeWithSystemDelegate.checkChildAccountStatus(account, mChildAccountStatusListenerMock);
-
-        verify(mChildAccountStatusListenerMock)
-                .onStatusReady(ChildAccountStatus.REGULAR_CHILD, account);
+        verify(mChildAccountStatusListenerMock).onStatusReady(true, account);
     }
 
     @Test
@@ -296,56 +322,7 @@ public class AccountManagerFacadeImplTest {
 
         mFacadeWithSystemDelegate.checkChildAccountStatus(account, mChildAccountStatusListenerMock);
 
-        verify(mChildAccountStatusListenerMock).onStatusReady(ChildAccountStatus.NOT_CHILD, null);
-    }
-
-    @Test
-    public void testCanOfferExtendedSyncPromosForUnknownAccount() {
-        final Account account = AccountUtils.createAccountFromName("test@gmail.com");
-
-        Assert.assertFalse(mFacade.canOfferExtendedSyncPromos(account).isPresent());
-    }
-
-    @Test
-    public void testAccountCanNotOfferExtendedSyncPromos() {
-        final AccountHolder accountHolder = AccountHolder.createFromEmail("test@gmail.com");
-        mDelegate.addAccount(accountHolder);
-
-        Assert.assertFalse(mFacade.canOfferExtendedSyncPromos(accountHolder.getAccount()).get());
-    }
-
-    @Test
-    public void testAccountCanNotOfferExtendedSyncPromosWhenExceptionCodeReturns() {
-        final AccountHolder accountHolder = AccountHolder.createFromEmail("test@gmail.com");
-        doReturn(CapabilityResponse.EXCEPTION)
-                .when(mDelegate)
-                .hasCapability(eq(accountHolder.getAccount()), any());
-        mDelegate.addAccount(accountHolder);
-
-        Assert.assertFalse(mFacade.canOfferExtendedSyncPromos(accountHolder.getAccount()).get());
-    }
-
-    @Test
-    public void testAccountCanOfferExtendedSyncPromos() {
-        final AccountHolder accountHolder1 = AccountHolder.createFromEmail("test1@gmail.com");
-        mDelegate.addAccount(accountHolder1);
-        final AccountHolder accountHolder2 = AccountHolder.createFromEmailAndFeatures(
-                "test2@gmail.com", AccountManagerFacadeImpl.CAN_OFFER_EXTENDED_CHROME_SYNC_PROMOS);
-        mDelegate.addAccount(accountHolder2);
-
-        Assert.assertFalse(mFacade.canOfferExtendedSyncPromos(accountHolder1.getAccount()).get());
-        Assert.assertTrue(mFacade.canOfferExtendedSyncPromos(accountHolder2.getAccount()).get());
-    }
-
-    @Test
-    public void testGetAccessToken() throws AuthException {
-        final Account account = AccountUtils.createAccountFromName("test@gmail.com");
-        final AccessTokenData originalToken =
-                mFacadeWithSystemDelegate.getAccessToken(account, TEST_TOKEN_SCOPE);
-
-        Assert.assertEquals("The same token should be returned.",
-                mFacadeWithSystemDelegate.getAccessToken(account, TEST_TOKEN_SCOPE).getToken(),
-                originalToken.getToken());
+        verify(mChildAccountStatusListenerMock).onStatusReady(false, null);
     }
 
     @Test
@@ -367,6 +344,57 @@ public class AccountManagerFacadeImplTest {
     @Test(expected = IllegalStateException.class)
     public void testAccountManagerFacadeProviderGetNullInstance() {
         AccountManagerFacadeProvider.getInstance();
+    }
+
+    @Test
+    public void testGetAccountCapabilitiesResponseYes() {
+        AccountManagerFacade facade = new AccountManagerFacadeImpl(mDelegate);
+        final AccountHolder accountHolder = AccountHolder.createFromEmail("test1@gmail.com");
+        mDelegate.addAccount(accountHolder);
+
+        doReturn(CapabilityResponse.YES)
+                .when(mDelegate)
+                .hasCapability(eq(accountHolder.getAccount()), any());
+
+        AccountCapabilities capabilities =
+                facade.getAccountCapabilities(accountHolder.getAccount()).getResult();
+        Assert.assertEquals(capabilities.canOfferExtendedSyncPromos(), Tribool.TRUE);
+        Assert.assertEquals(capabilities.isSubjectToParentalControls(), Tribool.TRUE);
+        Assert.assertEquals(capabilities.canRunChromePrivacySandboxTrials(), Tribool.TRUE);
+    }
+
+    @Test
+    public void testGetAccountCapabilitiesResponseNo() {
+        AccountManagerFacade facade = new AccountManagerFacadeImpl(mDelegate);
+        final AccountHolder accountHolder = AccountHolder.createFromEmail("test1@gmail.com");
+        mDelegate.addAccount(accountHolder);
+
+        doReturn(CapabilityResponse.NO)
+                .when(mDelegate)
+                .hasCapability(eq(accountHolder.getAccount()), any());
+
+        AccountCapabilities capabilities =
+                facade.getAccountCapabilities(accountHolder.getAccount()).getResult();
+        Assert.assertEquals(capabilities.canOfferExtendedSyncPromos(), Tribool.FALSE);
+        Assert.assertEquals(capabilities.isSubjectToParentalControls(), Tribool.FALSE);
+        Assert.assertEquals(capabilities.canRunChromePrivacySandboxTrials(), Tribool.FALSE);
+    }
+
+    @Test
+    public void testGetAccountCapabilitiesResponseException() {
+        AccountManagerFacade facade = new AccountManagerFacadeImpl(mDelegate);
+        final AccountHolder accountHolder = AccountHolder.createFromEmail("test1@gmail.com");
+        mDelegate.addAccount(accountHolder);
+
+        doReturn(CapabilityResponse.EXCEPTION)
+                .when(mDelegate)
+                .hasCapability(eq(accountHolder.getAccount()), any());
+
+        AccountCapabilities capabilities =
+                facade.getAccountCapabilities(accountHolder.getAccount()).getResult();
+        Assert.assertEquals(capabilities.canOfferExtendedSyncPromos(), Tribool.UNKNOWN);
+        Assert.assertEquals(capabilities.isSubjectToParentalControls(), Tribool.UNKNOWN);
+        Assert.assertEquals(capabilities.canRunChromePrivacySandboxTrials(), Tribool.UNKNOWN);
     }
 
     private Account setFeaturesForAccount(String email, String... features) {

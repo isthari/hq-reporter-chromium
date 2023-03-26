@@ -1,11 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "services/network/trust_tokens/boringssl_trust_token_redemption_cryptographer.h"
 
 #include "base/base64.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "net/http/structured_headers.h"
 #include "services/network/trust_tokens/scoped_boringssl_bytes.h"
 #include "services/network/trust_tokens/trust_token_client_data_canonicalization.h"
@@ -50,7 +50,6 @@ bool BoringsslTrustTokenRedemptionCryptographer::Initialize(
 absl::optional<std::string>
 BoringsslTrustTokenRedemptionCryptographer::BeginRedemption(
     TrustToken token,
-    base::StringPiece verification_key_to_bind,
     const url::Origin& top_level_origin) {
   if (!ctx_)
     return absl::nullopt;
@@ -61,8 +60,8 @@ BoringsslTrustTokenRedemptionCryptographer::BeginRedemption(
   base::Time redemption_timestamp = base::Time::Now();
 
   absl::optional<std::vector<uint8_t>> maybe_client_data =
-      CanonicalizeTrustTokenClientDataForRedemption(
-          redemption_timestamp, top_level_origin, verification_key_to_bind);
+      CanonicalizeTrustTokenClientDataForRedemption(redemption_timestamp,
+                                                    top_level_origin);
   if (!maybe_client_data)
     return absl::nullopt;
 
@@ -107,6 +106,8 @@ BoringsslTrustTokenRedemptionCryptographer::ConfirmRedemption(
     return absl::nullopt;
   }
 
+  if (!rr.is_valid())
+    return "";
   return std::string(reinterpret_cast<const char*>(rr.as_span().data()),
                      rr.as_span().size());
 }

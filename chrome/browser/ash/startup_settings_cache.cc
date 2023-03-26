@@ -1,8 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/startup_settings_cache.h"
+
+#include <string>
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -46,14 +48,11 @@ std::string ReadAppLocale() {
   if (!settings.has_value())
     return std::string();
 
-  base::Value* app_locale_setting = settings->FindKey(kAppLocaleKey);
-  if (!app_locale_setting)
-    return std::string();
-
+  const std::string* app_locale_setting =
+      settings->GetDict().FindString(kAppLocaleKey);
   // The locale is already an "actual locale", so this does not need to call
   // language::ConvertToActualUILocale().
-  return app_locale_setting->is_string() ? app_locale_setting->GetString()
-                                         : std::string();
+  return app_locale_setting ? *app_locale_setting : std::string();
 }
 
 void WriteAppLocale(std::string app_locale) {

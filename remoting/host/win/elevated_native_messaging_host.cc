@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/check.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/json/json_writer.h"
 #include "base/values.h"
 #include "base/win/scoped_handle.h"
@@ -72,9 +72,8 @@ ProcessLaunchResult ElevatedNativeMessagingHost::EnsureElevatedHostCreated() {
   elevated_channel_->Start(this);
 
   if (!host_process_timeout_.is_zero()) {
-    elevated_host_timer_.Start(
-        FROM_HERE, host_process_timeout_,
-        this, &ElevatedNativeMessagingHost::DisconnectHost);
+    elevated_host_timer_.Start(FROM_HERE, host_process_timeout_, this,
+                               &ElevatedNativeMessagingHost::DisconnectHost);
   }
 
   return PROCESS_LAUNCH_RESULT_SUCCESS;

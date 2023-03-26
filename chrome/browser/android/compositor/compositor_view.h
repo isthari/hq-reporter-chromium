@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -125,7 +125,7 @@ class CompositorView : public content::CompositorClient,
   void UpdateLayerTreeHost() override;
   void DidSwapFrame(int pending_frames) override;
   void DidSwapBuffers(const gfx::Size& swap_size) override;
-  ui::UIResourceProvider* GetUIResourceProvider();
+  base::WeakPtr<ui::UIResourceProvider> GetUIResourceProvider();
 
  private:
   ~CompositorView() override;

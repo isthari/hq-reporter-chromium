@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/containers/contains.h"
+#include "base/memory/ref_counted_memory.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "ui/base/accelerators/accelerator.h"
@@ -16,7 +17,7 @@
 #include "ui/base/models/menu_model.h"
 #include "ui/gfx/image/image.h"
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 #include "ui/ozone/public/ozone_platform.h"       // nogncheck
 #include "ui/ozone/public/platform_menu_utils.h"  // nogncheck
 #endif
@@ -24,7 +25,7 @@
 namespace {
 
 std::string ToDBusKeySym(ui::KeyboardCode code) {
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   if (const auto* const platorm_menu_utils =
           ui::OzonePlatform::GetInstance()->GetPlatformMenuUtils()) {
     return platorm_menu_utils->ToDBusKeySym(code);
@@ -54,7 +55,7 @@ std::vector<DbusString> GetDbusMenuShortcut(ui::Accelerator accelerator) {
 }  // namespace
 
 MenuItemProperties ComputeMenuPropertiesForMenuItem(ui::MenuModel* menu,
-                                                    int i) {
+                                                    size_t i) {
   // Properties should only be set if they differ from the default values.
   MenuItemProperties properties;
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,7 @@
     targetAdded: function(target) {
       TestRunner.addResult('Target added: ' + target.name() + '; type: ' + target.type());
       if (target.type() === SDK.Target.Type.ServiceWorker) {
-        var serviceWorkerManager = SDK.targetManager.mainTarget().model(SDK.ServiceWorkerManager);
+        var serviceWorkerManager = SDK.targetManager.mainFrameTarget().model(SDK.ServiceWorkerManager);
         // Allow agents to do rountrips.
         TestRunner.deprecatedRunAfterPendingDispatches(function() {
           for (var registration of serviceWorkerManager.registrations().values())

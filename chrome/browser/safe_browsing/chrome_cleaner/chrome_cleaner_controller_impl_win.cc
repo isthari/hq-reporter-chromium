@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,16 +11,16 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/component_updater/sw_reporter_installer_win.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
@@ -151,7 +151,8 @@ void ChromeCleanerControllerDelegate::FetchAndVerifyChromeCleaner(
   FetchChromeCleaner(
       base::BindOnce(&OnChromeCleanerFetched, std::move(fetched_callback)),
       g_browser_process->system_network_context_manager()
-          ->GetURLLoaderFactory());
+          ->GetURLLoaderFactory(),
+      g_browser_process->local_state());
 }
 
 bool ChromeCleanerControllerDelegate::IsMetricsAndCrashReportingEnabled() {
@@ -349,9 +350,12 @@ void ChromeCleanerControllerImpl::OnReporterSequenceDone(
 }
 
 void ChromeCleanerControllerImpl::OnSwReporterReady(
+    const std::string& prompt_seed,
     SwReporterInvocationSequence&& invocations) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!invocations.container().empty());
+
+  manifest_prompt_seed_ = prompt_seed;
 
   SwReporterInvocationType invocation_type =
       SwReporterInvocationType::kPeriodicRun;
@@ -503,6 +507,14 @@ bool ChromeCleanerControllerImpl::IsReportingManagedByPolicy(Profile* profile) {
                                prefs::kSwReporterReportingEnabled));
 }
 
+std::string ChromeCleanerControllerImpl::GetIncomingPromptSeed() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  // This should only be called after OnSwReporterReady, which records the
+  // prompt seed.
+  DCHECK(manifest_prompt_seed_);
+  return *manifest_prompt_seed_;
+}
+
 ChromeCleanerControllerImpl::ChromeCleanerControllerImpl()
     : real_delegate_(std::make_unique<ChromeCleanerControllerDelegate>()),
       delegate_(real_delegate_.get()) {
@@ -587,7 +599,7 @@ void ChromeCleanerControllerImpl::OnChromeCleanerFetchedAndVerified(
       base::BindOnce(&ChromeCleanerControllerImpl::OnCleanerProcessDone,
                      weak_factory_.GetWeakPtr()),
       // Our callbacks should be dispatched to the UI thread only.
-      base::ThreadTaskRunnerHandle::Get());
+      base::SingleThreadTaskRunner::GetCurrentDefault());
 
   time_scanning_started_ = base::Time::Now();
 }

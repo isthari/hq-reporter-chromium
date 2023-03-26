@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,6 @@ import static org.hamcrest.core.AllOf.allOf;
 import static org.chromium.base.test.util.Restriction.RESTRICTION_TYPE_NON_LOW_END_DEVICE;
 import static org.chromium.ui.test.util.ViewUtils.onViewWaiting;
 
-import android.os.Build.VERSION_CODES;
 import android.support.test.InstrumentationRegistry;
 
 import androidx.test.filters.MediumTest;
@@ -35,7 +34,6 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
@@ -65,7 +63,10 @@ import java.util.concurrent.TimeoutException;
         ChromeFeatureList.TAB_GROUPS_CONTINUATION_ANDROID+"<Study"})
 // Disable TAB_TO_GTS_ANIMATION to make it less flaky. When animation is enabled, the suggestion
 // cards will be removed temporarily, then append again.
-@Features.DisableFeatures({ChromeFeatureList.TAB_TO_GTS_ANIMATION})
+// TODO(https://crbug.com/1362059): The message cards aren't shown the first time when entering GTS
+// with Start surface enabled.
+@Features.DisableFeatures({
+    ChromeFeatureList.TAB_TO_GTS_ANIMATION, ChromeFeatureList.START_SURFACE_ANDROID})
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
         "force-fieldtrials=Study/Group"})
 public class TabSuggestionMessageCardTest {
@@ -168,7 +169,6 @@ public class TabSuggestionMessageCardTest {
     @Test
     @MediumTest
     @CommandLineFlags.Add({BASE_PARAMS + ENABLE_CLOSE_SUGGESTION_PARAM})
-    @DisableIf.Build(sdk_is_less_than = VERSION_CODES.N, message = "https://crbug.com/1260161")
     public void closeTabSuggestionReviewedAndAccepted() {
         CriteriaHelper.pollUiThread(TabSuggestionMessageService::isSuggestionAvailableForTesting);
 
@@ -182,7 +182,6 @@ public class TabSuggestionMessageCardTest {
     @Test
     @MediumTest
     @CommandLineFlags.Add({BASE_PARAMS + ENABLE_CLOSE_SUGGESTION_PARAM})
-    @DisableIf.Build(sdk_is_less_than = VERSION_CODES.N, message = "https://crbug.com/1280257")
     public void closeTabSuggestionReviewedAndDismissed() {
         CriteriaHelper.pollUiThread(TabSuggestionMessageService::isSuggestionAvailableForTesting);
 
@@ -196,7 +195,6 @@ public class TabSuggestionMessageCardTest {
     @Test
     @MediumTest
     @CommandLineFlags.Add({BASE_PARAMS + ENABLE_GROUP_SUGGESTION_PARAM})
-    @DisableIf.Build(sdk_is_less_than = VERSION_CODES.N, message = "https://crbug.com/1273142")
     public void groupTabSuggestionReviewedAndAccepted() {
         CriteriaHelper.pollUiThread(TabSuggestionMessageService::isSuggestionAvailableForTesting);
 

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,24 +21,27 @@ FetchRecommendedWebFeedsTask::Result::operator=(Result&&) = default;
 
 FetchRecommendedWebFeedsTask::FetchRecommendedWebFeedsTask(
     FeedStream* stream,
+    const OperationToken& operation_token,
     base::OnceCallback<void(Result)> callback)
-    : stream_(*stream), callback_(std::move(callback)) {}
+    : stream_(*stream),
+      operation_token_(operation_token),
+      callback_(std::move(callback)) {}
 FetchRecommendedWebFeedsTask::~FetchRecommendedWebFeedsTask() = default;
 
 void FetchRecommendedWebFeedsTask::Run() {
-  if (stream_.ClearAllInProgress()) {
+  if (!operation_token_) {
     Done(WebFeedRefreshStatus::kAbortFetchWebFeedPendingClearAll);
     return;
   }
-  if (!stream_.GetRequestThrottler().RequestQuota(
+  if (!stream_->GetRequestThrottler().RequestQuota(
           ListRecommendedWebFeedDiscoverApi::kRequestType)) {
     Done(WebFeedRefreshStatus::kNetworkRequestThrottled);
     return;
   }
   feedwire::webfeed::ListRecommendedWebFeedsRequest request;
-  SetConsistencyToken(request, stream_.GetMetadata().consistency_token());
-  stream_.GetNetwork().SendApiRequest<ListRecommendedWebFeedDiscoverApi>(
-      request, stream_.GetAccountInfo(),
+  SetConsistencyToken(request, stream_->GetMetadata().consistency_token());
+  stream_->GetNetwork().SendApiRequest<ListRecommendedWebFeedDiscoverApi>(
+      request, stream_->GetAccountInfo(), stream_->GetSignedInRequestMetadata(),
       base::BindOnce(&FetchRecommendedWebFeedsTask::RequestComplete,
                      base::Unretained(this)));
 }
@@ -46,6 +49,9 @@ void FetchRecommendedWebFeedsTask::Run() {
 void FetchRecommendedWebFeedsTask::RequestComplete(
     FeedNetwork::ApiResult<feedwire::webfeed::ListRecommendedWebFeedsResponse>
         response) {
+  // This will always be valid, because ClearAllTask cannot have run after this
+  // task starts.
+  DCHECK(operation_token_);
   if (!response.response_body) {
     Done(WebFeedRefreshStatus::kNetworkFailure);
     return;

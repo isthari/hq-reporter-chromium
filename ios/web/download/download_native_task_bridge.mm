@@ -1,16 +1,51 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/web/download/download_native_task_bridge.h"
 
 #import "base/check.h"
-#include "ios/web/download/download_result.h"
-#include "net/base/net_errors.h"
+#import "base/files/file_util.h"
+#import "base/functional/callback.h"
+#import "base/mac/foundation_util.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/task/thread_pool.h"
+#import "ios/web/download/download_result.h"
+#import "ios/web/web_view/error_translation_util.h"
+#import "net/base/net_errors.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
+
+namespace {
+
+// Helper to get the size of file at `file_path`. Returns -1 in case of error.
+int64_t FileSizeForFileAtPath(base::FilePath file_path) {
+  int64_t file_size = 0;
+  if (!base::GetFileSize(file_path, &file_size))
+    return -1;
+
+  return file_size;
+}
+
+// Helper to invoke the download complete callback after getting the file
+// size.
+void DownloadDidFinishWithSize(
+    NativeDownloadTaskProgressCallback progress_callback,
+    NativeDownloadTaskCompleteCallback complete_callback,
+    int64_t file_size) {
+  if (file_size != -1 && !progress_callback.is_null()) {
+    progress_callback.Run(
+        /* bytes_received */ file_size, /* total_bytes */ file_size,
+        /* fraction_completed */ 1.0);
+  }
+
+  web::DownloadResult download_result(net::OK);
+  std::move(complete_callback).Run(download_result);
+}
+
+}  // anonymous namespace
 
 @interface DownloadNativeTaskBridge ()
 
@@ -23,8 +58,9 @@
 @implementation DownloadNativeTaskBridge {
   void (^_startDownloadBlock)(NSURL*);
   id<DownloadNativeTaskBridgeDelegate> _delegate;
-  void (^_progressionHandler)();
-  web::DownloadCompletionHandler _completionHandler;
+  NativeDownloadTaskProgressCallback _progressCallback;
+  NativeDownloadTaskResponseCallback _responseCallback;
+  NativeDownloadTaskCompleteCallback _completeCallback;
   BOOL _observingDownloadProgress;
 }
 
@@ -79,13 +115,17 @@
   _download = nil;
 }
 
-- (void)startDownload:(NSURL*)url
-    progressionHandler:(void (^)())progressionHandler
-     completionHandler:(web::DownloadCompletionHandler)completionHandler {
-  _progressionHandler = progressionHandler;
-  _completionHandler = completionHandler;
+- (void)startDownload:(const base::FilePath&)path
+     progressCallback:(NativeDownloadTaskProgressCallback)progressCallback
+     responseCallback:(NativeDownloadTaskResponseCallback)responseCallback
+     completeCallback:(NativeDownloadTaskCompleteCallback)completeCallback {
+  DCHECK(!path.empty());
 
-  _urlForDownload = [url copy];
+  _progressCallback = std::move(progressCallback);
+  _responseCallback = std::move(responseCallback);
+  _completeCallback = std::move(completeCallback);
+  _urlForDownload =
+      [NSURL fileURLWithPath:base::SysUTF8ToNSString(path.AsUTF8Unsafe())];
 
   if (_resumeData) {
     DCHECK(!_startDownloadBlock);
@@ -99,6 +139,7 @@
     return;
   }
 
+  [self responseReceived:_response];
   [self startObservingDownloadProgress];
   _startDownloadBlock(_urlForDownload);
   _startDownloadBlock = nil;
@@ -113,8 +154,10 @@
     //-decideDestinationUsingResponse:suggestedFilename:completionHandler:
     // where the download will be started.
   } else {
+    _progressCallback.Reset();
+
     web::DownloadResult download_result(net::ERR_FAILED, /*can_retry=*/false);
-    (_completionHandler)(download_result);
+    std::move(_completeCallback).Run(download_result);
   }
 }
 
@@ -129,18 +172,21 @@
 - (void)download:(WKDownload*)download
     decideDestinationUsingResponse:(NSURLResponse*)response
                  suggestedFilename:(NSString*)suggestedFilename
-                 completionHandler:
-                     (void (^)(NSURL* destination))completionHandler API_AVAILABLE(ios(15)) {
+                 completionHandler:(void (^)(NSURL* destination))handler
+    API_AVAILABLE(ios(15)) {
   _response = response;
   _suggestedFilename = suggestedFilename;
+  [self responseReceived:_response];
 
   if (_urlForDownload) {
     // Resuming a download.
     [self startObservingDownloadProgress];
-    completionHandler(_urlForDownload);
+    handler(_urlForDownload);
   } else {
-    _startDownloadBlock = completionHandler;
-    [_delegate onDownloadNativeTaskBridgeReadyForDownload:self];
+    _startDownloadBlock = handler;
+    if (![_delegate onDownloadNativeTaskBridgeReadyForDownload:self]) {
+      [self cancel];
+    }
   }
 }
 
@@ -149,17 +195,39 @@
           resumeData:(NSData*)resumeData API_AVAILABLE(ios(15)) {
   self.resumeData = resumeData;
   [self stopObservingDownloadProgress];
-  if (_completionHandler) {
-    web::DownloadResult download_result(net::ERR_FAILED, resumeData != nil);
-    (_completionHandler)(download_result);
+  if (!_completeCallback.is_null()) {
+    _progressCallback.Reset();
+
+    int error_code = net::OK;
+    NSURL* url = _response.URL;
+    if (!web::GetNetErrorFromIOSErrorCode(error.code, &error_code, url)) {
+      error_code = net::ERR_FAILED;
+    }
+
+    web::DownloadResult download_result(error_code, resumeData != nil);
+    std::move(_completeCallback).Run(download_result);
   }
 }
 
 - (void)downloadDidFinish:(WKDownload*)download API_AVAILABLE(ios(15)) {
   [self stopObservingDownloadProgress];
-  if (_completionHandler) {
-    web::DownloadResult download_result(net::OK);
-    (_completionHandler)(download_result);
+  if (!_completeCallback.is_null()) {
+    // The method -downloadDidFinish: will be called as soon as the
+    // download completes, even before the NSProgress item may have
+    // been updated.
+    //
+    // To prevent truncating the downloaded file, get the real size
+    // of the file from the disk and call `_progressCallback` first
+    // before calling `_completeCallback`.
+    //
+    // See https://crbug.com/1346030 for examples of truncation.
+    base::ThreadPool::PostTaskAndReplyWithResult(
+        FROM_HERE, {base::TaskPriority::USER_VISIBLE, base::MayBlock()},
+        base::BindOnce(
+            &FileSizeForFileAtPath,
+            base::FilePath(base::SysNSStringToUTF8(_urlForDownload.path))),
+        base::BindOnce(&DownloadDidFinishWithSize, std::move(_progressCallback),
+                       std::move(_completeCallback)));
   }
 }
 
@@ -169,8 +237,11 @@
                       ofObject:(id)object
                         change:(NSDictionary*)change
                        context:(void*)context API_AVAILABLE(ios(15)) {
-  if (_progressionHandler)
-    _progressionHandler();
+  if (!_progressCallback.is_null()) {
+    NSProgress* progress = self.progress;
+    _progressCallback.Run(progress.completedUnitCount, progress.totalUnitCount,
+                          progress.fractionCompleted);
+  }
 }
 
 #pragma mark - Private methods
@@ -179,19 +250,33 @@
   DCHECK(!_observingDownloadProgress);
 
   _observingDownloadProgress = YES;
-  [_download.progress addObserver:self
-                       forKeyPath:@"fractionCompleted"
-                          options:NSKeyValueObservingOptionNew
-                          context:nil];
+  [self.progress addObserver:self
+                  forKeyPath:@"fractionCompleted"
+                     options:NSKeyValueObservingOptionNew
+                     context:nil];
 }
 
 - (void)stopObservingDownloadProgress {
   if (_observingDownloadProgress) {
     _observingDownloadProgress = NO;
-    [_download.progress removeObserver:self
-                            forKeyPath:@"fractionCompleted"
-                               context:nil];
+    [self.progress removeObserver:self
+                       forKeyPath:@"fractionCompleted"
+                          context:nil];
   }
+}
+
+- (void)responseReceived:(NSURLResponse*)response {
+  if (_responseCallback.is_null()) {
+    return;
+  }
+
+  int http_error = -1;
+  if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+    http_error =
+        base::mac::ObjCCastStrict<NSHTTPURLResponse>(response).statusCode;
+  }
+
+  std::move(_responseCallback).Run(http_error, response.MIMEType);
 }
 
 @end

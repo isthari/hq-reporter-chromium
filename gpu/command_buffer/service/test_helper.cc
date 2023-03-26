@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <string>
 
-#include "base/cxx17_backports.h"
 #include "base/strings/string_number_conversions.h"
 #include "build/build_config.h"
 #include "gpu/command_buffer/service/buffer_manager.h"
@@ -176,7 +175,7 @@ void TestHelper::SetupTextureInitializationExpectations(
           GL_TEXTURE_CUBE_MAP_POSITIVE_Z,
           GL_TEXTURE_CUBE_MAP_NEGATIVE_Z,
         };
-        for (size_t face = 0; face < base::size(faces); ++face) {
+        for (size_t face = 0; face < std::size(faces); ++face) {
           EXPECT_CALL(*gl, TexImage2D(faces[face], 0, GL_RGBA, 1, 1, 0, GL_RGBA,
                                       GL_UNSIGNED_BYTE, _))
               .Times(1)
@@ -688,7 +687,7 @@ void TestHelper::SetupFeatureInfoInitExpectationsWithGLVersion(
 #endif
     static const GLuint tx_ids[] = {101, 102};
     static const GLuint fb_ids[] = {103, 104};
-    const GLsizei width = 1;
+    const GLsizei width = 8;
     EXPECT_CALL(*gl, GetIntegerv(GL_FRAMEBUFFER_BINDING, _))
         .WillOnce(SetArgPointee<1>(fb_ids[0]))
         .RetiresOnSaturation();

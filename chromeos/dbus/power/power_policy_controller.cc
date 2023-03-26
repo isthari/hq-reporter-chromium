@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -145,18 +145,17 @@ const char PowerPolicyController::kPrefsReason[] = "Prefs";
 
 // static
 bool PowerPolicyController::GetPeakShiftDayConfigs(
-    const base::DictionaryValue& value,
+    const base::Value::Dict& value,
     std::vector<PeakShiftDayConfig>* configs_out) {
   DCHECK(configs_out);
   configs_out->clear();
 
-  const base::Value* entries =
-      value.FindKeyOfType({"entries"}, base::Value::Type::LIST);
+  const base::Value::List* entries = value.FindList({"entries"});
   if (!entries) {
     return false;
   }
 
-  for (const base::Value& item : entries->GetList()) {
+  for (const base::Value& item : *entries) {
     const base::Value* week_day_value =
         item.FindKeyOfType({"day"}, base::Value::Type::STRING);
     const base::Value* start_time_hour =
@@ -200,18 +199,17 @@ bool PowerPolicyController::GetPeakShiftDayConfigs(
 
 // static
 bool PowerPolicyController::GetAdvancedBatteryChargeModeDayConfigs(
-    const base::DictionaryValue& value,
+    const base::Value::Dict& value,
     std::vector<AdvancedBatteryChargeModeDayConfig>* configs_out) {
   DCHECK(configs_out);
   configs_out->clear();
 
-  const base::Value* entries =
-      value.FindKeyOfType({"entries"}, base::Value::Type::LIST);
+  const base::Value::List* entries = value.FindList({"entries"});
   if (!entries) {
     return false;
   }
 
-  for (const base::Value& item : entries->GetList()) {
+  for (const base::Value& item : *entries) {
     const base::Value* week_day_value =
         item.FindKeyOfType({"day"}, base::Value::Type::STRING);
     const base::Value* charge_start_time_hour = item.FindPathOfType(
@@ -550,6 +548,17 @@ void PowerPolicyController::ApplyPrefs(const PrefValues& values) {
   prefs_policy_.set_boot_on_ac(values.boot_on_ac);
 
   prefs_policy_.set_usb_power_share(values.usb_power_share);
+
+  if (values.adaptive_charging_enabled.has_value()) {
+    prefs_policy_.set_adaptive_charging_enabled(
+        values.adaptive_charging_enabled.value());
+    if (values.adaptive_charging_enabled.value()) {
+      prefs_policy_.set_adaptive_charging_min_probability(
+          values.adaptive_charging_min_probability);
+      prefs_policy_.set_adaptive_charging_hold_percent(
+          values.adaptive_charging_hold_percent);
+    }
+  }
 
   prefs_were_set_ = true;
   SendCurrentPolicy();

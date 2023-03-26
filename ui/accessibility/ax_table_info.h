@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,7 +27,7 @@ class AXNode;
 class AX_EXPORT AXTableInfo {
  public:
   struct CellData {
-    AXNode* cell;
+    raw_ptr<AXNode, DanglingUntriaged> cell;
     AXNodeID cell_id;
     size_t col_index;
     size_t row_index;

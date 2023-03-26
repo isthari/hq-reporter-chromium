@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define ASH_SYSTEM_PHONEHUB_QUICK_ACTIONS_VIEW_H_
 
 #include "ash/ash_export.h"
-#include "ash/components/phonehub/phone_hub_manager.h"
+#include "chromeos/ash/components/phonehub/phone_hub_manager.h"
 #include "ui/views/view.h"
 
 namespace ash {

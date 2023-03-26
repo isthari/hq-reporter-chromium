@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,8 @@ async function runFirstSession() {
       id: 'inject_element',
       matches: ['*://*/*'],
       js: ['inject_element.js'],
-      runAt: 'document_end'
+      runAt: 'document_end',
+      world: chrome.scripting.ExecutionWorld.MAIN
     },
     {
       id: 'inject_element_2',
@@ -57,7 +58,8 @@ async function runSecondSession() {
     allFrames: false,
     runAt: 'document_end',
     matchOriginAsFallback: false,
-    persistAcrossSessions: true
+    persistAcrossSessions: true,
+    world: chrome.scripting.ExecutionWorld.MAIN
   }];
 
   chrome.test.assertEq(expectedScripts, scripts);
@@ -109,7 +111,8 @@ async function runThirdSession() {
     allFrames: false,
     runAt: 'document_end',
     matchOriginAsFallback: false,
-    persistAcrossSessions: true
+    persistAcrossSessions: true,
+    world: chrome.scripting.ExecutionWorld.ISOLATED
   }];
 
   chrome.test.assertEq(expectedScripts, scripts);

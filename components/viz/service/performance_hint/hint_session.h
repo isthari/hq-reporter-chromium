@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,8 @@ namespace viz {
 class VIZ_SERVICE_EXPORT HintSession {
  public:
   virtual ~HintSession() = default;
+
+  virtual void UpdateTargetDuration(base::TimeDelta target_duration) = 0;
 
   // `actual_duration` is compared to `target_duration` in `CreateSession` to
   // determine the performance of a frame.
@@ -45,6 +47,9 @@ class VIZ_SERVICE_EXPORT HintSessionFactory {
   virtual std::unique_ptr<HintSession> CreateSession(
       base::flat_set<base::PlatformThreadId> transient_thread_ids,
       base::TimeDelta target_duration) = 0;
+
+  // Issue an early hint to wake up some session.
+  virtual void WakeUp() = 0;
 };
 
 }  // namespace viz

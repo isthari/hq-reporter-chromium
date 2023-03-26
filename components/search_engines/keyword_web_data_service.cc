@@ -1,10 +1,10 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/search_engines/keyword_web_data_service.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
@@ -26,12 +26,14 @@ WebDatabase::State PerformKeywordOperationsImpl(
 std::unique_ptr<WDTypedResult> GetKeywordsImpl(WebDatabase* db) {
   KeywordTable* const keyword_table = KeywordTable::FromWebDatabase(db);
   WDKeywordsResult result;
-  if (!keyword_table->GetKeywords(&result.keywords))
+  if (!keyword_table || !keyword_table->GetKeywords(&result.keywords)) {
     return nullptr;
+  }
 
   result.default_search_provider_id =
       keyword_table->GetDefaultSearchProviderID();
   result.builtin_keyword_version = keyword_table->GetBuiltinKeywordVersion();
+  result.starter_pack_version = keyword_table->GetStarterPackKeywordVersion();
   return std::make_unique<WDResult<WDKeywordsResult>>(KEYWORDS_RESULT, result);
 }
 
@@ -44,6 +46,14 @@ WebDatabase::State SetDefaultSearchProviderIDImpl(TemplateURLID id,
 
 WebDatabase::State SetBuiltinKeywordVersionImpl(int version, WebDatabase* db) {
   return KeywordTable::FromWebDatabase(db)->SetBuiltinKeywordVersion(version)
+             ? WebDatabase::COMMIT_NEEDED
+             : WebDatabase::COMMIT_NOT_NEEDED;
+}
+
+WebDatabase::State SetStarterPackKeywordVersionImpl(int version,
+                                                    WebDatabase* db) {
+  return KeywordTable::FromWebDatabase(db)->SetStarterPackKeywordVersion(
+             version)
              ? WebDatabase::COMMIT_NEEDED
              : WebDatabase::COMMIT_NOT_NEEDED;
 }
@@ -133,6 +143,11 @@ void KeywordWebDataService::SetDefaultSearchProviderID(TemplateURLID id) {
 void KeywordWebDataService::SetBuiltinKeywordVersion(int version) {
   wdbs_->ScheduleDBTask(FROM_HERE,
                         base::BindOnce(&SetBuiltinKeywordVersionImpl, version));
+}
+
+void KeywordWebDataService::SetStarterPackKeywordVersion(int version) {
+  wdbs_->ScheduleDBTask(
+      FROM_HERE, base::BindOnce(&SetStarterPackKeywordVersionImpl, version));
 }
 
 void KeywordWebDataService::ShutdownOnUISequence() {

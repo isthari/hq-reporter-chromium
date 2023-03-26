@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "base/containers/span.h"
 #include "build/build_config.h"
 
 #if BUILDFLAG(IS_WIN)
@@ -44,6 +45,10 @@ class BluetoothUUID {
   // format, the result might be invalid. Use IsValid to check for validity
   // after construction.
   explicit BluetoothUUID(const std::string& uuid);
+
+  // Single argument constructor. |uuid_in_bytes| is a vector of 16 bytes
+  // represented as a 128 bit UUID.
+  explicit BluetoothUUID(base::span<const uint8_t> uuid_in_bytes);
 
 #if BUILDFLAG(IS_WIN)
   // Windows exclusive constructor converting a GUID structure to a

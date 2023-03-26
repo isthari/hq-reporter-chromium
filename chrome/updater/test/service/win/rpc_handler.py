@@ -1,4 +1,4 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -28,7 +28,7 @@ class UpdaterTestRPCHandler():
           timeout: How long the child process should wait before timeout.
 
       Returns:
-          (pid, exit_code, sdtout, stderr) tuple.
+          (pid, exit_code, stdout, stderr) tuple.
       """
         try:
             process = subprocess.Popen(command,
@@ -61,7 +61,7 @@ class UpdaterTestRPCHandler():
           timeout: How long the child process should wait before timeout.
 
       Returns:
-          (pid, exit_code, sdtout, stderr) tuple.
+          (pid, exit_code, stdout, stderr) tuple.
       """
         return impersonate.RunAsStandardUser(command_line, env, cwd, timeout)
 

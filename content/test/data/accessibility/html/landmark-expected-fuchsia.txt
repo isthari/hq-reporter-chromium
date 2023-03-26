@@ -69,9 +69,9 @@ UNKNOWN focusable has_input_focus
 ++++++UNKNOWN
 ++++++++UNKNOWN hidden
 ++++++++++UNKNOWN focusable label='Details' actions='{DEFAULT}'
-++++++++++++UNKNOWN hidden
+++++++++++++LIST_ELEMENT_MARKER hidden
 ++++++++++++++STATIC_TEXT hidden label='%E2%96%B8 '
-++++++++++++STATIC_TEXT label='Details'
+++++++++++++STATIC_TEXT label='Details' actions='{DEFAULT}'
 ++++++++++++++UNKNOWN label='Details'
 ++++++++UNKNOWN hidden
 ++++++++++UNKNOWN hidden
@@ -123,9 +123,9 @@ UNKNOWN focusable has_input_focus
 ++++++UNKNOWN
 ++++++++UNKNOWN hidden
 ++++++++++UNKNOWN focusable label='Details' actions='{DEFAULT}'
-++++++++++++UNKNOWN hidden
+++++++++++++LIST_ELEMENT_MARKER hidden
 ++++++++++++++STATIC_TEXT hidden label='%E2%96%B8 '
-++++++++++++STATIC_TEXT label='Details'
+++++++++++++STATIC_TEXT label='Details' actions='{DEFAULT}'
 ++++++++++++++UNKNOWN label='Details'
 ++++++++UNKNOWN hidden
 ++++++++++UNKNOWN hidden
@@ -177,9 +177,9 @@ UNKNOWN focusable has_input_focus
 ++++++UNKNOWN
 ++++++++UNKNOWN hidden
 ++++++++++UNKNOWN focusable label='Details' actions='{DEFAULT}'
-++++++++++++UNKNOWN hidden
+++++++++++++LIST_ELEMENT_MARKER hidden
 ++++++++++++++STATIC_TEXT hidden label='%E2%96%B8 '
-++++++++++++STATIC_TEXT label='Details'
+++++++++++++STATIC_TEXT label='Details' actions='{DEFAULT}'
 ++++++++++++++UNKNOWN label='Details'
 ++++++++UNKNOWN hidden
 ++++++++++UNKNOWN hidden
@@ -231,9 +231,9 @@ UNKNOWN focusable has_input_focus
 ++++++UNKNOWN
 ++++++++UNKNOWN hidden
 ++++++++++UNKNOWN focusable label='Details' actions='{DEFAULT}'
-++++++++++++UNKNOWN hidden
+++++++++++++LIST_ELEMENT_MARKER hidden
 ++++++++++++++STATIC_TEXT hidden label='%E2%96%B8 '
-++++++++++++STATIC_TEXT label='Details'
+++++++++++++STATIC_TEXT label='Details' actions='{DEFAULT}'
 ++++++++++++++UNKNOWN label='Details'
 ++++++++UNKNOWN hidden
 ++++++++++UNKNOWN hidden

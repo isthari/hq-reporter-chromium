@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include "components/account_id/account_id.h"
 #include "components/services/app_service/public/cpp/app_registry_cache.h"
 #include "components/services/app_service/public/cpp/app_registry_cache_wrapper.h"
-#include "components/services/app_service/public/cpp/publisher_base.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -46,11 +45,9 @@ TEST_F(AppRegistryCacheWrapperTest, OneAccount) {
 
   cache1.AddObserver(this);
 
-  std::vector<apps::mojom::AppPtr> deltas;
-  deltas.push_back(PublisherBase::MakeApp(
-      apps::mojom::AppType::kArc, "app_id", apps::mojom::Readiness::kUnknown,
-      "name", apps::mojom::InstallReason::kDefault));
-  cache1.OnApps(std::move(deltas), apps::mojom::AppType::kArc,
+  std::vector<AppPtr> deltas;
+  deltas.push_back(std::make_unique<App>(AppType::kArc, "app_id"));
+  cache1.OnApps(std::move(deltas), AppType::kArc,
                 true /* should_notify_initialized */);
 
   VerifyAccountId(account_id_1());
@@ -68,23 +65,20 @@ TEST_F(AppRegistryCacheWrapperTest, MultipleAccounts) {
 
   cache1.AddObserver(this);
 
-  std::vector<apps::mojom::AppPtr> deltas;
-  deltas.push_back(PublisherBase::MakeApp(
-      apps::mojom::AppType::kArc, "app_id", apps::mojom::Readiness::kUnknown,
-      "name", apps::mojom::InstallReason::kDefault));
-  cache1.OnApps(std::move(deltas), apps::mojom::AppType::kArc,
-                true /* should_notify_initialized */);
+  std::vector<AppPtr> deltas1;
+  deltas1.push_back(std::make_unique<App>(AppType::kArc, "app_id1"));
+  cache1.OnApps(std::move(deltas1), AppType::kArc,
+                /*should_notify_initialized=*/true);
 
   VerifyAccountId(account_id_1());
   cache1.RemoveObserver(this);
 
   cache2.AddObserver(this);
-  deltas.clear();
-  deltas.push_back(PublisherBase::MakeApp(
-      apps::mojom::AppType::kArc, "app_id2", apps::mojom::Readiness::kUnknown,
-      "name", apps::mojom::InstallReason::kDefault));
-  cache2.OnApps(std::move(deltas), apps::mojom::AppType::kArc,
-                true /* should_notify_initialized */);
+
+  std::vector<AppPtr> deltas2;
+  deltas2.push_back(std::make_unique<App>(AppType::kArc, "app_id2"));
+  cache2.OnApps(std::move(deltas2), AppType::kArc,
+                /*should_notify_initialized=*/true);
 
   VerifyAccountId(account_id_2());
   cache2.RemoveObserver(this);

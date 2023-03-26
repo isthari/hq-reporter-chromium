@@ -1,34 +1,39 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.bookmarks;
 
 import android.content.Context;
+import android.os.Build;
 import android.widget.CompoundButton;
 
 import androidx.annotation.Nullable;
-import androidx.appcompat.content.res.AppCompatResources;
+import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
 import org.chromium.base.CallbackController;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.bookmarks.BookmarkBridge.BookmarkItem;
-import org.chromium.chrome.browser.bookmarks.BookmarkBridge.BookmarkModelObserver;
 import org.chromium.chrome.browser.bookmarks.PowerBookmarkMetrics.PriceTrackingState;
+import org.chromium.chrome.browser.commerce.PriceTrackingUtils;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
-import org.chromium.chrome.browser.power_bookmarks.PowerBookmarkMeta;
-import org.chromium.chrome.browser.power_bookmarks.PowerBookmarkType;
+import org.chromium.chrome.browser.price_tracking.PriceDropNotificationManagerFactory;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.subscriptions.CommerceSubscription;
-import org.chromium.chrome.browser.subscriptions.SubscriptionsManager;
 import org.chromium.components.bookmarks.BookmarkId;
+import org.chromium.components.bookmarks.BookmarkItem;
+import org.chromium.components.commerce.core.CommerceSubscription;
+import org.chromium.components.commerce.core.ShoppingService;
+import org.chromium.components.commerce.core.SubscriptionsObserver;
 import org.chromium.components.feature_engagement.EventConstants;
+import org.chromium.components.power_bookmarks.PowerBookmarkMeta;
 import org.chromium.ui.modelutil.PropertyModel;
 
+import java.util.List;
+
 /** Controls the bookmarks save-flow. */
-public class BookmarkSaveFlowMediator extends BookmarkModelObserver {
+public class BookmarkSaveFlowMediator
+        extends BookmarkModelObserver implements SubscriptionsObserver {
     private final Context mContext;
     private final Runnable mCloseRunnable;
 
@@ -38,9 +43,9 @@ public class BookmarkSaveFlowMediator extends BookmarkModelObserver {
     private BookmarkId mBookmarkId;
     private PowerBookmarkMeta mPowerBookmarkMeta;
     private boolean mWasBookmarkMoved;
-    private SubscriptionsManager mSubscriptionsManager;
+    private ShoppingService mShoppingService;
     private CommerceSubscription mSubscription;
-    private Callback<Integer> mSubscriptionsManagerCallback;
+    private Callback<Boolean> mSubscriptionsManagerCallback;
     private String mFolderName;
 
     /**
@@ -49,11 +54,10 @@ public class BookmarkSaveFlowMediator extends BookmarkModelObserver {
      *         model.
      * @param context The {@link Context} associated with this mediator.
      * @param closeRunnable A {@link Runnable} which closes the bookmark save flow.
-     * @param subscriptionsManager Used to manage the price-tracking subscriptions.
+     * @param shoppingService Used to manage the price-tracking subscriptions.
      */
     public BookmarkSaveFlowMediator(BookmarkModel bookmarkModel, PropertyModel propertyModel,
-            Context context, Runnable closeRunnable,
-            @Nullable SubscriptionsManager subscriptionsManager) {
+            Context context, Runnable closeRunnable, ShoppingService shoppingService) {
         mBookmarkModel = bookmarkModel;
         mBookmarkModel.addObserver(this);
 
@@ -61,7 +65,10 @@ public class BookmarkSaveFlowMediator extends BookmarkModelObserver {
         mContext = context;
         mCloseRunnable = closeRunnable;
 
-        mSubscriptionsManager = subscriptionsManager;
+        mShoppingService = shoppingService;
+        if (mShoppingService != null) {
+            mShoppingService.addSubscriptionsObserver(this);
+        }
     }
 
     /**
@@ -113,7 +120,8 @@ public class BookmarkSaveFlowMediator extends BookmarkModelObserver {
                                 : R.string.bookmark_save_flow_title));
         mPropertyModel.set(BookmarkSaveFlowProperties.FOLDER_SELECT_ICON,
                 BookmarkUtils.getFolderIcon(mContext, bookmarkId.getType()));
-        mPropertyModel.set(BookmarkSaveFlowProperties.FOLDER_SELECT_ICON_ENABLED, item.isMovable());
+        mPropertyModel.set(BookmarkSaveFlowProperties.FOLDER_SELECT_ICON_ENABLED,
+                BookmarkUtils.isMovable(item));
         mPropertyModel.set(BookmarkSaveFlowProperties.SUBTITLE_TEXT,
                 mContext.getResources().getString(wasBookmarkMoved
                                 ? R.string.bookmark_page_moved_location
@@ -125,7 +133,7 @@ public class BookmarkSaveFlowMediator extends BookmarkModelObserver {
             BookmarkId bookmarkId, @Nullable PowerBookmarkMeta meta, boolean fromExplicitTrackUi) {
         if (meta == null) return;
 
-        if (meta.getType() == PowerBookmarkType.SHOPPING) {
+        if (meta.hasShoppingSpecifics()) {
             setPriceTrackingNotificationUiEnabled(true);
             setPriceTrackingIconForEnabledState(false);
             mPropertyModel.set(BookmarkSaveFlowProperties.NOTIFICATION_SWITCH_VISIBLE, true);
@@ -144,25 +152,22 @@ public class BookmarkSaveFlowMediator extends BookmarkModelObserver {
 
     void handleNotificationSwitchToggle(CompoundButton view, boolean toggled) {
         if (mSubscriptionsManagerCallback == null) {
-            mSubscriptionsManagerCallback = mCallbackController.makeCancelable((Integer status) -> {
-                boolean statusOk = (status == SubscriptionsManager.StatusCode.OK);
-                if (!statusOk) {
-                    // Set it back to the previous state if the request.
-                    mPropertyModel.set(
-                            BookmarkSaveFlowProperties.NOTIFICATION_SWITCH_TOGGLE_LISTENER, null);
-                    view.setChecked(!toggled);
-                    mPropertyModel.set(
-                            BookmarkSaveFlowProperties.NOTIFICATION_SWITCH_TOGGLE_LISTENER,
-                            this::handleNotificationSwitchToggle);
-                    setPriceTrackingIconForEnabledState(!toggled);
-                }
-                setPriceTrackingNotificationUiEnabled(statusOk);
-            });
+            mSubscriptionsManagerCallback =
+                    mCallbackController.makeCancelable((Boolean success) -> {
+                        setPriceTrackingToggleVisualsOnly(success && view.isChecked());
+                        setPriceTrackingNotificationUiEnabled(success);
+                    });
         }
 
+        // Make sure the notification channel is initialized when the user tracks a product.
+        // TODO(crbug.com/1382191): Add a SubscriptionsObserver in the PriceDropNotificationManager
+        // and initialize the channel there.
+        if (toggled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            PriceDropNotificationManagerFactory.create().createNotificationChannel();
+        }
         setPriceTrackingIconForEnabledState(toggled);
-        PowerBookmarkUtils.setPriceTrackingEnabled(mSubscriptionsManager, mBookmarkModel,
-                mBookmarkId, toggled, mSubscriptionsManagerCallback);
+        PriceTrackingUtils.setPriceTrackingStateForBookmark(Profile.getLastUsedRegularProfile(),
+                mBookmarkId.getId(), toggled, mSubscriptionsManagerCallback);
         PowerBookmarkMetrics.reportBookmarkSaveFlowPriceTrackingState(toggled
                         ? PriceTrackingState.PRICE_TRACKING_ENABLED
                         : PriceTrackingState.PRICE_TRACKING_DISABLED);
@@ -177,14 +182,17 @@ public class BookmarkSaveFlowMediator extends BookmarkModelObserver {
     }
 
     void setPriceTrackingIconForEnabledState(boolean enabled) {
-        mPropertyModel.set(BookmarkSaveFlowProperties.NOTIFICATION_SWITCH_START_ICON,
-                AppCompatResources.getDrawable(mContext,
-                        enabled ? R.drawable.price_tracking_enabled_filled
-                                : R.drawable.price_tracking_disabled));
+        mPropertyModel.set(BookmarkSaveFlowProperties.NOTIFICATION_SWITCH_START_ICON_RES,
+                enabled ? R.drawable.price_tracking_enabled_filled
+                        : R.drawable.price_tracking_disabled);
     }
 
     void destroy() {
         mBookmarkModel.removeObserver(this);
+        if (mShoppingService != null) {
+            mShoppingService.removeSubscriptionsObserver(this);
+        }
+
         mBookmarkModel = null;
         mPropertyModel = null;
         mBookmarkId = null;
@@ -193,6 +201,19 @@ public class BookmarkSaveFlowMediator extends BookmarkModelObserver {
             mCallbackController.destroy();
             mCallbackController = null;
         }
+    }
+
+    @VisibleForTesting
+    void setPriceTrackingToggleVisualsOnly(boolean enabled) {
+        mPropertyModel.set(BookmarkSaveFlowProperties.NOTIFICATION_SWITCH_TOGGLE_LISTENER, null);
+        mPropertyModel.set(BookmarkSaveFlowProperties.NOTIFICATION_SWITCH_TOGGLED, enabled);
+        setPriceTrackingIconForEnabledState(enabled);
+        mPropertyModel.set(BookmarkSaveFlowProperties.NOTIFICATION_SWITCH_TOGGLE_LISTENER,
+                this::handleNotificationSwitchToggle);
+    }
+
+    void setSubscriptionForTesting(CommerceSubscription subscription) {
+        mSubscription = subscription;
     }
 
     // BookmarkModelObserver implementation
@@ -205,5 +226,18 @@ public class BookmarkSaveFlowMediator extends BookmarkModelObserver {
             return;
         }
         bindBookmarkProperties(mBookmarkId, mPowerBookmarkMeta, mWasBookmarkMoved);
+    }
+
+    // SubscriptionsObserver implementation
+    @Override
+    public void onSubscribe(List<CommerceSubscription> subscriptions, boolean succeeded) {
+        if (!succeeded) return;
+        setPriceTrackingToggleVisualsOnly(subscriptions.contains(mSubscription));
+    }
+
+    @Override
+    public void onUnsubscribe(List<CommerceSubscription> subscriptions, boolean succeeded) {
+        if (!succeeded) return;
+        setPriceTrackingToggleVisualsOnly(!subscriptions.contains(mSubscription));
     }
 }

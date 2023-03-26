@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,14 +11,14 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/logging.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "remoting/proto/control.pb.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/events/keycodes/dom/dom_code.h"
@@ -93,8 +93,9 @@ KeyboardLayoutMonitorMac::~KeyboardLayoutMonitorMac() {
 
 void KeyboardLayoutMonitorMac::Start() {
   DCHECK(!callback_context_);
-  callback_context_ = std::make_unique<CallbackContext>(CallbackContext{
-      base::SequencedTaskRunnerHandle::Get(), weak_ptr_factory_.GetWeakPtr()});
+  callback_context_ = std::make_unique<CallbackContext>(
+      CallbackContext{base::SequencedTaskRunner::GetCurrentDefault(),
+                      weak_ptr_factory_.GetWeakPtr()});
   CFNotificationCenterAddObserver(
       CFNotificationCenterGetDistributedCenter(), callback_context_.get(),
       SelectedKeyboardInputSourceChangedCallback,
@@ -189,7 +190,7 @@ void KeyboardLayoutMonitorMac::QueryLayoutOnMainLoop(
                          CFDataGetBytePtr(layout_data)),
                      keycode, kUCKeyActionDown, modifier_state >> 8,
                      keyboard_type, kUCKeyTranslateNoDeadKeysMask,
-                     &deadkey_state, base::size(result_array), &result_length,
+                     &deadkey_state, std::size(result_array), &result_length,
                      result_array);
 
       if (result_length == 0) {

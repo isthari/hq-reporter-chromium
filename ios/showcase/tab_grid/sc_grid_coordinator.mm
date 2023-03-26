@@ -1,10 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/showcase/tab_grid/sc_grid_coordinator.h"
 
-#import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/grid_drag_drop_handler.h"
+#import "ios/chrome/browser/ui/tab_switcher/tab_collection_drag_drop_handler.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/grid_image_data_source.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/grid_view_controller.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_switcher_item.h"
@@ -34,7 +34,7 @@
   gridViewController.delegate =
       static_cast<id<GridViewControllerDelegate>>(self.alerter);
   gridViewController.dragDropHandler =
-      static_cast<id<GridDragDropHandler>>(self.alerter);
+      static_cast<id<TabCollectionDragDropHandler>>(self.alerter);
   gridViewController.imageDataSource = self;
   self.alerter.baseViewController = gridViewController;
 

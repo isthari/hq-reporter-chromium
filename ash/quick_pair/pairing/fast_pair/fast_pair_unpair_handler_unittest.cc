@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "ash/quick_pair/common/fake_bluetooth_adapter.h"
 #include "ash/quick_pair/repository/mock_fast_pair_repository.h"
 #include "base/memory/scoped_refptr.h"
 #include "device/bluetooth/bluetooth_adapter.h"
@@ -17,17 +18,6 @@
 
 namespace ash {
 namespace quick_pair {
-
-class FakeBluetoothAdapter : public device::MockBluetoothAdapter {
- public:
-  void NotifyPairedChanged(device::BluetoothDevice* device,
-                           bool new_pair_state) {
-    device::BluetoothAdapter::NotifyDevicePairedChanged(device, new_pair_state);
-  }
-
- private:
-  ~FakeBluetoothAdapter() override = default;
-};
 
 class FastPairUnpairHandlerTest : public testing::Test {
  public:
@@ -44,10 +34,9 @@ class FastPairUnpairHandlerTest : public testing::Test {
   }
 
  protected:
-  void NotifyPairChanged(bool new_pair_state) {
-    device_->SetPaired(!new_pair_state);
-    adapter_->NotifyPairedChanged(device_.get(), new_pair_state);
-  }
+  void NotifyRemoved() { adapter_->NotifyDeviceRemoved(device_.get()); }
+
+  void SetPaired(bool paired) { device_->SetPaired(paired); }
 
   scoped_refptr<FakeBluetoothAdapter> adapter_;
   std::unique_ptr<device::MockBluetoothDevice> device_;
@@ -55,26 +44,20 @@ class FastPairUnpairHandlerTest : public testing::Test {
   std::unique_ptr<MockFastPairRepository> mock_repository_;
 };
 
-TEST_F(FastPairUnpairHandlerTest, DoesntDeleteIfDevicePaired) {
-  EXPECT_CALL(*(mock_repository_.get()), DeleteAssociatedDevice).Times(0);
-  NotifyPairChanged(/*new_pair_state=*/true);
-}
-
-TEST_F(FastPairUnpairHandlerTest, DeletesExpectedDevice) {
-  EXPECT_CALL(*(mock_repository_.get()), DeleteAssociatedDevice(device_.get()))
-      .Times(1);
-  NotifyPairChanged(/*new_pair_state=*/false);
-}
-
 TEST_F(FastPairUnpairHandlerTest, DoesntEvictIfDevicePaired) {
   EXPECT_CALL(*(mock_repository_.get()), EvictDeviceImages).Times(0);
-  NotifyPairChanged(/*new_pair_state=*/true);
+  SetPaired(/*is_paired=*/true);
+  NotifyRemoved();
 }
 
 TEST_F(FastPairUnpairHandlerTest, EvictsExpectedDevice) {
   EXPECT_CALL(*(mock_repository_.get()), EvictDeviceImages(device_.get()))
       .Times(1);
-  NotifyPairChanged(/*new_pair_state=*/false);
+  ON_CALL(*(mock_repository_.get()), EvictDeviceImages(device_.get()))
+      .WillByDefault(testing::Return(true));
+
+  SetPaired(/*is_paired=*/false);
+  NotifyRemoved();
 }
 
 }  // namespace quick_pair

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 
 #include <vector>
 
-#include "base/cxx17_backports.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "base/metrics/field_trial.h"
 #include "base/run_loop.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -72,12 +72,12 @@ class FakeWebContentsObserver : public content::WebContentsObserver {
   void DidStartNavigation(content::NavigationHandle* navigation) override {
     if (navigation->GetReloadType() == content::ReloadType::NONE)
       return;
-    if (url_ == navigation->GetURL())
+    if (*url_ == navigation->GetURL())
       num_reloads_++;
     current_url_ = navigation->GetURL();
   }
 
-  const GURL& url() const { return url_; }
+  const GURL& url() const { return *url_; }
 
   const GURL& current_url() const { return contents_->GetURL(); }
 
@@ -96,13 +96,13 @@ class FakeWebContentsObserver : public content::WebContentsObserver {
  private:
   raw_ptr<content::WebContents> contents_;
   content::DidStartNavigationObserver did_start_observer_;
-  const GURL& url_;
+  const raw_ref<const GURL> url_;
   GURL current_url_;
   int num_reloads_;
 };
 
 TEST_F(BrowserInstantControllerTest, DefaultSearchProviderChanged) {
-  size_t num_tests = base::size(kTabReloadTestCasesFinalProviderNotGoogle);
+  size_t num_tests = std::size(kTabReloadTestCasesFinalProviderNotGoogle);
   std::vector<std::unique_ptr<FakeWebContentsObserver>> observers;
   for (size_t i = 0; i < num_tests; ++i) {
     const TabReloadTestCase& test =
@@ -114,7 +114,7 @@ TEST_F(BrowserInstantControllerTest, DefaultSearchProviderChanged) {
     // Validate initial instant state.
     EXPECT_EQ(test.start_in_instant_process,
               instant_service_->IsInstantProcess(
-                  contents->GetMainFrame()->GetProcess()->GetID()))
+                  contents->GetPrimaryMainFrame()->GetProcess()->GetID()))
         << test.description;
 
     // Setup an observer to verify reload or absence thereof.

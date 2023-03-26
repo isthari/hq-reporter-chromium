@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,8 +20,11 @@ import android.widget.ListAdapter;
 import android.widget.ListView;
 import android.widget.PopupWindow;
 
-import org.chromium.base.ApiCompatibilityUtils;
+import androidx.annotation.Nullable;
+import androidx.appcompat.content.res.AppCompatResources;
+
 import org.chromium.ui.widget.AnchoredPopupWindow;
+import org.chromium.ui.widget.RectProvider;
 import org.chromium.ui.widget.ViewRectProvider;
 
 /**
@@ -45,12 +48,19 @@ class DropdownPopupWindowImpl
     private Drawable mBackground;
     private int mHorizontalPadding;
 
+    public DropdownPopupWindowImpl(Context context, View anchorView) {
+        this(context, anchorView, null);
+    }
+
     /**
      * Creates an DropdownPopupWindowImpl with specified parameters.
      * @param context Application context.
      * @param anchorView Popup view to be anchored.
+     * @param visibleWebContentsRectProvider The {@link RectProvider} which will be used for {@link
+     *         AnchoredPopupWindow}.
      */
-    public DropdownPopupWindowImpl(Context context, View anchorView) {
+    public DropdownPopupWindowImpl(Context context, View anchorView,
+            @Nullable RectProvider visibleWebContentsRectProvider) {
         mContext = context;
         mAnchorView = anchorView;
 
@@ -82,10 +92,9 @@ class DropdownPopupWindowImpl
 
         ViewRectProvider rectProvider = new ViewRectProvider(mAnchorView);
         rectProvider.setIncludePadding(true);
-        mBackground = ApiCompatibilityUtils.getDrawable(
-                context.getResources(), R.drawable.menu_bg_tinted);
-        mAnchoredPopupWindow = new AnchoredPopupWindow(
-                context, mAnchorView, mBackground, mContentView, rectProvider);
+        mBackground = AppCompatResources.getDrawable(context, R.drawable.menu_bg_baseline);
+        mAnchoredPopupWindow = new AnchoredPopupWindow(context, mAnchorView, mBackground,
+                mContentView, rectProvider, visibleWebContentsRectProvider);
         mAnchoredPopupWindow.addOnDismissListener(onDismissLitener);
         mAnchoredPopupWindow.setLayoutObserver(this);
         mAnchoredPopupWindow.setElevation(
@@ -117,8 +126,8 @@ class DropdownPopupWindowImpl
     public void onPreLayoutChange(
             boolean positionBelow, int x, int y, int width, int height, Rect anchorRect) {
         mBackground.setBounds(anchorRect);
-        mAnchoredPopupWindow.setBackgroundDrawable(ApiCompatibilityUtils.getDrawable(
-                mContext.getResources(), R.drawable.menu_bg_tinted));
+        mAnchoredPopupWindow.setBackgroundDrawable(
+                AppCompatResources.getDrawable(mContext, R.drawable.menu_bg_baseline));
     }
 
     /**

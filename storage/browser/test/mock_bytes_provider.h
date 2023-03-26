@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define STORAGE_BROWSER_TEST_MOCK_BYTES_PROVIDER_H_
 
 #include "base/memory/raw_ptr.h"
+#include "base/time/time.h"
 #include "third_party/blink/public/mojom/blob/blob_registry.mojom.h"
 #include "third_party/blink/public/mojom/blob/data_element.mojom.h"
 

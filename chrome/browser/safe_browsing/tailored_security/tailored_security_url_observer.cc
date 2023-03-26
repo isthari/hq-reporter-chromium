@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,8 @@
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/core/browser/tailored_security_service/tailored_security_service.h"
+#include "components/safe_browsing/core/browser/tailored_security_service/tailored_security_service_observer_util.h"
+#include "components/safe_browsing/core/common/safe_browsing_policy_handler.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -23,21 +25,12 @@
 
 namespace safe_browsing {
 
-namespace {
-
-const int kThresholdForInFlowNotificationMinutes = 5;
-
-bool CanQueryTailoredSecurity(GURL url) {
-  return url.DomainIs("google.com") || url.DomainIs("youtube.com");
-}
-
-}  // namespace
-
 TailoredSecurityUrlObserver::~TailoredSecurityUrlObserver() {
   if (service_) {
     service_->RemoveObserver(this);
-    if (focused_ && CanQueryTailoredSecurity(last_url_)) {
+    if (has_query_request_) {
       service_->RemoveQueryRequest();
+      has_query_request_ = false;
     }
   }
 }
@@ -62,29 +55,16 @@ void TailoredSecurityUrlObserver::OnTailoredSecurityBitChanged(
     base::Time previous_update) {
   Profile* profile =
       Profile::FromBrowserContext(web_contents()->GetBrowserContext());
-  if (!enabled || IsEnhancedProtectionEnabled(*profile->GetPrefs()))
-    return;
-
-  // We should only trigger the unconsented UX if the user is not consented to
-  // sync. Syncing users have different UX, handled by the
-  // `ChromeTailoredSecurityService`.
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile);
-  if (!identity_manager ||
-      identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync)) {
+  if (!enabled || !CanShowUnconsentedTailoredSecurityDialog(
+                      identity_manager, profile->GetPrefs()))
     return;
-  }
-
-  if (profile->GetPrefs()->GetBoolean(
-          prefs::kAccountTailoredSecurityShownNotification)) {
-    return;
-  }
 
   profile->GetPrefs()->SetBoolean(
       prefs::kAccountTailoredSecurityShownNotification, true);
 
-  if (base::Time::Now() - previous_update <=
-      base::Minutes(kThresholdForInFlowNotificationMinutes)) {
+  if (base::Time::Now() - previous_update <= kThresholdForInFlowNotification) {
 #if BUILDFLAG(IS_ANDROID)
     message_ = std::make_unique<TailoredSecurityUnconsentedMessageAndroid>(
         web_contents(),
@@ -126,22 +106,37 @@ TailoredSecurityUrlObserver::TailoredSecurityUrlObserver(
     service_->AddObserver(this);
   }
 
-  if (web_contents && web_contents->GetMainFrame() &&
-      web_contents->GetMainFrame()->GetView()) {
-    focused = web_contents->GetMainFrame()->GetView()->HasFocus();
+  if (web_contents && web_contents->GetPrimaryMainFrame() &&
+      web_contents->GetPrimaryMainFrame()->GetView()) {
+    focused = web_contents->GetPrimaryMainFrame()->GetView()->HasFocus();
   }
   UpdateFocusAndURL(focused, web_contents->GetLastCommittedURL());
 }
 
 void TailoredSecurityUrlObserver::UpdateFocusAndURL(bool focused,
                                                     const GURL& url) {
+  Profile* profile =
+      Profile::FromBrowserContext(web_contents()->GetBrowserContext());
+  signin::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(profile);
+
+  if (!CanShowUnconsentedTailoredSecurityDialog(identity_manager,
+                                                profile->GetPrefs())) {
+    return;
+  }
+
   if (service_) {
-    bool should_query = focused && CanQueryTailoredSecurity(url);
-    bool old_should_query = focused_ && CanQueryTailoredSecurity(last_url_);
-    if (should_query && !old_should_query)
+    bool should_query = focused && CanQueryTailoredSecurityForUrl(url);
+    bool old_should_query =
+        focused_ && CanQueryTailoredSecurityForUrl(last_url_);
+    if (should_query && !old_should_query) {
       service_->AddQueryRequest();
-    if (!should_query && old_should_query)
+      has_query_request_ = true;
+    }
+    if (!should_query && old_should_query) {
       service_->RemoveQueryRequest();
+      has_query_request_ = false;
+    }
   }
 
   focused_ = focused;

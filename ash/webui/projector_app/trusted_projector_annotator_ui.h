@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@ class PrefService;
 
 namespace ash {
 
-// The implementation for the Projector selfie cam and player app WebUI.
-// TODO(b/193670945): Migrate to ash/components and ash/webui.
+// The implementation for the Projector annotator for screen recording
+// annotations.
 class TrustedProjectorAnnotatorUI : public ui::MojoBubbleWebUIController {
  public:
   TrustedProjectorAnnotatorUI(content::WebUI* web_ui,

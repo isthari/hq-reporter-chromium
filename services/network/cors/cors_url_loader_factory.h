@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -102,11 +102,6 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoaderFactory final
 
   bool IsValidRequest(const ResourceRequest& request, uint32_t options);
 
-  InitiatorLockCompatibility VerifyRequestInitiatorLockWithPluginCheck(
-      uint32_t process_id,
-      const absl::optional<url::Origin>& request_initiator_origin_lock,
-      const absl::optional<url::Origin>& request_initiator);
-
   bool GetAllowAnyCorsExemptHeaderForBrowser() const;
 
   mojo::PendingRemote<mojom::DevToolsObserver> GetDevToolsObserver(
@@ -116,8 +111,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoaderFactory final
   void OnLoaderCreated(
       std::unique_ptr<T> loader,
       std::set<std::unique_ptr<T>, base::UniquePtrComparator>& loaders) {
-    if (context_)
-      context_->LoaderCreated(process_id_);
+    context_->LoaderCreated(process_id_);
     loaders.insert(std::move(loader));
   }
 
@@ -125,8 +119,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoaderFactory final
   void DestroyLoader(
       T* loader,
       std::set<std::unique_ptr<T>, base::UniquePtrComparator>& loaders) {
-    if (context_)
-      context_->LoaderDestroyed(process_id_);
+    context_->LoaderDestroyed(process_id_);
     auto it = loaders.find(loader);
     DCHECK(it != loaders.end());
     loaders.erase(it);
@@ -136,10 +129,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoaderFactory final
 
   mojo::ReceiverSet<mojom::URLLoaderFactory> receivers_;
 
-  // Used when constructed by NetworkContext.
-  // The NetworkContext owns `this`.
+  // The NetworkContext owns `this`. Initialized in the construct and must be
+  // non-null.
   const raw_ptr<NetworkContext> context_ = nullptr;
-  scoped_refptr<ResourceSchedulerClient> resource_scheduler_client_;
 
   // If false, ResourceRequests cannot have their `trusted_params` fields set.
   bool is_trusted_;
@@ -151,6 +143,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoaderFactory final
   const bool ignore_isolated_world_origin_;
   const mojom::TrustTokenRedemptionPolicy trust_token_redemption_policy_;
   net::IsolationInfo isolation_info_;
+  const bool automatically_assign_isolation_info_;
   const std::string debug_tag_;
   const CrossOriginEmbedderPolicy cross_origin_embedder_policy_;
   mojo::Remote<mojom::CrossOriginEmbedderPolicyReporter> coep_reporter_;

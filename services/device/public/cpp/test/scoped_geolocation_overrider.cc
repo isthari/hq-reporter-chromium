@@ -1,11 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <vector>
 
-#include "base/callback_helpers.h"
 #include "base/containers/unique_ptr_adapters.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
@@ -41,7 +41,7 @@ class ScopedGeolocationOverrider::FakeGeolocationContext
 
   // mojom::GeolocationContext implementation:
   void BindGeolocation(mojo::PendingReceiver<mojom::Geolocation> receiver,
-                       const GURL& requesting_origin) override;
+                       const GURL& requesting_url) override;
   void SetOverride(mojom::GeopositionPtr geoposition) override;
   void ClearOverride() override;
 

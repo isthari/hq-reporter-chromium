@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,14 @@
 #include <stddef.h>
 
 #include <tuple>
+#include <utility>
 
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "base/win/scoped_bstr.h"
 #include "remoting/base/scoped_sc_handle_win.h"
@@ -57,18 +56,17 @@ const char kUnprivilegedConfigFileSecurityDescriptor[] =
 // Configuration keys.
 
 // The configuration keys that cannot be specified in UpdateConfig().
-const char* const kReadonlyKeys[] = {
-  kHostIdConfigPath, kHostOwnerConfigPath, kHostOwnerEmailConfigPath,
-  kXmppLoginConfigPath };
+const char* const kReadonlyKeys[] = {kHostIdConfigPath, kHostOwnerConfigPath,
+                                     kHostOwnerEmailConfigPath,
+                                     kXmppLoginConfigPath};
 
 // The configuration keys whose values may be read by GetConfig().
-const char* const kUnprivilegedConfigKeys[] = {
-  kHostIdConfigPath, kXmppLoginConfigPath };
+const char* const kUnprivilegedConfigKeys[] = {kHostIdConfigPath,
+                                               kXmppLoginConfigPath};
 
 // Reads and parses the configuration file up to |kMaxConfigFileSize| in
 // size.
-bool ReadConfig(const base::FilePath& filename,
-                std::unique_ptr<base::DictionaryValue>* config_out) {
+bool ReadConfig(const base::FilePath& filename, base::Value::Dict& config_out) {
   std::string file_content;
   if (!base::ReadFileToStringWithMaxSize(filename, &file_content,
                                          kMaxConfigFileSize)) {
@@ -77,17 +75,15 @@ bool ReadConfig(const base::FilePath& filename,
   }
 
   // Parse the JSON configuration, expecting it to contain a dictionary.
-  std::unique_ptr<base::Value> value = base::JSONReader::ReadDeprecated(
-      file_content, base::JSON_ALLOW_TRAILING_COMMAS);
+  absl::optional<base::Value> value =
+      base::JSONReader::Read(file_content, base::JSON_ALLOW_TRAILING_COMMAS);
 
-  base::DictionaryValue* dictionary;
-  if (!value || !value->GetAsDictionary(&dictionary)) {
+  if (!value || !value->is_dict()) {
     LOG(ERROR) << "Failed to parse '" << filename.value() << "'.";
     return false;
   }
 
-  std::ignore = value.release();
-  config_out->reset(dictionary);
+  config_out = std::move(*value).TakeDict();
   return true;
 }
 
@@ -114,14 +110,9 @@ bool WriteConfigFileToTemp(const base::FilePath& filename,
 
   // Create a temporary file and write configuration to it.
   base::FilePath tempname = GetTempLocationFor(filename);
-  base::win::ScopedHandle file(
-      CreateFileW(tempname.value().c_str(),
-                  GENERIC_WRITE,
-                  0,
-                  &security_attributes,
-                  CREATE_ALWAYS,
-                  FILE_FLAG_SEQUENTIAL_SCAN,
-                  nullptr));
+  base::win::ScopedHandle file(CreateFileW(
+      tempname.value().c_str(), GENERIC_WRITE, 0, &security_attributes,
+      CREATE_ALWAYS, FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
 
   if (!file.IsValid()) {
     PLOG(ERROR) << "Failed to create '" << filename.value() << "'";
@@ -129,8 +120,8 @@ bool WriteConfigFileToTemp(const base::FilePath& filename,
   }
 
   DWORD written;
-  if (!::WriteFile(file.Get(), content.c_str(), content.length(),
-                   &written, nullptr)) {
+  if (!::WriteFile(file.Get(), content.c_str(), content.length(), &written,
+                   nullptr)) {
     PLOG(ERROR) << "Failed to write to '" << filename.value() << "'";
     return false;
   }
@@ -143,12 +134,11 @@ bool MoveConfigFileFromTemp(const base::FilePath& filename) {
   // Now that the configuration is stored successfully replace the actual
   // configuration file.
   base::FilePath tempname = GetTempLocationFor(filename);
-  if (!MoveFileExW(tempname.value().c_str(),
-                   filename.value().c_str(),
+  if (!MoveFileExW(tempname.value().c_str(), filename.value().c_str(),
                    MOVEFILE_REPLACE_EXISTING)) {
-      PLOG(ERROR) << "Failed to rename '" << tempname.value() << "' to '"
-                  << filename.value() << "'";
-      return false;
+    PLOG(ERROR) << "Failed to rename '" << tempname.value() << "' to '"
+                << filename.value() << "'";
+    return false;
   }
 
   return true;
@@ -157,37 +147,35 @@ bool MoveConfigFileFromTemp(const base::FilePath& filename) {
 // Writes the configuration file up to |kMaxConfigFileSize| in size.
 bool WriteConfig(const std::string& content) {
   if (content.length() > kMaxConfigFileSize) {
-      return false;
+    return false;
   }
 
   // Extract the configuration data that the user will verify.
-  std::unique_ptr<base::Value> config_value =
-      base::JSONReader::ReadDeprecated(content);
-  if (!config_value.get()) {
+  absl::optional<base::Value> config_value = base::JSONReader::Read(content);
+  if (!config_value || !config_value->is_dict()) {
     return false;
   }
-  base::DictionaryValue* config_dict = nullptr;
-  if (!config_value->GetAsDictionary(&config_dict)) {
+
+  base::Value::Dict& config_dict = config_value->GetDict();
+
+  std::string* email;
+  if (!(email = config_dict.FindString(kHostOwnerEmailConfigPath)) &&
+      !(email = config_dict.FindString(kHostOwnerConfigPath)) &&
+      !(email = config_dict.FindString(kXmppLoginConfigPath))) {
     return false;
   }
-  std::string email;
-  if (!config_dict->GetString(kHostOwnerEmailConfigPath, &email) &&
-      !config_dict->GetString(kHostOwnerConfigPath, &email) &&
-      !config_dict->GetString(kXmppLoginConfigPath, &email)) {
-    return false;
-  }
-  std::string host_id, host_secret_hash;
-  if (!config_dict->GetString(kHostIdConfigPath, &host_id) ||
-      !config_dict->GetString(kHostSecretHashConfigPath, &host_secret_hash)) {
+  std::string* host_id = config_dict.FindString(kHostIdConfigPath);
+  std::string* host_secret_hash =
+      config_dict.FindString(kHostSecretHashConfigPath);
+  if (!host_id || !host_secret_hash) {
     return false;
   }
 
   // Extract the unprivileged fields from the configuration.
-  base::DictionaryValue unprivileged_config_dict;
+  base::Value::Dict unprivileged_config_dict;
   for (const char* key : kUnprivilegedConfigKeys) {
-    std::u16string value;
-    if (config_dict->GetString(key, &value)) {
-      unprivileged_config_dict.SetString(key, value);
+    if (std::string* value = config_dict.FindString(key)) {
+      unprivileged_config_dict.Set(key, std::move(*value));
     }
   }
   std::string unprivileged_config_str;
@@ -197,8 +185,7 @@ bool WriteConfig(const std::string& content) {
   base::FilePath full_config_file_path =
       remoting::GetConfigDir().Append(kConfigFileName);
   if (!WriteConfigFileToTemp(full_config_file_path,
-                             kConfigFileSecurityDescriptor,
-                             content)) {
+                             kConfigFileSecurityDescriptor, content)) {
     return false;
   }
 
@@ -219,24 +206,24 @@ bool WriteConfig(const std::string& content) {
 
 DaemonController::State ConvertToDaemonState(DWORD service_state) {
   switch (service_state) {
-  case SERVICE_RUNNING:
-    return DaemonController::STATE_STARTED;
+    case SERVICE_RUNNING:
+      return DaemonController::STATE_STARTED;
 
-  case SERVICE_CONTINUE_PENDING:
-  case SERVICE_START_PENDING:
-    return DaemonController::STATE_STARTING;
+    case SERVICE_CONTINUE_PENDING:
+    case SERVICE_START_PENDING:
+      return DaemonController::STATE_STARTING;
 
-  case SERVICE_PAUSE_PENDING:
-  case SERVICE_STOP_PENDING:
-    return DaemonController::STATE_STOPPING;
+    case SERVICE_PAUSE_PENDING:
+    case SERVICE_STOP_PENDING:
+      return DaemonController::STATE_STOPPING;
 
-  case SERVICE_PAUSED:
-  case SERVICE_STOPPED:
-    return DaemonController::STATE_STOPPED;
+    case SERVICE_PAUSED:
+    case SERVICE_STOPPED:
+      return DaemonController::STATE_STOPPED;
 
-  default:
-    NOTREACHED();
-    return DaemonController::STATE_UNKNOWN;
+    default:
+      NOTREACHED();
+      return DaemonController::STATE_UNKNOWN;
   }
 }
 
@@ -250,8 +237,8 @@ ScopedScHandle OpenService(DWORD access) {
     return ScopedScHandle();
   }
 
-  ScopedScHandle service(::OpenServiceW(scmanager.Get(), kWindowsServiceName,
-                                        access));
+  ScopedScHandle service(
+      ::OpenServiceW(scmanager.Get(), kWindowsServiceName, access));
   if (!service.IsValid()) {
     PLOG(ERROR) << "Failed to open to the '" << kWindowsServiceName
                 << "' service";
@@ -268,23 +255,17 @@ void InvokeCompletionCallback(DaemonController::CompletionCallback done,
 }
 
 bool StartDaemon() {
-  DWORD access = SERVICE_CHANGE_CONFIG | SERVICE_QUERY_STATUS |
-                 SERVICE_START | SERVICE_STOP;
+  DWORD access = SERVICE_CHANGE_CONFIG | SERVICE_QUERY_STATUS | SERVICE_START |
+                 SERVICE_STOP;
   ScopedScHandle service = OpenService(access);
-  if (!service.IsValid())
+  if (!service.IsValid()) {
     return false;
+  }
 
   // Change the service start type to 'auto'.
-  if (!::ChangeServiceConfigW(service.Get(),
-                              SERVICE_NO_CHANGE,
-                              SERVICE_AUTO_START,
-                              SERVICE_NO_CHANGE,
-                              nullptr,
-                              nullptr,
-                              nullptr,
-                              nullptr,
-                              nullptr,
-                              nullptr,
+  if (!::ChangeServiceConfigW(service.Get(), SERVICE_NO_CHANGE,
+                              SERVICE_AUTO_START, SERVICE_NO_CHANGE, nullptr,
+                              nullptr, nullptr, nullptr, nullptr, nullptr,
                               nullptr)) {
     PLOG(ERROR) << "Failed to change the '" << kWindowsServiceName
                 << "'service start type to 'auto'";
@@ -296,7 +277,7 @@ bool StartDaemon() {
     DWORD error = GetLastError();
     if (error != ERROR_SERVICE_ALREADY_RUNNING) {
       LOG(ERROR) << "Failed to start the '" << kWindowsServiceName
-                  << "'service: " << error;
+                 << "'service: " << error;
 
       return false;
     }
@@ -306,23 +287,17 @@ bool StartDaemon() {
 }
 
 bool StopDaemon() {
-  DWORD access = SERVICE_CHANGE_CONFIG | SERVICE_QUERY_STATUS |
-                 SERVICE_START | SERVICE_STOP;
+  DWORD access = SERVICE_CHANGE_CONFIG | SERVICE_QUERY_STATUS | SERVICE_START |
+                 SERVICE_STOP;
   ScopedScHandle service = OpenService(access);
-  if (!service.IsValid())
+  if (!service.IsValid()) {
     return false;
+  }
 
   // Change the service start type to 'manual'.
-  if (!::ChangeServiceConfigW(service.Get(),
-                              SERVICE_NO_CHANGE,
-                              SERVICE_DEMAND_START,
-                              SERVICE_NO_CHANGE,
-                              nullptr,
-                              nullptr,
-                              nullptr,
-                              nullptr,
-                              nullptr,
-                              nullptr,
+  if (!::ChangeServiceConfigW(service.Get(), SERVICE_NO_CHANGE,
+                              SERVICE_DEMAND_START, SERVICE_NO_CHANGE, nullptr,
+                              nullptr, nullptr, nullptr, nullptr, nullptr,
                               nullptr)) {
     PLOG(ERROR) << "Failed to change the '" << kWindowsServiceName
                 << "'service start type to 'manual'";
@@ -335,7 +310,7 @@ bool StopDaemon() {
     DWORD error = GetLastError();
     if (error != ERROR_SERVICE_NOT_ACTIVE) {
       LOG(ERROR) << "Failed to stop the '" << kWindowsServiceName
-                  << "'service: " << error;
+                 << "'service: " << error;
       return false;
     }
   }
@@ -345,47 +320,46 @@ bool StopDaemon() {
 
 }  // namespace
 
-DaemonControllerDelegateWin::DaemonControllerDelegateWin() {
-}
+DaemonControllerDelegateWin::DaemonControllerDelegateWin() {}
 
-DaemonControllerDelegateWin::~DaemonControllerDelegateWin() {
-}
+DaemonControllerDelegateWin::~DaemonControllerDelegateWin() {}
 
 DaemonController::State DaemonControllerDelegateWin::GetState() {
   // TODO(alexeypa): Make the thread alertable, so we can switch to APC
   // notifications rather than polling.
   ScopedScHandle service = OpenService(SERVICE_QUERY_STATUS);
-  if (!service.IsValid())
+  if (!service.IsValid()) {
     return DaemonController::STATE_UNKNOWN;
+  }
 
   SERVICE_STATUS status;
   if (!::QueryServiceStatus(service.Get(), &status)) {
-    PLOG(ERROR) << "Failed to query the state of the '"
-                << kWindowsServiceName << "' service";
+    PLOG(ERROR) << "Failed to query the state of the '" << kWindowsServiceName
+                << "' service";
     return DaemonController::STATE_UNKNOWN;
   }
 
   return ConvertToDaemonState(status.dwCurrentState);
 }
 
-std::unique_ptr<base::DictionaryValue>
-DaemonControllerDelegateWin::GetConfig() {
+absl::optional<base::Value::Dict> DaemonControllerDelegateWin::GetConfig() {
   base::FilePath config_dir = remoting::GetConfigDir();
 
   // Read the unprivileged part of host configuration.
-  std::unique_ptr<base::DictionaryValue> config;
-  if (!ReadConfig(config_dir.Append(kUnprivilegedConfigFileName), &config))
-    return nullptr;
+  base::Value::Dict config;
+  if (!ReadConfig(config_dir.Append(kUnprivilegedConfigFileName), config)) {
+    return absl::nullopt;
+  }
 
   return config;
 }
 
 void DaemonControllerDelegateWin::UpdateConfig(
-    std::unique_ptr<base::DictionaryValue> config,
+    base::Value::Dict config,
     DaemonController::CompletionCallback done) {
   // Check for bad keys.
-  for (size_t i = 0; i < base::size(kReadonlyKeys); ++i) {
-    if (config->HasKey(kReadonlyKeys[i])) {
+  for (size_t i = 0; i < std::size(kReadonlyKeys); ++i) {
+    if (config.Find(kReadonlyKeys[i])) {
       LOG(ERROR) << "Cannot update config: '" << kReadonlyKeys[i]
                  << "' is read only.";
       InvokeCompletionCallback(std::move(done), false);
@@ -394,18 +368,18 @@ void DaemonControllerDelegateWin::UpdateConfig(
   }
   // Get the old config.
   base::FilePath config_dir = remoting::GetConfigDir();
-  std::unique_ptr<base::DictionaryValue> config_old;
-  if (!ReadConfig(config_dir.Append(kConfigFileName), &config_old)) {
+  base::Value::Dict config_old;
+  if (!ReadConfig(config_dir.Append(kConfigFileName), config_old)) {
     InvokeCompletionCallback(std::move(done), false);
     return;
   }
 
   // Merge items from the given config into the old config.
-  config_old->MergeDictionary(config.release());
+  config_old.Merge(std::move(config));
 
   // Write the updated config.
   std::string config_updated_str;
-  base::JSONWriter::Write(*config_old, &config_updated_str);
+  base::JSONWriter::Write(config_old, &config_updated_str);
   bool result = WriteConfig(config_updated_str);
 
   InvokeCompletionCallback(std::move(done), result);
@@ -445,7 +419,7 @@ void DaemonControllerDelegateWin::CheckPermission(
 }
 
 void DaemonControllerDelegateWin::SetConfigAndStart(
-    std::unique_ptr<base::DictionaryValue> config,
+    base::Value::Dict config,
     bool consent,
     DaemonController::CompletionCallback done) {
   // Record the user's consent.
@@ -456,7 +430,7 @@ void DaemonControllerDelegateWin::SetConfigAndStart(
 
   // Set the configuration.
   std::string config_str;
-  base::JSONWriter::Write(*config, &config_str);
+  base::JSONWriter::Write(config, &config_str);
 
   // Determine the config directory path and create it if necessary.
   base::FilePath config_dir = remoting::GetConfigDir();

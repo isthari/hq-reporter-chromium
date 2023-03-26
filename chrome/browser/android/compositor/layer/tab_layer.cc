@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -337,7 +337,7 @@ void TabLayer::SetProperties(int id,
   front_border_->SetAperture(border_resource->aperture());
   front_border_->SetBorder(border_resource->Border(
       border_size,
-      gfx::InsetsF(1.f, side_border_scale, 1.f, side_border_scale)));
+      gfx::InsetsF::TLBR(1.f, side_border_scale, 1.f, side_border_scale)));
 
   front_border_inner_shadow_->SetUIResourceId(
       border_inner_shadow_resource->ui_resource()->id());
@@ -346,8 +346,11 @@ void TabLayer::SetProperties(int id,
   front_border_inner_shadow_->SetBorder(border_inner_shadow_resource->Border(
       border_inner_shadow_size));
 
-  side_padding_->SetBackgroundColor(default_background_color);
-  bottom_padding_->SetBackgroundColor(default_background_color);
+  // TODO(crbug/1308932): Remove FromColor and make all SkColor4f.
+  side_padding_->SetBackgroundColor(
+      SkColor4f::FromColor(default_background_color));
+  bottom_padding_->SetBackgroundColor(
+      SkColor4f::FromColor(default_background_color));
 
   gfx::Rect rounded_descaled_content_area(
       base::ClampRound(descaled_local_content_area.x()),

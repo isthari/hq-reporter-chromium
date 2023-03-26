@@ -1,9 +1,8 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
 #include "mojo/public/cpp/bindings/lib/message_fragment.h"
@@ -117,8 +116,9 @@ TEST_F(WTFTypesTest, Serialization_WTFVectorToWTFVector) {
   mojo::internal::MessageFragment<
       typename mojo::internal::MojomTypeTraits<MojomType>::Data>
       fragment(message);
-  mojo::internal::ContainerValidateParams validate_params(
-      0, true, new mojo::internal::ContainerValidateParams(0, false, nullptr));
+  constexpr const mojo::internal::ContainerValidateParams& validate_params =
+      mojo::internal::GetArrayValidator<
+          0, true, &mojo::internal::GetArrayValidator<0, false, nullptr>()>();
   mojo::internal::Serialize<MojomType>(cloned_strs, fragment, &validate_params);
 
   WTF::Vector<WTF::String> strs2;
@@ -142,8 +142,9 @@ TEST_F(WTFTypesTest, Serialization_WTFVectorInlineCapacity) {
   mojo::internal::MessageFragment<
       typename mojo::internal::MojomTypeTraits<MojomType>::Data>
       fragment(message);
-  mojo::internal::ContainerValidateParams validate_params(
-      0, true, new mojo::internal::ContainerValidateParams(0, false, nullptr));
+  constexpr const mojo::internal::ContainerValidateParams& validate_params =
+      mojo::internal::GetArrayValidator<
+          0, true, &mojo::internal::GetArrayValidator<0, false, nullptr>()>();
   mojo::internal::Serialize<MojomType>(cloned_strs, fragment, &validate_params);
 
   WTF::Vector<WTF::String, 1> strs2;
@@ -162,8 +163,9 @@ TEST_F(WTFTypesTest, Serialization_WTFVectorToStlVector) {
   mojo::internal::MessageFragment<
       typename mojo::internal::MojomTypeTraits<MojomType>::Data>
       fragment(message);
-  mojo::internal::ContainerValidateParams validate_params(
-      0, true, new mojo::internal::ContainerValidateParams(0, false, nullptr));
+  constexpr const mojo::internal::ContainerValidateParams& validate_params =
+      mojo::internal::GetArrayValidator<
+          0, true, &mojo::internal::GetArrayValidator<0, false, nullptr>()>();
   mojo::internal::Serialize<MojomType>(cloned_strs, fragment, &validate_params);
 
   std::vector<absl::optional<std::string>> strs2;
@@ -219,7 +221,7 @@ TEST_F(WTFTypesTest, SendStringArray) {
   // arrs[1] is null.
   arrs[2] = ConstructStringArray();
 
-  for (size_t i = 0; i < base::size(arrs); ++i) {
+  for (size_t i = 0; i < std::size(arrs); ++i) {
     base::RunLoop loop;
     // Test that a absl::optional<WTF::Vector<WTF::String>> is unchanged after
     // the following conversion:
@@ -246,7 +248,7 @@ TEST_F(WTFTypesTest, SendStringMap) {
   // maps[1] is null.
   maps[2] = ConstructStringMap();
 
-  for (size_t i = 0; i < base::size(maps); ++i) {
+  for (size_t i = 0; i < std::size(maps); ++i) {
     base::RunLoop loop;
     // Test that a absl::optional<WTF::HashMap<WTF::String, WTF::String>> is
     // unchanged after the following conversion:

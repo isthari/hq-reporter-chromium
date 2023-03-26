@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,11 @@
 #include "android_webview/nonembedded/webview_apk_process.h"
 #include "base/android/callback_android.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/command_line.h"
+#include "base/functional/callback_helpers.h"
 #include "base/no_destructor.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "components/component_updater/component_installer.h"
 #include "components/component_updater/component_updater_service.h"
@@ -115,7 +115,7 @@ void AwComponentUpdateService::CheckForUpdates(UpdateCallback on_finished,
   }
 
   if (unsecure_ids.empty() && secure_ids.empty()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(on_finished), 0));
     return;
   }
@@ -164,7 +164,7 @@ void AwComponentUpdateService::OnUpdateComplete(
   // CrxUpdateService once we support logging metrics from nonembedded WebView.
 
   if (!callback.is_null()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), error));
   }
 }

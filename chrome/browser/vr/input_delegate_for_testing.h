@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <queue>
 
 #include "base/memory/raw_ptr.h"
+#include "base/time/time.h"
 #include "chrome/browser/vr/gesture_detector.h"
 #include "chrome/browser/vr/input_delegate.h"
 #include "chrome/browser/vr/model/controller_model.h"
@@ -35,7 +36,6 @@ class InputDelegateForTesting : public InputDelegate {
   void UpdateController(const gfx::Transform& head_pose,
                         base::TimeTicks current_time,
                         bool is_webxr_frame) override;
-  ControllerModel GetControllerModel(const gfx::Transform& head_pose) override;
   InputEventList GetGestures(base::TimeTicks current_time) override;
   device::mojom::XRInputSourceStatePtr GetInputSourceState() override;
   void OnResume() override;

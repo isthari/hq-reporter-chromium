@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,7 +39,8 @@ ExtensionViewHost::ExtensionViewHost(const Extension* extension,
       browser_(browser) {
   // Not used for panels, see PanelHost.
   DCHECK(host_type == mojom::ViewType::kExtensionDialog ||
-         host_type == mojom::ViewType::kExtensionPopup);
+         host_type == mojom::ViewType::kExtensionPopup ||
+         host_type == mojom::ViewType::kExtensionSidePanel);
 
   // The browser should always be associated with the same original profile as
   // this view host. The profiles may not be identical (i.e., one may be the
@@ -55,8 +56,10 @@ ExtensionViewHost::ExtensionViewHost(const Extension* extension,
   autofill::ContentAutofillDriverFactory::CreateForWebContentsAndDelegate(
       host_contents(),
       autofill::ChromeAutofillClient::FromWebContents(host_contents()),
-      g_browser_process->GetApplicationLocale(),
-      autofill::BrowserAutofillManager::ENABLE_AUTOFILL_DOWNLOAD_MANAGER);
+      base::BindRepeating(
+          &autofill::BrowserDriverInitHook,
+          autofill::ChromeAutofillClient::FromWebContents(host_contents()),
+          g_browser_process->GetApplicationLocale()));
 
   // The popup itself cannot be zoomed, but we must specify a zoom level to use.
   // Otherwise, if a user zooms a page of the same extension, the popup would
@@ -65,11 +68,7 @@ ExtensionViewHost::ExtensionViewHost(const Extension* extension,
     content::HostZoomMap* zoom_map =
         content::HostZoomMap::GetForWebContents(host_contents());
     zoom_map->SetTemporaryZoomLevel(
-        host_contents()
-            ->GetMainFrame()
-            ->GetProcess()
-            ->GetID(),
-        host_contents()->GetMainFrame()->GetRenderViewHost()->GetRoutingID(),
+        host_contents()->GetPrimaryMainFrame()->GetGlobalId(),
         zoom_map->GetDefaultZoomLevel());
   }
 }
@@ -147,11 +146,11 @@ content::WebContents* ExtensionViewHost::OpenURLFromTab(
 }
 
 bool ExtensionViewHost::ShouldAllowRendererInitiatedCrossProcessNavigation(
-    bool is_main_frame_navigation) {
+    bool is_outermost_main_frame_navigation) {
   // Block navigations that cause main frame of an extension pop-up (or
   // background page) to navigate to non-extension content (i.e. to web
   // content).
-  return !is_main_frame_navigation;
+  return !is_outermost_main_frame_navigation;
 }
 
 content::KeyboardEventProcessingResult

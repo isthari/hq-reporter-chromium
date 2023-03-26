@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 
 #include <memory>
 
-#include "base/cxx17_backports.h"
 #include "base/json/json_value_converter.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
@@ -53,10 +52,11 @@ bool GetParentsFromValue(const base::Value* value,
   if (!value->is_list())
     return false;
 
+  const base::Value::List& list = value->GetList();
   base::JSONValueConverter<ParentReference> converter;
-  result->resize(value->GetList().size());
-  for (size_t i = 0; i < value->GetList().size(); ++i) {
-    const base::Value& parent_value = value->GetList()[i];
+  result->resize(list.size());
+  for (size_t i = 0; i < list.size(); ++i) {
+    const base::Value& parent_value = list[i];
     if (!converter.Convert(parent_value, &(*result)[i]))
       return false;
   }
@@ -72,19 +72,19 @@ bool GetOpenWithLinksFromDictionaryValue(
   DCHECK(value);
   DCHECK(result);
 
-  const base::DictionaryValue* dictionary_value;
-  if (!value->GetAsDictionary(&dictionary_value))
+  const auto* dict = value->GetIfDict();
+  if (!dict) {
     return false;
+  }
 
-  result->reserve(dictionary_value->DictSize());
-  for (base::DictionaryValue::Iterator iter(*dictionary_value); !iter.IsAtEnd();
-       iter.Advance()) {
-    const std::string* string_value = iter.value().GetIfString();
+  result->reserve(dict->size());
+  for (const auto item : *dict) {
+    const std::string* string_value = item.second.GetIfString();
     if (!string_value)
       return false;
 
     FileResource::OpenWithLink open_with_link;
-    open_with_link.app_id = iter.key();
+    open_with_link.app_id = item.first;
     open_with_link.open_url = GURL(*string_value);
     result->push_back(open_with_link);
   }
@@ -655,7 +655,7 @@ bool ChangeResource::Parse(const base::Value& value) {
 // static
 bool ChangeResource::GetType(base::StringPiece type_name,
                              ChangeResource::ChangeType* result) {
-  for (size_t i = 0; i < base::size(kChangeTypeMap); i++) {
+  for (size_t i = 0; i < std::size(kChangeTypeMap); i++) {
     if (type_name == kChangeTypeMap[i].type_name) {
       *result = kChangeTypeMap[i].type;
       return true;

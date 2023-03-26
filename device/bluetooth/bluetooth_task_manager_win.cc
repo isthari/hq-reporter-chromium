@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,14 +11,13 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/no_destructor.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_thread_priority.h"
@@ -563,10 +562,6 @@ bool BluetoothTaskManagerWin::SearchClassicDevices(
 
 bool BluetoothTaskManagerWin::SearchLowEnergyDevices(
     std::vector<std::unique_ptr<DeviceState>>* device_list) {
-  if (!le_wrapper_->IsBluetoothLowEnergySupported()) {
-    return true;  // Bluetooth LE not supported is not an error.
-  }
-
   std::vector<std::unique_ptr<win::BluetoothLowEnergyDeviceInfo>> btle_devices;
   std::string error;
   bool success = le_wrapper_->EnumerateKnownBluetoothLowEnergyDevices(
@@ -723,10 +718,6 @@ int BluetoothTaskManagerWin::DiscoverClassicDeviceServicesWorker(
 bool BluetoothTaskManagerWin::DiscoverLowEnergyDeviceServices(
     const base::FilePath& device_path,
     std::vector<std::unique_ptr<ServiceRecordState>>* service_record_states) {
-  if (!le_wrapper_->IsBluetoothLowEnergySupported()) {
-    return true;  // Bluetooth LE not supported is not an error.
-  }
-
   std::string error;
   std::vector<std::unique_ptr<win::BluetoothLowEnergyServiceInfo>> services;
   bool success = le_wrapper_->EnumerateKnownBluetoothLowEnergyServices(

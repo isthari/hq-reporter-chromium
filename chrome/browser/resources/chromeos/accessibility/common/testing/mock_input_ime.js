@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,6 +26,16 @@ let MockImeCompositionParameters;
  */
 let MockImeCommitParameters;
 
+/**
+ * @typedef {{
+ * anchor: number,
+ * focus: number,
+ * offset: number,
+ * text: string,
+ * }}
+ */
+let SurroundingInfo;
+
 /*
  * A mock chrome.input.ime API for tests.
  */
@@ -35,6 +45,9 @@ var MockInputIme = {
 
   /** @private {function<number>} */
   onBlurListener_: null,
+
+  /** @private {function<number>} */
+  onSurroundingTextChangedListener_: null,
 
   /** @private {MockImeCompositionParameters} */
   lastCompositionParameters_: null,
@@ -52,7 +65,7 @@ var MockInputIme = {
      * Adds a listener to onFocus.
      * @param {function<InputContext>} listener
      */
-    addListener: (listener) => {
+    addListener: listener => {
       MockInputIme.onFocusListener_ = listener;
     },
 
@@ -60,11 +73,11 @@ var MockInputIme = {
      * Removes the listener.
      * @param {function<InputContext>} listener
      */
-    removeListener: (listener) => {
+    removeListener: listener => {
       if (MockInputIme.onFocusListener_ === listener) {
         MockInputIme.onFocusListener_ = null;
       }
-    }
+    },
   },
 
   onBlur: {
@@ -72,7 +85,7 @@ var MockInputIme = {
      * Adds a listener to onBlur.
      * @param {function<number>} listener
      */
-    addListener: (listener) => {
+    addListener: listener => {
       MockInputIme.onBlurListener_ = listener;
     },
 
@@ -80,11 +93,31 @@ var MockInputIme = {
      * Removes the listener.
      * @param {function<number>} listener
      */
-    removeListener: (listener) => {
+    removeListener: listener => {
       if (MockInputIme.onBlurListener_ === listener) {
         MockInputIme.onBlurListener_ = null;
       }
-    }
+    },
+  },
+
+  onSurroundingTextChanged: {
+    /**
+     * Adds a listener to onSurroundingTextChanged.
+     * @param {function<number>} listener
+     */
+    addListener: listener => {
+      MockInputIme.onSurroundingTextChangedListener_ = listener;
+    },
+
+    /**
+     * Removes the listener.
+     * @param {function<number>} listener
+     */
+    removeListener: listener => {
+      if (MockInputIme.onSurroundingTextChangedListener_ === listener) {
+        MockInputIme.onSurroundingTextChangedListener_ = null;
+      }
+    },
   },
 
   /** @param {!MockImeCompositionParameters} composition */
@@ -136,6 +169,18 @@ var MockInputIme = {
   },
 
   /**
+   * Calls listeners for chrome.input.ime.onSurroundingTextChanged with the
+   * given surroundingInfo object.
+   * @param {!SurroundingInfo} surroundingInfo
+   */
+  callOnSurroundingTextChanged(surroundingInfo) {
+    if (MockInputIme.onSurroundingTextChangedListener_) {
+      MockInputIme.onSurroundingTextChangedListener_(
+          'dictation', surroundingInfo);
+    }
+  },
+
+  /**
    * Gets the most recently set composition parameters.
    * @return {MockImeCompositionParameters}
    */
@@ -165,5 +210,5 @@ var MockInputIme = {
     return new Promise(resolve => {
       this.waitForCommitResolve_ = resolve;
     });
-  }
+  },
 };

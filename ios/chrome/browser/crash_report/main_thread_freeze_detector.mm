@@ -1,18 +1,19 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/crash_report/main_thread_freeze_detector.h"
+#import "ios/chrome/browser/crash_report/main_thread_freeze_detector.h"
 
-#include "base/debug/debugger.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/time/time.h"
-#include "components/crash/core/app/crashpad.h"
-#include "components/crash/core/common/crash_key.h"
-#include "components/crash/core/common/reporter_running_ios.h"
-#include "ios/chrome/app/tests_hook.h"
-#include "ios/chrome/browser/crash_report/crash_helper.h"
+#import "base/debug/debugger.h"
+#import "base/files/file_util.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/time/time.h"
+#import "components/crash/core/app/crashpad.h"
+#import "components/crash/core/common/crash_key.h"
+#import "components/crash/core/common/reporter_running_ios.h"
+#import "ios/chrome/app/tests_hook.h"
+#import "ios/chrome/browser/crash_report/crash_helper.h"
 #import "third_party/breakpad/breakpad/src/client/ios/Breakpad.h"
 #import "third_party/breakpad/breakpad/src/client/ios/BreakpadController.h"
 
@@ -21,7 +22,7 @@
 #endif
 namespace {
 // The info contains a dictionary with info about the freeze report.
-// See description at |_lastSessionFreezeInfo|.
+// See description at `_lastSessionFreezeInfo`.
 const char kNsUserDefaultKeyLastSessionInfo[] =
     "MainThreadDetectionLastThreadWasFrozenInfo";
 
@@ -32,6 +33,11 @@ const NSTimeInterval kFreezeDetectionDelay = 9;
 
 void LogRecoveryTime(base::TimeDelta time) {
   UMA_HISTOGRAM_TIMES("IOS.MainThreadFreezeDetection.RecoveredAfter", time);
+}
+
+void LogRecordHangGenerationTime(base::TimeTicks start_time) {
+  UMA_HISTOGRAM_TIMES("IOS.MainThreadFreezeDetection.RecordGenerationTime",
+                      base::TimeTicks::Now() - start_time);
 }
 
 // Key indicating that UI thread is frozen.
@@ -51,6 +57,13 @@ enum class IOSMainThreadFreezeDetectionNotRunningAfterReportBlock {
   kMaxValue = kAfterCrashpadDumpWithoutCrash,
 };
 
+// Only MetricKit reports currently use attachements.
+bool IsMetricKitReport(crash_reporter::Report report) {
+  return base::ComputeDirectorySize(crash_reporter::GetCrashpadDatabasePath()
+                                        .Append("attachments")
+                                        .Append(report.local_id)) > 0;
+}
+
 }  // namespace
 
 @interface MainThreadFreezeDetector ()
@@ -59,7 +72,7 @@ enum class IOSMainThreadFreezeDetectionNotRunningAfterReportBlock {
 // The callback that is called regularly on watchdog thread.
 - (void)runInFreezeDetectionQueue;
 // These 4 properties will be accessed from both thread. Make them atomic.
-// The date at which |runInMainLoop| was last called.
+// The date at which `runInMainLoop` was last called.
 @property(atomic) NSDate* lastSeenMainThread;
 // Whether the watchdog should continue running.
 @property(atomic) BOOL running;
@@ -76,8 +89,8 @@ enum class IOSMainThreadFreezeDetectionNotRunningAfterReportBlock {
 
   // The information on the UTE report that was created on last session.
   // Contains 3 fields:
-  // "dump": the file name of the .dmp file in |_UTEDirectory|,
-  // "config": the file name of the config file in |_UTEDirectory|,
+  // "dump": the file name of the .dmp file in `_UTEDirectory`,
+  // "config": the file name of the config file in `_UTEDirectory`,
   // "date": the date at which the UTE file was generated.
   // NOTE: Fields are unused with crashpad.
   NSDictionary* _lastSessionFreezeInfo;
@@ -225,6 +238,7 @@ enum class IOSMainThreadFreezeDetectionNotRunningAfterReportBlock {
   if ([[NSDate date] timeIntervalSinceDate:self.lastSeenMainThread] >
       self.delay) {
     if (crash_reporter::IsCrashpadRunning()) {
+      const base::TimeTicks start = base::TimeTicks::Now();
       static crash_reporter::CrashKeyString<4> key("hang-report");
       crash_reporter::ScopedCrashKeyString auto_clear(&key, "yes");
       NSString* intermediate_dump = [_UTEDirectory
@@ -243,12 +257,15 @@ enum class IOSMainThreadFreezeDetectionNotRunningAfterReportBlock {
           setObject:@{@"dump" : @"", @"config" : @"", @"date" : [NSDate date]}
              forKey:@(kNsUserDefaultKeyLastSessionInfo)];
       self.reportGenerated = YES;
+      LogRecordHangGenerationTime(start);
       return;
     }
 
     [[BreakpadController sharedInstance]
         withBreakpadRef:^(BreakpadRef breakpadRef) {
+          const base::TimeTicks start = base::TimeTicks::Now();
           [self recordHangWithBreakpadRef:breakpadRef];
+          LogRecordHangGenerationTime(start);
         }];
     return;
   }
@@ -279,7 +296,7 @@ enum class IOSMainThreadFreezeDetectionNotRunningAfterReportBlock {
   }
   // The report is always generated in the BreakpadDirectory.
   // As only one report can be uploaded per session, this report is
-  // moved out of the Breakpad directory and put in a |UTE| directory.
+  // moved out of the Breakpad directory and put in a `UTE` directory.
   NSString* configFile =
       [breakpadReportInfo objectForKey:@BREAKPAD_OUTPUT_CONFIG_FILE];
   NSString* UTEConfigFile = [_UTEDirectory
@@ -317,12 +334,16 @@ enum class IOSMainThreadFreezeDetectionNotRunningAfterReportBlock {
     return;
 
   // Get the most recent crash capture_time. -GetReports is already sorted
-  // by newest first so just grab the first one.
+  // by newest first so just grab the first non-MetricKit report.
   time_t newest_crash = 0;
   std::vector<crash_reporter::Report> reports;
   crash_reporter::GetReports(&reports);
-  if (reports.size())
-    newest_crash = reports[0].capture_time;
+  for (size_t i = 0; i < reports.size(); i++) {
+    if (!IsMetricKitReport(reports[i])) {
+      newest_crash = reports[i].capture_time;
+      break;
+    }
+  }
 
   // Process any hang reports that have a modification time newer than the
   // newest crash.
@@ -424,8 +445,8 @@ enum class IOSMainThreadFreezeDetectionNotRunningAfterReportBlock {
   [self restoreLastSessionReportIfNeeded];
   NSFileManager* fileManager = [[NSFileManager alloc] init];
   // It is possible that this call will delete a report on the current session.
-  // But this is unlikely because |handleLastSessionReport| run on the
-  // |_freezeDetectionQueue| and is called directly from setEnabled which means
+  // But this is unlikely because `handleLastSessionReport` run on the
+  // `_freezeDetectionQueue` and is called directly from setEnabled which means
   // that main thread was responding recently.
   [fileManager removeItemAtPath:_UTEDirectory error:nil];
   [fileManager createDirectoryAtPath:_UTEDirectory

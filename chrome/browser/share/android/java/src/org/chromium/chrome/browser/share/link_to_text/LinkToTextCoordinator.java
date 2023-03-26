@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@ package org.chromium.chrome.browser.share.link_to_text;
 import androidx.annotation.IntDef;
 import androidx.annotation.VisibleForTesting;
 
-import org.chromium.base.Callback;
 import org.chromium.base.task.PostTask;
 import org.chromium.blink.mojom.TextFragmentReceiver;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
@@ -15,16 +14,11 @@ import org.chromium.chrome.browser.share.ChromeShareExtras;
 import org.chromium.chrome.browser.share.share_sheet.ChromeOptionShareCallback;
 import org.chromium.chrome.browser.share.share_sheet.ShareSheetLinkToggleCoordinator.LinkToggleState;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
-import org.chromium.chrome.browser.tab.SadTab;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabHidingType;
 import org.chromium.components.browser_ui.share.ShareParams;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.url.GURL;
-
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
 
 /**
  * Handles the Link To Text action in the Sharing Hub.
@@ -50,9 +44,6 @@ public class LinkToTextCoordinator extends EmptyTabObserver {
     private static final String SHARE_TEXT_TEMPLATE = "\"%s\"\n";
     private static final String INVALID_SELECTOR = "";
     private static final int TIMEOUT_MS = 100;
-    private static final Set<String> AMP_VIEWER_DOMAINS =
-            new HashSet<>(Arrays.asList("google.com/amp/", "bing.com/amp"));
-    private static final int LENGTH_AMP_DOMAIN = 15;
     private static final int PREVIEW_MAX_LENGTH = 35;
     private static final int PREVIEW_SELECTED_TEXT_CUTOFF_LENGTH = 32;
     private static final String PREVIEW_ELLIPSIS = "...";
@@ -69,7 +60,7 @@ public class LinkToTextCoordinator extends EmptyTabObserver {
     private ShareParams mShareTextParams;
     public @RemoteRequestStatus int mRemoteRequestStatus;
 
-    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    @VisibleForTesting
     LinkToTextCoordinator() {}
 
     public LinkToTextCoordinator(Tab tab, ChromeOptionShareCallback chromeOptionShareCallback,
@@ -79,7 +70,7 @@ public class LinkToTextCoordinator extends EmptyTabObserver {
                 visibleUrl, selectedText);
     }
 
-    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    @VisibleForTesting
     void initLinkToTextCoordinator(Tab tab, ChromeOptionShareCallback chromeOptionShareCallback,
             ChromeShareExtras chromeShareExtras, long shareStartTime, String visibleUrl,
             String selectedText) {
@@ -136,10 +127,7 @@ public class LinkToTextCoordinator extends EmptyTabObserver {
             return mSelectedText;
         }
 
-        StringBuilder sb = new StringBuilder();
-        sb.append(mSelectedText.substring(0, PREVIEW_SELECTED_TEXT_CUTOFF_LENGTH));
-        sb.append(PREVIEW_ELLIPSIS);
-        return sb.toString();
+        return mSelectedText.substring(0, PREVIEW_SELECTED_TEXT_CUTOFF_LENGTH) + PREVIEW_ELLIPSIS;
     }
 
     private void startRequestSelector() {
@@ -157,10 +145,10 @@ public class LinkToTextCoordinator extends EmptyTabObserver {
         }
 
         PostTask.postDelayedTask(UiThreadTaskTraits.DEFAULT, () -> timeout(), getTimeout());
-        requestSelectorForCanonicalUrl();
+        requestSelector();
     }
 
-    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    @VisibleForTesting
     void reshareHighlightedText() {
         setTextFragmentReceiver();
         if (mProducer == null) {
@@ -177,8 +165,24 @@ public class LinkToTextCoordinator extends EmptyTabObserver {
         });
     }
 
-    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    @VisibleForTesting
     void onReshareSelectorsRemoteRequestCompleted(String selectors) {
+        if (mRemoteRequestStatus == RemoteRequestStatus.CANCELLED) return;
+        if (selectors.isEmpty()) {
+            completeReshareWithFailure(LinkToTextReshareStatus.EMPTY_SELECTOR);
+            return;
+        }
+
+        LinkToTextHelper.requestCanonicalUrl(mTab, (canonicalUrl) -> {
+            if (!canonicalUrl.isEmpty()) {
+                mShareUrl = canonicalUrl;
+            }
+            reshareRequestCompleted(selectors);
+        });
+    }
+
+    @VisibleForTesting
+    void reshareRequestCompleted(String selectors) {
         if (mRemoteRequestStatus == RemoteRequestStatus.CANCELLED) return;
 
         mRemoteRequestStatus = RemoteRequestStatus.COMPLETED;
@@ -215,7 +219,7 @@ public class LinkToTextCoordinator extends EmptyTabObserver {
         }
     }
 
-    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    @VisibleForTesting
     void onRemoteRequestCompleted(String selector, Integer error, Integer readyStatus) {
         if (mRemoteRequestStatus == RemoteRequestStatus.CANCELLED) return;
 
@@ -225,7 +229,14 @@ public class LinkToTextCoordinator extends EmptyTabObserver {
 
         if (success) {
             assert error == LinkGenerationError.NONE;
-            completeRemoteRequestWithSuccess(selector);
+
+            // Request canonical url when we have a successful generation.
+            LinkToTextHelper.requestCanonicalUrl(mTab, (canonicalUrl) -> {
+                if (!canonicalUrl.isEmpty()) {
+                    mShareUrl = canonicalUrl;
+                }
+                completeRemoteRequestWithSuccess(selector);
+            });
         } else {
             assert error != LinkGenerationError.NONE;
             completeRequestWithFailure(error.intValue());
@@ -238,7 +249,7 @@ public class LinkToTextCoordinator extends EmptyTabObserver {
         LinkToTextBridge.logLinkRequestedBeforeStatus(status, readyStatus.intValue());
     }
 
-    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    @VisibleForTesting
     void requestSelector() {
         LinkToTextMetricsHelper.recordLinkToTextDiagnoseStatus(
                 LinkToTextMetricsHelper.LinkToTextDiagnoseStatus.REQUEST_SELECTOR);
@@ -254,35 +265,9 @@ public class LinkToTextCoordinator extends EmptyTabObserver {
         LinkToTextHelper.requestSelector(mProducer, this::onRemoteRequestCompleted);
     }
 
-    private void requestSelectorForCanonicalUrl() {
-        if (shouldRequestCanonicalUrl()) {
-            mTab.getWebContents().getMainFrame().getCanonicalUrlForSharing(new Callback<GURL>() {
-                @Override
-                public void onResult(GURL result) {
-                    if (!result.isEmpty()) {
-                        mShareUrl = result.getSpec();
-                    }
-                    requestSelector();
-                }
-            });
-        } else {
-            requestSelector();
-        }
-    }
-
-    private boolean shouldRequestCanonicalUrl() {
-        if (mTab.getWebContents() == null) return false;
-        if (mTab.getWebContents().getMainFrame() == null) return false;
-        if (mTab.getUrl().isEmpty()) return false;
-        if (mTab.isShowingErrorPage() || SadTab.isShowing(mTab)) {
-            return false;
-        }
-        return true;
-    }
-
     private void setTextFragmentReceiver() {
         if (mChromeShareExtras.getRenderFrameHost() != null
-                && mChromeShareExtras.getRenderFrameHost().isRenderFrameCreated()) {
+                && mChromeShareExtras.getRenderFrameHost().isRenderFrameLive()) {
             mProducer = mChromeShareExtras.getRenderFrameHost().getInterfaceToRendererFrame(
                     TextFragmentReceiver.MANAGER);
             return;
@@ -314,7 +299,7 @@ public class LinkToTextCoordinator extends EmptyTabObserver {
         mTab.removeObserver(this);
     }
 
-    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    @VisibleForTesting
     void timeout() {
         assert (mRemoteRequestStatus == RemoteRequestStatus.REQUESTED
                 || mRemoteRequestStatus == RemoteRequestStatus.COMPLETED);

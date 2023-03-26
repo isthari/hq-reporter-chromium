@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,11 +36,20 @@ class ArcInputMethodManagerService
       public ArcInputMethodManagerBridge::Delegate,
       public ash::input_method::InputMethodManager::ImeMenuObserver,
       public ash::input_method::InputMethodManager::Observer,
-      public ui::IMEBridgeObserver {
+      public ash::IMEBridgeObserver {
  public:
   class Observer : public base::CheckedObserver {
    public:
     virtual void OnAndroidVirtualKeyboardVisibilityChanged(bool visible) = 0;
+  };
+
+  // The delegate class to access to the global window tree state.
+  // This class separates ash dependency from ArcInputMethodManagerService.
+  class WindowDelegate {
+   public:
+    virtual ~WindowDelegate() = default;
+    virtual aura::Window* GetFocusedWindow() const = 0;
+    virtual aura::Window* GetActiveWindow() const = 0;
   };
 
   // Returns the instance for the given BrowserContext, or nullptr if the
@@ -65,6 +74,7 @@ class ArcInputMethodManagerService
 
   void SetInputMethodManagerBridgeForTesting(
       std::unique_ptr<ArcInputMethodManagerBridge> test_bridge);
+  void SetWindowDelegateForTesting(std::unique_ptr<WindowDelegate> delegate);
 
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
@@ -91,7 +101,7 @@ class ArcInputMethodManagerService
                           Profile* profile,
                           bool show_message) override;
 
-  // ui::IMEBridgeObserver overrides:
+  // ash::IMEBridgeObserver overrides:
   void OnInputContextHandlerChanged() override;
 
   // Called when a11y keyboard option changed and disables ARC IME while a11y
@@ -168,6 +178,8 @@ class ArcInputMethodManagerService
   std::unique_ptr<ArcInputMethodBoundsObserver> input_method_bounds_observer_;
 
   base::CallbackListSubscription accessibility_status_subscription_;
+
+  std::unique_ptr<WindowDelegate> window_delegate_;
 
   base::ObserverList<Observer> observers_;
 };

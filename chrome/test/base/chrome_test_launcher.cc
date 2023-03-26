@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,16 +8,17 @@
 #include <utility>
 
 #include "base/base_paths.h"
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/debug/leak_annotations.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/process/process_metrics.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
+#include "base/test/allow_check_is_test_for_testing.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_file_util.h"
 #include "base/test/test_switches.h"
@@ -37,6 +38,9 @@
 #include "content/public/test/network_service_test_helper.h"
 #include "content/public/test/test_launcher.h"
 #include "content/public/test/test_utils.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/service_factory.h"
+#include "services/test/echo/echo_service.h"
 #include "ui/base/test/ui_controls.h"
 
 #if BUILDFLAG(IS_MAC)
@@ -55,6 +59,7 @@
 
 #if BUILDFLAG(IS_WIN)
 #include <Shlobj.h>
+#include "base/debug/handle_hooks_win.h"
 #include "base/win/registry.h"
 #include "base/win/scoped_com_initializer.h"
 #include "chrome/app/chrome_crash_reporter_client_win.h"
@@ -69,6 +74,13 @@
 #include "chrome/browser/first_run/scoped_relaunch_chrome_browser_override.h"
 #include "chrome/browser/upgrade_detector/installed_version_poller.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "base/files/file_enumerator.h"
+#include "base/files/file_util.h"
+#include "base/strings/string_number_conversions.h"
+#include "content/public/test/browser_test_switches.h"
 #endif
 
 // static
@@ -126,6 +138,14 @@ class ChromeTestLauncherDelegate::ScopedFirewallRules {
 
 #endif  // BUILDFLAG(IS_WIN)
 
+namespace {
+
+auto RunEchoService(mojo::PendingReceiver<echo::mojom::EchoService> receiver) {
+  return std::make_unique<echo::EchoService>(std::move(receiver));
+}
+
+}  // namespace
+
 ChromeTestLauncherDelegate::ChromeTestLauncherDelegate(
     ChromeTestSuiteRunner* runner)
     : runner_(runner) {}
@@ -152,11 +172,30 @@ class BrowserTestChromeContentBrowserClient
   }
 };
 
+// A replacement ChromeContentUtilityClient that binds the
+// echo::mojom::EchoService within the Utility process. For use with testing
+// only.
+class BrowserTestChromeContentUtilityClient
+    : public ChromeContentUtilityClient {
+ public:
+  void RegisterIOThreadServices(mojo::ServiceFactory& services) override {
+    ChromeContentUtilityClient::RegisterIOThreadServices(services);
+    services.Add(RunEchoService);
+  }
+};
+
 content::ContentBrowserClient*
 ChromeTestChromeMainDelegate::CreateContentBrowserClient() {
   chrome_content_browser_client_ =
       std::make_unique<BrowserTestChromeContentBrowserClient>();
   return chrome_content_browser_client_.get();
+}
+
+content::ContentUtilityClient*
+ChromeTestChromeMainDelegate::CreateContentUtilityClient() {
+  chrome_content_utility_client_ =
+      std::make_unique<BrowserTestChromeContentUtilityClient>();
+  return chrome_content_utility_client_.get();
 }
 
 #if BUILDFLAG(IS_WIN)
@@ -200,11 +239,34 @@ void ChromeTestLauncherDelegate::PreSharding() {
   if (IsUserAnAdmin())
     firewall_rules_ = std::make_unique<ScopedFirewallRules>();
 #endif
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  CHECK(ash_processes_dir_.CreateUniqueTempDir());
+  base::CommandLine::ForCurrentProcess()->AppendSwitchPath(
+      content::test::switches::kAshProcessesDirPath,
+      ash_processes_dir_.GetPath());
+#endif
 }
 
 void ChromeTestLauncherDelegate::OnDoneRunningTests() {
 #if BUILDFLAG(IS_WIN)
   firewall_rules_.reset();
+#endif
+
+// In test runners, they may create ash processes outlive the runner process.
+// So we need to terminate those ash processes in the test launcher.
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  base::FileEnumerator files(ash_processes_dir_.GetPath(), false,
+                             base::FileEnumerator::FILES);
+  for (base::FilePath name = files.Next(); !name.empty(); name = files.Next()) {
+    std::string str_pid;
+    CHECK(base::ReadFileToString(name, &str_pid));
+    int pid;
+    CHECK(base::StringToInt(str_pid, &pid)) << "Cannot read pid. The content "
+                                            << "of the file is: " << str_pid;
+    base::Process process = base::Process::Open(pid);
+    process.Terminate(0, false);
+  }
 #endif
 }
 
@@ -212,6 +274,8 @@ int LaunchChromeTests(size_t parallel_jobs,
                       content::TestLauncherDelegate* delegate,
                       int argc,
                       char** argv) {
+  base::test::AllowCheckIsTestForTesting();
+
 #if BUILDFLAG(IS_MAC)
   // Set up the path to the framework so resources can be loaded. This is also
   // performed in ChromeTestSuite, but in browser tests that only affects the
@@ -225,7 +289,10 @@ int LaunchChromeTests(size_t parallel_jobs,
 #if BUILDFLAG(IS_WIN)
   // Create a primordial InstallDetails instance for the test.
   install_static::ScopedInstallDetails install_details;
-#endif
+
+  // Install handle hooks for tests only.
+  base::debug::HandleHooks::PatchLoadedModules();
+#endif  // BUILDFLAG(IS_WIN)
 
   const auto& command_line = *base::CommandLine::ForCurrentProcess();
 
@@ -250,18 +317,7 @@ int LaunchChromeTests(size_t parallel_jobs,
   // Only create this object in the utility process, so that its members don't
   // interfere with other test objects in the browser process.
   std::unique_ptr<content::NetworkServiceTestHelper>
-      network_service_test_helper;
-  if (command_line.GetSwitchValueASCII(switches::kProcessType) ==
-      switches::kUtilityProcess) {
-    network_service_test_helper =
-        std::make_unique<content::NetworkServiceTestHelper>();
-    ChromeContentUtilityClient::SetNetworkBinderCreationCallback(base::BindOnce(
-        [](content::NetworkServiceTestHelper* helper,
-           service_manager::BinderRegistry* registry) {
-          helper->RegisterNetworkBinders(registry);
-        },
-        network_service_test_helper.get()));
-  }
+      network_service_test_helper = content::NetworkServiceTestHelper::Create();
 
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -31,6 +32,7 @@ import android.os.ParcelFileDescriptor;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
@@ -71,6 +73,9 @@ import java.util.concurrent.CountDownLatch;
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE, shadows = {ChromeBackupAgentTest.BackupManagerShadow.class})
 public class ChromeBackupAgentTest {
+    @Rule
+    public TemporaryFolder mTempDir = new TemporaryFolder();
+
     /**
      * Shadow to allow counting of dataChanged calls.
      */
@@ -109,10 +114,20 @@ public class ChromeBackupAgentTest {
     private final CoreAccountInfo mAccountInfo =
             CoreAccountInfo.createFromEmailAndGaiaId("user1", "gaia_id_user1");
 
+    private static final String PREFERENCE_KEY_NOT_BACKED_UP = "not_backed_up";
+
     private void setUpTestPrefs(SharedPreferences prefs) {
         SharedPreferences.Editor editor = prefs.edit();
+        // In production some of these prefs can't be present in SharedPreferences at the same time,
+        // but ChromeBackupAgentImpl is agnostic to that. The focus of these tests is making sure
+        // that all the allowlisted prefs are backed up, and none other.
         editor.putBoolean(ChromePreferenceKeys.FIRST_RUN_FLOW_COMPLETE, true);
-        editor.putBoolean(ChromePreferenceKeys.FIRST_RUN_FLOW_SIGNIN_SETUP, false);
+        editor.putBoolean(ChromePreferenceKeys.FIRST_RUN_CACHED_TOS_ACCEPTED, false);
+        editor.putBoolean(ChromePreferenceKeys.FIRST_RUN_LIGHTWEIGHT_FLOW_COMPLETE, false);
+        editor.putBoolean(ChromePreferenceKeys.PRIVACY_METRICS_REPORTING_PERMITTED_BY_USER, false);
+
+        editor.putBoolean(PREFERENCE_KEY_NOT_BACKED_UP, false);
+
         doReturn(mAccountInfo).when(mIdentityManagerMock).getPrimaryAccountInfo(anyInt());
         editor.apply();
     }
@@ -162,17 +177,16 @@ public class ChromeBackupAgentTest {
         // Mock the backup data.
         BackupDataOutput backupData = mock(BackupDataOutput.class);
 
-        // Create a state file.
-        File stateFile1 = File.createTempFile("Test", "");
-        ParcelFileDescriptor newState =
-                ParcelFileDescriptor.open(stateFile1, ParcelFileDescriptor.parseMode("w"));
-
         // Set up some preferences to back up.
         SharedPreferences prefs = ContextUtils.getAppSharedPreferences();
         setUpTestPrefs(prefs);
 
-        // Run the test function.
-        mAgent.onBackup(null, backupData, newState);
+        File stateFile = mTempDir.newFile();
+        try (ParcelFileDescriptor newState = ParcelFileDescriptor.open(
+                     stateFile, ParcelFileDescriptor.MODE_WRITE_ONLY)) {
+            // Run the test function.
+            mAgent.onBackup(null, backupData, newState);
+        }
 
         // Check that the right things were written to the backup
         verify(backupData).writeEntityHeader("native.pref1", 1);
@@ -182,38 +196,53 @@ public class ChromeBackupAgentTest {
         verify(backupData, times(2)).writeEntityData(new byte[] {1}, 1);
         verify(backupData)
                 .writeEntityHeader(
-                        "AndroidDefault." + ChromePreferenceKeys.FIRST_RUN_FLOW_SIGNIN_SETUP, 1);
-        verify(backupData).writeEntityData(new byte[] {0}, 1);
+                        "AndroidDefault." + ChromePreferenceKeys.FIRST_RUN_CACHED_TOS_ACCEPTED, 1);
+        verify(backupData)
+                .writeEntityHeader("AndroidDefault."
+                                + ChromePreferenceKeys.FIRST_RUN_LIGHTWEIGHT_FLOW_COMPLETE,
+                        1);
+        verify(backupData)
+                .writeEntityHeader("AndroidDefault."
+                                + ChromePreferenceKeys.PRIVACY_METRICS_REPORTING_PERMITTED_BY_USER,
+                        1);
+        verify(backupData, times(3)).writeEntityData(new byte[] {0}, 1);
         byte[] unameBytes = ApiCompatibilityUtils.getBytesUtf8(mAccountInfo.getEmail());
         verify(backupData)
                 .writeEntityHeader("AndroidDefault." + ChromeBackupAgentImpl.SIGNED_IN_ACCOUNT_KEY,
                         unameBytes.length);
         verify(backupData).writeEntityData(unameBytes, unameBytes.length);
 
-        newState.close();
+        verify(backupData, times(0))
+                .writeEntityHeader(eq("AndroidDefault." + PREFERENCE_KEY_NOT_BACKED_UP), anyInt());
 
         // Check that the state was saved correctly
-        ObjectInputStream newStateStream = new ObjectInputStream(new FileInputStream(stateFile1));
-        ArrayList<String> names = (ArrayList<String>) newStateStream.readObject();
-        assertThat(names.size(), equalTo(4));
-        assertThat(names, hasItem("native.pref1"));
-        assertThat(
-                names, hasItem("AndroidDefault." + ChromePreferenceKeys.FIRST_RUN_FLOW_COMPLETE));
-        assertThat(names,
-                hasItem("AndroidDefault." + ChromePreferenceKeys.FIRST_RUN_FLOW_SIGNIN_SETUP));
-        assertThat(names, hasItem("AndroidDefault." + ChromeBackupAgentImpl.SIGNED_IN_ACCOUNT_KEY));
-        ArrayList<byte[]> values = (ArrayList<byte[]>) newStateStream.readObject();
-        assertThat(values.size(), equalTo(4));
-        assertThat(values, hasItem(unameBytes));
-        assertThat(values, hasItem(new byte[] {0}));
-        assertThat(values, hasItem(new byte[] {1}));
+        try (ObjectInputStream newStateStream =
+                        new ObjectInputStream(new FileInputStream(stateFile))) {
+            ArrayList<String> names = (ArrayList<String>) newStateStream.readObject();
+            assertThat(names.size(), equalTo(6));
+            assertThat(names, hasItem("native.pref1"));
+            assertThat(names,
+                    hasItem("AndroidDefault." + ChromePreferenceKeys.FIRST_RUN_FLOW_COMPLETE));
+            assertThat(names,
+                    hasItem("AndroidDefault."
+                            + ChromePreferenceKeys.FIRST_RUN_CACHED_TOS_ACCEPTED));
+            assertThat(names,
+                    hasItem("AndroidDefault."
+                            + ChromePreferenceKeys.FIRST_RUN_LIGHTWEIGHT_FLOW_COMPLETE));
+            assertThat(names,
+                    hasItem("AndroidDefault."
+                            + ChromePreferenceKeys.PRIVACY_METRICS_REPORTING_PERMITTED_BY_USER));
+            assertThat(names,
+                    hasItem("AndroidDefault." + ChromeBackupAgentImpl.SIGNED_IN_ACCOUNT_KEY));
+            ArrayList<byte[]> values = (ArrayList<byte[]>) newStateStream.readObject();
+            assertThat(values.size(), equalTo(6));
+            assertThat(values, hasItem(unameBytes));
+            assertThat(values, hasItem(new byte[] {0}));
+            assertThat(values, hasItem(new byte[] {1}));
 
-        // Make sure that there are no extra objects.
-        assertThat(newStateStream.available(), equalTo(0));
-
-        // Tidy up.
-        newStateStream.close();
-        stateFile1.delete();
+            // Make sure that there are no extra objects.
+            assertThat(newStateStream.available(), equalTo(0));
+        }
     }
 
     /**
@@ -226,54 +255,46 @@ public class ChromeBackupAgentTest {
         // Mock the backup data.
         BackupDataOutput backupData = mock(BackupDataOutput.class);
 
-        // Create a state file.
-        File stateFile1 = File.createTempFile("Test", "");
-        ParcelFileDescriptor newState =
-                ParcelFileDescriptor.open(stateFile1, ParcelFileDescriptor.parseMode("w"));
-
         // Set up some preferences to back up.
         SharedPreferences prefs = ContextUtils.getAppSharedPreferences();
         setUpTestPrefs(prefs);
 
-        // Do a first backup.
-        mAgent.onBackup(null, backupData, newState);
+        File stateFile1 = mTempDir.newFile();
+        try (ParcelFileDescriptor newState = ParcelFileDescriptor.open(
+                     stateFile1, ParcelFileDescriptor.MODE_WRITE_ONLY)) {
+            // Do a first backup.
+            mAgent.onBackup(null, backupData, newState);
+        }
 
         // Minimal check on first backup, this isn't the test here.
-        verify(backupData, times(4)).writeEntityHeader(anyString(), anyInt());
-        verify(backupData, times(4)).writeEntityData(any(byte[].class), anyInt());
+        verify(backupData, times(6)).writeEntityHeader(anyString(), anyInt());
+        verify(backupData, times(6)).writeEntityData(any(byte[].class), anyInt());
 
-        newState.close();
+        File stateFile2 = mTempDir.newFile();
+        try (ParcelFileDescriptor oldState =
+                        ParcelFileDescriptor.open(stateFile1, ParcelFileDescriptor.MODE_READ_ONLY);
 
-        ParcelFileDescriptor oldState =
-                ParcelFileDescriptor.open(stateFile1, ParcelFileDescriptor.parseMode("r"));
-        File stateFile2 = File.createTempFile("Test", "");
-        newState = ParcelFileDescriptor.open(stateFile2, ParcelFileDescriptor.parseMode("w"));
-
-        // Try a second backup without changing any data
-        mAgent.onBackup(oldState, backupData, newState);
-
+                ParcelFileDescriptor newState = ParcelFileDescriptor.open(
+                        stateFile2, ParcelFileDescriptor.MODE_WRITE_ONLY)) {
+            // Try a second backup without changing any data
+            mAgent.onBackup(oldState, backupData, newState);
+        }
         // Check that the second backup didn't write anything.
         verifyNoMoreInteractions(backupData);
 
-        oldState.close();
-        newState.close();
-
         // The two state files should contain identical data.
-        ObjectInputStream oldStateStream = new ObjectInputStream(new FileInputStream(stateFile1));
-        ArrayList<String> oldNames = (ArrayList<String>) oldStateStream.readObject();
-        ArrayList<byte[]> oldValues = (ArrayList<byte[]>) oldStateStream.readObject();
-        ObjectInputStream newStateStream = new ObjectInputStream(new FileInputStream(stateFile2));
-        ArrayList<String> newNames = (ArrayList<String>) newStateStream.readObject();
-        ArrayList<byte[]> newValues = (ArrayList<byte[]>) newStateStream.readObject();
-        assertThat(newNames, equalTo(oldNames));
-        assertTrue(Arrays.deepEquals(newValues.toArray(), oldValues.toArray()));
-        assertThat(newStateStream.available(), equalTo(0));
-
-        // Tidy up.
-        oldStateStream.close();
-        newStateStream.close();
-        stateFile1.delete();
-        stateFile2.delete();
+        try (ObjectInputStream oldStateStream =
+                        new ObjectInputStream(new FileInputStream(stateFile1));
+                ObjectInputStream newStateStream =
+                        new ObjectInputStream(new FileInputStream(stateFile2))) {
+            ArrayList<String> oldNames = (ArrayList<String>) oldStateStream.readObject();
+            ArrayList<byte[]> oldValues = (ArrayList<byte[]>) oldStateStream.readObject();
+            ArrayList<String> newNames = (ArrayList<String>) newStateStream.readObject();
+            ArrayList<byte[]> newValues = (ArrayList<byte[]>) newStateStream.readObject();
+            assertThat(newNames, equalTo(oldNames));
+            assertTrue(Arrays.deepEquals(newValues.toArray(), oldValues.toArray()));
+            assertThat(newStateStream.available(), equalTo(0));
+        }
     }
 
     /**
@@ -286,60 +307,53 @@ public class ChromeBackupAgentTest {
         // Mock the backup data.
         BackupDataOutput backupData = mock(BackupDataOutput.class);
 
-        // Create a state file.
-        File stateFile1 = File.createTempFile("Test", "");
-        ParcelFileDescriptor newState =
-                ParcelFileDescriptor.open(stateFile1, ParcelFileDescriptor.parseMode("w"));
-
         // Set up some preferences to back up.
         SharedPreferences prefs = ContextUtils.getAppSharedPreferences();
         setUpTestPrefs(prefs);
 
-        // Do a first backup.
-        mAgent.onBackup(null, backupData, newState);
-
+        // Create a state file.
+        File stateFile1 = mTempDir.newFile();
+        try (ParcelFileDescriptor newState = ParcelFileDescriptor.open(
+                     stateFile1, ParcelFileDescriptor.MODE_WRITE_ONLY)) {
+            // Do a first backup.
+            mAgent.onBackup(null, backupData, newState);
+        }
         // Minimal check on first backup, this isn't the test here.
-        verify(backupData, times(4)).writeEntityHeader(anyString(), anyInt());
-        verify(backupData, times(4)).writeEntityData(any(byte[].class), anyInt());
-
-        newState.close();
-
-        ParcelFileDescriptor oldState =
-                ParcelFileDescriptor.open(stateFile1, ParcelFileDescriptor.parseMode("r"));
-        File stateFile2 = File.createTempFile("Test", "");
-        newState = ParcelFileDescriptor.open(stateFile2, ParcelFileDescriptor.parseMode("w"));
+        verify(backupData, times(6)).writeEntityHeader(anyString(), anyInt());
+        verify(backupData, times(6)).writeEntityData(any(byte[].class), anyInt());
 
         // Change some data.
         SharedPreferences.Editor editor = prefs.edit();
-        editor.putBoolean(ChromePreferenceKeys.FIRST_RUN_FLOW_SIGNIN_SETUP, true);
+        editor.putBoolean(ChromePreferenceKeys.PRIVACY_METRICS_REPORTING_PERMITTED_BY_USER, true);
         editor.apply();
+        reset(backupData);
 
-        // Do a second backup.
-        mAgent.onBackup(oldState, backupData, newState);
+        File stateFile2 = mTempDir.newFile();
+        try (ParcelFileDescriptor oldState =
+                        ParcelFileDescriptor.open(stateFile1, ParcelFileDescriptor.MODE_WRITE_ONLY);
+                ParcelFileDescriptor newState = ParcelFileDescriptor.open(
+                        stateFile2, ParcelFileDescriptor.MODE_WRITE_ONLY)) {
+            // Do a second backup.
+            mAgent.onBackup(oldState, backupData, newState);
+        }
 
         // Check that the second backup wrote something.
-        verify(backupData, times(8)).writeEntityHeader(anyString(), anyInt());
-        verify(backupData, times(8)).writeEntityData(any(byte[].class), anyInt());
-
-        oldState.close();
-        newState.close();
+        verify(backupData, times(6)).writeEntityHeader(anyString(), anyInt());
+        verify(backupData, times(6)).writeEntityData(any(byte[].class), anyInt());
 
         // the two state files should contain different data (although the names are unchanged).
-        ObjectInputStream oldStateStream = new ObjectInputStream(new FileInputStream(stateFile1));
-        ArrayList<String> oldNames = (ArrayList<String>) oldStateStream.readObject();
-        ArrayList<byte[]> oldValues = (ArrayList<byte[]>) oldStateStream.readObject();
-        ObjectInputStream newStateStream = new ObjectInputStream(new FileInputStream(stateFile2));
-        ArrayList<String> newNames = (ArrayList<String>) newStateStream.readObject();
-        ArrayList<byte[]> newValues = (ArrayList<byte[]>) newStateStream.readObject();
-        assertThat(newNames, equalTo(oldNames));
-        assertFalse(Arrays.deepEquals(newValues.toArray(), oldValues.toArray()));
-        assertThat(newStateStream.available(), equalTo(0));
-
-        // Tidy up.
-        oldStateStream.close();
-        newStateStream.close();
-        stateFile1.delete();
-        stateFile2.delete();
+        try (ObjectInputStream oldStateStream =
+                        new ObjectInputStream(new FileInputStream(stateFile1));
+                ObjectInputStream newStateStream =
+                        new ObjectInputStream(new FileInputStream(stateFile2))) {
+            ArrayList<String> oldNames = (ArrayList<String>) oldStateStream.readObject();
+            ArrayList<byte[]> oldValues = (ArrayList<byte[]>) oldStateStream.readObject();
+            ArrayList<String> newNames = (ArrayList<String>) newStateStream.readObject();
+            ArrayList<byte[]> newValues = (ArrayList<byte[]>) newStateStream.readObject();
+            assertThat(newNames, equalTo(oldNames));
+            assertFalse(Arrays.deepEquals(newValues.toArray(), oldValues.toArray()));
+            assertThat(newStateStream.available(), equalTo(0));
+        }
     }
 
     /**
@@ -371,11 +385,10 @@ public class ChromeBackupAgentTest {
         // Check that a successful backup resets the failure count
         doReturn(true).when(mAgent).initializeBrowser();
         // A successful backup needs a real state file, or lots more mocking.
-        File stateFile = File.createTempFile("Test", "");
-        ParcelFileDescriptor newState =
-                ParcelFileDescriptor.open(stateFile, ParcelFileDescriptor.parseMode("w"));
-
-        mAgent.onBackup(null, backupData, newState);
+        try (ParcelFileDescriptor newState = ParcelFileDescriptor.open(
+                     mTempDir.newFile(), ParcelFileDescriptor.MODE_WRITE_ONLY)) {
+            mAgent.onBackup(null, backupData, newState);
+        }
         assertThat(prefs.getInt(ChromeBackupAgentImpl.BACKUP_FAILURE_COUNT, 0), equalTo(0));
     }
 
@@ -439,16 +452,14 @@ public class ChromeBackupAgentTest {
      */
     @Test
     public void testOnRestore_normal() throws IOException {
-        // Create a state file.
-        File stateFile = File.createTempFile("Test", "");
-        ParcelFileDescriptor newState =
-                ParcelFileDescriptor.open(stateFile, ParcelFileDescriptor.parseMode("w"));
-
         BackupDataInput backupData = createMockBackupData();
         mAccountManagerTestRule.addAccount(mAccountInfo.getEmail());
 
-        // Do a restore.
-        mAgent.onRestore(backupData, 0, newState);
+        try (ParcelFileDescriptor newState = ParcelFileDescriptor.open(
+                     mTempDir.newFile(), ParcelFileDescriptor.MODE_WRITE_ONLY)) {
+            // Do a restore.
+            mAgent.onRestore(backupData, 0, newState);
+        }
         SharedPreferences prefs = ContextUtils.getAppSharedPreferences();
         assertTrue(prefs.getBoolean(ChromePreferenceKeys.FIRST_RUN_FLOW_COMPLETE, false));
         assertFalse(prefs.contains("junk"));
@@ -472,15 +483,12 @@ public class ChromeBackupAgentTest {
      */
     @Test
     public void testOnRestore_badUser() throws IOException {
-        // Create a state file.
-        File stateFile = File.createTempFile("Test", "");
-        ParcelFileDescriptor newState =
-                ParcelFileDescriptor.open(stateFile, ParcelFileDescriptor.parseMode("w"));
-
         BackupDataInput backupData = createMockBackupData();
-
-        // Do a restore.
-        mAgent.onRestore(backupData, 0, newState);
+        try (ParcelFileDescriptor newState = ParcelFileDescriptor.open(
+                     mTempDir.newFile(), ParcelFileDescriptor.MODE_WRITE_ONLY)) {
+            // Do a restore.
+            mAgent.onRestore(backupData, 0, newState);
+        }
         SharedPreferences prefs = ContextUtils.getAppSharedPreferences();
         assertFalse(prefs.contains(ChromePreferenceKeys.FIRST_RUN_FLOW_COMPLETE));
         verify(mChromeBackupAgentJniMock, never())
@@ -501,16 +509,14 @@ public class ChromeBackupAgentTest {
      */
     @Test
     public void testOnRestore_browserStartupFails() throws IOException {
-        // Create a state file.
-        File stateFile = File.createTempFile("Test", "");
-        ParcelFileDescriptor newState =
-                ParcelFileDescriptor.open(stateFile, ParcelFileDescriptor.parseMode("w"));
-
         BackupDataInput backupData = createMockBackupData();
         doReturn(false).when(mAgent).initializeBrowser();
 
-        // Do a restore.
-        mAgent.onRestore(backupData, 0, newState);
+        try (ParcelFileDescriptor newState = ParcelFileDescriptor.open(
+                     mTempDir.newFile(), ParcelFileDescriptor.MODE_WRITE_ONLY)) {
+            // Do a restore.
+            mAgent.onRestore(backupData, 0, newState);
+        }
         SharedPreferences prefs = ContextUtils.getAppSharedPreferences();
         assertFalse(prefs.contains(ChromePreferenceKeys.FIRST_RUN_FLOW_COMPLETE));
 
@@ -526,16 +532,14 @@ public class ChromeBackupAgentTest {
      */
     @Test
     public void testOnRestore_afterFirstRun() throws IOException {
-        // Create a state file.
-        File stateFile = File.createTempFile("Test", "");
-        ParcelFileDescriptor newState =
-                ParcelFileDescriptor.open(stateFile, ParcelFileDescriptor.parseMode("w"));
-
         BackupDataInput backupData = createMockBackupData();
         FirstRunStatus.setFirstRunFlowComplete(true);
 
-        // Do a restore.
-        mAgent.onRestore(backupData, 0, newState);
+        try (ParcelFileDescriptor newState = ParcelFileDescriptor.open(
+                     mTempDir.newFile(), ParcelFileDescriptor.MODE_WRITE_ONLY)) {
+            // Do a restore.
+            mAgent.onRestore(backupData, 0, newState);
+        }
         SharedPreferences prefs = ContextUtils.getAppSharedPreferences();
         assertTrue(prefs.contains(ChromePreferenceKeys.FIRST_RUN_FLOW_COMPLETE));
 

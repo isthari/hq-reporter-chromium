@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@
 
   TestRunner.addSniffer(SDK.MainConnection.prototype, 'sendRawMessage', function(messageString) {
     var message = JSON.parse(messageString);
-    if (!message.sessionId)
+    if (!message.sessionId || message.sessionId === SDK.targetManager.mainFrameTarget().sessionId)
       return;
     if (messageString.includes('DOM.'))
       TestRunner.addResult('DOM-related command should NOT be issued: ' + messageString);

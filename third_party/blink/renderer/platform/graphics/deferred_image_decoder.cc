@@ -30,6 +30,7 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/time/time.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/platform/graphics/decoding_image_generator.h"
 #include "third_party/blink/renderer/platform/graphics/image_decoding_store.h"
@@ -39,6 +40,7 @@
 #include "third_party/blink/renderer/platform/image-decoders/segment_reader.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
 #include "third_party/skia/include/core/SkImage.h"
 
 namespace blink {
@@ -71,47 +73,6 @@ void ReportIncrementalDecodeNeeded(bool all_data_received,
   if (status) {
     UMA_HISTOGRAM_ENUMERATION("Blink.ImageDecoders.IncrementalDecodeNeeded",
                               *status);
-  }
-}
-
-void RecordByteSizeAndWhetherIncrementalDecode(const String& image_type,
-                                               bool incrementally_decoded,
-                                               size_t bytes) {
-  DCHECK(IsMainThread());
-  // A base::HistogramBase::Sample may not fit the number of bytes of the image.
-  base::HistogramBase::Sample sample_bytes =
-      base::saturated_cast<base::HistogramBase::Sample>(bytes);
-  if (image_type == "jpg") {
-    if (incrementally_decoded) {
-      DEFINE_STATIC_LOCAL(
-          CustomCountHistogram, jpeg_byte_size_incrementally_decoded_histogram,
-          ("Blink.ImageDecoders.IncrementallyDecodedByteSize.Jpeg",
-           125 /* min */, 15000000 /* 15 MB */, 100 /* bucket count */));
-      jpeg_byte_size_incrementally_decoded_histogram.Count(sample_bytes);
-    } else {
-      DEFINE_STATIC_LOCAL(
-          CustomCountHistogram,
-          jpeg_byte_size_initially_fully_decoded_histogram,
-          ("Blink.ImageDecoders.InitiallyFullyDecodedByteSize.Jpeg",
-           125 /* min */, 15000000 /* 15 MB */, 100 /* bucket count */));
-      jpeg_byte_size_initially_fully_decoded_histogram.Count(sample_bytes);
-    }
-  } else {
-    DCHECK_EQ(image_type, "webp");
-    if (incrementally_decoded) {
-      DEFINE_STATIC_LOCAL(
-          CustomCountHistogram, webp_byte_size_incrementally_decoded_histogram,
-          ("Blink.ImageDecoders.IncrementallyDecodedByteSize.WebP",
-           125 /* min */, 15000000 /* 15 MB */, 100 /* bucket count */));
-      webp_byte_size_incrementally_decoded_histogram.Count(sample_bytes);
-    } else {
-      DEFINE_STATIC_LOCAL(
-          CustomCountHistogram,
-          webp_byte_size_initially_fully_decoded_histogram,
-          ("Blink.ImageDecoders.InitiallyFullyDecodedByteSize.WebP",
-           125 /* min */, 15000000 /* 15 MB */, 100 /* bucket count */));
-      webp_byte_size_initially_fully_decoded_histogram.Count(sample_bytes);
-    }
   }
 }
 
@@ -179,11 +140,15 @@ String DeferredImageDecoder::FilenameExtension() const {
                            : filename_extension_;
 }
 
+const AtomicString& DeferredImageDecoder::MimeType() const {
+  return metadata_decoder_ ? metadata_decoder_->MimeType() : mime_type_;
+}
+
 sk_sp<PaintImageGenerator> DeferredImageDecoder::CreateGenerator() {
   if (frame_generator_ && frame_generator_->DecodeFailed())
     return nullptr;
 
-  if (invalid_image_ || frame_data_.IsEmpty())
+  if (invalid_image_ || frame_data_.empty())
     return nullptr;
 
   DCHECK(frame_generator_);
@@ -236,14 +201,6 @@ sk_sp<PaintImageGenerator> DeferredImageDecoder::CreateGenerator() {
       complete_frame_content_id_, all_data_received_, can_yuv_decode_,
       *image_metadata_);
   first_decoding_generator_created_ = true;
-
-  size_t image_byte_size = ByteSize();
-  if (all_data_received_ && (image_type == "jpg" || image_type == "webp")) {
-    DCHECK(incremental_decode_needed_.has_value());
-    DCHECK(image_byte_size);
-    RecordByteSizeAndWhetherIncrementalDecode(
-        image_type, incremental_decode_needed_.value(), image_byte_size);
-  }
 
   return generator;
 }
@@ -390,6 +347,7 @@ void DeferredImageDecoder::ActivateLazyDecoding() {
   image_is_high_bit_depth_ = metadata_decoder_->ImageIsHighBitDepth();
   has_hot_spot_ = metadata_decoder_->HotSpot(hot_spot_);
   filename_extension_ = metadata_decoder_->FilenameExtension();
+  mime_type_ = metadata_decoder_->MimeType();
   has_embedded_color_profile_ = metadata_decoder_->HasEmbeddedColorProfile();
   color_space_for_sk_images_ = metadata_decoder_->ColorSpaceForSkImages();
 

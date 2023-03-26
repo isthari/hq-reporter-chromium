@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,8 +50,9 @@ class ActiveAudioDecoderWrapper : public DestructableAudioDecoder {
   bool SetVolume(float multiplier) override;
   RenderingDelay GetRenderingDelay() override;
   void GetStatistics(Statistics* statistics) override;
+  AudioTrackTimestamp GetAudioTrackTimestamp() override;
+  int GetStartThresholdInFrames() override;
   bool RequiresDecryption() override;
-  void SetObserver(CmaBackend::AudioDecoder::Observer* observer) override {}
 
   AudioDecoderSoftwareWrapper decoder_;
   const AudioContentType content_type_;
@@ -91,8 +92,9 @@ class AudioDecoderWrapper : public CmaBackend::AudioDecoder {
   bool SetVolume(float multiplier) override;
   RenderingDelay GetRenderingDelay() override;
   void GetStatistics(Statistics* statistics) override;
+  AudioTrackTimestamp GetAudioTrackTimestamp() override;
+  int GetStartThresholdInFrames() override;
   bool RequiresDecryption() override;
-  void SetObserver(CmaBackend::AudioDecoder::Observer* observer) override {}
 
   bool decoder_revoked_;
 

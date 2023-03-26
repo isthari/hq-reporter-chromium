@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,13 +53,9 @@ UploadActionsTask::Result& UploadActionsTask::Result::operator=(Result&&) =
 
 class UploadActionsTask::Batch {
  public:
-  explicit Batch(const feedwire::ClientInfo& client_info)
+  Batch()
       : feed_action_request_(
-            std::make_unique<feedwire::UploadActionsRequest>()) {
-    *feed_action_request_->mutable_client_info() = client_info;
-    LOG(ERROR) << "Action Request instance ID: "
-               << client_info.client_instance_id();
-  }
+            std::make_unique<feedwire::UploadActionsRequest>()) {}
   Batch(const Batch&) = delete;
   Batch& operator=(const Batch&) = delete;
   ~Batch() = default;
@@ -117,7 +113,7 @@ UploadActionsTask::UploadActionsTask(
     FeedStream* stream,
     base::OnceCallback<void(UploadActionsTask::Result)> callback)
     : stream_(*stream), callback_(std::move(callback)) {
-  account_info_ = stream_.GetAccountInfo();
+  account_info_ = stream_->GetAccountInfo();
 }
 
 UploadActionsTask::UploadActionsTask(
@@ -160,12 +156,12 @@ UploadActionsTask::UploadActionsTask(
 UploadActionsTask::~UploadActionsTask() = default;
 
 void UploadActionsTask::Run() {
-  if (stream_.ClearAllInProgress()) {
+  if (stream_->ClearAllInProgress()) {
     Done(UploadActionsStatus::kAbortUploadActionsWithPendingClearAll);
     return;
   }
 
-  consistency_token_ = stream_.GetMetadata().consistency_token();
+  consistency_token_ = stream_->GetMetadata().consistency_token();
 
   // From constructor 1: If there is an action to store, store it and maybe try
   // to upload all pending actions.
@@ -178,22 +174,22 @@ void UploadActionsTask::Run() {
     // Are logging parameters associated with a different account?
     if (logging_parameters_.email != account_info_.email
         // Is the datastore associated with a different account?
-        || stream_.GetMetadata().gaia() != account_info_.gaia) {
+        || stream_->GetMetadata().gaia() != account_info_.gaia) {
       Done(UploadActionsStatus::kAbortUploadForWrongUser);
       return;
     }
 
     StoredAction action;
 
-    feedstore::Metadata metadata = stream_.GetMetadata();
+    feedstore::Metadata metadata = stream_->GetMetadata();
     int32_t action_id = feedstore::GetNextActionId(metadata).GetUnsafeValue();
-    stream_.SetMetadata(std::move(metadata));
+    stream_->SetMetadata(std::move(metadata));
     action.set_id(action_id);
     wire_action_->mutable_client_data()->set_sequence_number(action_id);
     *action.mutable_action() = std::move(*wire_action_);
     // No need to set upload_attempt_count as it defaults to 0.
     // WriteActions() sets the ID.
-    stream_.GetStore().WriteActions(
+    stream_->GetStore().WriteActions(
         {std::move(action)},
         base::BindOnce(&UploadActionsTask::OnStorePendingActionFinished,
                        weak_ptr_factory_.GetWeakPtr()));
@@ -227,7 +223,7 @@ void UploadActionsTask::OnStorePendingActionFinished(bool write_ok) {
 }
 
 void UploadActionsTask::ReadActions() {
-  stream_.GetStore().ReadActions(
+  stream_->GetStore().ReadActions(
       base::BindOnce(&UploadActionsTask::OnReadPendingActionsFinished,
                      weak_ptr_factory_.GetWeakPtr()));
 }
@@ -244,14 +240,14 @@ void UploadActionsTask::UploadPendingActions() {
     return;
   }
   // Can't upload actions for signed-out users, so abort.
-  if (!stream_.IsSignedIn()) {
+  if (!stream_->IsSignedIn()) {
     Done(UploadActionsStatus::kAbortUploadForSignedOutUser);
     return;
   }
   // Can't upload actions for another user, so abort.
-  if (stream_.GetAccountInfo() != account_info_ ||
+  if (stream_->GetAccountInfo() != account_info_ ||
       // Is the datastore associated with a different account?
-      stream_.GetMetadata().gaia() != account_info_.gaia) {
+      stream_->GetMetadata().gaia() != account_info_.gaia) {
     Done(UploadActionsStatus::kAbortUploadForWrongUser);
     return;
   }
@@ -260,20 +256,19 @@ void UploadActionsTask::UploadPendingActions() {
 
 void UploadActionsTask::UpdateAndUploadNextBatch() {
   // Finish if there's no quota remaining for actions uploads.
-  if (!stream_.GetRequestThrottler().RequestQuota(
+  if (!stream_->GetRequestThrottler().RequestQuota(
           NetworkRequestType::kUploadActions)) {
     return BatchComplete(UploadActionsBatchStatus::kExhaustedUploadQuota);
   }
 
   // Grab a few actions to be processed and erase them from pending_actions_.
-  auto batch = std::make_unique<Batch>(
-      CreateClientInfo(stream_.GetSignedInRequestMetadata()));
+  auto batch = std::make_unique<Batch>();
   std::vector<feedstore::StoredAction> to_update;
   std::vector<LocalActionId> to_erase;
   batch->BiteOffAFewActions(&pending_actions_, &to_update, &to_erase);
 
   // Update upload_attempt_count, remove old actions, then try to upload.
-  stream_.GetStore().UpdateActions(
+  stream_->GetStore().UpdateActions(
       std::move(to_update), std::move(to_erase),
       base::BindOnce(&UploadActionsTask::OnUpdateActionsFinished,
                      weak_ptr_factory_.GetWeakPtr(), std::move(batch)));
@@ -302,8 +297,8 @@ void UploadActionsTask::OnUpdateActionsFinished(
         launch_reliability_logger_->LogActionsUploadRequestStart();
   }
 
-  stream_.GetNetwork().SendApiRequest<UploadActionsDiscoverApi>(
-      *request, account_info_,
+  stream_->GetNetwork().SendApiRequest<UploadActionsDiscoverApi>(
+      *request, account_info_, stream_->GetSignedInRequestMetadata(),
       base::BindOnce(&UploadActionsTask::OnUploadFinished,
                      weak_ptr_factory_.GetWeakPtr(), std::move(batch)));
 }
@@ -334,7 +329,7 @@ void UploadActionsTask::OnUploadFinished(
   consistency_token_ =
       std::move(result.response_body->consistency_token().token());
 
-  stream_.GetStore().RemoveActions(
+  stream_->GetStore().RemoveActions(
       batch->disown_uploaded_ids(),
       base::BindOnce(&UploadActionsTask::OnUploadedActionsRemoved,
                      weak_ptr_factory_.GetWeakPtr()));
@@ -361,14 +356,14 @@ void UploadActionsTask::BatchComplete(UploadActionsBatchStatus status) {
 void UploadActionsTask::UpdateTokenAndFinish() {
   if (consistency_token_.empty())
     return Done(UploadActionsStatus::kFinishedWithoutUpdatingConsistencyToken);
-  feedstore::Metadata metadata = stream_.GetMetadata();
+  feedstore::Metadata metadata = stream_->GetMetadata();
   metadata.set_consistency_token(consistency_token_);
-  stream_.SetMetadata(metadata);
+  stream_->SetMetadata(metadata);
   Done(UploadActionsStatus::kUpdatedConsistencyToken);
 }
 
 void UploadActionsTask::Done(UploadActionsStatus status) {
-  stream_.GetMetricsReporter().OnUploadActions(status);
+  stream_->GetMetricsReporter().OnUploadActions(status);
   Result result;
   result.status = status;
   result.upload_attempt_count = upload_attempt_count_;

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include "ash/webui/common/mojom/accessibility_features.mojom.h"
 #include "ash/webui/scanning/mojom/scanning.mojom-forward.h"
 #include "ash/webui/scanning/scanning_handler.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "ui/webui/mojo_web_ui_controller.h"
 

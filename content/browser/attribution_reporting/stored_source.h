@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,7 @@ class CONTENT_EXPORT StoredSource {
  public:
   using Id = base::StrongAlias<StoredSource, int64_t>;
 
+  // Note that aggregatable reports are not subject to the attribution logic.
   enum class AttributionLogic {
     // Never send a report for this source even if it gets attributed.
     kNever = 0,
@@ -30,9 +31,18 @@ class CONTENT_EXPORT StoredSource {
     kMaxValue = kFalsely,
   };
 
+  enum class ActiveState {
+    kActive = 0,
+    kInactive = 1,
+    kReachedEventLevelAttributionLimit = 2,
+    kMaxValue = kReachedEventLevelAttributionLimit,
+  };
+
   StoredSource(CommonSourceInfo common_info,
                AttributionLogic attribution_logic,
-               Id source_id);
+               ActiveState active_state,
+               Id source_id,
+               int64_t aggregatable_budget_consumed);
 
   ~StoredSource();
 
@@ -46,12 +56,26 @@ class CONTENT_EXPORT StoredSource {
 
   AttributionLogic attribution_logic() const { return attribution_logic_; }
 
+  ActiveState active_state() const { return active_state_; }
+
   Id source_id() const { return source_id_; }
 
-  const std::vector<int64_t>& dedup_keys() const { return dedup_keys_; }
+  int64_t aggregatable_budget_consumed() const {
+    return aggregatable_budget_consumed_;
+  }
 
-  void SetDedupKeys(std::vector<int64_t> dedup_keys) {
+  const std::vector<uint64_t>& dedup_keys() const { return dedup_keys_; }
+
+  const std::vector<uint64_t>& aggregatable_dedup_keys() const {
+    return aggregatable_dedup_keys_;
+  }
+
+  void SetDedupKeys(std::vector<uint64_t> dedup_keys) {
     dedup_keys_ = std::move(dedup_keys);
+  }
+
+  void SetAggregatableDedupKeys(std::vector<uint64_t> aggregatable_dedup_keys) {
+    aggregatable_dedup_keys_ = std::move(aggregatable_dedup_keys);
   }
 
  private:
@@ -59,11 +83,17 @@ class CONTENT_EXPORT StoredSource {
 
   AttributionLogic attribution_logic_;
 
+  ActiveState active_state_;
+
   Id source_id_;
+
+  int64_t aggregatable_budget_consumed_;
 
   // Dedup keys associated with the source. Only set in values returned from
   // `AttributionStorage::GetActiveSources()`.
-  std::vector<int64_t> dedup_keys_;
+  std::vector<uint64_t> dedup_keys_;
+
+  std::vector<uint64_t> aggregatable_dedup_keys_;
 
   // When adding new members, the corresponding `operator==()` definition in
   // `attribution_test_utils.h` should also be updated.

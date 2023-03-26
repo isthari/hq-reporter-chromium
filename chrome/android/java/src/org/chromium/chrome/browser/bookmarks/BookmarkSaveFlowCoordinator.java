@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,17 +17,18 @@ import org.chromium.base.lifetime.DestroyChecker;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.commerce.shopping_list.ShoppingFeatures;
-import org.chromium.chrome.browser.power_bookmarks.PowerBookmarkMeta;
-import org.chromium.chrome.browser.subscriptions.SubscriptionsManager;
+import org.chromium.chrome.browser.commerce.PriceTrackingUtils;
+import org.chromium.chrome.browser.commerce.ShoppingFeatures;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.user_education.IPHCommandBuilder;
 import org.chromium.chrome.browser.user_education.UserEducationHelper;
 import org.chromium.components.bookmarks.BookmarkId;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetContent;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
-import org.chromium.components.browser_ui.bottomsheet.BottomSheetObserver;
 import org.chromium.components.browser_ui.bottomsheet.EmptyBottomSheetObserver;
+import org.chromium.components.commerce.core.ShoppingService;
 import org.chromium.components.feature_engagement.FeatureConstants;
+import org.chromium.components.power_bookmarks.PowerBookmarkMeta;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.ui.modelutil.PropertyKey;
 import org.chromium.ui.modelutil.PropertyModel;
@@ -42,7 +43,6 @@ public class BookmarkSaveFlowCoordinator {
     private final PropertyModelChangeProcessor<PropertyModel, ViewLookupCachingFrameLayout,
             PropertyKey> mChangeProcessor;
     private final DestroyChecker mDestroyChecker;
-    private final BottomSheetObserver mSheetObserver;
 
     private BottomSheetController mBottomSheetController;
     private BookmarkSaveFlowBottomSheetContent mBottomSheetContent;
@@ -55,33 +55,23 @@ public class BookmarkSaveFlowCoordinator {
     /**
      * @param context The {@link Context} associated with this cooridnator.
      * @param bottomSheetController Allows displaying content in the bottom sheet.
-     * @param subscriptionsManager Allows un/subscribing for product updates, used for
+     * @param shoppingService Allows un/subscribing for product updates, used for
      *         price-tracking.
      * @param userEducationHelper A means of triggering IPH.
      */
     public BookmarkSaveFlowCoordinator(@NonNull Context context,
-            @NonNull BottomSheetController bottomSheetController,
-            @Nullable SubscriptionsManager subscriptionsManager,
+            @NonNull BottomSheetController bottomSheetController, ShoppingService shoppingService,
             @NonNull UserEducationHelper userEducationHelper) {
         mContext = context;
         mBottomSheetController = bottomSheetController;
-        mSheetObserver = new EmptyBottomSheetObserver() {
-            @Override
-            public void onSheetContentChanged(BottomSheetContent newContent) {
-                if (newContent != mBottomSheetContent) {
-                    destroy();
-                }
-            }
-        };
-        mBottomSheetController.addObserver(mSheetObserver);
         mUserEducationHelper = userEducationHelper;
-        mBookmarkModel = new BookmarkModel();
+        mBookmarkModel = BookmarkModel.getForProfile(Profile.getLastUsedRegularProfile());
         mDestroyChecker = new DestroyChecker();
 
         mBookmarkSaveFlowView = LayoutInflater.from(mContext).inflate(
                 org.chromium.chrome.R.layout.bookmark_save_flow, /*root=*/null);
         mMediator = new BookmarkSaveFlowMediator(
-                mBookmarkModel, mPropertyModel, mContext, this::close, subscriptionsManager);
+                mBookmarkModel, mPropertyModel, mContext, this::close, shoppingService);
         mChangeProcessor = PropertyModelChangeProcessor.create(mPropertyModel,
                 (ViewLookupCachingFrameLayout) mBookmarkSaveFlowView,
                 new BookmarkSaveFlowViewBinder());
@@ -128,7 +118,8 @@ public class BookmarkSaveFlowCoordinator {
         }
 
         if (ShoppingFeatures.isShoppingListEnabled()
-                && PowerBookmarkUtils.isBookmarkPriceTracked(mBookmarkModel, bookmarkId)) {
+                && PriceTrackingUtils.isBookmarkPriceTracked(
+                        Profile.getLastUsedRegularProfile(), bookmarkId.getId())) {
             if (shown) {
                 showShoppingSaveFlowIPH();
             } else {
@@ -175,8 +166,6 @@ public class BookmarkSaveFlowCoordinator {
         mDestroyChecker.checkNotDestroyed();
         mDestroyChecker.destroy();
 
-        mBottomSheetController.removeObserver(mSheetObserver);
-
         // The bottom sheet was closed by a means other than one of the edit actions.
         if (mClosedViaRunnable) {
             RecordUserAction.record("MobileBookmark.SaveFlow.ClosedWithoutEditAction");
@@ -186,9 +175,6 @@ public class BookmarkSaveFlowCoordinator {
         mMediator = null;
 
         mBookmarkSaveFlowView = null;
-
-        mBookmarkModel.destroy();
-        mBookmarkModel = null;
 
         mChangeProcessor.destroy();
     }
@@ -217,7 +203,9 @@ public class BookmarkSaveFlowCoordinator {
         }
 
         @Override
-        public void destroy() {}
+        public void destroy() {
+            BookmarkSaveFlowCoordinator.this.destroy();
+        }
 
         @Override
         public int getPriority() {

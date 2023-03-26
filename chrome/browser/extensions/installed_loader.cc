@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,19 +16,21 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/extensions/corrupted_extension_reinstaller.h"
 #include "chrome/browser/extensions/extension_management.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/load_error_reporter.h"
-#include "chrome/browser/extensions/scripting_permissions_modifier.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/chrome_manifest_url_handlers.h"
 #include "chrome/common/extensions/manifest_handlers/settings_overrides_handler.h"
 #include "chrome/common/webui_url_constants.h"
+#include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/notification_service.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/browser/allowlist_state.h"
 #include "extensions/browser/event_router.h"
@@ -37,6 +39,7 @@
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/extension_util.h"
 #include "extensions/browser/management_policy.h"
+#include "extensions/browser/permissions_manager.h"
 #include "extensions/browser/pref_types.h"
 #include "extensions/browser/ui_util.h"
 #include "extensions/common/extension.h"
@@ -50,6 +53,11 @@
 #include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/profiles/profile_helper.h"
+#include "components/user_manager/user.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 using content::BrowserThread;
 
@@ -95,18 +103,13 @@ enum ExternalItemState {
   EXTERNAL_ITEM_MAX_ITEMS
 };
 
-bool IsManifestCorrupt(const base::DictionaryValue* manifest) {
-  if (!manifest)
-    return false;
-
+bool IsManifestCorrupt(const base::Value::Dict& manifest) {
   // Because of bug #272524 sometimes manifests got mangled in the preferences
   // file, one particularly bad case resulting in having both a background page
   // and background scripts values. In those situations we want to reload the
   // manifest from the extension to fix this.
-  const base::Value* background_page;
-  const base::Value* background_scripts;
-  return manifest->Get(manifest_keys::kBackgroundPage, &background_page) &&
-      manifest->Get(manifest_keys::kBackgroundScripts, &background_scripts);
+  return manifest.contains(manifest_keys::kBackgroundPage) &&
+         manifest.contains(manifest_keys::kBackgroundScripts);
 }
 
 ManifestReloadReason ShouldReloadExtensionManifest(const ExtensionInfo& info) {
@@ -115,13 +118,15 @@ ManifestReloadReason ShouldReloadExtensionManifest(const ExtensionInfo& info) {
   if (Manifest::IsUnpackedLocation(info.extension_location))
     return UNPACKED_DIR;
 
+  if (!info.extension_manifest)
+    return NOT_NEEDED;
+
   // Reload the manifest if it needs to be relocalized.
-  if (extension_l10n_util::ShouldRelocalizeManifest(
-          info.extension_manifest.get()))
+  if (extension_l10n_util::ShouldRelocalizeManifest(*info.extension_manifest))
     return NEEDS_RELOCALIZATION;
 
   // Reload if the copy of the manifest in the preferences is corrupt.
-  if (IsManifestCorrupt(info.extension_manifest.get()))
+  if (IsManifestCorrupt(*info.extension_manifest))
     return CORRUPT_PREFERENCES;
 
   return NOT_NEEDED;
@@ -135,18 +140,6 @@ BackgroundPageType GetBackgroundPageType(const Extension* extension) {
   if (BackgroundInfo::IsServiceWorkerBased(extension))
     return SERVICE_WORKER;
   return EVENT_PAGE;
-}
-
-// Records the creation flags of an extension grouped by
-// Extension::InitFromValueFlags.
-void RecordCreationFlags(const Extension* extension) {
-  for (int i = 0; i < Extension::kInitFromValueFlagBits; ++i) {
-    int flag = 1 << i;
-    if (extension->creation_flags() & flag) {
-      UMA_HISTOGRAM_EXACT_LINEAR("Extensions.LoadCreationFlags", i,
-                                 Extension::kInitFromValueFlagBits);
-    }
-  }
 }
 
 // Helper to record a single disable reason histogram value (see
@@ -317,27 +310,26 @@ void InstalledLoader::Load(const ExtensionInfo& info, bool write_to_prefs) {
     }
 
     if ((disable_reasons & disable_reason::DISABLE_CORRUPTED)) {
-      PendingExtensionManager* pending_manager =
-          extension_service_->pending_extension_manager();
+      CorruptedExtensionReinstaller* corrupted_extension_reinstaller =
+          extension_service_->corrupted_extension_reinstaller();
       if (policy->MustRemainEnabled(extension.get(), nullptr)) {
         // This extension must have been disabled due to corruption on a
         // previous run of chrome, and for some reason we weren't successful in
-        // auto-reinstalling it. So we want to notify the
-        // PendingExtensionManager that we'd still like to keep attempt to
-        // re-download and reinstall it whenever the ExtensionService checks for
-        // external updates.
+        // auto-reinstalling it. So we want to notify the reinstaller that we'd
+        // still like to keep attempt to re-download and reinstall it whenever
+        // the ExtensionService checks for external updates.
         LOG(ERROR) << "Expecting reinstall for extension id: "
                    << extension->id()
                    << " due to corruption detected in prior session.";
-        pending_manager->ExpectReinstallForCorruption(
+        corrupted_extension_reinstaller->ExpectReinstallForCorruption(
             extension->id(),
-            PendingExtensionManager::PolicyReinstallReason::
+            CorruptedExtensionReinstaller::PolicyReinstallReason::
                 CORRUPTION_DETECTED_IN_PRIOR_SESSION,
             extension->location());
       } else if (extension->from_webstore()) {
         // Non-policy extensions are repaired on startup. Add any corrupted
-        // user-installed extensions to the PendingExtensionManager as well.
-        pending_manager->ExpectReinstallForCorruption(
+        // user-installed extensions to the reinstaller as well.
+        corrupted_extension_reinstaller->ExpectReinstallForCorruption(
             extension->id(), absl::nullopt, extension->location());
       }
     }
@@ -365,7 +357,6 @@ void InstalledLoader::LoadAllExtensions() {
   std::unique_ptr<ExtensionPrefs::ExtensionsInfo> extensions_info(
       extension_prefs_->GetInstalledExtensionsInfo());
 
-  std::vector<int> reload_reason_counts(NUM_MANIFEST_RELOAD_REASONS, 0);
   bool should_write_prefs = false;
 
   for (size_t i = 0; i < extensions_info->size(); ++i) {
@@ -376,17 +367,14 @@ void InstalledLoader::LoadAllExtensions() {
     if (info->extension_location == mojom::ManifestLocation::kCommandLine)
       continue;
 
-    ManifestReloadReason reload_reason = ShouldReloadExtensionManifest(*info);
-    ++reload_reason_counts[reload_reason];
-
-    if (reload_reason != NOT_NEEDED) {
+    if (ShouldReloadExtensionManifest(*info) != NOT_NEEDED) {
       // Reloading an extension reads files from disk.  We do this on the
       // UI thread because reloads should be very rare, and the complexity
       // added by delaying the time when the extensions service knows about
       // all extensions is significant.  See crbug.com/37548 for details.
-      // |allow_io| disables tests that file operations run on the file
+      // |allow_blocking| disables tests that file operations run on the file
       // thread.
-      base::ThreadRestrictions::ScopedAllowIO allow_io;
+      base::ScopedAllowBlocking allow_blocking;
 
       std::string error;
       scoped_refptr<const Extension> extension(file_util::LoadExtension(
@@ -401,9 +389,9 @@ void InstalledLoader::LoadAllExtensions() {
         continue;
       }
 
-      extensions_info->at(i)->extension_manifest.reset(
-          static_cast<base::DictionaryValue*>(
-              extension->manifest()->value()->DeepCopy()));
+      extensions_info->at(i)->extension_manifest =
+          std::make_unique<base::Value::Dict>(
+              extension->manifest()->value()->Clone());
       should_write_prefs = true;
     }
   }
@@ -413,15 +401,6 @@ void InstalledLoader::LoadAllExtensions() {
         mojom::ManifestLocation::kCommandLine)
       Load(*extensions_info->at(i), should_write_prefs);
   }
-
-  // The histograms Extensions.ManifestReload* allow us to validate
-  // the assumption that reloading manifest is a rare event.
-  UMA_HISTOGRAM_COUNTS_100("Extensions.ManifestReloadNotNeeded",
-                           reload_reason_counts[NOT_NEEDED]);
-  UMA_HISTOGRAM_COUNTS_100("Extensions.ManifestReloadUnpackedDir",
-                           reload_reason_counts[UNPACKED_DIR]);
-  UMA_HISTOGRAM_COUNTS_100("Extensions.ManifestReloadNeedsRelocalization",
-                           reload_reason_counts[NEEDS_RELOCALIZATION]);
 
   UMA_HISTOGRAM_COUNTS_100("Extensions.LoadAll",
                            extension_registry_->enabled_extensions().size());
@@ -434,6 +413,51 @@ void InstalledLoader::LoadAllExtensions() {
 void InstalledLoader::RecordExtensionsMetricsForTesting() {
   RecordExtensionsMetrics();
 }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+// static
+bool InstalledLoader::ProfileCanUseNonComponentExtensions(
+    const Profile* profile,
+    ash::ProfileHelper* profile_helper) {
+  if (!profile || !profile_helper ||
+      !ash::ProfileHelper::IsUserProfile(profile)) {
+    return false;
+  }
+
+  const user_manager::User* user = profile_helper->GetUserByProfile(profile);
+  if (!user) {
+    return false;
+  }
+
+  // ChromeOS has special irregular profiles that must also be filtered
+  // out in addition to `ProfileHelper::IsUserProfile()`. `IsUserProfile()`
+  // includes guest and public users (which cannot use non-component
+  // extensions) so instead only look for those user types that can use them.
+  switch (user->GetType()) {
+    case user_manager::USER_TYPE_REGULAR:
+    case user_manager::USER_TYPE_CHILD:
+    case user_manager::USER_TYPE_ACTIVE_DIRECTORY:
+      return true;
+
+    case user_manager::USER_TYPE_GUEST:
+    case user_manager::USER_TYPE_PUBLIC_ACCOUNT:
+    case user_manager::USER_TYPE_KIOSK_APP:
+    case user_manager::USER_TYPE_ARC_KIOSK_APP:
+    case user_manager::USER_TYPE_WEB_KIOSK_APP:
+    case user_manager::NUM_USER_TYPES:
+      return false;
+  }
+}
+#else
+// static
+bool InstalledLoader::ProfileCanUseNonComponentExtensions(
+    const Profile* profile) {
+  if (!profile) {
+    return false;
+  }
+  return profile->IsRegularProfile();
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // TODO(crbug.com/1163038): Separate out Webstore/Offstore metrics.
 void InstalledLoader::RecordExtensionsMetrics() {
@@ -638,8 +662,6 @@ void InstalledLoader::RecordExtensionsMetrics() {
     else
       ++no_action_count;
 
-    RecordCreationFlags(extension);
-
     ExtensionService::RecordPermissionMessagesHistogram(extension, "Load");
 
     // For incognito and file access, skip anything that doesn't appear in
@@ -664,12 +686,12 @@ void InstalledLoader::RecordExtensionsMetrics() {
     if (!extension_management->UpdatesFromWebstore(*extension))
       ++off_store_item_count;
 
-    ScriptingPermissionsModifier scripting_modifier(profile, extension);
+    PermissionsManager* permissions_manager = PermissionsManager::Get(profile);
     // NOTE: CanAffectExtension() returns false in all cases when the
     // RuntimeHostPermissions feature is disabled.
-    if (scripting_modifier.CanAffectExtension()) {
+    if (permissions_manager->CanAffectExtension(*extension)) {
       bool extension_has_withheld_hosts =
-          scripting_modifier.HasWithheldHostPermissions();
+          permissions_manager->HasWithheldHostPermissions(*extension);
       UMA_HISTOGRAM_BOOLEAN(
           "Extensions.RuntimeHostPermissions.ExtensionHasWithheldHosts",
           extension_has_withheld_hosts);
@@ -760,7 +782,6 @@ void InstalledLoader::RecordExtensionsMetrics() {
                               no_action_count);
   base::UmaHistogramCounts100("Extensions.DisabledForPermissions",
                               disabled_for_permissions_count);
-  // TODO(kelvinjiang): Remove this histogram if it's not used anymore.
   base::UmaHistogramCounts100("Extensions.NonWebStoreNewTabPageOverrides",
                               non_webstore_ntp_override_count);
   base::UmaHistogramCounts100("Extensions.NewTabPageOverrides",

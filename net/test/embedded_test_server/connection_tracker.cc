@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,13 @@
 
 #include "base/containers/contains.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
 
-uint16_t GetPort(const net::StreamSocket& connection) {
+bool GetPort(const net::StreamSocket& connection, uint16_t* port) {
   // Gets the remote port of the peer, since the local port will always be
   // the port the test server is listening on. This isn't strictly correct -
   // it's possible for multiple peers to connect with the same remote port
@@ -21,14 +22,16 @@ uint16_t GetPort(const net::StreamSocket& connection) {
   // two connections. This also would be problematic if the OS reused ports,
   // but that's not something to worry about for these tests.
   net::IPEndPoint address;
-  EXPECT_EQ(net::OK, connection.GetPeerAddress(&address));
-  return address.port();
+  int result = connection.GetPeerAddress(&address);
+  if (result != net::OK)
+    return false;
+  *port = address.port();
+  return true;
 }
 
 }  // namespace
 
-namespace net {
-namespace test_server {
+namespace net::test_server {
 
 ConnectionTracker::ConnectionTracker(EmbeddedTestServer* test_server)
     : connection_listener_(this) {
@@ -114,7 +117,8 @@ void ConnectionTracker::ResetCounts() {
 
 ConnectionTracker::ConnectionListener::ConnectionListener(
     ConnectionTracker* tracker)
-    : task_runner_(base::ThreadTaskRunnerHandle::Get()), tracker_(tracker) {}
+    : task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()),
+      tracker_(tracker) {}
 
 ConnectionTracker::ConnectionListener::~ConnectionListener() = default;
 
@@ -123,10 +127,12 @@ ConnectionTracker::ConnectionListener::~ConnectionListener() = default;
 std::unique_ptr<net::StreamSocket>
 ConnectionTracker::ConnectionListener::AcceptedSocket(
     std::unique_ptr<net::StreamSocket> connection) {
-  uint16_t port = GetPort(*connection);
-  task_runner_->PostTask(
-      FROM_HERE, base::BindOnce(&ConnectionTracker::AcceptedSocketWithPort,
-                                base::Unretained(tracker_), port));
+  uint16_t port;
+  if (GetPort(*connection, &port)) {
+    task_runner_->PostTask(
+        FROM_HERE, base::BindOnce(&ConnectionTracker::AcceptedSocketWithPort,
+                                  base::Unretained(tracker_), port));
+  }
   return connection;
 }
 
@@ -139,11 +145,12 @@ void ConnectionTracker::ConnectionListener::ReadFromSocket(
   // the sockets of the test server are being flushed and disconnected.
   if (rv <= 0)
     return;
-  uint16_t port = GetPort(connection);
-  task_runner_->PostTask(
-      FROM_HERE, base::BindOnce(&ConnectionTracker::ReadFromSocketWithPort,
-                                base::Unretained(tracker_), port));
+  uint16_t port;
+  if (GetPort(connection, &port)) {
+    task_runner_->PostTask(
+        FROM_HERE, base::BindOnce(&ConnectionTracker::ReadFromSocketWithPort,
+                                  base::Unretained(tracker_), port));
+  }
 }
 
-}  // namespace test_server
-}  // namespace net
+}  // namespace net::test_server

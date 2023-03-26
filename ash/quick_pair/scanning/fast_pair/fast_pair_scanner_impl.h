@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <string>
 
 #include "ash/quick_pair/scanning/fast_pair/fast_pair_scanner.h"
+#include "base/containers/flat_map.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
@@ -32,13 +33,28 @@ class FastPairScannerImpl
       public device::BluetoothAdapter::Observer,
       public device::BluetoothLowEnergyScanSession::Delegate {
  public:
-  FastPairScannerImpl();
-  FastPairScannerImpl(const FastPairScannerImpl&) = delete;
-  FastPairScannerImpl& operator=(const FastPairScannerImpl&) = delete;
+  class Factory {
+   public:
+    static scoped_refptr<FastPairScanner> Create();
+
+    static void SetFactoryForTesting(Factory* g_test_factory);
+
+   protected:
+    virtual ~Factory();
+    virtual scoped_refptr<FastPairScanner> CreateInstance() = 0;
+
+   private:
+    static Factory* g_test_factory_;
+  };
 
   // FastPairScanner::Observer
   void AddObserver(FastPairScanner::Observer* observer) override;
   void RemoveObserver(FastPairScanner::Observer* observer) override;
+  void OnDevicePaired(scoped_refptr<Device> device) override;
+
+  FastPairScannerImpl();
+  FastPairScannerImpl(const FastPairScannerImpl&) = delete;
+  FastPairScannerImpl& operator=(const FastPairScannerImpl&) = delete;
 
  private:
   ~FastPairScannerImpl() override;
@@ -79,6 +95,8 @@ class FastPairScannerImpl
   // seen.
   std::map<std::string, std::set<std::vector<uint8_t>>>
       device_address_advertisement_data_map_;
+
+  base::flat_map<std::string, std::string> ble_address_to_classic_;
 
   std::unique_ptr<device::BluetoothLowEnergyScanSession>
       background_scan_session_;

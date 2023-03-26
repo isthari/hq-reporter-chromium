@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,7 @@ class HostExtensionSession;
 namespace protocol {
 class ClientStub;
 class ExtensionMessage;
-}
+}  // namespace protocol
 
 // Helper class used to create and manage a set of HostExtensionSession
 // instances depending upon the set of registered HostExtensions, and the

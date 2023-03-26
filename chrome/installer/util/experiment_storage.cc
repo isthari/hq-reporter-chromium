@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,15 +12,17 @@
 #include <string>
 
 #include "base/base64.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/check.h"
+#include "base/debug/crash_logging.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/time/time.h"
 #include "base/win/registry.h"
+#include "base/win/security_descriptor.h"
 #include "base/win/win_util.h"
 #include "chrome/install_static/install_details.h"
 #include "chrome/install_static/install_modes.h"
@@ -30,6 +32,7 @@
 #include "chrome/installer/util/experiment_metrics.h"
 #include "chrome/installer/util/google_update_settings.h"
 #include "chrome/installer/util/shell_util.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace installer {
 
@@ -47,6 +50,8 @@ constexpr wchar_t kRegValueState[] = L"State";
 constexpr wchar_t kRegValueToastCount[] = L"ToastCount";
 constexpr wchar_t kRegValueToastLocation[] = L"ToastLocation";
 constexpr wchar_t kRegValueUserSessionUptime[] = L"UserSessionUptime";
+// Grant Administrators and interactive users full access.
+constexpr wchar_t kMutexSecurity[] = L"D:(A;;GA;;;BA)(A;;GA;;;IU)";
 
 constexpr int kSessionLengthBucketLowestBit = 0;
 constexpr int kActionDelayBucketLowestBit =
@@ -257,8 +262,23 @@ ExperimentStorage::Lock::Lock(ExperimentStorage* storage) : storage_(storage) {
 
 // ExperimentStorage -----------------------------------------------------------
 
-ExperimentStorage::ExperimentStorage()
-    : mutex_(::CreateMutex(nullptr, FALSE, GetMutexName().c_str())) {}
+ExperimentStorage::ExperimentStorage() {
+  // Diagnose failure to create mutex; see https://crbug.com/1351849.
+  const auto mutex_name = GetMutexName();
+  SCOPED_CRASH_KEY_STRING256("ExperimentStorage", "mutex_name",
+                             base::WideToASCII(mutex_name));
+  absl::optional<base::win::SecurityDescriptor> sd =
+      base::win::SecurityDescriptor::FromSddl(kMutexSecurity);
+  PCHECK(sd) << "Failed to create ExperimentStorage mutex security descriptor";
+  SECURITY_DESCRIPTOR sd_absolute = {};
+  sd->ToAbsolute(sd_absolute);
+  SECURITY_ATTRIBUTES attributes = {};
+  attributes.nLength = sizeof(attributes);
+  attributes.lpSecurityDescriptor = &sd_absolute;
+  HANDLE mutex = ::CreateMutex(&attributes, FALSE, mutex_name.c_str());
+  PCHECK(mutex) << "Failed to create ExperimentStorage mutex";
+  mutex_.Set(mutex);
+}
 
 ExperimentStorage::~ExperimentStorage() {}
 

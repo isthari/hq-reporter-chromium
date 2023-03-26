@@ -1,10 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "services/network/websocket_factory.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "mojo/public/cpp/bindings/message.h"
 #include "net/base/isolation_info.h"
 #include "net/base/url_util.h"
@@ -24,7 +24,7 @@ WebSocketFactory::WebSocketFactory(NetworkContext* context)
 WebSocketFactory::~WebSocketFactory() {
   // Subtle: This is important to avoid WebSocketFactory::Remove calls during
   // |connections_| destruction.
-  connections_.clear();
+  WebSocketSet connections = std::move(connections_);
 }
 
 void WebSocketFactory::CreateWebSocket(

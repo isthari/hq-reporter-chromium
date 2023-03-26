@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -73,8 +73,7 @@ public class SaveUpdateAddressProfilePrompt {
 
         mEditorDialog = new EditorDialog(activity, /*deleteRunnable=*/null, browserProfile);
         mEditorDialog.setShouldTriggerDoneCallbackBeforeCloseAnimation(true);
-        mAddressEditor = new AddressEditor(AddressEditor.Purpose.AUTOFILL_SETTINGS,
-                /*saveToDisk=*/false);
+        mAddressEditor = new AddressEditor(/*saveToDisk=*/false);
         mAddressEditor.setEditorDialog(mEditorDialog);
         AutofillAddress autofillAddress = new AutofillAddress(activity, autofillProfile);
         mDialogView.findViewById(R.id.edit_button).setOnClickListener(v -> {

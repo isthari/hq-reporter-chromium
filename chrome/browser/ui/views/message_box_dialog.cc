@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/run_loop.h"
 #include "base/task/current_thread.h"
 #include "build/build_config.h"
@@ -265,7 +265,6 @@ MessageBoxDialog::MessageBoxDialog(const std::u16string& title,
 
   if (!checkbox_text.empty())
     message_box_view_->SetCheckBoxLabel(checkbox_text);
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::SIMPLE_MESSAGE_BOX);
 }
 
 MessageBoxDialog::~MessageBoxDialog() {

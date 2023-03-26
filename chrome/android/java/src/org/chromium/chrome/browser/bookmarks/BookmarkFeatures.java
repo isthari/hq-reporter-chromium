@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@ package org.chromium.chrome.browser.bookmarks;
 
 import org.chromium.base.FeatureList;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.MutableFlagWithSafeDefault;
 
 /**
  * Self-documenting feature class for bookmarks.
@@ -32,7 +33,8 @@ public class BookmarkFeatures {
      * <li>{@code bookmarks_improved_save_flow_min_version} - {@link
      * ChromeFeatureList#BOOKMARKS_IMPROVED_SAVE_FLOW}
      * <li>{@code bookmarks_refresh_min_version} - {@link ChromeFeatureList#BOOKMARKS_REFRESH}
-     * <li>{@code read_later_min_version} - {@link ChromeFeatureList#READ_LATER}
+     * <li>{@code bookmark_compact_visuals_enabled} - {@link ChromeFeatureList#BOOKMARKS_REFRESH}
+     * <li>{@code bookmark_visuals_enabled} - {@link ChromeFeatureList#BOOKMARKS_REFRESH}
      * </ul>
      *
      * <p>These parameters allow to control for cases where a significant bug fix or change of param
@@ -43,12 +45,17 @@ public class BookmarkFeatures {
     static final int VERSION = 0;
 
     private static final boolean BOOKMARK_VISUALS_ENABLED_DEFAULT = false;
+    private static final boolean BOOKMARK_COMPACT_VISUALS_ENABLED_DEFAULT = false;
     private static final boolean IMPROVED_SAVE_FLOW_AUTODISMISS_ENABLED_DEFAULT = true;
     private static final int IMPROVED_SAVE_FLOW_AUTODISMISS_TIME_MS_DEFAULT = 6000;
 
     static final String BOOKMARK_VISUALS_ENABLED = "bookmark_visuals_enabled";
+    static final String BOOKMARK_COMPACT_VISUALS_ENABLED = "bookmark_compact_visuals_enabled";
     static final String AUTODISMISS_ENABLED_PARAM_NAME = "autodismiss_enabled";
     static final String AUTODISMISS_LENGTH_PARAM_NAME = "autodismiss_length_ms";
+
+    private static final MutableFlagWithSafeDefault sAndroidImprovedBookmarksFlag =
+            new MutableFlagWithSafeDefault(ChromeFeatureList.ANDROID_IMPROVED_BOOKMARKS, false);
 
     public static boolean isImprovedSaveFlowEnabled() {
         return FeatureList.isInitialized()
@@ -83,6 +90,12 @@ public class BookmarkFeatures {
                 <= VERSION;
     }
 
+    public static boolean isBookmarkMenuItemAsDedicatedRowEnabled() {
+        return isBookmarksRefreshEnabled()
+                && ChromeFeatureList.getFieldTrialParamByFeatureAsBoolean(
+                        ChromeFeatureList.BOOKMARKS_REFRESH, "bookmark_in_app_menu", false);
+    }
+
     public static boolean isBookmarksVisualRefreshEnabled() {
         return isBookmarksRefreshEnabled()
                 && ChromeFeatureList.getFieldTrialParamByFeatureAsBoolean(
@@ -90,9 +103,19 @@ public class BookmarkFeatures {
                         BOOKMARK_VISUALS_ENABLED_DEFAULT);
     }
 
-    public static boolean isBookmarkMenuItemAsDedicatedRowEnabled() {
-        return isBookmarksRefreshEnabled()
+    /** The compact visual refresh is built on top of the base one. */
+    public static boolean isCompactBookmarksVisualRefreshEnabled() {
+        return isBookmarksVisualRefreshEnabled()
                 && ChromeFeatureList.getFieldTrialParamByFeatureAsBoolean(
-                        ChromeFeatureList.BOOKMARKS_REFRESH, "bookmark_in_app_menu", false);
+                        ChromeFeatureList.BOOKMARKS_REFRESH, BOOKMARK_COMPACT_VISUALS_ENABLED,
+                        BOOKMARK_COMPACT_VISUALS_ENABLED_DEFAULT);
+    }
+
+    /**
+     * More visual changes to the bookmarks surfaces, with more thumbnails and a focus on search
+     * instead of folders/hierarchy.
+     */
+    public static boolean isAndroidImprovedBookmarksEnabled() {
+        return sAndroidImprovedBookmarksFlag.isEnabled();
     }
 }

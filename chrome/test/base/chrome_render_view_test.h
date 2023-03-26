@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,9 +18,13 @@ namespace autofill {
 class AutofillAgent;
 class TestPasswordAutofillAgent;
 class PasswordGenerationAgent;
-class AutofillAssistantAgent;
 }  // namespace autofill
 
+// This test fixture emulates a single RenderView within the main test process.
+// Since it does everything in a single process, tests based on this fixture do
+// not cover code related to Chrome's multiprocess architecture, such as
+// sandboxing. InProcessBrowserTest is a better fixture for integration tests
+// that care about multiple processes.
 class ChromeRenderViewTest : public content::RenderViewTest {
  public:
   ChromeRenderViewTest();
@@ -46,7 +50,6 @@ class ChromeRenderViewTest : public content::RenderViewTest {
   raw_ptr<autofill::TestPasswordAutofillAgent> password_autofill_agent_ =
       nullptr;
   raw_ptr<autofill::PasswordGenerationAgent> password_generation_ = nullptr;
-  raw_ptr<autofill::AutofillAssistantAgent> autofill_assistant_agent_ = nullptr;
   raw_ptr<autofill::AutofillAgent> autofill_agent_ = nullptr;
 
   std::unique_ptr<service_manager::BinderRegistry> registry_;

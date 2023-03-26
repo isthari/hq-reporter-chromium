@@ -1,9 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/modules/presentation/presentation_receiver.h"
 
+#include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -19,7 +20,7 @@ PresentationReceiver::PresentationReceiver(LocalDOMWindow* window)
       presentation_receiver_receiver_(this, window),
       presentation_service_remote_(window),
       window_(window) {
-  DCHECK(window_->GetFrame()->IsMainFrame());
+  DCHECK(window_->GetFrame()->IsOutermostMainFrame());
   scoped_refptr<base::SingleThreadTaskRunner> task_runner =
       window->GetTaskRunner(TaskType::kPresentation);
   window->GetBrowserInterfaceBroker().GetInterface(

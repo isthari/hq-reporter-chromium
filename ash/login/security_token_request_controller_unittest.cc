@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "ash/login/ui/pin_request_view.h"
 #include "ash/login/ui/pin_request_widget.h"
 #include "ash/public/cpp/login_types.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
@@ -72,8 +72,9 @@ class SecurityTokenRequestControllerTest : public LoginTestBase {
       generator->PressKey(ui::KeyboardCode(ui::KeyboardCode::VKEY_0 + i),
                           ui::EF_NONE);
     }
-    if (PinRequestView::TestApi(view_).submit_button()->GetEnabled())
+    if (PinRequestView::TestApi(view_).submit_button()->GetEnabled()) {
       SimulateButtonPress(PinRequestView::TestApi(view_).submit_button());
+    }
   }
 
   std::unique_ptr<SecurityTokenRequestController> controller_;

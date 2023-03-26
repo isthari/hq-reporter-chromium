@@ -26,6 +26,8 @@
 #include "third_party/blink/renderer/core/style/style_fetched_image_set.h"
 
 #include "third_party/blink/renderer/core/css/css_image_set_value.h"
+#include "third_party/blink/renderer/core/css/style_engine.h"
+#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_content.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image_for_container.h"
@@ -54,11 +56,13 @@ void StyleFetchedImageSet::Prefinalize() {
 }
 
 bool StyleFetchedImageSet::IsEqual(const StyleImage& other) const {
-  if (!other.IsImageResourceSet())
+  if (!other.IsImageResourceSet()) {
     return false;
+  }
   const auto& other_image = To<StyleFetchedImageSet>(other);
-  if (best_fit_image_ != other_image.best_fit_image_)
+  if (best_fit_image_ != other_image.best_fit_image_) {
     return false;
+  }
   return url_ == other_image.url_;
 }
 
@@ -95,8 +99,9 @@ bool StyleFetchedImageSet::ErrorOccurred() const {
 
 bool StyleFetchedImageSet::IsAccessAllowed(String& failing_url) const {
   DCHECK(best_fit_image_->IsLoaded());
-  if (best_fit_image_->IsAccessAllowed())
+  if (best_fit_image_->IsAccessAllowed()) {
     return true;
+  }
   failing_url = best_fit_image_->Url().ElidedString();
   return false;
 }
@@ -107,7 +112,7 @@ gfx::SizeF StyleFetchedImageSet::ImageSize(
     RespectImageOrientationEnum respect_orientation) const {
   Image* image = best_fit_image_->GetImage();
   if (auto* svg_image = DynamicTo<SVGImage>(image)) {
-    return ImageSizeForSVGImage(svg_image, multiplier, default_object_size);
+    return ImageSizeForSVGImage(*svg_image, multiplier, default_object_size);
   }
   respect_orientation = ForceOrientationIfNecessary(respect_orientation);
   gfx::SizeF natural_size(image->Size(respect_orientation));
@@ -116,7 +121,11 @@ gfx::SizeF StyleFetchedImageSet::ImageSize(
 }
 
 bool StyleFetchedImageSet::HasIntrinsicSize() const {
-  return best_fit_image_->GetImage()->HasIntrinsicSize();
+  const Image& image = *best_fit_image_->GetImage();
+  if (auto* svg_image = DynamicTo<SVGImage>(image)) {
+    return HasIntrinsicDimensionsForSVGImage(*svg_image);
+  }
+  return image.HasIntrinsicSize();
 }
 
 void StyleFetchedImageSet::AddClient(ImageResourceObserver* observer) {
@@ -129,7 +138,7 @@ void StyleFetchedImageSet::RemoveClient(ImageResourceObserver* observer) {
 
 scoped_refptr<Image> StyleFetchedImageSet::GetImage(
     const ImageResourceObserver&,
-    const Document&,
+    const Document& document,
     const ComputedStyle& style,
     const gfx::SizeF& target_size) const {
   Image* image = best_fit_image_->GetImage();
@@ -139,10 +148,12 @@ scoped_refptr<Image> StyleFetchedImageSet::GetImage(
   }
 
   auto* svg_image = DynamicTo<SVGImage>(image);
-  if (!svg_image)
+  if (!svg_image) {
     return image;
-  return SVGImageForContainer::Create(svg_image, target_size,
-                                      style.EffectiveZoom(), url_);
+  }
+  return SVGImageForContainer::Create(
+      svg_image, target_size, style.EffectiveZoom(), url_,
+      document.GetStyleEngine().ResolveColorSchemeForEmbedding(&style));
 }
 
 bool StyleFetchedImageSet::KnownToBeOpaque(const Document&,
@@ -154,12 +165,14 @@ RespectImageOrientationEnum StyleFetchedImageSet::ForceOrientationIfNecessary(
     RespectImageOrientationEnum default_orientation) const {
   // SVG Images don't have orientation and assert on loading when
   // IsAccessAllowed is called.
-  if (best_fit_image_->GetImage()->IsSVGImage())
+  if (best_fit_image_->GetImage()->IsSVGImage()) {
     return default_orientation;
+  }
   // Cross-origin images must always respect orientation to prevent
   // potentially private data leakage.
-  if (!best_fit_image_->IsAccessAllowed())
+  if (!best_fit_image_->IsAccessAllowed()) {
     return kRespectImageOrientation;
+  }
   return default_orientation;
 }
 

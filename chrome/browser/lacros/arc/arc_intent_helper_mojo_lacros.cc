@@ -1,11 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/lacros/arc/arc_intent_helper_mojo_lacros.h"
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/logging.h"
 #include "chromeos/lacros/lacros_service.h"
 
@@ -29,6 +29,14 @@ bool ArcIntentHelperMojoLacros::IsRequestUrlHandlerListAvailable() {
          service->GetInterfaceVersion(crosapi::mojom::Arc::Uuid_) >=
              int{crosapi::mojom::Arc::MethodMinVersions::
                      kRequestUrlHandlerListMinVersion};
+}
+
+bool ArcIntentHelperMojoLacros::IsRequestTextSelectionActionsAvailable() {
+  auto* service = chromeos::LacrosService::Get();
+  return service && service->IsAvailable<crosapi::mojom::Arc>() &&
+         service->GetInterfaceVersion(crosapi::mojom::Arc::Uuid_) >=
+             int{crosapi::mojom::Arc::MethodMinVersions::
+                     kRequestTextSelectionActionsMinVersion};
 }
 
 bool ArcIntentHelperMojoLacros::RequestUrlHandlerList(

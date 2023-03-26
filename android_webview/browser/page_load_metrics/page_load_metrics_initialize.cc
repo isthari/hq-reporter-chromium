@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,6 +35,7 @@ class PageLoadMetricsEmbedder
   bool IsNewTabPageUrl(const GURL& url) override;
   bool IsNoStatePrefetch(content::WebContents* web_contents) override;
   bool IsExtensionUrl(const GURL& url) override;
+  bool IsSidePanel(content::WebContents* web_contents) override;
   page_load_metrics::PageLoadMetricsMemoryTracker*
   GetMemoryTrackerForBrowserContext(
       content::BrowserContext* browser_context) override;
@@ -64,6 +65,11 @@ bool PageLoadMetricsEmbedder::IsNoStatePrefetch(
 }
 
 bool PageLoadMetricsEmbedder::IsExtensionUrl(const GURL& url) {
+  return false;
+}
+
+bool PageLoadMetricsEmbedder::IsSidePanel(content::WebContents* web_contents) {
+  // The side panel is not supported on Android so this always returns false.
   return false;
 }
 

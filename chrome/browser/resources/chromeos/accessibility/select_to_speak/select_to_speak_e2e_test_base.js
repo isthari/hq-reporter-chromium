@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,12 +12,7 @@ SelectToSpeakE2ETest = class extends E2ETestBase {
   testGenCppIncludes() {
     super.testGenCppIncludes();
     GEN(`
-#include "ash/accessibility/accessibility_delegate.h"
 #include "ash/keyboard/ui/keyboard_util.h"
-#include "ash/shell.h"
-#include "base/bind.h"
-#include "base/callback.h"
-#include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "ui/accessibility/accessibility_features.h"
     `);
   }

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <string>
 
-#include "ash/public/cpp/system/toast_catalog.h"
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/system/toast_data.h"
 #include "ash/public/cpp/system/toast_manager.h"
 #include "ash/resources/vector_icons/vector_icons.h"
@@ -19,6 +19,7 @@
 #include "chrome/browser/sharesheet/sharesheet_types.h"
 #include "chrome/browser/ui/ash/sharesheet/sharesheet_util.h"
 #include "chrome/grit/generated_resources.h"
+#include "chromeos/components/sharesheet/constants.h"
 #include "components/services/app_service/public/cpp/intent_util.h"
 #include "storage/browser/file_system/file_system_url.h"
 #include "ui/base/clipboard/file_info.h"
@@ -28,6 +29,12 @@
 
 namespace {
 const char kToastId[] = "copy_to_clipboard_share_action";
+
+void RecordFormFactorMetric() {
+  auto form_factor = ::sharesheet::SharesheetMetrics::GetFormFactorForMetrics();
+  ::sharesheet::SharesheetMetrics::RecordCopyToClipboardShareActionFormFactor(
+      form_factor);
+}
 
 void RecordMimeTypes(
     const base::flat_set<::sharesheet::SharesheetMetrics::MimeType>&
@@ -62,7 +69,7 @@ const gfx::VectorIcon& CopyToClipboardShareAction::GetActionIcon() {
 void CopyToClipboardShareAction::LaunchAction(
     ::sharesheet::SharesheetController* controller,
     views::View* root_view,
-    apps::mojom::IntentPtr intent) {
+    apps::IntentPtr intent) {
   ui::ScopedClipboardWriter clipboard_writer(ui::ClipboardBuffer::kCopyPaste);
 
   if (intent->share_text.has_value()) {
@@ -83,11 +90,9 @@ void CopyToClipboardShareAction::LaunchAction(
     }
   }
 
-  const bool has_files =
-      (intent->files.has_value() && !intent->files.value().empty());
-  if (has_files) {
+  if (!intent->files.empty()) {
     std::vector<ui::FileInfo> file_infos;
-    for (const auto& file : intent->files.value()) {
+    for (const auto& file : intent->files) {
       auto file_url = apps::GetFileSystemURL(profile_, file->url);
       // TODO(crbug.com/1274983) : Add support for copying from MTP and
       // FileSystemProviders.
@@ -99,6 +104,7 @@ void CopyToClipboardShareAction::LaunchAction(
     clipboard_writer.WriteFilenames(ui::FileInfosToURIList(file_infos));
   }
 
+  RecordFormFactorMetric();
   RecordMimeTypes(
       ::sharesheet::SharesheetMetrics::GetMimeTypesFromIntentForMetrics(
           intent));
@@ -110,20 +116,18 @@ void CopyToClipboardShareAction::LaunchAction(
   ToastData toast(kToastId, ToastCatalogName::kCopyToClipboardShareAction,
                   l10n_util::GetStringUTF16(
                       IDS_SHARESHEET_COPY_TO_CLIPBOARD_SUCCESS_TOAST_LABEL));
-  ShowToast(toast);
+  ShowToast(std::move(toast));
 }
 
 void CopyToClipboardShareAction::OnClosing(
     ::sharesheet::SharesheetController* controller) {}
 
 bool CopyToClipboardShareAction::ShouldShowAction(
-    const apps::mojom::IntentPtr& intent,
+    const apps::IntentPtr& intent,
     bool contains_hosted_document) {
   bool contains_uncopyable_file = false;
-  const bool has_files =
-      (intent->files.has_value() && !intent->files.value().empty());
-  if (has_files) {
-    for (const auto& file : intent->files.value()) {
+  if (!intent->files.empty()) {
+    for (const auto& file : intent->files) {
       auto file_url = apps::GetFileSystemURL(profile_, file->url);
       contains_uncopyable_file =
           file_manager::util::IsNonNativeFileSystemType(file_url.type());
@@ -139,8 +143,8 @@ bool CopyToClipboardShareAction::ShouldShowAction(
          ShareAction::ShouldShowAction(intent, contains_hosted_document);
 }
 
-void CopyToClipboardShareAction::ShowToast(const ash::ToastData& toast_data) {
-  ToastManager::Get()->Show(toast_data);
+void CopyToClipboardShareAction::ShowToast(ash::ToastData toast_data) {
+  ToastManager::Get()->Show(std::move(toast_data));
 }
 
 }  // namespace sharesheet

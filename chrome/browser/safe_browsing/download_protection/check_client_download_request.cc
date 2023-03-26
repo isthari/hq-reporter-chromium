@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -140,12 +140,16 @@ void CheckClientDownloadRequest::OnDownloadUpdated(
           download::DOWNLOAD_DANGER_TYPE_ASYNC_SCANNING &&
       (download->GetState() == download::DownloadItem::COMPLETE ||
        download->GetState() == download::DownloadItem::CANCELLED)) {
-    RecordDeepScanMetrics(
-        /*access_point=*/DeepScanAccessPoint::DOWNLOAD,
-        /*duration=*/base::TimeTicks::Now() - upload_start_time_,
-        /*total_size=*/item_->GetTotalBytes(),
-        /*result=*/"BypassedByUser",
-        /*failure=*/true);
+    auto settings = DeepScanningRequest::ShouldUploadBinary(item_);
+    if (settings.has_value()) {
+      RecordDeepScanMetrics(
+          settings->cloud_or_local_settings.is_cloud_analysis(),
+          /*access_point=*/DeepScanAccessPoint::DOWNLOAD,
+          /*duration=*/base::TimeTicks::Now() - upload_start_time_,
+          /*total_size=*/item_->GetTotalBytes(),
+          /*result=*/"BypassedByUser",
+          /*failure=*/true);
+    }
   }
 }
 
@@ -214,10 +218,13 @@ void CheckClientDownloadRequest::NotifySendRequest(
       request->referrer_chain().size());
 }
 
-void CheckClientDownloadRequest::SetDownloadPingToken(
-    const std::string& token) {
+void CheckClientDownloadRequest::SetDownloadProtectionData(
+    const std::string& token,
+    const ClientDownloadResponse::Verdict& verdict,
+    const ClientDownloadResponse::TailoredVerdict& tailored_verdict) {
   DCHECK(!token.empty());
-  DownloadProtectionService::SetDownloadPingToken(item_, token);
+  DownloadProtectionService::SetDownloadProtectionData(item_, token, verdict,
+                                                       tailored_verdict);
 }
 
 void CheckClientDownloadRequest::MaybeStorePingsForDownload(
@@ -234,6 +241,11 @@ CheckClientDownloadRequest::ShouldUploadBinary(
     DownloadCheckResultReason reason) {
   // If the download was destroyed, we can't upload it.
   if (reason == REASON_DOWNLOAD_DESTROYED)
+    return absl::nullopt;
+
+  // If the download already has a scanning response attached, there is no need
+  // to try and upload it again.
+  if (item_->GetUserData(enterprise_connectors::ScanResult::kKey))
     return absl::nullopt;
 
   // If the download is considered dangerous, don't upload the binary to show

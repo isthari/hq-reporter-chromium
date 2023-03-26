@@ -27,12 +27,14 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_CANVAS_2D_LAYER_BRIDGE_H_
 
 #include <memory>
-#include <random>
 #include <utility>
 
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/numerics/checked_math.h"
+#include "base/rand_util.h"
+#include "base/time/time.h"
+#include "base/types/optional_util.h"
 #include "build/build_config.h"
 #include "cc/layers/texture_layer_client.h"
 #include "components/viz/common/resources/transferable_resource.h"
@@ -63,14 +65,6 @@ class Canvas2DLayerBridgeTest;
 class SharedContextRateLimiter;
 class StaticBitmapImage;
 
-#if BUILDFLAG(IS_MAC)
-// Canvas hibernation is currently disabled on MacOS X due to a bug that causes
-// content loss. TODO: Find a better fix for crbug.com/588434
-#define CANVAS2D_HIBERNATION_ENABLED 0
-#else
-#define CANVAS2D_HIBERNATION_ENABLED 1
-#endif
-
 class PLATFORM_EXPORT Canvas2DLayerBridge : public cc::TextureLayerClient {
  public:
   Canvas2DLayerBridge(const gfx::Size&, RasterMode, OpacityMode opacity_mode);
@@ -89,6 +83,8 @@ class PLATFORM_EXPORT Canvas2DLayerBridge : public cc::TextureLayerClient {
   void SetIsInHiddenPage(bool);
   void SetIsBeingDisplayed(bool);
   void SetFilterQuality(cc::PaintFlags::FilterQuality filter_quality);
+  void SetHDRConfiguration(gfx::HDRMode hdr_mode,
+                           absl::optional<gfx::HDRMetadata> hdr_metadata);
   void DidDraw();
   void DoPaintInvalidation(const gfx::Rect& dirty_rect);
   cc::Layer* Layer();
@@ -108,9 +104,7 @@ class PLATFORM_EXPORT Canvas2DLayerBridge : public cc::TextureLayerClient {
                    size_t row_bytes,
                    int x,
                    int y);
-  void DontUseIdleSchedulingForTesting() {
-    dont_use_idle_scheduling_for_testing_ = true;
-  }
+  void AlwaysMeasureForTesting() { always_measure_for_testing_ = true; }
   void SetCanvasResourceHost(CanvasResourceHost* host);
 
   void Hibernate();
@@ -158,11 +152,15 @@ class PLATFORM_EXPORT Canvas2DLayerBridge : public cc::TextureLayerClient {
   CanvasResourceProvider* ResourceProvider() const;
   void FlushRecording(bool printing = false);
 
-  sk_sp<cc::PaintRecord> getLastRecord() {
-    return last_record_tainted_by_write_pixels_ ? nullptr : last_recording_;
+  cc::PaintRecord* getLastRecord() {
+    return last_record_tainted_by_write_pixels_
+               ? nullptr
+               : base::OptionalToPtr(last_recording_);
   }
 
   bool HasRateLimiterForTesting();
+
+  static bool IsHibernationEnabled();
 
  private:
   friend class Canvas2DLayerBridgeTest;
@@ -187,7 +185,7 @@ class PLATFORM_EXPORT Canvas2DLayerBridge : public cc::TextureLayerClient {
   bool is_hidden_;
   bool is_being_displayed_;
   bool hibernation_scheduled_ = false;
-  bool dont_use_idle_scheduling_for_testing_ = false;
+  bool always_measure_for_testing_ = false;
   bool context_lost_ = false;
   bool lose_context_in_background_ = false;
   bool lose_context_in_background_scheduled_ = false;
@@ -222,12 +220,10 @@ class PLATFORM_EXPORT Canvas2DLayerBridge : public cc::TextureLayerClient {
   // For measuring a sample of frames for end-to-end raster time
   // Every frame has a 1% chance of being sampled
   static constexpr float kRasterMetricProbability = 0.01;
-
-  std::mt19937 random_generator_;
-  std::bernoulli_distribution bernoulli_distribution_;
+  base::MetricsSubSampler metrics_subsampler_;
   Deque<RasterTimer> pending_raster_timers_;
 
-  sk_sp<cc::PaintRecord> last_recording_;
+  absl::optional<cc::PaintRecord> last_recording_;
 
   base::WeakPtrFactory<Canvas2DLayerBridge> weak_ptr_factory_{this};
 };

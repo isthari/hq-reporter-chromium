@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,16 @@
 #include "base/run_loop.h"
 #include "base/strings/string_piece.h"
 #include "build/build_config.h"
+#include "components/web_package/mojom/web_bundle_parser.mojom-forward.h"
+#include "components/web_package/test_support/mock_web_bundle_parser_factory.h"
 #include "components/web_package/web_bundle_builder.h"
 #include "content/browser/renderer_host/frame_tree_node.h"
+#include "content/browser/renderer_host/navigation_type.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/navigation_handle.h"
-#include "content/public/browser/navigation_type.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
@@ -83,42 +85,7 @@ class DownloadObserver : public DownloadManager::Observer {
   GURL url_;
 };
 
-class MockParserFactory;
-
-class MockParser final : public web_package::mojom::WebBundleParser {
- public:
-  using Index = base::flat_map<GURL, web_package::mojom::BundleIndexValuePtr>;
-
-  MockParser(
-      MockParserFactory* factory,
-      mojo::PendingReceiver<web_package::mojom::WebBundleParser> receiver,
-      const Index& index,
-      const GURL& primary_url,
-      bool simulate_parse_metadata_crash,
-      bool simulate_parse_response_crash);
-
-  MockParser(const MockParser&) = delete;
-  MockParser& operator=(const MockParser&) = delete;
-
-  ~MockParser() override;
-
- private:
-  // web_package::mojom::WebBundleParser implementation.
-  void ParseMetadata(ParseMetadataCallback callback) override;
-  void ParseResponse(uint64_t response_offset,
-                     uint64_t response_length,
-                     ParseResponseCallback callback) override;
-
-  raw_ptr<MockParserFactory> factory_;
-  mojo::Receiver<web_package::mojom::WebBundleParser> receiver_;
-  const Index& index_;
-  const GURL primary_url_;
-  const bool simulate_parse_metadata_crash_;
-  const bool simulate_parse_response_crash_;
-};
-
-class MockParserFactory final
-    : public web_package::mojom::WebBundleParserFactory {
+class MockParserFactory {
  public:
   MockParserFactory(std::vector<GURL> urls,
                     const base::FilePath& response_body_file);
@@ -129,36 +96,20 @@ class MockParserFactory final
   MockParserFactory(const MockParserFactory&) = delete;
   MockParserFactory& operator=(const MockParserFactory&) = delete;
 
-  ~MockParserFactory() override;
-
   int GetParserCreationCount() const;
   void SimulateParserDisconnect();
   void SimulateParseMetadataCrash();
   void SimulateParseResponseCrash();
 
  private:
+  void FinishSetUp(web_package::mojom::BundleMetadataPtr metadata);
+
   void BindWebBundleParserFactory(
       mojo::PendingReceiver<web_package::mojom::WebBundleParserFactory>
           receiver);
 
-  // web_package::mojom::WebBundleParserFactory implementation.
-  void GetParserForFile(
-      mojo::PendingReceiver<web_package::mojom::WebBundleParser> receiver,
-      base::File file) override;
-
-  void GetParserForDataSource(
-      mojo::PendingReceiver<web_package::mojom::WebBundleParser> receiver,
-      mojo::PendingRemote<web_package::mojom::BundleDataSource> data_source)
-      override;
-
   data_decoder::test::InProcessDataDecoder in_process_data_decoder_;
-  mojo::ReceiverSet<web_package::mojom::WebBundleParserFactory> receivers_;
-  bool simulate_parse_metadata_crash_ = false;
-  bool simulate_parse_response_crash_ = false;
-  std::unique_ptr<MockParser> parser_;
-  int parser_creation_count_ = 0;
-  base::flat_map<GURL, web_package::mojom::BundleIndexValuePtr> index_;
-  const GURL primary_url_;
+  web_package::MockWebBundleParserFactory wrapped_factory_;
 };
 
 class TestBrowserClient : public ContentBrowserClient {
@@ -170,11 +121,6 @@ class TestBrowserClient : public ContentBrowserClient {
 
   ~TestBrowserClient() override = default;
   bool CanAcceptUntrustedExchangesIfNeeded() override;
-  std::string GetAcceptLangs(BrowserContext* context) override;
-  void SetAcceptLangs(const std::string langs);
-
- private:
-  std::string accept_langs_ = "en";
 };
 
 class WebBundleBrowserTestBase : public ContentBrowserTest {
@@ -189,8 +135,6 @@ class WebBundleBrowserTestBase : public ContentBrowserTest {
   void SetUpOnMainThread() override;
 
   void TearDownOnMainThread() override;
-
-  void SetAcceptLangs(const std::string langs);
 
   void NavigateToBundleAndWaitForReady(const GURL& test_data_url,
                                        const GURL& expected_commit_url);

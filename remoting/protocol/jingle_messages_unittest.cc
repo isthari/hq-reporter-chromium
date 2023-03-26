@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <stddef.h>
 
-#include "base/cxx17_backports.h"
 #include "base/strings/string_util.h"
 #include "remoting/protocol/content_description.h"
 #include "remoting/signaling/xmpp_constants.h"
@@ -18,8 +17,7 @@ using jingle_xmpp::QName;
 using jingle_xmpp::XmlAttr;
 using jingle_xmpp::XmlElement;
 
-namespace remoting {
-namespace protocol {
+namespace remoting::protocol {
 
 namespace {
 
@@ -480,7 +478,7 @@ TEST(JingleMessageReplyTest, ToXml) {
        kTestIncomingMessage2},
   };
 
-  for (size_t i = 0; i < base::size(tests); ++i) {
+  for (size_t i = 0; i < std::size(tests); ++i) {
     std::unique_ptr<XmlElement> incoming_message(
         XmlElement::ForStr(tests[i].incoming_message));
     ASSERT_TRUE(incoming_message.get());
@@ -635,5 +633,4 @@ TEST(JingleMessageTest, AttachmentsMessage) {
   }
 }
 
-}  // namespace protocol
-}  // namespace remoting
+}  // namespace remoting::protocol

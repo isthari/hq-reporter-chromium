@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,9 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
@@ -37,10 +38,9 @@ namespace {
 // of |input|.
 const char* StringFindInsensitiveASCII(base::StringPiece input,
                                        base::StringPiece token) {
-  return std::search(input.begin(), input.end(), token.begin(), token.end(),
-                     [](char a, char b) {
-                       return base::ToLowerASCII(a) == base::ToLowerASCII(b);
-                     });
+  return base::ranges::search(input, token, std::equal_to<>(),
+                              &base::ToLowerASCII<char>,
+                              &base::ToLowerASCII<char>);
 }
 
 // Checks if the omitted prefix for a non-fully specific prefix is one of the

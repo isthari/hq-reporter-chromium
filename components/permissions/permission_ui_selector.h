@@ -1,11 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_PERMISSIONS_PERMISSION_UI_SELECTOR_H_
 #define COMPONENTS_PERMISSIONS_PERMISSION_UI_SELECTOR_H_
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "components/permissions/permission_request.h"
 #include "components/permissions/permission_uma_util.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -25,12 +25,15 @@ class PermissionUiSelector {
     kTriggeredByCrowdDeny,
     kTriggeredDueToAbusiveRequests,
     kTriggeredDueToAbusiveContent,
-    kPredictedVeryUnlikelyGrant,
+    kServicePredictedVeryUnlikelyGrant,
+    kOnDevicePredictedVeryUnlikelyGrant,
+    kTriggeredDueToDisruptiveBehavior,
   };
 
   enum class WarningReason {
     kAbusiveRequests,
     kAbusiveContent,
+    kDisruptiveBehavior,
   };
 
   struct Decision {
@@ -88,6 +91,10 @@ class PermissionUiSelector {
   // makes use of the Web Permission Predictions Service to make decisions.
   virtual absl::optional<PermissionUmaUtil::PredictionGrantLikelihood>
   PredictedGrantLikelihoodForUKM();
+
+  // Will return if the selector's decision was heldback. Currently only the
+  // Web Prediction Service selector supports holdbacks.
+  virtual absl::optional<bool> WasSelectorDecisionHeldback();
 };
 
 }  // namespace permissions

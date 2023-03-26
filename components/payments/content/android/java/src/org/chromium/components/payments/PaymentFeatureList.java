@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,12 +18,16 @@ import org.chromium.base.annotations.NativeMethods;
 @JNINamespace("payments::android")
 public class PaymentFeatureList {
     /** Alphabetical: */
+    public static final String ADD_IDENTITY_IN_CAN_MAKE_PAYMENT_EVENT =
+            "AddIdentityInCanMakePaymentEvent";
+    public static final String ALLOW_DISCOVERABLE_CREDENTIALS_FOR_SECURE_PAYMENT_CONFIRMATION =
+            "AllowDiscoverableCredentialsForSecurePaymentConfirmation";
     public static final String ANDROID_APP_PAYMENT_UPDATE_EVENTS = "AndroidAppPaymentUpdateEvents";
     public static final String ENFORCE_FULL_DELEGATION = "EnforceFullDelegation";
     public static final String GPAY_APP_DYNAMIC_UPDATE = "GPayAppDynamicUpdate";
+    public static final String OMIT_PARAMETERS_IN_READY_TO_PAY = "OmitParametersInReadyToPay";
     public static final String SECURE_PAYMENT_CONFIRMATION = "SecurePaymentConfirmationBrowser";
     public static final String SERVICE_WORKER_PAYMENT_APPS = "ServiceWorkerPaymentApps";
-    public static final String PAYMENT_REQUEST_BASIC_CARD = "PaymentRequestBasicCard";
     public static final String WEB_PAYMENTS = "WebPayments";
     public static final String WEB_PAYMENTS_APP_STORE_BILLING = "AppStoreBilling";
     public static final String WEB_PAYMENTS_APP_STORE_BILLING_DEBUG = "AppStoreBillingDebug";

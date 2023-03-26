@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "content/browser/background_sync/background_sync_context_impl.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/public/browser/browser_thread.h"
@@ -17,6 +17,7 @@ namespace content {
 PeriodicBackgroundSyncServiceImpl::PeriodicBackgroundSyncServiceImpl(
     BackgroundSyncContextImpl* background_sync_context,
     const url::Origin& origin,
+    RenderProcessHost* render_process_host,
     mojo::PendingReceiver<blink::mojom::PeriodicBackgroundSyncService> receiver)
     : background_sync_context_(background_sync_context),
       origin_(origin),
@@ -25,7 +26,7 @@ PeriodicBackgroundSyncServiceImpl::PeriodicBackgroundSyncServiceImpl(
   DCHECK(background_sync_context_);
 
   registration_helper_ = std::make_unique<BackgroundSyncRegistrationHelper>(
-      background_sync_context_);
+      background_sync_context_, render_process_host);
   DCHECK(registration_helper_);
 
   receiver_.set_disconnect_handler(base::BindOnce(

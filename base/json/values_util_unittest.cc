@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -95,7 +95,7 @@ TEST(ValuesUtilTest, UnguessableToken) {
   };
   for (const auto& test_case : kTestCases) {
     UnguessableToken input =
-        UnguessableToken::Deserialize(test_case.high, test_case.low);
+        UnguessableToken::CreateForTesting(test_case.high, test_case.low);
     Value expected(test_case.expected);
     SCOPED_TRACE(testing::Message() << "expected: " << test_case.expected);
 

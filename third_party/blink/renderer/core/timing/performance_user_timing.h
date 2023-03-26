@@ -29,6 +29,7 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/timing/performance.h"
 #include "third_party/blink/renderer/core/timing/performance_timing.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 
 namespace blink {
@@ -52,7 +53,8 @@ class UserTiming final : public GarbageCollected<UserTiming> {
                               const absl::optional<double>& duration,
                               const V8UnionDoubleOrString* end,
                               const ScriptValue& detail,
-                              ExceptionState&);
+                              ExceptionState&,
+                              DOMWindow* source);
   void ClearMeasures(const AtomicString& measure_name);
 
   PerformanceEntryVector GetMarks() const;
@@ -75,9 +77,22 @@ class UserTiming final : public GarbageCollected<UserTiming> {
                                const V8UnionDoubleOrString* mark_or_time,
                                ExceptionState&);
 
+  void InsertPerformanceEntry(PerformanceEntryMap& performance_entry_map,
+                              PerformanceEntryVector& performance_entry_buffer,
+                              PerformanceEntry& entry);
+
+  void ClearPerformanceEntries(PerformanceEntryMap& performance_entry_map,
+                               PerformanceEntryVector& performance_entry_buffer,
+                               const AtomicString& name);
+
   Member<Performance> performance_;
   PerformanceEntryMap marks_map_;
   PerformanceEntryMap measures_map_;
+
+  // Maintain vectors to improve fetch time for marks/measures in exchange for
+  // memory.
+  PerformanceEntryVector marks_buffer_;
+  PerformanceEntryVector measures_buffer_;
 };
 
 }  // namespace blink

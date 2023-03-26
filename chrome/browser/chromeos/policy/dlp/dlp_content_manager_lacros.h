@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,15 +38,16 @@ class DlpContentManagerLacros : public DlpContentManager,
       const content::DesktopMediaID& media_id,
       const std::u16string& application_title,
       OnDlpRestrictionCheckedCallback callback) override;
-  void OnScreenCaptureStarted(
+  void OnScreenShareStarted(
       const std::string& label,
-      std::vector<content::DesktopMediaID> screen_capture_ids,
+      std::vector<content::DesktopMediaID> screen_share_ids,
       const std::u16string& application_title,
       base::RepeatingClosure stop_callback,
-      content::MediaStreamUI::StateChangeCallback state_change_callback)
-      override;
-  void OnScreenCaptureStopped(const std::string& label,
-                              const content::DesktopMediaID& media_id) override;
+      content::MediaStreamUI::StateChangeCallback state_change_callback,
+      content::MediaStreamUI::SourceCallback source_callback) override;
+  void OnScreenShareStopped(const std::string& label,
+                            const content::DesktopMediaID& media_id) override;
+  void TabLocationMaybeChanged(content::WebContents* web_contents) override;
 
  private:
   friend class DlpContentManagerTestHelper;
@@ -107,7 +108,8 @@ class DlpContentManagerLacros : public DlpContentManager,
 
   // DlpContentManager override:
   ConfidentialContentsInfo GetScreenShareConfidentialContentsInfo(
-      const content::DesktopMediaID& media_id) const override;
+      const content::DesktopMediaID& media_id,
+      content::WebContents* web_contents) const override;
 
   // Tracks set of known confidential WebContents* for each Window*.
   base::flat_map<aura::Window*, base::flat_set<content::WebContents*>>

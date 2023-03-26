@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,12 +43,13 @@ class CONTENT_EXPORT ServiceWorkerScriptCacheMap {
   void NotifyStartedCaching(const GURL& url, int64_t resource_id);
   void NotifyFinishedCaching(const GURL& url,
                              int64_t size_bytes,
+                             const std::string& sha256_checksum,
                              net::Error net_error,
                              const std::string& status_message);
 
   // Used to retrieve the results of the initial run of a new version.
-  void GetResources(
-      std::vector<storage::mojom::ServiceWorkerResourceRecordPtr>* resources);
+  std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> GetResources()
+      const;
 
   // Used when loading an existing version.
   void SetResources(

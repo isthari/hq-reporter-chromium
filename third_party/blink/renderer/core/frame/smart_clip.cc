@@ -80,7 +80,7 @@ SmartClipData SmartClip::DataForRect(const gfx::Rect& crop_rect_in_viewport) {
   HeapVector<Member<Node>> hit_nodes;
   CollectOverlappingChildNodes(best_node, crop_rect_in_viewport, hit_nodes);
 
-  if (hit_nodes.IsEmpty() || hit_nodes.size() == best_node->CountChildren()) {
+  if (hit_nodes.empty() || hit_nodes.size() == best_node->CountChildren()) {
     hit_nodes.clear();
     hit_nodes.push_back(best_node);
   }
@@ -236,7 +236,7 @@ String SmartClip::ExtractTextFromNode(Node* node) {
   StringBuilder result;
   for (Node& current_node : NodeTraversal::InclusiveDescendantsOf(*node)) {
     const ComputedStyle* style = current_node.GetComputedStyle();
-    if (!style || style->UserSelect() == EUserSelect::kNone)
+    if (!style || style->UsedUserSelect() == EUserSelect::kNone)
       continue;
 
     if (Node* node_from_frame = NodeInsideFrame(&current_node))

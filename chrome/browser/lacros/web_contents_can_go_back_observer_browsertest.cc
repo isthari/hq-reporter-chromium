@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/lacros/window_utility.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -68,8 +69,8 @@ class WebContentsCanGoBackObserverTest : public InProcessBrowserTest {
   ~WebContentsCanGoBackObserverTest() override = default;
 };
 
-// crbug.com/1240655: flaky on Lacros
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
+// crbug.com/1240655: flaky on Lacros and ASAN.
+#if BUILDFLAG(IS_CHROMEOS_LACROS) || defined(ADDRESS_SANITIZER)
 #define MAYBE_CanGoBack_ServerSide DISABLED_CanGoBack_ServerSide
 #else
 #define MAYBE_CanGoBack_ServerSide CanGoBack_ServerSide
@@ -83,8 +84,9 @@ IN_PROC_BROWSER_TEST_F(WebContentsCanGoBackObserverTest,
   aura::Window* window = BrowserView::GetBrowserViewForBrowser(browser())
                              ->frame()
                              ->GetNativeWindow();
-  std::string id = browser_test_util::GetWindowId(window->GetRootWindow());
-  browser_test_util::WaitForWindowCreation(id);
+  std::string id =
+      lacros_window_utility::GetRootWindowUniqueId(window->GetRootWindow());
+  ASSERT_TRUE(browser_test_util::WaitForWindowCreation(id));
 
   EXPECT_FALSE(chrome::CanGoBack(browser()));
   EXPECT_FALSE(chrome::CanGoForward(browser()));
@@ -108,8 +110,15 @@ IN_PROC_BROWSER_TEST_F(WebContentsCanGoBackObserverTest,
   CheckCanGoBackOnServer(id, false /* expected_value */);
 }
 
+// TODO(crbug.com/1383542): This test is flaky on Lacros asan builder.
+#if BUILDFLAG(IS_CHROMEOS_LACROS) && defined(ADDRESS_SANITIZER)
+#define MAYBE_CanGoBackMultipleTabs_ServerSide \
+  DISABLED_CanGoBackMultipleTabs_ServerSide
+#else
+#define MAYBE_CanGoBackMultipleTabs_ServerSide CanGoBackMultipleTabs_ServerSide
+#endif
 IN_PROC_BROWSER_TEST_F(WebContentsCanGoBackObserverTest,
-                       CanGoBackMultipleTabs_ServerSide) {
+                       MAYBE_CanGoBackMultipleTabs_ServerSide) {
   auto* lacros_service = chromeos::LacrosService::Get();
   ASSERT_TRUE(lacros_service);
   ASSERT_TRUE(lacros_service->IsAvailable<crosapi::mojom::TestController>());
@@ -117,8 +126,9 @@ IN_PROC_BROWSER_TEST_F(WebContentsCanGoBackObserverTest,
   aura::Window* window = BrowserView::GetBrowserViewForBrowser(browser())
                              ->frame()
                              ->GetNativeWindow();
-  std::string id = browser_test_util::GetWindowId(window->GetRootWindow());
-  browser_test_util::WaitForWindowCreation(id);
+  std::string id =
+      lacros_window_utility::GetRootWindowUniqueId(window->GetRootWindow());
+  ASSERT_TRUE(browser_test_util::WaitForWindowCreation(id));
 
   EXPECT_FALSE(chrome::CanGoBack(browser()));
   EXPECT_FALSE(chrome::CanGoForward(browser()));
@@ -162,7 +172,8 @@ IN_PROC_BROWSER_TEST_F(WebContentsCanGoBackObserverTest,
   // Switch to a different tab, and verify whether the `can go back` property
   // updates accordingly.
   browser()->tab_strip_model()->ActivateTabAt(
-      0, {TabStripModel::GestureType::kOther});
+      0, TabStripUserGestureDetails(
+             TabStripUserGestureDetails::GestureType::kOther));
   EXPECT_EQ(0, browser()->tab_strip_model()->active_index());
 
   EXPECT_TRUE(chrome::CanGoBack(browser()));

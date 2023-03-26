@@ -1,4 +1,4 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,16 @@ AutofillBubbleBase* TestAutofillBubbleHandler::ShowSaveCreditCardBubble(
   if (!save_card_bubble_view_)
     save_card_bubble_view_ = std::make_unique<TestAutofillBubble>();
   return save_card_bubble_view_.get();
+}
+
+AutofillBubbleBase* TestAutofillBubbleHandler::ShowSaveIbanBubble(
+    content::WebContents* web_contents,
+    SaveIbanBubbleController* controller,
+    bool is_user_gesture) {
+  if (!save_iban_bubble_view_) {
+    save_iban_bubble_view_ = std::make_unique<TestAutofillBubble>();
+  }
+  return save_iban_bubble_view_.get();
 }
 
 AutofillBubbleBase* TestAutofillBubbleHandler::ShowLocalCardMigrationBubble(

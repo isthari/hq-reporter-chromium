@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,7 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
-#include "base/task/post_task.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/services/cups_proxy/public/cpp/cups_util.h"
 #include "chromeos/printing/printer_configuration.h"
 
@@ -66,7 +65,7 @@ void PrinterInstaller::OnInstallPrinter(InstallPrinterCallback cb,
 
 void PrinterInstaller::Finish(InstallPrinterCallback cb,
                               InstallPrinterResult res) {
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(cb), res));
 }
 

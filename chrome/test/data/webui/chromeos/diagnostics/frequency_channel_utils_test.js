@@ -1,13 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
 
 import {ChannelBand} from 'chrome://diagnostics/diagnostics_types.js';
 import {convertFrequencyToChannel, getFrequencyChannelBand} from 'chrome://diagnostics/frequency_channel_utils.js';
 
-import {assertEquals} from '../../chai_assert.js';
+import {assertEquals} from 'chrome://webui-test/chromeos/chai_assert.js';
 
-export function frequencyChannelUtilsTestSuite() {
+suite('frequencyChannelUtilsTestSuite', function() {
   test('ConvertFrequencyToChannel', () => {
     // Frequency not in map.
     assertEquals(null, convertFrequencyToChannel(0));
@@ -31,4 +33,4 @@ export function frequencyChannelUtilsTestSuite() {
     assertEquals(ChannelBand.TWO_DOT_FOUR_GHZ, getFrequencyChannelBand(2412));
     assertEquals(ChannelBand.FIVE_GHZ, getFrequencyChannelBand(5160));
   });
-}
+});

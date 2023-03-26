@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "base/task/single_thread_task_runner.h"
 #include "base/values.h"
 #include "content/public/browser/browser_context.h"
 #include "extensions/browser/api/messaging/native_message_host.h"
@@ -21,7 +22,7 @@ class ArcSupportMessageHost : public extensions::NativeMessageHost {
   class Observer {
    public:
     // Called when an message is sent from arc_support Chrome App.
-    virtual void OnMessage(const base::DictionaryValue& message) = 0;
+    virtual void OnMessage(const base::Value::Dict& message) = 0;
 
    protected:
     virtual ~Observer() = default;
@@ -42,7 +43,7 @@ class ArcSupportMessageHost : public extensions::NativeMessageHost {
 
   // Sends a message to arc_support. If the client is not yet ready, the
   // message will be just ignored.
-  void SendMessage(const base::Value& message);
+  void SendMessage(const base::ValueView& message);
 
   // Registers (or unregisters if nullptr) the observer. Currently this class
   // assumes that it has only one observer.

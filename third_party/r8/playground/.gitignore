@@ -2,4 +2,4 @@
 *.dex
 *.jar
 *.txt
-desugar_jdk_libs.pgcfg
+*.mapping

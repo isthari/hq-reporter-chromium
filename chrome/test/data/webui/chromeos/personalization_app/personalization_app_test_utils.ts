@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,13 @@
  * SWA.
  */
 
-import {setAmbientProviderForTesting} from 'chrome://personalization/trusted/ambient/ambient_interface_provider.js';
-import {IFrameApi} from 'chrome://personalization/trusted/iframe_api.js';
-import {emptyState, PersonalizationState} from 'chrome://personalization/trusted/personalization_state.js';
-import {setThemeProviderForTesting} from 'chrome://personalization/trusted/theme/theme_interface_provider.js';
-import {setUserProviderForTesting} from 'chrome://personalization/trusted/user/user_interface_provider.js';
-import {setWallpaperProviderForTesting} from 'chrome://personalization/trusted/wallpaper/wallpaper_interface_provider.js';
+import {emptyState, PersonalizationState, setAmbientProviderForTesting, setKeyboardBacklightProviderForTesting, setThemeProviderForTesting, setUserProviderForTesting, setWallpaperProviderForTesting} from 'chrome://personalization/js/personalization_app.js';
+import {String16} from 'chrome://resources/mojo/mojo/public/mojom/base/string16.mojom-webui.js';
 import {flush, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
-import {flushTasks} from 'chrome://webui-test/test_util.js';
+import {flushTasks, waitAfterNextRender} from 'chrome://webui-test/polymer_test_util.js';
 
 import {TestAmbientProvider} from './test_ambient_interface_provider.js';
+import {TestKeyboardBacklightProvider} from './test_keyboard_backlight_interface_provider.js';
 import {TestPersonalizationStore} from './test_personalization_store.js';
 import {TestThemeProvider} from './test_theme_interface_provider.js';
 import {TestUserProvider} from './test_user_interface_provider.js';
@@ -28,7 +23,7 @@ import {TestWallpaperProvider} from './test_wallpaper_interface_provider.js';
  * Constructs the given element with properties and appends it to body.
  */
 export function initElement<T extends PolymerElement>(
-    cls: {new (): T; is: string}, properties = {}): T {
+    cls: {new (): T, is: string}, properties = {}): T {
   const element = document.createElement(cls.is) as T & HTMLElement;
   for (const [key, value] of Object.entries(properties)) {
     (element as any)[key] = value;
@@ -39,18 +34,12 @@ export function initElement<T extends PolymerElement>(
 }
 
 /**
- * Tear down an element. Make sure the iframe load callback
- * has completed to avoid weird race condition with loading.
- * @see {b/185905694, crbug/466089}
+ * Tear down an element. Remove from dom and call |flushTasks| to finish any
+ * async cleanup in polymer and execute pending promises.
  */
 export async function teardownElement(element: HTMLElement|null) {
   if (!element) {
     return;
-  }
-  const iframe = await (element as any).iframePromise_;
-  if (iframe) {
-    iframe.remove();
-    await flushTasks();
   }
   element.remove();
   await flushTasks();
@@ -65,46 +54,78 @@ export function baseSetup(initialState: PersonalizationState = emptyState()) {
   setWallpaperProviderForTesting(wallpaperProvider);
   const ambientProvider = new TestAmbientProvider();
   setAmbientProviderForTesting(ambientProvider);
+  const keyboardBacklightProvider = new TestKeyboardBacklightProvider();
+  setKeyboardBacklightProviderForTesting(keyboardBacklightProvider);
   const themeProvider = new TestThemeProvider();
   setThemeProviderForTesting(themeProvider);
   const userProvider = new TestUserProvider();
   setUserProviderForTesting(userProvider);
   const personalizationStore = new TestPersonalizationStore(initialState);
   personalizationStore.replaceSingleton();
-  document.body.innerHTML = '';
+  document.body.innerHTML = window.trustedTypes!.emptyHTML;
   return {
     ambientProvider,
+    keyboardBacklightProvider,
     themeProvider,
     userProvider,
     wallpaperProvider,
-    personalizationStore
+    personalizationStore,
   };
 }
 
-function getDebugString(w: any) {
-  if (w === window) {
-    return w.location.href;
+/** Returns a |String16| from the specified |value|. */
+export function toString16(value: string): String16 {
+  const data = [];
+  for (let i = 0; i < value.length; ++i) {
+    data[i] = value.charCodeAt(i);
   }
-  return 'iframe';
+  return {data};
 }
 
 /**
- * Helper function to test if two window objects are the same.
- * Plain |assertEquals| fails when it attempts to get a debug string
- * representation of cross-origin iframe window.
+ * Returns a svg data url. This is useful in tests to force img on-load events
+ * to fire so that wallpaper-grid-item resolves its loading state.
  */
-export function assertWindowObjectsEqual(x: object|null, y: object|null) {
-  assertTrue(
-      x === y,
-      `Window objects are not identical: ${getDebugString(x)}, ${
-          getDebugString(y)}`);
+export function createSvgDataUrl(id: string): string {
+  return 'data:image/svg+xml;utf8,' +
+      '<svg xmlns="http://www.w3.org/2000/svg" ' +
+      `height="100px" width="100px" id="${id}">` +
+      '<rect fill="red" height="100px" width="100px"></rect>' +
+      '</svg>';
 }
 
 /**
- * Helper function to setup a mock `IFrameApi` singleton.
+ * Waits for the specified |element| to be the active element in
+ * the containing element's shadow DOM.
  */
-export function setupTestIFrameApi(): IFrameApi&TestBrowserProxy<IFrameApi> {
-  const testProxy = TestBrowserProxy.fromClass(IFrameApi);
-  IFrameApi.setInstance(testProxy);
-  return testProxy;
+export async function waitForActiveElement(
+    targetElement: Element, elementContainer: HTMLElement) {
+  while (elementContainer.shadowRoot!.activeElement !== targetElement) {
+    await waitAfterNextRender(elementContainer!);
+  }
+}
+
+/** Dispatches a keydown event to |element| for the specified |key|. */
+export function dispatchKeydown(element: HTMLElement, key: string) {
+  const init: KeyboardEventInit = {bubbles: true, key};
+  switch (key) {
+    case 'ArrowDown':
+      init.keyCode = 40;
+      break;
+    case 'ArrowRight':
+      init.keyCode = 39;
+      break;
+    case 'ArrowLeft':
+      init.keyCode = 37;
+      break;
+    case 'ArrowUp':
+      init.keyCode = 38;
+      break;
+  }
+  element.dispatchEvent(new KeyboardEvent('keydown', init));
+}
+
+/** Returns the active element in the given element's shadow DOM. */
+export function getActiveElement(element: Element): HTMLElement {
+  return (element.shadowRoot!.activeElement as HTMLElement);
 }

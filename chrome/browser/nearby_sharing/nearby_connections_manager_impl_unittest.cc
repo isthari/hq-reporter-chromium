@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,8 @@
 #include <algorithm>
 #include <memory>
 
-#include "ash/services/nearby/public/cpp/mock_nearby_connections.h"
-#include "ash/services/nearby/public/cpp/mock_nearby_process_manager.h"
-#include "ash/services/nearby/public/mojom/nearby_connections_types.mojom.h"
-#include "base/callback_helpers.h"
 #include "base/files/file_util.h"
+#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
 #include "base/test/mock_callback.h"
@@ -20,6 +17,9 @@
 #include "chrome/browser/nearby_sharing/constants.h"
 #include "chrome/browser/nearby_sharing/nearby_connection_impl.h"
 #include "chrome/test/base/testing_browser_process.h"
+#include "chromeos/ash/services/nearby/public/cpp/mock_nearby_connections.h"
+#include "chromeos/ash/services/nearby/public/cpp/mock_nearby_process_manager.h"
+#include "chromeos/ash/services/nearby/public/mojom/nearby_connections_types.mojom.h"
 #include "content/public/test/browser_task_environment.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/mock_network_change_notifier.h"
@@ -29,8 +29,8 @@
 namespace {
 
 const char kServiceId[] = "NearbySharing";
-const location::nearby::connections::mojom::Strategy kStrategy =
-    location::nearby::connections::mojom::Strategy::kP2pPointToPoint;
+const nearby::connections::mojom::Strategy kStrategy =
+    nearby::connections::mojom::Strategy::kP2pPointToPoint;
 const char kEndpointId[] = "endpoint_id";
 const char kRemoteEndpointId[] = "remote_endpoint_id";
 const char kEndpointInfo[] = {0x0d, 0x07, 0x07, 0x07, 0x07};
@@ -81,19 +81,18 @@ base::FilePath InitializeTemporaryFile(base::File& file) {
 
 }  // namespace
 
-using Status = location::nearby::connections::mojom::Status;
+using Status = nearby::connections::mojom::Status;
 using DiscoveredEndpointInfo =
-    location::nearby::connections::mojom::DiscoveredEndpointInfo;
-using ConnectionInfo = location::nearby::connections::mojom::ConnectionInfo;
-using Medium = location::nearby::connections::mojom::Medium;
-using MediumSelection = location::nearby::connections::mojom::MediumSelection;
-using PayloadContent = location::nearby::connections::mojom::PayloadContent;
-using PayloadStatus = location::nearby::connections::mojom::PayloadStatus;
-using PayloadTransferUpdate =
-    location::nearby::connections::mojom::PayloadTransferUpdate;
-using Payload = location::nearby::connections::mojom::Payload;
-using BytesPayload = location::nearby::connections::mojom::BytesPayload;
-using FilePayload = location::nearby::connections::mojom::FilePayload;
+    nearby::connections::mojom::DiscoveredEndpointInfo;
+using ConnectionInfo = nearby::connections::mojom::ConnectionInfo;
+using Medium = nearby::connections::mojom::Medium;
+using MediumSelection = nearby::connections::mojom::MediumSelection;
+using PayloadContent = nearby::connections::mojom::PayloadContent;
+using PayloadStatus = nearby::connections::mojom::PayloadStatus;
+using PayloadTransferUpdate = nearby::connections::mojom::PayloadTransferUpdate;
+using Payload = nearby::connections::mojom::Payload;
+using BytesPayload = nearby::connections::mojom::BytesPayload;
+using FilePayload = nearby::connections::mojom::FilePayload;
 
 class MockDiscoveryListener
     : public NearbyConnectionsManager::DiscoveryListener {
@@ -356,7 +355,7 @@ class NearbyConnectionsManagerImplTest : public testing::Test {
 
   void SendPayload(
       int64_t payload_id,
-      const testing::NiceMock<MockPayloadStatusListener>& payload_listener) {
+      testing::NiceMock<MockPayloadStatusListener>& payload_listener) {
     const std::vector<uint8_t> expected_payload(std::begin(kPayload),
                                                 std::end(kPayload));
 
@@ -374,7 +373,7 @@ class NearbyConnectionsManagerImplTest : public testing::Test {
           EXPECT_EQ(kRemoteEndpointId, endpoint_ids.front());
           ASSERT_TRUE(payload);
           EXPECT_EQ(payload_id, payload->id);
-          ASSERT_EQ(PayloadContent::Tag::FILE, payload->content->which());
+          ASSERT_EQ(PayloadContent::Tag::kFile, payload->content->which());
 
           base::ScopedAllowBlockingForTesting allow_blocking;
           base::File file = std::move(payload->content->get_file()->file);
@@ -408,7 +407,7 @@ class NearbyConnectionsManagerImplTest : public testing::Test {
   testing::NiceMock<ash::nearby::MockNearbyProcessManager>
       nearby_process_manager_;
   NearbyConnectionsManagerImpl nearby_connections_manager_{
-      &nearby_process_manager_};
+      &nearby_process_manager_, kServiceId};
 };
 
 TEST_F(NearbyConnectionsManagerImplTest, DiscoveryFlow) {
@@ -528,8 +527,8 @@ TEST_P(NearbyConnectionsManagerImplTestConnectionMediums,
   bool is_webrtc_enabled = std::get<2>(GetParam());
   bool is_wifilan_enabled = std::get<3>(GetParam());
 
-  std::vector<base::Feature> enabled_features;
-  std::vector<base::Feature> disabled_features;
+  std::vector<base::test::FeatureRef> enabled_features;
+  std::vector<base::test::FeatureRef> disabled_features;
   if (is_webrtc_enabled) {
     enabled_features.push_back(features::kNearbySharingWebRtc);
   } else {
@@ -845,7 +844,7 @@ TEST_F(NearbyConnectionsManagerImplTest, ConnectWrite) {
         ASSERT_EQ(1u, endpoint_ids.size());
         EXPECT_EQ(kRemoteEndpointId, endpoint_ids.front());
         ASSERT_TRUE(payload);
-        ASSERT_EQ(PayloadContent::Tag::BYTES, payload->content->which());
+        ASSERT_EQ(PayloadContent::Tag::kBytes, payload->content->which());
         EXPECT_EQ(byte_payload, payload->content->get_bytes()->bytes);
 
         std::move(callback).Run(Status::kSuccess);

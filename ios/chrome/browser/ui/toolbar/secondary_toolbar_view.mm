@@ -1,21 +1,20 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/toolbar/secondary_toolbar_view.h"
 
-#include "base/check.h"
+#import "base/check.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button_factory.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tab_grid_button.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tools_menu_button.h"
 #import "ios/chrome/browser/ui/toolbar_container/toolbar_collapsing.h"
-#import "ios/chrome/browser/ui/util/named_guide.h"
-#include "ios/chrome/browser/ui/util/rtl_geometry.h"
+#import "ios/chrome/browser/ui/util/rtl_geometry.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
-#include "ui/gfx/ios/uikit_util.h"
+#import "ui/gfx/ios/uikit_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -43,7 +42,7 @@ const CGFloat kToolsMenuOffset = -7;
 // Buttons to navigate forward, redefined as readwrite.
 @property(nonatomic, strong, readwrite) ToolbarButton* forwardButton;
 // Button to display the tools menu, redefined as readwrite.
-@property(nonatomic, strong, readwrite) ToolbarToolsMenuButton* toolsMenuButton;
+@property(nonatomic, strong, readwrite) ToolbarButton* toolsMenuButton;
 // Button to display the tab grid, redefined as readwrite.
 @property(nonatomic, strong, readwrite) ToolbarTabGridButton* tabGridButton;
 // Button to create a new tab, redefined as readwrite.
@@ -77,18 +76,6 @@ const CGFloat kToolsMenuOffset = -7;
 
 - (CGSize)intrinsicContentSize {
   return CGSizeMake(UIViewNoIntrinsicMetric, kSecondaryToolbarHeight);
-}
-
-- (void)willMoveToWindow:(UIWindow*)newWindow {
-  [super willMoveToWindow:newWindow];
-  [NamedGuide guideWithName:kSecondaryToolbarGuide view:self].constrainedView =
-      nil;
-}
-
-- (void)didMoveToWindow {
-  [super didMoveToWindow];
-  [NamedGuide guideWithName:kSecondaryToolbarGuide view:self].constrainedView =
-      self;
 }
 
 #pragma mark - Setup

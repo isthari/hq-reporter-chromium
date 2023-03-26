@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 
 #include "base/callback_list.h"
 #include "base/memory/weak_ptr.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
 
 namespace device {
@@ -19,6 +19,7 @@ class BluetoothAdapter;
 }
 
 namespace ash {
+
 class CrosSettings;
 
 // Fetches all info we want to show on OOBE/Login screens about system
@@ -80,7 +81,7 @@ class VersionInfoUpdater : public policy::CloudPolicyStore::Observer {
   std::string GetDeviceIdsLabel();
 
   // Callback from VersionLoader giving the version.
-  void OnVersion(const std::string& version);
+  void OnVersion(const absl::optional<std::string>& version);
 
   // Callback from device::BluetoothAdapterFactory::GetAdapter.
   void OnGetAdapter(scoped_refptr<device::BluetoothAdapter> adapter);
@@ -91,7 +92,7 @@ class VersionInfoUpdater : public policy::CloudPolicyStore::Observer {
       bool enabled);
 
   // Text obtained from OnVersion.
-  std::string version_text_;
+  absl::optional<std::string> version_text_;
 
   std::vector<base::CallbackListSubscription> subscriptions_;
 
@@ -106,11 +107,5 @@ class VersionInfoUpdater : public policy::CloudPolicyStore::Observer {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::VersionInfoUpdater;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_VERSION_INFO_UPDATER_H_

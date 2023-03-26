@@ -1,10 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/ref_counted_memory.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/strcat.h"
@@ -48,7 +49,8 @@ class FooUI : public content::WebUIController, public ::test::mojom::Foo {
   explicit FooUI(content::WebUI* web_ui)
       : content::WebUIController(web_ui), foo_receiver_(this) {
     content::WebUIDataSource* data_source =
-        content::WebUIDataSource::Create("foo");
+        content::WebUIDataSource::CreateAndAdd(
+            web_ui->GetWebContents()->GetBrowserContext(), "foo");
     data_source->SetDefaultResource(IDR_MOJO_JS_INTERFACE_BROKER_TEST_FOO_HTML);
     data_source->AddResourcePath("foobar.mojom-webui.js",
                                  IDR_FOOBAR_MOJOM_WEBUI_JS);
@@ -62,8 +64,6 @@ class FooUI : public content::WebUIController, public ::test::mojom::Foo {
     data_source->OverrideContentSecurityPolicy(
         network::mojom::CSPDirectiveName::ScriptSrc,
         "script-src 'self' chrome://resources/ 'nonce-test';");
-    content::WebUIDataSource::Add(web_ui->GetWebContents()->GetBrowserContext(),
-                                  data_source);
 
     // Allow requesting chrome-untrusted://bar in iframe.
     web_ui->AddRequestableScheme(content::kChromeUIUntrustedScheme);
@@ -93,7 +93,8 @@ class BarUI : public ui::UntrustedWebUIController, public ::test::mojom::Bar {
   explicit BarUI(content::WebUI* web_ui)
       : ui::UntrustedWebUIController(web_ui), bar_receiver_(this) {
     content::WebUIDataSource* data_source =
-        content::WebUIDataSource::Create(kBarURL);
+        content::WebUIDataSource::CreateAndAdd(
+            web_ui->GetWebContents()->GetBrowserContext(), kBarURL);
     data_source->SetDefaultResource(IDR_MOJO_JS_INTERFACE_BROKER_TEST_BAR_HTML);
 
     // Allow Foo to embed this UI.
@@ -111,8 +112,6 @@ class BarUI : public ui::UntrustedWebUIController, public ::test::mojom::Bar {
                content::WebUIDataSource::GotDataCallback callback) {
               std::move(callback).Run(nullptr);
             }));
-    content::WebUIDataSource::Add(web_ui->GetWebContents()->GetBrowserContext(),
-                                  data_source);
   }
 
   void BindInterface(mojo::PendingReceiver<::test::mojom::Bar> receiver) {
@@ -139,10 +138,9 @@ class BuzUI : public ui::UntrustedWebUIController {
   explicit BuzUI(content::WebUI* web_ui)
       : ui::UntrustedWebUIController(web_ui) {
     content::WebUIDataSource* data_source =
-        content::WebUIDataSource::Create(kBuzURL);
+        content::WebUIDataSource::CreateAndAdd(
+            web_ui->GetWebContents()->GetBrowserContext(), kBuzURL);
     data_source->SetDefaultResource(IDR_MOJO_JS_INTERFACE_BROKER_TEST_BUZ_HTML);
-    content::WebUIDataSource::Add(web_ui->GetWebContents()->GetBrowserContext(),
-                                  data_source);
   }
 };
 
@@ -229,7 +227,7 @@ class MojoJSInterfaceBrokerBrowserTest : public InProcessBrowserTest {
                              : browser()
                                    ->tab_strip_model()
                                    ->GetActiveWebContents()
-                                   ->GetMainFrame();
+                                   ->GetPrimaryMainFrame();
     // We can't use EvalJs with a different world_id to get around CSP
     // restrictions, because Mojo is only exposed to the global world
     // (ISOLATED_WORLD_ID_GLOBAL). So we use |ExecuteScriptAndExtractString| to
@@ -253,7 +251,7 @@ class MojoJSInterfaceBrokerBrowserTest : public InProcessBrowserTest {
                              : browser()
                                    ->tab_strip_model()
                                    ->GetActiveWebContents()
-                                   ->GetMainFrame();
+                                   ->GetPrimaryMainFrame();
     // We can't use EvalJs with a different world_id to get around CSP
     // restrictions, because Mojo is only exposed to the global world
     // (ISOLATED_WORLD_ID_GLOBAL). So we use |ExecuteScriptAndExtractString| to
@@ -382,7 +380,7 @@ IN_PROC_BROWSER_TEST_F(MojoJSInterfaceBrokerBrowserTest, IframeBarWorks) {
 
   // Bar page gets Bar Mojo API.
   content::RenderFrameHost* bar_frame =
-      ChildFrameAt(web_contents->GetMainFrame(), 0);
+      ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
   ASSERT_EQ(GURL(kBarURL), bar_frame->GetLastCommittedURL());
 
   EXPECT_EQ("bar", EvalStatement("(async () => {"

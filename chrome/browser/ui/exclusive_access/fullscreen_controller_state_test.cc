@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -237,7 +237,7 @@ bool FullscreenControllerStateTest::TransitionAStepTowardState(
 }
 
 const char* FullscreenControllerStateTest::GetWindowStateString() {
-  return NULL;
+  return nullptr;
 }
 
 bool FullscreenControllerStateTest::InvokeEvent(Event event) {
@@ -278,9 +278,9 @@ bool FullscreenControllerStateTest::InvokeEvent(Event event) {
           GetBrowser()->tab_strip_model()->GetActiveWebContents();
       if (event == TAB_FULLSCREEN_TRUE) {
         if (GetFullscreenController()->CanEnterFullscreenModeForTab(
-                active_tab->GetMainFrame())) {
+                active_tab->GetPrimaryMainFrame())) {
           GetFullscreenController()->EnterFullscreenModeForTab(
-              active_tab->GetMainFrame());
+              active_tab->GetPrimaryMainFrame());
         }
       } else {
         GetFullscreenController()->ExitFullscreenModeForTab(active_tab);

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,12 +16,14 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.IntentHandler;
+import org.chromium.chrome.browser.feed.FeedFeatures;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserver;
+import org.chromium.chrome.browser.util.BrowserUiUtils;
 import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.components.embedder_support.util.UrlUtilitiesJni;
 import org.chromium.components.user_prefs.UserPrefs;
@@ -73,8 +75,8 @@ public class NewTabPageUma {
     /** User clicked on the "Refresh" button in the "all dismissed" state. */
     public static final int ACTION_CLICKED_ALL_DISMISSED_REFRESH = 10;
 
-    /** User opened an explore sites tile. */
-    public static final int ACTION_OPENED_EXPLORE_SITES_TILE = 11;
+    /** (Obsolete) User opened an explore sites tile. */
+    // public static final int ACTION_OPENED_EXPLORE_SITES_TILE = 11;
 
     /**
      * User clicked on the "Manage Interests" item in the snippet card menu or in the feed header
@@ -146,13 +148,15 @@ public class NewTabPageUma {
     // numeric values should never be reused. This maps directly to
     // the ContentSuggestionsDisplayStatus enum defined in tools/metrics/enums.xml.
     @IntDef({ContentSuggestionsDisplayStatus.VISIBLE, ContentSuggestionsDisplayStatus.COLLAPSED,
-            ContentSuggestionsDisplayStatus.DISABLED_BY_POLICY})
+            ContentSuggestionsDisplayStatus.DISABLED_BY_POLICY,
+            ContentSuggestionsDisplayStatus.DISABLED})
     @Retention(RetentionPolicy.SOURCE)
     private @interface ContentSuggestionsDisplayStatus {
         int VISIBLE = 0;
         int COLLAPSED = 1;
         int DISABLED_BY_POLICY = 2;
-        int NUM_ENTRIES = 3;
+        int DISABLED = 3;
+        int NUM_ENTRIES = 4;
     }
 
     private final TabModelSelector mTabModelSelector;
@@ -190,8 +194,10 @@ public class NewTabPageUma {
      * Record that the user has navigated away from the NTP using the omnibox.
      * @param destinationUrl The URL to which the user navigated.
      * @param transitionType The transition type of the navigation, from PageTransition.java.
+     * @param isNtp Whether the current page is a {@link NewTabPage}.
      */
-    public static void recordOmniboxNavigation(String destinationUrl, int transitionType) {
+    public static void recordOmniboxNavigation(
+            String destinationUrl, int transitionType, boolean isNtp) {
         if ((transitionType & PageTransition.CORE_MASK) == PageTransition.GENERATED) {
             recordAction(ACTION_SEARCHED_USING_OMNIBOX);
         } else {
@@ -200,6 +206,10 @@ public class NewTabPageUma {
             } else {
                 recordAction(ACTION_NAVIGATED_USING_OMNIBOX);
             }
+        }
+        if (isNtp) {
+            BrowserUiUtils.recordModuleClickHistogram(BrowserUiUtils.HostSurface.NEW_TAB_PAGE,
+                    BrowserUiUtils.ModuleTypeOnStartAndNTP.OMNIBOX);
         }
     }
 
@@ -282,6 +292,8 @@ public class NewTabPageUma {
         if (!UserPrefs.get(profile).getBoolean(Pref.ENABLE_SNIPPETS)) {
             // Disabled by policy.
             status = ContentSuggestionsDisplayStatus.DISABLED_BY_POLICY;
+        } else if (!FeedFeatures.isFeedEnabled()) {
+            status = ContentSuggestionsDisplayStatus.DISABLED;
         } else if (!UserPrefs.get(profile).getBoolean(Pref.ARTICLES_LIST_VISIBLE)) {
             // Articles are collapsed.
             status = ContentSuggestionsDisplayStatus.COLLAPSED;

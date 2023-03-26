@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,7 +44,7 @@ class LineItemRow : public views::View {
     // spacing spacing for clickable rows, so don't use
     // kPaymentRequestRowVerticalInsets.
     constexpr int kRowVerticalInset = 4;
-    const gfx::Insets row_insets(
+    const auto row_insets = gfx::Insets::TLBR(
         kRowVerticalInset, payments::kPaymentRequestRowHorizontalInsets,
         kRowVerticalInset, payments::kPaymentRequestRowHorizontalInsets);
     SetBorder(payments::CreatePaymentRequestRowBorder(
@@ -207,6 +207,20 @@ void OrderSummaryViewController::FillContentView(views::View* content_view) {
           true, DialogViewID::ORDER_SUMMARY_TOTAL_CURRENCY_LABEL,
           DialogViewID::ORDER_SUMMARY_TOTAL_AMOUNT_LABEL)
           .release());
+}
+
+bool OrderSummaryViewController::GetSheetId(DialogViewID* sheet_id) {
+  *sheet_id = DialogViewID::ORDER_SUMMARY_SHEET;
+  return true;
+}
+
+bool OrderSummaryViewController::ShouldAccelerateEnterKey() {
+  return true;
+}
+
+base::WeakPtr<PaymentRequestSheetController>
+OrderSummaryViewController::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
 }
 
 }  // namespace payments

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,11 +10,10 @@ import android.os.StrictMode.ThreadPolicy;
 
 import androidx.annotation.Nullable;
 
-import org.chromium.base.Consumer;
-import org.chromium.base.Function;
-
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 /** Installs a whitelist configuration for StrictMode's ThreadPolicy feature. */
 public interface ThreadStrictModeInterceptor {

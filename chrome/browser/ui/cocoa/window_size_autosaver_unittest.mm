@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,7 @@ class WindowSizeAutosaverTest : public BrowserWithTestWindowTest {
     BrowserWithTestWindowTest::SetUp();
     window_ = [[NSWindow alloc]
         initWithContentRect:NSMakeRect(100, 101, 150, 151)
-                  styleMask:NSTitledWindowMask | NSResizableWindowMask
+                  styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskResizable
                     backing:NSBackingStoreBuffered
                       defer:NO];
     static_cast<user_prefs::PrefRegistrySyncable*>(
@@ -47,17 +47,15 @@ TEST_F(WindowSizeAutosaverTest, RestoresAndSavesPos) {
   ASSERT_TRUE(pref);
 
   // Check to make sure there is no existing pref for window placement.
-  const base::Value* placement = pref->GetDictionary(path_);
-  ASSERT_TRUE(placement);
-  EXPECT_TRUE(placement->DictEmpty());
+  const base::Value::Dict& placement = pref->GetDict(path_);
+  EXPECT_TRUE(placement.empty());
 
   // Replace the window with one that doesn't have resize controls.
   [window_ close];
-  window_ =
-      [[NSWindow alloc] initWithContentRect:NSMakeRect(100, 101, 150, 151)
-                                  styleMask:NSTitledWindowMask
-                                    backing:NSBackingStoreBuffered
-                                      defer:NO];
+  window_ = [[NSWindow alloc] initWithContentRect:NSMakeRect(100, 101, 150, 151)
+                                        styleMask:NSWindowStyleMaskTitled
+                                          backing:NSBackingStoreBuffered
+                                            defer:NO];
 
   // Ask the window to save its position, then check that a preference
   // exists.  We're technically passing in a pointer to the user prefs
@@ -96,14 +94,13 @@ TEST_F(WindowSizeAutosaverTest, RestoresAndSavesPos) {
   }
 
   // ...and it should be in the profile, too.
-  const base::Value* windowPref = pref->GetDictionary(path_);
-  ASSERT_TRUE(windowPref);
-  EXPECT_FALSE(windowPref->FindIntKey("left").has_value());
-  EXPECT_FALSE(windowPref->FindIntKey("right").has_value());
-  EXPECT_FALSE(windowPref->FindIntKey("top").has_value());
-  EXPECT_FALSE(windowPref->FindIntKey("bottom").has_value());
-  absl::optional<int> x = windowPref->FindIntKey("x");
-  absl::optional<int> y = windowPref->FindIntKey("y");
+  const base::Value::Dict& windowPref = pref->GetDict(path_);
+  EXPECT_FALSE(windowPref.FindInt("left").has_value());
+  EXPECT_FALSE(windowPref.FindInt("right").has_value());
+  EXPECT_FALSE(windowPref.FindInt("top").has_value());
+  EXPECT_FALSE(windowPref.FindInt("bottom").has_value());
+  absl::optional<int> x = windowPref.FindInt("x");
+  absl::optional<int> y = windowPref.FindInt("y");
   ASSERT_TRUE(x.has_value());
   ASSERT_TRUE(y.has_value());
   EXPECT_EQ(300, x.value());
@@ -115,9 +112,8 @@ TEST_F(WindowSizeAutosaverTest, RestoresAndSavesRect) {
   ASSERT_TRUE(pref);
 
   // Check to make sure there is no existing pref for window placement.
-  const base::Value* placement = pref->GetDictionary(path_);
-  ASSERT_TRUE(placement);
-  EXPECT_TRUE(placement->DictEmpty());
+  const base::Value::Dict& placement = pref->GetDict(path_);
+  EXPECT_TRUE(placement.empty());
 
   // Ask the window to save its position, then check that a preference
   // exists.  We're technically passing in a pointer to the user prefs
@@ -156,15 +152,13 @@ TEST_F(WindowSizeAutosaverTest, RestoresAndSavesRect) {
   }
 
   // ...and it should be in the profile, too.
-  EXPECT_TRUE(pref->GetDictionary(path_));
-  const base::Value* windowPref = pref->GetDictionary(path_);
-  ASSERT_TRUE(windowPref);
-  EXPECT_FALSE(windowPref->FindIntKey("x").has_value());
-  EXPECT_FALSE(windowPref->FindIntKey("y").has_value());
-  absl::optional<int> x1 = windowPref->FindIntKey("left");
-  absl::optional<int> x2 = windowPref->FindIntKey("right");
-  absl::optional<int> y1 = windowPref->FindIntKey("top");
-  absl::optional<int> y2 = windowPref->FindIntKey("bottom");
+  const base::Value::Dict& windowPref = pref->GetDict(path_);
+  EXPECT_FALSE(windowPref.FindInt("x").has_value());
+  EXPECT_FALSE(windowPref.FindInt("y").has_value());
+  absl::optional<int> x1 = windowPref.FindInt("left");
+  absl::optional<int> x2 = windowPref.FindInt("right");
+  absl::optional<int> y1 = windowPref.FindInt("top");
+  absl::optional<int> y2 = windowPref.FindInt("bottom");
   ASSERT_TRUE(x1.has_value());
   ASSERT_TRUE(x2.has_value());
   ASSERT_TRUE(y1.has_value());
@@ -180,12 +174,12 @@ TEST_F(WindowSizeAutosaverTest, DoesNotRestoreButClearsEmptyRect) {
   PrefService* pref = profile()->GetPrefs();
   ASSERT_TRUE(pref);
 
-  DictionaryPrefUpdate update(pref, path_);
-  base::Value* windowPref = update.Get();
-  windowPref->SetIntKey("left", 50);
-  windowPref->SetIntKey("right", 50);
-  windowPref->SetIntKey("top", 60);
-  windowPref->SetIntKey("bottom", 60);
+  ScopedDictPrefUpdate update(pref, path_);
+  base::Value::Dict& windowPref = update.Get();
+  windowPref.Set("left", 50);
+  windowPref.Set("right", 50);
+  windowPref.Set("top", 60);
+  windowPref.Set("bottom", 60);
 
   {
     // Window rect shouldn't change...
@@ -201,13 +195,12 @@ TEST_F(WindowSizeAutosaverTest, DoesNotRestoreButClearsEmptyRect) {
   }
 
   // ...and it should be gone from the profile, too.
-  EXPECT_TRUE(pref->GetDictionary(path_));
-  EXPECT_FALSE(windowPref->FindIntKey("x").has_value());
-  EXPECT_FALSE(windowPref->FindIntKey("y").has_value());
-  ASSERT_FALSE(windowPref->FindIntKey("left").has_value());
-  ASSERT_FALSE(windowPref->FindIntKey("right").has_value());
-  ASSERT_FALSE(windowPref->FindIntKey("top").has_value());
-  ASSERT_FALSE(windowPref->FindIntKey("bottom").has_value());
+  EXPECT_FALSE(windowPref.FindInt("x").has_value());
+  EXPECT_FALSE(windowPref.FindInt("y").has_value());
+  ASSERT_FALSE(windowPref.FindInt("left").has_value());
+  ASSERT_FALSE(windowPref.FindInt("right").has_value());
+  ASSERT_FALSE(windowPref.FindInt("top").has_value());
+  ASSERT_FALSE(windowPref.FindInt("bottom").has_value());
 }
 
 }  // namespace

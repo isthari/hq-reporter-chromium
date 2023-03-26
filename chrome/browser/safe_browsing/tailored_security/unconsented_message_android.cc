@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,12 @@
 #include "chrome/browser/android/resource_mapper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/android/safe_browsing_settings_launcher_android.h"
-#include "chrome/browser/safe_browsing/tailored_security/tailored_security_outcome.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/google_chrome_strings.h"
 #include "components/messages/android/message_dispatcher_bridge.h"
 #include "components/messages/android/message_enums.h"
+#include "components/safe_browsing/core/browser/tailored_security_service/tailored_security_outcome.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
@@ -28,7 +28,6 @@
 #include "ui/gfx/image/canvas_image_source.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/paint_vector_icon.h"
-#include "ui/views/image_model_utils.h"
 
 namespace safe_browsing {
 

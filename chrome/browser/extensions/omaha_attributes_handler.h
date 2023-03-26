@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/extensions/blocklist.h"
 #include "extensions/browser/blocklist_state.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension_id.h"
 
 namespace base {
@@ -40,6 +41,7 @@ enum class ExtensionUpdateCheckDataKey {
 class OmahaAttributesHandler {
  public:
   OmahaAttributesHandler(ExtensionPrefs* extension_prefs,
+                         ExtensionRegistry* registry,
                          ExtensionService* extension_service);
   OmahaAttributesHandler(const OmahaAttributesHandler&) = delete;
   OmahaAttributesHandler& operator=(const OmahaAttributesHandler&) = delete;
@@ -67,6 +69,7 @@ class OmahaAttributesHandler {
                                     ExtensionUpdateCheckDataKey reason);
 
   raw_ptr<ExtensionPrefs> extension_prefs_ = nullptr;
+  raw_ptr<ExtensionRegistry> registry_ = nullptr;
   raw_ptr<ExtensionService> extension_service_ = nullptr;
 };
 

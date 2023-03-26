@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,14 @@
 @protocol FindBarPresentationDelegate
 
 - (void)setHeadersForFindBarCoordinator:(FindBarCoordinator*)findBarCoordinator;
+
+// Called when the Find bar is presented by its presenter.
+- (void)findBarDidAppearForFindBarCoordinator:
+    (FindBarCoordinator*)findBarCoordinator;
+
+// Called when the Find bar is dismissed by its presenter.
+- (void)findBarDidDisappearForFindBarCoordinator:
+    (FindBarCoordinator*)findBarCoordinator;
 
 @end
 

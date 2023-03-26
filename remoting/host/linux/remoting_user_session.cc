@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -14,24 +14,22 @@
 //                   running as root, not allowed when running as a normal user.
 //   SCRIPT_ARGS   - Arguments following -- are passed to the script verbatim.
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
 #include <fcntl.h>
 #include <grp.h>
 #include <limits.h>
 #include <pwd.h>
-#include <signal.h>
-#include <unistd.h>
-
 #include <security/pam_appl.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
-
 #include <map>
 #include <memory>
 #include <string>
@@ -39,11 +37,11 @@
 #include <utility>
 #include <vector>
 
-#include "base/cxx17_backports.h"
 #include "base/environment.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/process/launch.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
@@ -161,14 +159,16 @@ extern "C" int Converse(int num_messages,
     }
   }
 
-  if (failed)
+  if (failed) {
     return PAM_CONV_ERR;
+  }
 
   pam_response* response_list = static_cast<pam_response*>(
       std::calloc(num_messages, sizeof(*response_list)));
 
-  if (response_list == nullptr)
+  if (response_list == nullptr) {
     return PAM_BUF_ERR;
+  }
 
   *responses = response_list;
   return PAM_SUCCESS;
@@ -235,8 +235,9 @@ class PamHandle {
     const char* user;
     last_return_code_ = pam_get_item(pam_handle_, PAM_USER,
                                      reinterpret_cast<const void**>(&user));
-    if (last_return_code_ != PAM_SUCCESS || user == nullptr)
+    if (last_return_code_ != PAM_SUCCESS || user == nullptr) {
       return absl::nullopt;
+    }
     return std::string(user);
   }
 
@@ -250,8 +251,9 @@ class PamHandle {
   absl::optional<base::EnvironmentMap> GetEnvironment() {
     char** environment = pam_getenvlist(pam_handle_);
 
-    if (environment == nullptr)
+    if (environment == nullptr) {
       return absl::nullopt;
+    }
 
     base::EnvironmentMap environment_map;
 
@@ -281,7 +283,9 @@ class PamHandle {
   }
 
  private:
-  pam_handle_t* pam_handle_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION pam_handle_t* pam_handle_ = nullptr;
   int last_return_code_ = PAM_SUCCESS;
 };
 
@@ -289,7 +293,7 @@ class PamHandle {
 // executable. Should be called at program start.
 void DetermineExecutablePath() {
   ssize_t path_size =
-      readlink(kExeSymlink, gExecutablePath, base::size(gExecutablePath));
+      readlink(kExeSymlink, gExecutablePath, std::size(gExecutablePath));
   PCHECK(path_size >= 0) << "Failed to determine executable location";
   CHECK(path_size < PATH_MAX) << "Executable path too long";
   gExecutablePath[path_size] = '\0';
@@ -459,12 +463,12 @@ bool ExecuteSession(std::string user,
   // as done here, but it may be worth noting that `login` calls open_session
   // first.
   pam_handle.CheckReturnCode(pam_handle.SetCredentials(PAM_ESTABLISH_CRED),
-                              "Set credentials");
+                             "Set credentials");
 
   pam_handle.CheckReturnCode(pam_handle.OpenSession(0), "Open session");
 
   // The above may have remapped the user.
-  user =  pam_handle.GetUser().value_or(std::move(user));
+  user = pam_handle.GetUser().value_or(std::move(user));
 
   // Fetch pwinfo again, as it may have been invalidated or the user name might
   // have been remapped.
@@ -603,7 +607,7 @@ void HandleInterrupt(int signal) {
       "Interrupted. The daemon is still running in the background.\n";
   // Use write since fputs isn't async-signal-handler safe.
   std::ignore = write(STDERR_FILENO, kInterruptedMessage,
-                      base::size(kInterruptedMessage) - 1);
+                      std::size(kInterruptedMessage) - 1);
   raise(signal);
 }
 
@@ -614,7 +618,7 @@ void HandleAlarm(int) {
       "be running in the background.\n";
   // Use write since fputs isn't async-signal-handler safe.
   std::ignore =
-      write(STDERR_FILENO, kTimeoutMessage, base::size(kTimeoutMessage) - 1);
+      write(STDERR_FILENO, kTimeoutMessage, std::size(kTimeoutMessage) - 1);
   // A slow system or directory replication delay may cause the host to take
   // longer than expected to start. Since it may still succeed, optimistically
   // return success to prevent the host from being automatically unregistered.

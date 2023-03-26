@@ -1,22 +1,27 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/wm/client_controlled_state.h"
 
+#include "ash/display/screen_orientation_controller.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/shell_window_ids.h"
+#include "ash/screen_util.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/desks/desks_util.h"
 #include "ash/wm/pip/pip_positioner.h"
 #include "ash/wm/screen_pinning_controller.h"
 #include "ash/wm/splitview/split_view_controller.h"
+#include "ash/wm/splitview/split_view_divider.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
+#include "chromeos/ui/base/window_state_type.h"
 #include "ui/aura/client/aura_constants.h"
+#include "ui/events/test/event_generator.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/wm/core/window_util.h"
@@ -225,9 +230,8 @@ TEST_F(ClientControlledStateTest, Minimize) {
 
   ::wm::Unminimize(widget()->GetNativeWindow());
   EXPECT_TRUE(widget()->IsMinimized());
-  EXPECT_EQ(ui::SHOW_STATE_NORMAL,
-            widget()->GetNativeWindow()->GetProperty(
-                aura::client::kPreMinimizedShowStateKey));
+  EXPECT_EQ(ui::SHOW_STATE_NORMAL, widget()->GetNativeWindow()->GetProperty(
+                                       aura::client::kRestoreShowStateKey));
   EXPECT_EQ(kInitialBounds, widget()->GetWindowBoundsInScreen());
   EXPECT_EQ(WindowStateType::kMinimized, delegate()->old_state());
   EXPECT_EQ(WindowStateType::kNormal, delegate()->new_state());
@@ -406,13 +410,49 @@ TEST_F(ClientControlledStateTest, SnapInSecondaryDisplay) {
             delegate()->requested_bounds());
 }
 
-// Pin events should be applied immediately.
+TEST_F(ClientControlledStateTest, SnapMinimizeAndUnminimize) {
+  UpdateDisplay("800x600");
+  widget_delegate()->EnableSnap();
+
+  const WMEvent snap_left_event(WM_EVENT_CYCLE_SNAP_PRIMARY);
+  window_state()->OnWMEvent(&snap_left_event);
+  state()->EnterNextState(window_state(), delegate()->new_state());
+  EXPECT_EQ(gfx::Rect(0, 0, 400, 600 - ShelfConfig::Get()->shelf_size()),
+            delegate()->requested_bounds());
+  EXPECT_EQ(WindowStateType::kPrimarySnapped, delegate()->new_state());
+
+  const gfx::Rect resized_bounds(0, 0, 300,
+                                 600 - ShelfConfig::Get()->shelf_size());
+  const SetBoundsWMEvent set_bounds_event(resized_bounds,
+                                          delegate()->display_id());
+  window_state()->OnWMEvent(&set_bounds_event);
+  state()->set_bounds_locally(true);
+  window()->SetBounds(resized_bounds);
+  state()->set_bounds_locally(false);
+  EXPECT_EQ(resized_bounds, delegate()->requested_bounds());
+
+  widget()->Minimize();
+  state()->EnterNextState(window_state(), delegate()->new_state());
+
+  ::wm::Unminimize(widget()->GetNativeWindow());
+  state()->EnterNextState(window_state(), delegate()->new_state());
+  EXPECT_EQ(WindowStateType::kPrimarySnapped, delegate()->new_state());
+  EXPECT_EQ(resized_bounds, delegate()->requested_bounds());
+}
+
+// Pin events should not be applied immediately. The request should be sent
+// to delegate.
 TEST_F(ClientControlledStateTest, Pinned) {
   ASSERT_FALSE(window_state()->IsPinned());
   ASSERT_FALSE(GetScreenPinningController()->IsPinned());
 
   const WMEvent pin_event(WM_EVENT_PIN);
   window_state()->OnWMEvent(&pin_event);
+  EXPECT_FALSE(window_state()->IsPinned());
+  EXPECT_EQ(WindowStateType::kDefault, delegate()->old_state());
+  EXPECT_EQ(WindowStateType::kPinned, delegate()->new_state());
+
+  state()->EnterNextState(window_state(), WindowStateType::kPinned);
   EXPECT_TRUE(window_state()->IsPinned());
   EXPECT_TRUE(GetScreenPinningController()->IsPinned());
   EXPECT_EQ(WindowStateType::kPinned, window_state()->GetStateType());
@@ -444,6 +484,11 @@ TEST_F(ClientControlledStateTest, Pinned) {
   EXPECT_EQ(new_bounds, widget()->GetWindowBoundsInScreen());
 
   widget()->Restore();
+  EXPECT_TRUE(window_state()->IsPinned());
+  EXPECT_EQ(WindowStateType::kPinned, delegate()->old_state());
+  EXPECT_EQ(WindowStateType::kNormal, delegate()->new_state());
+  state()->EnterNextState(window_state(), WindowStateType::kNormal);
+
   EXPECT_FALSE(window_state()->IsPinned());
   EXPECT_EQ(WindowStateType::kNormal, window_state()->GetStateType());
   EXPECT_FALSE(GetScreenPinningController()->IsPinned());
@@ -456,8 +501,9 @@ TEST_F(ClientControlledStateTest, Pinned) {
   EXPECT_TRUE(GetScreenPinningController()->IsPinned());
 
   // Pin request should fail.
-  window_state()->OnWMEvent(&pin_event);
   EXPECT_FALSE(window_state()->IsPinned());
+  window_state()->OnWMEvent(&pin_event);
+  EXPECT_NE(WindowStateType::kPinned, delegate()->new_state());
 }
 
 TEST_F(ClientControlledStateTest, TrustedPinnedBasic) {
@@ -466,6 +512,11 @@ TEST_F(ClientControlledStateTest, TrustedPinnedBasic) {
 
   const WMEvent trusted_pin_event(WM_EVENT_TRUSTED_PIN);
   window_state()->OnWMEvent(&trusted_pin_event);
+  EXPECT_FALSE(window_state()->IsPinned());
+  EXPECT_EQ(WindowStateType::kDefault, delegate()->old_state());
+  EXPECT_EQ(WindowStateType::kTrustedPinned, delegate()->new_state());
+
+  state()->EnterNextState(window_state(), WindowStateType::kTrustedPinned);
   EXPECT_TRUE(window_state()->IsPinned());
   EXPECT_TRUE(GetScreenPinningController()->IsPinned());
 
@@ -498,6 +549,10 @@ TEST_F(ClientControlledStateTest, TrustedPinnedBasic) {
   EXPECT_EQ(new_bounds, widget()->GetWindowBoundsInScreen());
 
   widget()->Restore();
+  EXPECT_TRUE(window_state()->IsPinned());
+  EXPECT_EQ(WindowStateType::kTrustedPinned, delegate()->old_state());
+  EXPECT_EQ(WindowStateType::kNormal, delegate()->new_state());
+  state()->EnterNextState(window_state(), WindowStateType::kNormal);
   EXPECT_FALSE(window_state()->IsPinned());
   EXPECT_EQ(WindowStateType::kNormal, window_state()->GetStateType());
   EXPECT_FALSE(GetScreenPinningController()->IsPinned());
@@ -511,7 +566,7 @@ TEST_F(ClientControlledStateTest, TrustedPinnedBasic) {
 
   EXPECT_FALSE(window_state()->IsTrustedPinned());
   window_state()->OnWMEvent(&trusted_pin_event);
-  EXPECT_FALSE(window_state()->IsTrustedPinned());
+  EXPECT_NE(WindowStateType::kTrustedPinned, delegate()->new_state());
   EXPECT_TRUE(window_state_2->IsTrustedPinned());
 }
 
@@ -521,6 +576,11 @@ TEST_F(ClientControlledStateTest, ClosePinned) {
 
   const WMEvent trusted_pin_event(WM_EVENT_TRUSTED_PIN);
   window_state()->OnWMEvent(&trusted_pin_event);
+  EXPECT_FALSE(window_state()->IsPinned());
+  EXPECT_EQ(WindowStateType::kDefault, delegate()->old_state());
+  EXPECT_EQ(WindowStateType::kTrustedPinned, delegate()->new_state());
+  state()->EnterNextState(window_state(), WindowStateType::kTrustedPinned);
+
   EXPECT_TRUE(window_state()->IsPinned());
   EXPECT_TRUE(GetScreenPinningController()->IsPinned());
   delegate()->mark_as_deleted();
@@ -604,8 +664,8 @@ TEST_F(ClientControlledStateTest,
       SplitViewController::Get(window_state()->window());
 
   widget_delegate()->EnableSnap();
-  split_view_controller->SnapWindow(window_state()->window(),
-                                    SplitViewController::SnapPosition::RIGHT);
+  split_view_controller->SnapWindow(
+      window_state()->window(), SplitViewController::SnapPosition::kSecondary);
 
   EXPECT_EQ(WindowStateType::kSecondarySnapped, delegate()->new_state());
   EXPECT_FALSE(window_state()->IsSnapped());
@@ -627,6 +687,40 @@ TEST_F(ClientControlledStateTest,
   // After exiting the transitional state, works normally.
   widget()->Maximize();
   EXPECT_EQ(WindowStateType::kMaximized, delegate()->new_state());
+}
+
+TEST_F(ClientControlledStateTest, ResizeSnappedWindowInTabletMode) {
+  window()->SetProperty(aura::client::kAppType,
+                        static_cast<int>(AppType::ARC_APP));
+  ASSERT_EQ(chromeos::OrientationType::kLandscapePrimary,
+            GetCurrentScreenOrientation());
+  auto* const split_view_controller = SplitViewController::Get(window());
+
+  // Enter tablet mode
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
+  ASSERT_EQ(true, Shell::Get()->tablet_mode_controller()->InTabletMode());
+
+  // Snap a window
+  widget_delegate()->EnableSnap();
+  split_view_controller->SnapWindow(
+      window(), SplitViewController::SnapPosition::kPrimary);
+  EXPECT_EQ(WindowStateType::kPrimarySnapped, delegate()->new_state());
+  state()->EnterNextState(window_state(), delegate()->new_state());
+  EXPECT_TRUE(window_state()->IsSnapped());
+
+  // Move the divider
+  const gfx::Rect initial_bounds = delegate()->requested_bounds();
+  auto* const split_view_divider = split_view_controller->split_view_divider();
+  const gfx::Rect divider_bounds =
+      split_view_divider->GetDividerBoundsInScreen(false);
+  ui::test::EventGenerator* const generator = GetEventGenerator();
+  generator->set_current_screen_location(divider_bounds.CenterPoint());
+  const gfx::Rect display_bounds =
+      screen_util::GetDisplayWorkAreaBoundsInScreenForActiveDeskContainer(
+          window());
+  const gfx::Point resize_point(display_bounds.width() * 0.33f, 0);
+  generator->DragMouseTo(resize_point);
+  EXPECT_GT(initial_bounds.width(), delegate()->requested_bounds().width());
 }
 
 }  // namespace ash

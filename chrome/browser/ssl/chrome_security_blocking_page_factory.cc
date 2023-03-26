@@ -1,10 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ssl/chrome_security_blocking_page_factory.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -83,7 +83,7 @@ bool IsEnterpriseManaged() {
   }
 
 #if BUILDFLAG(IS_WIN)
-  if (base::IsMachineExternallyManaged()) {
+  if (base::IsManagedOrEnterpriseDevice()) {
     return true;
   }
 #elif BUILDFLAG(IS_CHROMEOS_ASH)
@@ -323,7 +323,7 @@ void ChromeSecurityBlockingPageFactory::DoChromeSpecificSetup(
         report->AddChromeChannel(chrome::GetChannel());
 
 #if BUILDFLAG(IS_WIN)
-        report->SetIsEnterpriseManaged(base::IsMachineExternallyManaged());
+        report->SetIsEnterpriseManaged(IsEnterpriseManaged());
 #elif BUILDFLAG(IS_CHROMEOS_ASH)
         report->SetIsEnterpriseManaged(g_browser_process->platform_part()
                                            ->browser_policy_connector_ash()

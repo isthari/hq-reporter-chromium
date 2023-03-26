@@ -23,6 +23,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_STYLE_REQUEST_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_STYLE_REQUEST_H_
 
+#include "third_party/blink/renderer/core/css/style_color.h"
 #include "third_party/blink/renderer/core/layout/custom_scrollbar.h"
 #include "third_party/blink/renderer/core/scroll/scroll_types.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
@@ -39,6 +40,7 @@ class StyleRequest {
 
  public:
   enum RequestType { kForRenderer, kForComputedStyle };
+  enum RulesToInclude { kUAOnly, kAll };
 
   StyleRequest() = default;
 
@@ -46,6 +48,7 @@ class StyleRequest {
 
   const ComputedStyle* parent_override{nullptr};
   const ComputedStyle* layout_parent_override{nullptr};
+  const ComputedStyle* originating_element_style{nullptr};
   RuleMatchingBehavior matching_behavior{kMatchAllRules};
 
   PseudoId pseudo_id{kPseudoIdNone};
@@ -53,6 +56,7 @@ class StyleRequest {
   ScrollbarPart scrollbar_part{kNoPart};
   CustomScrollbar* scrollbar{nullptr};
   AtomicString pseudo_argument{g_null_atom};
+  RulesToInclude rules_to_include{kAll};
 
   explicit StyleRequest(const ComputedStyle* parent_override)
       : parent_override(parent_override),
@@ -66,7 +70,7 @@ class StyleRequest {
         pseudo_id(pseudo_id),
         pseudo_argument(pseudo_argument) {
     DCHECK(!IsTransitionPseudoElement(pseudo_id) ||
-           pseudo_id == kPseudoIdTransition || pseudo_argument);
+           pseudo_id == kPseudoIdViewTransition || pseudo_argument);
   }
 
   StyleRequest(PseudoId pseudo_id,

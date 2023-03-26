@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -119,7 +119,6 @@ public class DefaultBrowserPromoDeps {
     }
 
     boolean doesManageDefaultAppsSettingsActivityExist() {
-        if (getSDKInt() < Build.VERSION_CODES.N) return false;
         ResolveInfo info = PackageManagerUtils.resolveActivity(
                 new Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS), 0);
         return info != null && info.match != 0;

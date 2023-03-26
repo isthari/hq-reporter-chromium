@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/aura/window.h"
@@ -193,7 +193,7 @@ HUDDisplayView::HUDDisplayView() {
   // Setup data.
   data->SetBackground(views::CreateSolidBackground(kHUDBackground));
   data->SetBorder(views::CreateEmptyBorder(
-      gfx::Insets(kHUDHeaderMargin, kHUDInset, kHUDInset, kHUDInset)));
+      gfx::Insets::TLBR(kHUDHeaderMargin, kHUDInset, kHUDInset, kHUDInset)));
 
   // We have two child views z-stacked.
   // The bottom one is GraphsContainerView with all the graph lines.

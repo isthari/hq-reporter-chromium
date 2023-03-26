@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/blocklist_extension_prefs.h"
 #include "extensions/browser/blocklist_state.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace extensions {
 
@@ -54,41 +55,50 @@ void ReportReenableExtension(ExtensionUpdateCheckDataKey reason) {
 }
 
 // Checks whether the `state` is in the `attributes`.
-bool HasOmahaBlocklistStateInAttributes(const base::Value& attributes,
+bool HasOmahaBlocklistStateInAttributes(const base::Value& attributes_val,
                                         BitMapBlocklistState state) {
-  const base::Value* state_value = nullptr;
+  const base::Value::Dict& attributes = attributes_val.GetDict();
+  absl::optional<bool> state_value;
   switch (state) {
     case BitMapBlocklistState::BLOCKLISTED_MALWARE:
-      state_value = attributes.FindKey("_malware");
+      state_value = attributes.FindBool("_malware");
       break;
     case BitMapBlocklistState::BLOCKLISTED_CWS_POLICY_VIOLATION:
-      state_value = attributes.FindKey("_policy_violation");
+      state_value = attributes.FindBool("_policy_violation");
       break;
     case BitMapBlocklistState::BLOCKLISTED_POTENTIALLY_UNWANTED:
-      state_value = attributes.FindKey("_potentially_uws");
+      state_value = attributes.FindBool("_potentially_uws");
       break;
     case BitMapBlocklistState::NOT_BLOCKLISTED:
     case BitMapBlocklistState::BLOCKLISTED_SECURITY_VULNERABILITY:
       NOTREACHED()
           << "The other states are not applicable in Omaha attributes.";
-      state_value = nullptr;
+      state_value = absl::nullopt;
       break;
   }
-  return state_value && state_value->GetBool();
+  return state_value.value_or(false);
 }
 
 }  // namespace
 
 OmahaAttributesHandler::OmahaAttributesHandler(
     ExtensionPrefs* extension_prefs,
+    ExtensionRegistry* registry,
     ExtensionService* extension_service)
     : extension_prefs_(extension_prefs),
+      registry_(registry),
       extension_service_(extension_service) {}
 
 void OmahaAttributesHandler::PerformActionBasedOnOmahaAttributes(
     const ExtensionId& extension_id,
     const base::Value& attributes) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  // It is possible that an extension is uninstalled when the omaha attributes
+  // are notified by the update client asynchronously. In this case, we should
+  // ignore this extension.
+  if (!registry_->GetInstalledExtension(extension_id)) {
+    return;
+  }
   HandleMalwareOmahaAttribute(extension_id, attributes);
   HandleGreylistOmahaAttribute(
       extension_id, attributes,

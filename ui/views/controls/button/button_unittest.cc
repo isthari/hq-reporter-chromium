@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
@@ -20,9 +20,9 @@
 #include "ui/display/screen.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/test/event_generator.h"
-#include "ui/views/animation/ink_drop_host_view.h"
+#include "ui/views/animation/ink_drop_host.h"
 #include "ui/views/animation/ink_drop_impl.h"
-#include "ui/views/animation/test/ink_drop_host_view_test_api.h"
+#include "ui/views/animation/test/ink_drop_host_test_api.h"
 #include "ui/views/animation/test/test_ink_drop.h"
 #include "ui/views/animation/test/test_ink_drop_host.h"
 #include "ui/views/context_menu_controller.h"
@@ -857,7 +857,7 @@ TEST_F(ButtonTest, ChangingHighlightStateNotifiesCallback) {
   EXPECT_FALSE(button_observer()->highlighted_changed());
   EXPECT_FALSE(InkDrop::Get(button())->GetHighlighted());
 
-  button()->SetHighlighted(/*bubble_visible=*/true);
+  button()->SetHighlighted(/*highlighted=*/true);
   EXPECT_TRUE(button_observer()->highlighted_changed());
   EXPECT_TRUE(InkDrop::Get(button())->GetHighlighted());
 
@@ -865,7 +865,7 @@ TEST_F(ButtonTest, ChangingHighlightStateNotifiesCallback) {
   EXPECT_FALSE(button_observer()->highlighted_changed());
   EXPECT_TRUE(InkDrop::Get(button())->GetHighlighted());
 
-  button()->SetHighlighted(/*bubble_visible=*/false);
+  button()->SetHighlighted(/*highlighted=*/false);
   EXPECT_TRUE(button_observer()->highlighted_changed());
   EXPECT_FALSE(InkDrop::Get(button())->GetHighlighted());
 }

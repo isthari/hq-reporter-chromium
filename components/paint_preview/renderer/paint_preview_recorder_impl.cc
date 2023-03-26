@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,11 @@
 #include <utility>
 
 #include "base/auto_reset.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/task/bind_post_task.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
@@ -121,10 +123,11 @@ void SerializeFileRecording(sk_sp<const SkPicture> skp,
       FROM_HERE,
       {base::TaskPriority::USER_VISIBLE, base::MayBlock(),
        base::WithBaseSyncPrimitives()},
-      BindOnce(&RecordToFileOnThreadPool, skp, std::move(skp_file),
-               std::move(tracker), max_capture_size, std::move(out),
-               base::BindPostTask(base::SequencedTaskRunnerHandle::Get(),
-                                  std::move(callback))));
+      BindOnce(
+          &RecordToFileOnThreadPool, skp, std::move(skp_file),
+          std::move(tracker), max_capture_size, std::move(out),
+          base::BindPostTask(base::SequencedTaskRunner::GetCurrentDefault(),
+                             std::move(callback))));
 }
 
 // Handles memory buffer persistence storage.
@@ -150,7 +153,7 @@ void SerializeMemoryBufferRecording(
 
 // Finishes the recording process by converting the `recording` to an SkPicture.
 // Serialization is then delegated based on the type of `persistence`.
-void FinishRecordingOnUIThread(sk_sp<const cc::PaintRecord> recording,
+void FinishRecordingOnUIThread(cc::PaintRecord recording,
                                const gfx::Rect& bounds,
                                std::unique_ptr<PaintPreviewTracker> tracker,
                                RecordingPersistence persistence,
@@ -166,15 +169,11 @@ void FinishRecordingOnUIThread(sk_sp<const cc::PaintRecord> recording,
     return;
   }
 
-  TRACE_EVENT_BEGIN0("paint_preview", "PreProcessPaintOpBuffer");
-  PreProcessPaintOpBuffer(recording.get(), tracker.get());
-  TRACE_EVENT_END0("paint_preview", "PreProcessPaintOpBuffer");
-
   // This cannot be done async if the recording contains a GPU accelerated
   // image.
   TRACE_EVENT_BEGIN0("paint_preview", "ConvertToSkPicture");
-  auto skp = PaintRecordToSkPicture(recording, tracker.get(), bounds);
-  recording.reset();
+  auto skp =
+      PaintRecordToSkPicture(std::move(recording), tracker.get(), bounds);
   if (!skp) {
     std::move(callback).Run(mojom::PaintPreviewStatus::kCaptureFailed,
                             std::move(response));
@@ -202,10 +201,12 @@ PaintPreviewRecorderImpl::PaintPreviewRecorderImpl(
     content::RenderFrame* render_frame)
     : content::RenderFrameObserver(render_frame),
       is_painting_preview_(false),
-      is_main_frame_(render_frame->IsMainFrame()) {
-  render_frame->GetAssociatedInterfaceRegistry()->AddInterface(
-      base::BindRepeating(&PaintPreviewRecorderImpl::BindPaintPreviewRecorder,
-                          weak_ptr_factory_.GetWeakPtr()));
+      is_main_frame_(render_frame->IsMainFrame() &&
+                     !render_frame->IsInFencedFrameTree()) {
+  render_frame->GetAssociatedInterfaceRegistry()
+      ->AddInterface<mojom::PaintPreviewRecorder>(base::BindRepeating(
+          &PaintPreviewRecorderImpl::BindPaintPreviewRecorder,
+          weak_ptr_factory_.GetWeakPtr()));
 }
 
 PaintPreviewRecorderImpl::~PaintPreviewRecorderImpl() = default;
@@ -235,7 +236,8 @@ void PaintPreviewRecorderImpl::CapturePaintPreview(
 
 void PaintPreviewRecorderImpl::OnDestruct() {
   paint_preview_recorder_receiver_.reset();
-  base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+  base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                this);
 }
 
 void PaintPreviewRecorderImpl::BindPaintPreviewRecorder(
@@ -334,10 +336,9 @@ void PaintPreviewRecorderImpl::CapturePaintPreviewInternal(
   response->frame_offsets = gfx::Point(bounds.x(), bounds.y());
 
   cc::PaintRecorder recorder;
-  cc::PaintCanvas* canvas =
-      recorder.beginRecording(bounds.width(), bounds.height());
+  cc::PaintCanvas* canvas = recorder.beginRecording();
   canvas->save();
-  canvas->concat(SkMatrix::Translate(-bounds.x(), -bounds.y()));
+  canvas->translate(-bounds.x(), -bounds.y());
   canvas->SetPaintPreviewTracker(tracker.get());
 
   // Use time ticks manually rather than a histogram macro so as to;

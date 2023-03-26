@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,7 +39,7 @@ class MigrationWatcher : public syncer::MigrationObserver {
 
  private:
   // The SyncServiceImplHarness to watch.
-  const raw_ptr<SyncServiceImplHarness> harness_;
+  const raw_ptr<SyncServiceImplHarness, DanglingUntriaged> harness_;
 
   // The set of data types currently undergoing migration.
   syncer::ModelTypeSet pending_types_;

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,22 +24,19 @@ using bookmarks::BookmarkNode;
 using content::PageNavigator;
 using views::MenuItemView;
 
-BookmarkMenuController::BookmarkMenuController(
-    Browser* browser,
-    base::RepeatingCallback<content::PageNavigator*()> get_navigator,
-    views::Widget* parent,
-    const BookmarkNode* node,
-    size_t start_child_index,
-    bool for_drop)
-    : menu_delegate_(
-          new BookmarkMenuDelegate(browser, std::move(get_navigator), parent)),
+BookmarkMenuController::BookmarkMenuController(Browser* browser,
+                                               views::Widget* parent,
+                                               const BookmarkNode* node,
+                                               size_t start_child_index,
+                                               bool for_drop)
+    : menu_delegate_(new BookmarkMenuDelegate(browser, parent)),
       node_(node),
       observer_(nullptr),
       for_drop_(for_drop),
       bookmark_bar_(nullptr) {
   menu_delegate_->Init(this, nullptr, node, start_child_index,
                        BookmarkMenuDelegate::HIDE_PERMANENT_FOLDERS,
-                       BOOKMARK_LAUNCH_LOCATION_BAR_SUBFOLDER);
+                       BookmarkLaunchLocation::kSubfolder);
   int run_type = 0;
   if (for_drop)
     run_type |= views::MenuRunner::FOR_DROP;

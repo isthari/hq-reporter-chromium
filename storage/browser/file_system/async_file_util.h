@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 #include <memory>
 #include <vector>
 
-#include "base/callback_forward.h"
 #include "base/component_export.h"
 #include "base/files/file.h"
+#include "base/functional/callback_forward.h"
 #include "components/services/filesystem/public/mojom/types.mojom.h"
 #include "storage/browser/file_system/file_system_operation.h"
 
@@ -49,9 +49,11 @@ class AsyncFileUtil {
  public:
   using StatusCallback = base::OnceCallback<void(base::File::Error result)>;
 
-  // |on_close_callback| will be called after the |file| is closed in the
-  // child process. |on_close_callback|.is_null() can be true, if no operation
-  // is needed on closing the file.
+  // Used for CreateOrOpen(). File util implementations can specify an
+  // `on_close_callback` if an operation is needed after closing a file. If
+  // non-null, CreateOrOpen() callers must run the callback (on the IO thread)
+  // after the file closes. If the file is duped, the callback should not be run
+  // until all dups of the file have been closed.
   using CreateOrOpenCallback =
       base::OnceCallback<void(base::File file,
                               base::OnceClosure on_close_callback)>;
@@ -99,7 +101,7 @@ class AsyncFileUtil {
   //
   virtual void CreateOrOpen(std::unique_ptr<FileSystemOperationContext> context,
                             const FileSystemURL& url,
-                            int file_flags,
+                            uint32_t file_flags,
                             CreateOrOpenCallback callback) = 0;
 
   // Ensures that the given |url| exist.  This creates a empty new file

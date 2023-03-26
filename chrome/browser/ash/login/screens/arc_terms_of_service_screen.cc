@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "ash/components/arc/arc_prefs.h"
 #include "ash/constants/ash_features.h"
 #include "base/feature_list.h"
+#include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
@@ -14,7 +15,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
-#include "chrome/browser/ui/webui/chromeos/login/arc_terms_of_service_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/arc_terms_of_service_screen_handler.h"
 #include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/webui_url_constants.h"
@@ -96,13 +97,11 @@ std::string ArcTermsOfServiceScreen::GetResultString(Result result) {
   switch (result) {
     case Result::ACCEPTED:
     case Result::ACCEPTED_DEMO_ONLINE:
-    case Result::ACCEPTED_DEMO_OFFLINE:
       return "Accepted";
     case Result::BACK:
       return "Back";
     case Result::NOT_APPLICABLE:
     case Result::NOT_APPLICABLE_DEMO_ONLINE:
-    case Result::NOT_APPLICABLE_DEMO_OFFLINE:
     case Result::NOT_APPLICABLE_CONSOLIDATED_CONSENT_ARC_ENABLED:
       return BaseScreen::kNotApplicable;
   }
@@ -121,38 +120,35 @@ void ArcTermsOfServiceScreen::MaybeLaunchArcSettings(Profile* profile) {
 }
 
 ArcTermsOfServiceScreen::ArcTermsOfServiceScreen(
-    ArcTermsOfServiceScreenView* view,
+    base::WeakPtr<ArcTermsOfServiceScreenView> view,
     const ScreenExitCallback& exit_callback)
     : BaseScreen(ArcTermsOfServiceScreenView::kScreenId,
                  OobeScreenPriority::DEFAULT),
-      view_(view),
+      view_(std::move(view)),
       exit_callback_(exit_callback) {
   DCHECK(view_);
-  if (view_) {
-    view_->AddObserver(this);
-    view_->Bind(this);
-  }
+  view_->AddObserver(this);
 }
 
 ArcTermsOfServiceScreen::~ArcTermsOfServiceScreen() {
   if (view_) {
     view_->RemoveObserver(this);
-    view_->Bind(nullptr);
   }
 }
 
-bool ArcTermsOfServiceScreen::MaybeSkip(WizardContext* context) {
-  if (chromeos::features::IsOobeConsolidatedConsentEnabled()) {
+bool ArcTermsOfServiceScreen::MaybeSkip(WizardContext& context) {
+  if (context.skip_post_login_screens_for_tests) {
+    exit_callback_.Run(Result::NOT_APPLICABLE);
+    return true;
+  }
+
+  if (features::IsOobeConsolidatedConsentEnabled()) {
     // In demo mode, the ARC-ToS screen is skipped and shown later in the
     // consolidated consent screen,
     const auto* const demo_setup_controller =
         WizardController::default_controller()->demo_setup_controller();
     if (demo_setup_controller) {
-      if (demo_setup_controller->IsOfflineEnrollment()) {
-        exit_callback_.Run(Result::NOT_APPLICABLE_DEMO_OFFLINE);
-      } else {
-        exit_callback_.Run(Result::NOT_APPLICABLE_DEMO_ONLINE);
-      }
+      exit_callback_.Run(Result::NOT_APPLICABLE_DEMO_ONLINE);
       return true;
     }
 
@@ -174,8 +170,6 @@ bool ArcTermsOfServiceScreen::MaybeSkip(WizardContext* context) {
 
     if (!demo_setup_controller) {
       exit_callback_.Run(Result::NOT_APPLICABLE);
-    } else if (demo_setup_controller->IsOfflineEnrollment()) {
-      exit_callback_.Run(Result::NOT_APPLICABLE_DEMO_OFFLINE);
     } else {
       exit_callback_.Run(Result::NOT_APPLICABLE_DEMO_ONLINE);
     }
@@ -199,9 +193,10 @@ void ArcTermsOfServiceScreen::HideImpl() {
     view_->Hide();
 }
 
-void ArcTermsOfServiceScreen::OnUserAction(const std::string& action_id) {
+void ArcTermsOfServiceScreen::OnUserAction(const base::Value::List& args) {
+  const std::string& action_id = args[0].GetString();
   if (!IsArcTosUserAction(action_id)) {
-    BaseScreen::OnUserAction(action_id);
+    BaseScreen::OnUserAction(args);
     return;
   }
   RecordUserAction(action_id);
@@ -226,8 +221,6 @@ void ArcTermsOfServiceScreen::OnAccept(bool review_arc_settings) {
 
   if (!demo_setup_controller) {
     exit_callback_.Run(Result::ACCEPTED);
-  } else if (demo_setup_controller->IsOfflineEnrollment()) {
-    exit_callback_.Run(Result::ACCEPTED_DEMO_OFFLINE);
   } else {
     exit_callback_.Run(Result::ACCEPTED_DEMO_ONLINE);
   }
@@ -235,7 +228,7 @@ void ArcTermsOfServiceScreen::OnAccept(bool review_arc_settings) {
 
 void ArcTermsOfServiceScreen::OnViewDestroyed(
     ArcTermsOfServiceScreenView* view) {
-  DCHECK_EQ(view, view_);
+  DCHECK_EQ(view, view_.get());
   view_->RemoveObserver(this);
   view_ = nullptr;
 }

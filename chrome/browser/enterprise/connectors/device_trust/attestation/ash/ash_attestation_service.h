@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,8 +31,8 @@ class AshAttestationService : public AttestationService {
 
   // AttestationService:
   void BuildChallengeResponseForVAChallenge(
-      const std::string& challenge,
-      std::unique_ptr<attestation::DeviceTrustSignals> signals,
+      const std::string& serialized_signed_challenge,
+      base::Value::Dict signals,
       AttestationCallback callback) override;
 
  private:

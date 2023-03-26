@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,18 +8,15 @@
 #include "base/task/thread_pool.h"
 #include "chrome/services/sharing/nearby/platform/bidirectional_stream.h"
 
-namespace location {
 namespace nearby {
 namespace chrome {
 
 WifiLanSocket::ConnectedSocketParameters::ConnectedSocketParameters(
-    const net::IPEndPoint& remote_end_point,
     mojo::PendingRemote<network::mojom::TCPConnectedSocket>
         tcp_connected_socket,
     mojo::ScopedDataPipeConsumerHandle receive_stream,
     mojo::ScopedDataPipeProducerHandle send_stream)
-    : remote_end_point(remote_end_point),
-      tcp_connected_socket(std::move(tcp_connected_socket)),
+    : tcp_connected_socket(std::move(tcp_connected_socket)),
       receive_stream(std::move(receive_stream)),
       send_stream(std::move(send_stream)) {}
 
@@ -34,30 +31,22 @@ WifiLanSocket::ConnectedSocketParameters::operator=(
     ConnectedSocketParameters&&) = default;
 
 WifiLanSocket::WifiLanSocket(
-    const net::IPEndPoint& remote_end_point,
-    mojo::PendingRemote<network::mojom::TCPConnectedSocket>
-        tcp_connected_socket,
-    mojo::ScopedDataPipeConsumerHandle receive_stream,
-    mojo::ScopedDataPipeProducerHandle send_stream)
+    ConnectedSocketParameters connected_socket_parameters)
     : task_runner_(
           base::ThreadPool::CreateSequencedTaskRunner({base::MayBlock()})),
-      tcp_connected_socket_(std::move(tcp_connected_socket), task_runner_),
-      bidirectional_stream_(connections::mojom::Medium::kWifiLan,
-                            task_runner_,
-                            std::move(receive_stream),
-                            std::move(send_stream)) {
+      tcp_connected_socket_(
+          std::move(connected_socket_parameters.tcp_connected_socket),
+          task_runner_),
+      bidirectional_stream_(
+          connections::mojom::Medium::kWifiLan,
+          task_runner_,
+          std::move(connected_socket_parameters.receive_stream),
+          std::move(connected_socket_parameters.send_stream)) {
   tcp_connected_socket_.set_disconnect_handler(
       base::BindOnce(&WifiLanSocket::OnTcpConnectedSocketDisconnected,
                      base::Unretained(this)),
       task_runner_);
 }
-
-WifiLanSocket::WifiLanSocket(
-    ConnectedSocketParameters connected_socket_parameters)
-    : WifiLanSocket(connected_socket_parameters.remote_end_point,
-                    std::move(connected_socket_parameters.tcp_connected_socket),
-                    std::move(connected_socket_parameters.receive_stream),
-                    std::move(connected_socket_parameters.send_stream)) {}
 
 WifiLanSocket::~WifiLanSocket() {
   Close();
@@ -104,4 +93,3 @@ void WifiLanSocket::CloseTcpSocketIfNecessary() {
 
 }  // namespace chrome
 }  // namespace nearby
-}  // namespace location

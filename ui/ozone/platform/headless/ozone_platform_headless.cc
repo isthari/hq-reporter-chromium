@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,10 @@
 
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/no_destructor.h"
 #include "build/build_config.h"
+#include "build/chromecast_buildflags.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/base/cursor/cursor_factory.h"
 #include "ui/base/ime/input_method_minimal.h"
 #include "ui/display/types/native_display_delegate.h"
@@ -93,10 +96,22 @@ class OzonePlatformHeadless : public OzonePlatform {
   }
   void InitScreen(PlatformScreen* screen) override {}
   std::unique_ptr<InputMethod> CreateInputMethod(
-      internal::InputMethodDelegate* delegate,
+      ImeKeyEventDispatcher* ime_key_event_dispatcher,
       gfx::AcceleratedWidget widget) override {
-    return std::make_unique<InputMethodMinimal>(delegate);
+    return std::make_unique<InputMethodMinimal>(ime_key_event_dispatcher);
   }
+
+// Desktop Linux, not CastOS.
+#if BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CASTOS)
+  const PlatformProperties& GetPlatformProperties() override {
+    static base::NoDestructor<OzonePlatform::PlatformProperties> properties;
+    static bool initialized = false;
+    if (!initialized) {
+      initialized = true;
+    }
+    return *properties;
+  }
+#endif
 
   bool InitializeUI(const InitParams& params) override {
     window_manager_ = std::make_unique<HeadlessWindowManager>();

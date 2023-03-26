@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,9 +56,11 @@ class FakeProxy : public Proxy {
       base::WritableSharedMemoryMapping ukm_smoothness_data) override {}
   void SetRenderFrameObserver(
       std::unique_ptr<RenderFrameMetadataObserver> observer) override {}
-  void SetEnableFrameRateThrottling(
-      bool enable_frame_rate_throttling) override {}
-  uint32_t GetAverageThroughput() const override;
+  void CompositeImmediatelyForTest(base::TimeTicks frame_begin_time,
+                                   bool raster,
+                                   base::OnceClosure callback) override {}
+  double GetPercentDroppedFrames() const override;
+  void SetPauseRendering(bool pause_rendering) override {}
 
  private:
   raw_ptr<LayerTreeHost> layer_tree_host_;

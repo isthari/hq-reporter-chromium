@@ -1,13 +1,14 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/base/test/ui_controls_aura.h"
 
-#include "base/callback.h"
 #include "base/check.h"
+#include "base/functional/callback.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "ui/gfx/native_widget_types.h"
 
 namespace ui_controls {
 namespace {
@@ -45,39 +46,51 @@ bool SendKeyPressNotifyWhenDone(gfx::NativeWindow window,
 }
 
 // static
-bool SendMouseMove(int x, int y) {
+bool SendMouseMove(int x, int y, gfx::NativeWindow window_hint) {
+  // TODO(crbug.com/1396661): Maybe use the window hint on other platforms.
   CHECK(g_ui_controls_enabled);
-  return instance_->SendMouseMove(x, y);
+  return instance_->SendMouseMove(x, y, window_hint);
 }
 
 // static
-bool SendMouseMoveNotifyWhenDone(int x, int y, base::OnceClosure task) {
+bool SendMouseMoveNotifyWhenDone(int x,
+                                 int y,
+                                 base::OnceClosure task,
+                                 gfx::NativeWindow window_hint) {
+  // TODO(crbug.com/1396661): Maybe use the window hint on other platforms.
   CHECK(g_ui_controls_enabled);
-  return instance_->SendMouseMoveNotifyWhenDone(x, y, std::move(task));
+  return instance_->SendMouseMoveNotifyWhenDone(x, y, std::move(task),
+                                                window_hint);
 }
 
 // static
 bool SendMouseEvents(MouseButton type,
                      int button_state,
-                     int accelerator_state) {
+                     int accelerator_state,
+                     gfx::NativeWindow window_hint) {
+  // TODO(crbug.com/1396661): Maybe use the window hint on other platforms.
   CHECK(g_ui_controls_enabled);
-  return instance_->SendMouseEvents(type, button_state, accelerator_state);
+  return instance_->SendMouseEvents(type, button_state, accelerator_state,
+                                    window_hint);
 }
 
 // static
 bool SendMouseEventsNotifyWhenDone(MouseButton type,
                                    int button_state,
                                    base::OnceClosure task,
-                                   int accelerator_state) {
+                                   int accelerator_state,
+                                   gfx::NativeWindow window_hint) {
+  // TODO(crbug.com/1396661): Maybe use the window hint on other platforms.
   CHECK(g_ui_controls_enabled);
   return instance_->SendMouseEventsNotifyWhenDone(
-      type, button_state, std::move(task), accelerator_state);
+      type, button_state, std::move(task), accelerator_state, window_hint);
 }
 
 // static
-bool SendMouseClick(MouseButton type) {
+bool SendMouseClick(MouseButton type, gfx::NativeWindow window_hint) {
+  // TODO(crbug.com/1396661): Do any Aura platforms need to use the hint?
   CHECK(g_ui_controls_enabled);
-  return instance_->SendMouseClick(type);
+  return instance_->SendMouseClick(type, window_hint);
 }
 
 #if BUILDFLAG(IS_WIN)
@@ -86,7 +99,7 @@ bool SendTouchEvents(int action, int num, int x, int y) {
   CHECK(g_ui_controls_enabled);
   return instance_->SendTouchEvents(action, num, x, y);
 }
-#elif BUILDFLAG(IS_CHROMEOS_ASH)
+#elif BUILDFLAG(IS_CHROMEOS)
 // static
 bool SendTouchEvents(int action, int id, int x, int y) {
   CHECK(g_ui_controls_enabled);

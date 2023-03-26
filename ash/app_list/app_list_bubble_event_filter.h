@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define ASH_APP_LIST_APP_LIST_BUBBLE_EVENT_FILTER_H_
 
 #include "ash/ash_export.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "ui/events/event_handler.h"
 
 namespace ui {

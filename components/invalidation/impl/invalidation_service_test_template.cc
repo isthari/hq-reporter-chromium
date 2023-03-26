@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,10 @@
 namespace invalidation {
 
 BoundFakeInvalidationHandler::BoundFakeInvalidationHandler(
-    const InvalidationService& invalidator)
-    : invalidator_(invalidator),
+    const InvalidationService& invalidator,
+    const std::string& owner)
+    : FakeInvalidationHandler(owner),
+      invalidator_(invalidator),
       last_retrieved_state_(DEFAULT_INVALIDATION_ERROR) {}
 
 BoundFakeInvalidationHandler::~BoundFakeInvalidationHandler() = default;
@@ -20,7 +22,7 @@ InvalidatorState BoundFakeInvalidationHandler::GetLastRetrievedState() const {
 void BoundFakeInvalidationHandler::OnInvalidatorStateChange(
     InvalidatorState state) {
   FakeInvalidationHandler::OnInvalidatorStateChange(state);
-  last_retrieved_state_ = invalidator_.GetInvalidatorState();
+  last_retrieved_state_ = invalidator_->GetInvalidatorState();
 }
 
 // This suite is instantiated in binaries that use

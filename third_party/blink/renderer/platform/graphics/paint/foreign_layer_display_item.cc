@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,8 @@ ForeignLayerDisplayItem::ForeignLayerDisplayItem(
                   type,
                   gfx::Rect(origin, layer->bounds()),
                   outset,
-                  paint_invalidation_reason),
+                  paint_invalidation_reason,
+                  /*draws_content*/ true),
       layer_(std::move(layer)) {
   DCHECK(IsForeignLayerType(type));
 }

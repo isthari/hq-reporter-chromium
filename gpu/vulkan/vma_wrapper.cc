@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <vk_mem_alloc.h>
 
+#include "base/metrics/histogram_functions.h"
 #include "build/build_config.h"
 #include "gpu/vulkan/vulkan_function_pointers.h"
 
@@ -15,7 +16,9 @@ namespace vma {
 VkResult CreateAllocator(VkPhysicalDevice physical_device,
                          VkDevice device,
                          VkInstance instance,
+                         const gfx::ExtensionSet& enabled_extensions,
                          const VkDeviceSize* heap_size_limit,
+                         const bool is_thread_safe,
                          VmaAllocator* pAllocator) {
   auto* function_pointers = gpu::GetVulkanFunctionPointers();
   VmaVulkanFunctions functions = {
@@ -45,7 +48,6 @@ VkResult CreateAllocator(VkPhysicalDevice physical_device,
 
   static_assert(kVulkanRequiredApiVersion >= VK_API_VERSION_1_1, "");
   VmaAllocatorCreateInfo allocator_info = {
-      .flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT,
       .physicalDevice = physical_device,
       .device = device,
       // 4MB was picked for the size here by looking at memory usage of Android
@@ -60,6 +62,28 @@ VkResult CreateAllocator(VkPhysicalDevice physical_device,
       .vulkanApiVersion = kVulkanRequiredApiVersion,
   };
 
+  // Note that this extension is only requested on android as of now as a part
+  // of optional extensions in VulkanImplementation.
+  bool vk_ext_memory_budget_supported = gfx::HasExtension(
+      enabled_extensions, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+
+  // Collect data on how often it is supported.
+  base::UmaHistogramBoolean("GPU.Vulkan.ExtMemoryBudgetSupported",
+                            vk_ext_memory_budget_supported);
+
+  // Enable VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT flag if extension is
+  // available.
+  if (vk_ext_memory_budget_supported) {
+    allocator_info.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
+  }
+
+  // If DrDc is not enabled, use below flag which improves performance since
+  // internal mutex will not be used.
+  // TODO(vikassoni) : Analyze the perf impact of not using this flag and hence
+  // enabling internal mutex which will be use for every vma access with DrDc.
+  if (!is_thread_safe) {
+    allocator_info.flags |= VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
+  }
   return vmaCreateAllocator(&allocator_info, pAllocator);
 }
 
@@ -152,8 +176,8 @@ void GetPhysicalDeviceProperties(
   vmaGetPhysicalDeviceProperties(allocator, physical_device_properties);
 }
 
-void CalculateStats(VmaAllocator allocator, VmaStats* stats) {
-  vmaCalculateStats(allocator, stats);
+void GetBudget(VmaAllocator allocator, VmaBudget* budget) {
+  vmaGetBudget(allocator, budget);
 }
 
 uint64_t GetTotalAllocatedMemory(VmaAllocator allocator) {

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@
 
 #include "google_apis/google_api_keys_unittest.h"
 
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/path_service.h"
 #include "base/test/scoped_command_line.h"
@@ -22,13 +21,12 @@
 #include "google_apis/gaia/gaia_switches.h"
 #include "google_apis/google_api_keys.h"
 
-// The Win builders fail (with a linker crash) when trying to link
-// unit_tests, and the Android builders complain about multiply
-// defined symbols (likely they don't do name decoration as well as
-// the Mac and Linux linkers).  Therefore these tests are only built
-// and run on Mac and Linux, which should provide plenty of coverage
-// since there are no platform-specific bits in this code.
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_APPLE)
+// The Win builders fail (with a linker crash) when trying to link unit_tests,
+// and the Android builders complain about multiply defined symbols (likely they
+// don't do name decoration as well as the Mac and Linux linkers). Building and
+// running on other platforms should provide plenty of coverage since there are
+// no platform-specific bits in this code.
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_WIN)
 
 // We need to include everything included by google_api_keys.cc once
 // at global scope so that things like STL and classes from base don't
@@ -68,7 +66,7 @@ GoogleAPIKeysTest::~GoogleAPIKeysTest() {}
 void GoogleAPIKeysTest::SetUp() {
   // Unset all environment variables that can affect these tests,
   // for the duration of the tests.
-  for (size_t i = 0; i < base::size(env_cache_); ++i) {
+  for (size_t i = 0; i < std::size(env_cache_); ++i) {
     EnvironmentCache& cache = env_cache_[i];
     cache.was_set = env_->HasVar(cache.variable_name);
     cache.value.clear();
@@ -81,7 +79,7 @@ void GoogleAPIKeysTest::SetUp() {
 
 void GoogleAPIKeysTest::TearDown() {
   // Restore environment.
-  for (size_t i = 0; i < base::size(env_cache_); ++i) {
+  for (size_t i = 0; i < std::size(env_cache_); ++i) {
     EnvironmentCache& cache = env_cache_[i];
     if (cache.was_set) {
       env_->SetVar(cache.variable_name, cache.value);
@@ -586,4 +584,4 @@ TEST_F(GoogleAPIKeysTest, OverrideAllKeysUsingConfig) {
   GaiaConfig::ResetInstanceForTesting();
 }
 
-#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_APPLE)
+#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_WIN)

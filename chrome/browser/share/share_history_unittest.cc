@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,6 +45,17 @@ sharing::mojom::ShareHistory BuildTestProto() {
     auto* baz = yesterday->mutable_target_histories()->Add();
     baz->mutable_target()->set_component_name(kTarget0Name);
     baz->set_count(1);
+  }
+
+  {
+    // An old entry that will be expired when the history is loaded from the
+    // backing DB.
+    auto* long_ago = proto.mutable_day_histories()->Add();
+    long_ago->set_day(DaysSinceUnixEpoch() - 365);
+
+    auto* foo = long_ago->mutable_target_histories()->Add();
+    foo->mutable_target()->set_component_name(kTarget0Name);
+    foo->set_count(2);
   }
 
   return proto;
@@ -242,6 +253,18 @@ TEST_F(ShareHistoryTest, ClearYesterdayOnly) {
     EXPECT_EQ(result[1].component_name, kTarget1Name);
     EXPECT_EQ(result[1].count, 2);
   }
+}
+
+TEST_F(ShareHistoryTest, OldEntriesExpired) {
+  (*backing_entries())["share_history"] = BuildTestProto();
+  Init();
+
+  auto result = GetFlatShareHistory();
+  EXPECT_EQ(result[0].component_name, kTarget0Name);
+
+  // There are 4 entries today, 1 day yesterday, and 2 entries a year ago; the
+  // latter should be expired on load.
+  EXPECT_EQ(result[0].count, 5);
 }
 
 }  // namespace sharing

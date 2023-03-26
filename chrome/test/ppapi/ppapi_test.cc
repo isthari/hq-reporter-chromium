@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <stdint.h>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
@@ -16,7 +16,6 @@
 #include "base/strings/stringprintf.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_restrictions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -47,6 +46,7 @@
 #include "ppapi/shared_impl/ppapi_switches.h"
 #include "third_party/blink/public/common/input/synthetic_web_input_event_builders.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
+#include "third_party/blink/public/common/switches.h"
 #include "ui/gl/gl_switches.h"
 
 using content::RenderViewHost;
@@ -102,7 +102,7 @@ void PPAPITestBase::InfoBarObserver::OnInfoBarAdded(
   // It's not safe to remove the infobar here, since other observers (e.g. the
   // InfoBarContainer) may still need to access it.  Instead, post a task to
   // do all necessary infobar manipulation as soon as this call stack returns.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&InfoBarObserver::VerifyInfoBarState,
                                 base::Unretained(this)));
 }
@@ -123,7 +123,7 @@ void PPAPITestBase::InfoBarObserver::VerifyInfoBarState() {
   infobars::InfoBar* infobar = infobar_manager->infobar_at(0);
   ConfirmInfoBarDelegate* delegate =
       infobar->delegate()->AsConfirmInfoBarDelegate();
-  ASSERT_TRUE(delegate != NULL);
+  ASSERT_TRUE(delegate != nullptr);
   if (should_accept_)
     delegate->Accept();
   else
@@ -140,7 +140,7 @@ PPAPITestBase::InfoBarObserver::GetInfoBarManager() {
 }
 
 PPAPITestBase::PPAPITestBase() {
-  // These are needed to test that the right NetworkIsolationKey is used.
+  // These are needed to test that the right NetworkAnonymizationKey is used.
   scoped_feature_list_.InitWithFeatures(
       // enabled_features
       {net::features::kSplitHostCacheByNetworkIsolationKey,
@@ -172,15 +172,6 @@ void PPAPITestBase::SetUpOnMainThread() {
   host_resolver()->AddRuleWithFlags(
       "host_resolver.test", embedded_test_server()->host_port_pair().host(),
       net::HOST_RESOLVER_CANONNAME);
-
-  SetUpPPAPIBroker();
-}
-
-void PPAPITestBase::SetUpPPAPIBroker() {
-  // Always allow access to the PPAPI broker.
-  HostContentSettingsMapFactory::GetForProfile(browser()->profile())
-      ->SetDefaultContentSetting(ContentSettingsType::PPAPI_BROKER,
-                                 CONTENT_SETTING_ALLOW);
 }
 
 GURL PPAPITestBase::GetTestFileUrl(const std::string& test_case) {
@@ -293,6 +284,10 @@ void PPAPITest::SetUpCommandLine(base::CommandLine* command_line) {
   command_line->AppendSwitchASCII(switches::kAllowNaClSocketAPI, "127.0.0.1");
   if (in_process_)
     command_line->AppendSwitch(switches::kPpapiInProcess);
+
+  // TODO(https://crbug.com/1172495): Remove once NaCl code can be deleted.
+  command_line->AppendSwitchASCII(blink::switches::kBlinkSettings,
+                                  "allowNonEmptyNavigatorPlugins=true");
 }
 
 std::string PPAPITest::BuildQuery(const std::string& base,
@@ -332,7 +327,7 @@ void OutOfProcessPPAPITest::RunTouchEventTest(const std::string& test_case) {
   RenderViewHost* rvh = browser()
                             ->tab_strip_model()
                             ->GetActiveWebContents()
-                            ->GetMainFrame()
+                            ->GetPrimaryMainFrame()
                             ->GetRenderViewHost();
   auto watcher = content::RenderViewHostTester::CreateInputWatcher(
       rvh, blink::WebInputEvent::Type::kTouchStart);
@@ -343,7 +338,7 @@ void OutOfProcessPPAPITest::RunTouchEventTest(const std::string& test_case) {
   browser()
       ->tab_strip_model()
       ->GetActiveWebContents()
-      ->GetMainFrame()
+      ->GetPrimaryMainFrame()
       ->InsertVisualStateCallback(base::BindOnce(
           [](base::OnceClosure quit_closure, bool result) {
             EXPECT_TRUE(result);
@@ -385,8 +380,6 @@ void PPAPINaClTest::SetUpCommandLine(base::CommandLine* command_line) {
   command_line->AppendSwitch(switches::kUseFakeUIForMediaStream);
 #endif
 }
-
-void PPAPINaClTest::SetUpPPAPIBroker() {}
 
 void PPAPINaClTest::RunTest(const std::string& test_case) {
 #if BUILDFLAG(ENABLE_NACL)
@@ -479,9 +472,4 @@ std::string PPAPINaClTestDisallowedSockets::BuildQuery(
     const std::string& test_case) {
   return base::StringPrintf("%smode=nacl_newlib&testcase=%s", base.c_str(),
                             test_case.c_str());
-}
-
-void PPAPIBrokerInfoBarTest::SetUpPPAPIBroker() {
-  // The default content setting for the PPAPI broker is ASK. We purposefully
-  // don't call PPAPITestBase::SetUpPPAPIBroker() to keep it that way.
 }

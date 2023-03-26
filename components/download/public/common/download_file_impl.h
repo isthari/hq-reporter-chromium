@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,8 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_runner.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -80,14 +82,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadFileImpl : public DownloadFile {
   void Resume() override;
 
 #if BUILDFLAG(IS_ANDROID)
-  void RenameToIntermediateUri(const GURL& original_url,
-                               const GURL& referrer_url,
-                               const base::FilePath& file_name,
-                               const std::string& mime_type,
-                               const base::FilePath& current_path,
-                               RenameCompletionCallback callback) override;
   void PublishDownload(RenameCompletionCallback callback) override;
-  base::FilePath GetDisplayName() override;
 #endif  // BUILDFLAG(IS_ANDROID)
 
   // Wrapper of a ByteStreamReader or ScopedDataPipeConsumerHandle, and the meta
@@ -386,10 +381,6 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadFileImpl : public DownloadFile {
 
   // TaskRunner this object lives on after initialization.
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
-
-#if BUILDFLAG(IS_ANDROID)
-  base::FilePath display_name_;
-#endif  // BUILDFLAG(IS_ANDROID)
 
   SEQUENCE_CHECKER(sequence_checker_);
 

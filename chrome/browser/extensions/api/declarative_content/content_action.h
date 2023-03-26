@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,10 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
+#include "base/values.h"
 #include "extensions/browser/user_script_loader.h"
 #include "extensions/common/mojom/host_id.mojom-forward.h"
 #include "extensions/common/user_script.h"
-
-namespace base {
-class Value;
-class DictionaryValue;
-}
 
 namespace content {
 class BrowserContext;
@@ -60,7 +56,7 @@ class ContentAction {
   static std::unique_ptr<ContentAction> Create(
       content::BrowserContext* browser_context,
       const Extension* extension,
-      const base::Value& json_action,
+      const base::Value::Dict& json_action_dict,
       std::string* error);
 
   static void SetAllowInvisibleIconsForTest(bool value);
@@ -87,10 +83,10 @@ class RequestContentScript : public ContentAction,
   static std::unique_ptr<ContentAction> Create(
       content::BrowserContext* browser_context,
       const Extension* extension,
-      const base::DictionaryValue* dict,
+      const base::Value::Dict* dict,
       std::string* error);
 
-  static bool InitScriptData(const base::DictionaryValue* dict,
+  static bool InitScriptData(const base::Value::Dict* dict,
                              std::string* error,
                              ScriptData* script_data);
 

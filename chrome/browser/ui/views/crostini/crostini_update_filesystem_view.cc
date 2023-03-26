@@ -1,16 +1,16 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/crostini/crostini_update_filesystem_view.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/ash/crostini/crostini_features.h"
 #include "chrome/browser/ash/crostini/crostini_manager.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -56,7 +56,7 @@ void PrepareShowCrostiniUpdateFilesystemView(
           ? base::Milliseconds(0)
           : kDelayBeforeUpgradeContainerDialog;
 
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&ShowCrostiniUpdateFilesystemView, profile, ui_surface),
       delay);
@@ -122,9 +122,6 @@ CrostiniUpdateFilesystemView::CrostiniUpdateFilesystemView() {
   message_label->SetMultiLine(true);
   message_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   AddChildView(message_label);
-
-  chrome::RecordDialogCreation(
-      chrome::DialogIdentifier::CROSTINI_CONTAINER_UPGRADE);
 }
 
 CrostiniUpdateFilesystemView::~CrostiniUpdateFilesystemView() {

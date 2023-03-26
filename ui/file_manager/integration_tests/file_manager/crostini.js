@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -106,13 +106,11 @@ testcase.pluginVmDirectoryNotSharedErrorDialog = async () => {
             actionId: 'text',
           },
           title: 'Text',
-          verb: 'open_with',
         },
         {
           descriptor: pluginVmAppDescriptor,
           title: 'App (Windows)',
-          verb: 'open_with',
-        }
+        },
       ]]));
 
   // Right click on 'hello.txt' file, and wait for dialog with 'Open with'.
@@ -131,15 +129,16 @@ testcase.pluginVmDirectoryNotSharedErrorDialog = async () => {
   const appOptions = await remoteCall.callRemoteTestUtil(
       'queryAllElements', appId, ['#tasks-menu [tabindex]']);
   chrome.test.assertEq(
-      1, appOptions.filter(el => el.text == 'Open with App (Windows)').length);
+      1, appOptions.filter(el => el.text == 'App (Windows)').length);
 
   // Click on the Plugin VM app, and wait for error dialog.
-  await remoteCall.callRemoteTestUtil('fakeMouseClick', appId, [
-    `#tasks-menu [tabindex]:nth-of-type(${
-        appOptions.map(el => el.text).indexOf('Open with App (Windows)') + 1})`
-  ]);
+  await remoteCall.callRemoteTestUtil(
+      'fakeMouseClick', appId,
+      [`#tasks-menu [tabindex]:nth-of-type(${
+          appOptions.map(el => el.text).indexOf('App (Windows)') + 1})`]);
   await remoteCall.waitUntilTaskExecutes(
-      appId, pluginVmAppDescriptor, ['failed_plugin_vm_directory_not_shared']);
+      appId, pluginVmAppDescriptor, ['hello.txt'],
+      ['failed_plugin_vm_directory_not_shared']);
   await remoteCall.waitForElement(
       appId, '.cr-dialog-frame:not(#default-task-dialog):not([hidden])');
 
@@ -181,13 +180,11 @@ testcase.pluginVmFileOnExternalDriveErrorDialog = async () => {
             actionId: 'text',
           },
           title: 'Text',
-          verb: 'open_with',
         },
         {
           descriptor: pluginVmAppDescriptor,
           title: 'App (Windows)',
-          verb: 'open_with',
-        }
+        },
       ]]));
 
   // Right click on 'hello.txt' file, and wait for dialog with 'Open with'.
@@ -206,15 +203,16 @@ testcase.pluginVmFileOnExternalDriveErrorDialog = async () => {
   const appOptions = await remoteCall.callRemoteTestUtil(
       'queryAllElements', appId, ['#tasks-menu [tabindex]']);
   chrome.test.assertEq(
-      1, appOptions.filter(el => el.text == 'Open with App (Windows)').length);
+      1, appOptions.filter(el => el.text == 'App (Windows)').length);
 
   // Click on the Plugin VM app, and wait for error dialog.
-  await remoteCall.callRemoteTestUtil('fakeMouseClick', appId, [
-    `#tasks-menu [tabindex]:nth-of-type(${
-        appOptions.map(el => el.text).indexOf('Open with App (Windows)') + 1})`
-  ]);
+  await remoteCall.callRemoteTestUtil(
+      'fakeMouseClick', appId,
+      [`#tasks-menu [tabindex]:nth-of-type(${
+          appOptions.map(el => el.text).indexOf('App (Windows)') + 1})`]);
   await remoteCall.waitUntilTaskExecutes(
-      appId, pluginVmAppDescriptor, ['failed_plugin_vm_directory_not_shared']);
+      appId, pluginVmAppDescriptor, ['hello.txt'],
+      ['failed_plugin_vm_directory_not_shared']);
   await remoteCall.waitForElement(
       appId, '.cr-dialog-frame:not(#default-task-dialog):not([hidden])');
 

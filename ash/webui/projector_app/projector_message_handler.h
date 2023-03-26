@@ -1,16 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_WEBUI_PROJECTOR_APP_PROJECTOR_MESSAGE_HANDLER_H_
 #define ASH_WEBUI_PROJECTOR_APP_PROJECTOR_MESSAGE_HANDLER_H_
 
-#include <set>
+#include <memory>
 
 #include "ash/public/cpp/projector/projector_new_screencast_precondition.h"
 #include "ash/webui/projector_app/projector_app_client.h"
 #include "ash/webui/projector_app/projector_oauth_token_fetcher.h"
-#include "ash/webui/projector_app/projector_xhr_sender.h"
 #include "base/memory/weak_ptr.h"
 #include "base/values.h"
 #include "content/public/browser/web_ui_message_handler.h"
@@ -23,6 +22,9 @@ struct AccessTokenInfo;
 class PrefService;
 
 namespace ash {
+
+class ProjectorXhrSender;
+struct ProjectorScreencastVideo;
 
 // Enum to record the different errors that may occur in the Projector app.
 enum class ProjectorError {
@@ -43,6 +45,7 @@ class ProjectorMessageHandler : public content::WebUIMessageHandler,
   base::WeakPtr<ProjectorMessageHandler> GetWeakPtr();
 
   // content::WebUIMessageHandler:
+  // TODO(b/237337607): chrome.send() is banned on ash. Migrate to Mojo instead.
   void RegisterMessages() override;
 
   // ProjectorAppClient:Observer:
@@ -60,45 +63,53 @@ class ProjectorMessageHandler : public content::WebUIMessageHandler,
   void OnSodaError() override;
   void OnSodaInstalled() override;
 
+ protected:
+  // Called when the XHR request is completed. Resolves the javascript promise
+  // created by ProjectorBrowserProxy.sendXhr by calling the `js_callback_id`.
+  virtual void OnXhrRequestCompleted(const std::string& js_callback_id,
+                                     bool success,
+                                     const std::string& response_body,
+                                     const std::string& error);
+
  private:
   // Requested by the Projector SWA to list the available accounts (primary and
   // secondary accounts) in the current session. The list of accounts will be
   // used in the account picker in the SWA.
-  void GetAccounts(const base::Value::ConstListView args);
+  void GetAccounts(const base::Value::List& args);
 
   // Requested by the Projector SWA to check the new screencast precondition
   // state.
-  void GetNewScreencastPrecondition(const base::Value::ConstListView args);
+  void GetNewScreencastPrecondition(const base::Value::List& args);
 
   // Requested by the Projector SWA to start a new Projector session if it is
   // possible.
-  void StartProjectorSession(const base::Value::ConstListView args);
+  void StartProjectorSession(const base::Value::List& args);
 
   // Requested by the Projector SWA to get access to the OAuth token for the
   // account email provided in the `args`.
-  void GetOAuthTokenForAccount(const base::Value::ConstListView args);
+  void GetOAuthTokenForAccount(const base::Value::List& args);
 
   // Requested by the Projector SWA to send XHR request.
-  void SendXhr(const base::Value::ConstListView args);
+  void SendXhr(const base::Value::List& args);
 
   // Requested by the Projector SWA to check if SODA is not available and should
   // be downloaded. Returns false if the device doesn't support SODA.
-  void ShouldDownloadSoda(const base::Value::ConstListView args);
+  void ShouldDownloadSoda(const base::Value::List& args);
 
   // Requested by the Projector SWA to trigger SODA installation.
-  void InstallSoda(const base::Value::ConstListView args);
+  void InstallSoda(const base::Value::List& args);
 
   // Called by the Projector SWA when an error occurred.
-  void OnError(const base::Value::ConstListView args);
+  void OnError(const base::Value::List& args);
 
   // Requested by the Projector SWA to get access to a particular user pref.
-  void GetUserPref(const base::Value::ConstListView args);
+  void GetUserPref(const base::Value::List& args);
 
   // Requested by the Projector SWA to set the value of a user pref.
-  void SetUserPref(const base::Value::ConstListView args);
+  void SetUserPref(const base::Value::List& args);
 
   // Requested by the Projector SWA to open the Chrome feedback dialog.
-  void OpenFeedbackDialog(const base::Value::ConstListView args);
+  void OpenFeedbackDialog(const base::Value::List& args);
 
   // Called when OAuth token fetch request is completed by
   // ProjectorOAuthTokenFetcher. Resolves the javascript promise created by
@@ -109,16 +120,20 @@ class ProjectorMessageHandler : public content::WebUIMessageHandler,
                                      GoogleServiceAuthError error,
                                      const signin::AccessTokenInfo& info);
 
-  // Called when the XHR request is completed. Resolves the javascript promise
-  // created by ProjectorBrowserProxy.sendXhr by calling the `js_callback_id`.
-  void OnXhrRequestCompleted(const std::string& js_callback_id,
-                             bool success,
-                             const std::string& response_body,
-                             const std::string& error);
-
   // Requested by the Projector SWA to fetch a list of screencasts pending to
   // upload or failed to upload.
-  void GetPendingScreencasts(const base::Value::ConstListView args);
+  void GetPendingScreencasts(const base::Value::List& args);
+
+  // Requested by the Projector SWA to fetch a single video from DriveFS with
+  // the Drive item id specified by `args`.
+  void GetVideo(const base::Value::List& args);
+
+  // Called when video file fetch by item id request is complete. Resolves the
+  // javascript promise created by ProjectorBrowserProxy.getScreencast by
+  // calling the `js_callback_id`.
+  void OnVideoLocated(const std::string& js_callback_id,
+                      std::unique_ptr<ProjectorScreencastVideo> video,
+                      const std::string& error_message);
 
   ProjectorOAuthTokenFetcher oauth_token_fetcher_;
   std::unique_ptr<ProjectorXhrSender> xhr_sender_;

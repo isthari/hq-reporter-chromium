@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -74,7 +74,7 @@ class SyncerProtoUtil {
   static void SetProtocolVersion(sync_pb::ClientToServerMessage* msg);
 
  private:
-  SyncerProtoUtil() {}
+  SyncerProtoUtil() = default;
 
   // Helper functions for PostClientToServerMessage.
 

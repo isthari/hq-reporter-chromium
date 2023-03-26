@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,27 +40,13 @@ bool ExtensionApps::ShouldShownInLauncher(
   return true;
 }
 
-std::unique_ptr<App> ExtensionApps::CreateApp(
-    const extensions::Extension* extension,
-    Readiness readiness) {
-  std::unique_ptr<App> app = CreateAppImpl(extension, readiness);
+AppPtr ExtensionApps::CreateApp(const extensions::Extension* extension,
+                                Readiness readiness) {
+  auto app = CreateAppImpl(extension, readiness);
   app->icon_key =
       std::move(*icon_key_factory().CreateIconKey(GetIconEffects(extension)));
   app->has_badge = false;
   app->paused = false;
-  return app;
-}
-
-apps::mojom::AppPtr ExtensionApps::Convert(
-    const extensions::Extension* extension,
-    apps::mojom::Readiness readiness) {
-  apps::mojom::AppPtr app = ConvertImpl(extension, readiness);
-
-  app->icon_key = icon_key_factory().MakeIconKey(GetIconEffects(extension));
-
-  app->has_badge = apps::mojom::OptionalBool::kFalse;
-  app->paused = apps::mojom::OptionalBool::kFalse;
-
   return app;
 }
 

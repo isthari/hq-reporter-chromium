@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
+#include "chrome/browser/chrome_for_testing/buildflags.h"
 #include "chrome/common/chrome_version.h"
 
 #define FPL FILE_PATH_LITERAL
@@ -14,6 +14,8 @@
 #if BUILDFLAG(IS_MAC)
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
 #define PRODUCT_STRING "Google Chrome"
+#elif BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
+#define PRODUCT_STRING "Google Chrome for Testing"
 #elif BUILDFLAG(CHROMIUM_BRANDING)
 #define PRODUCT_STRING "Chromium"
 #else
@@ -174,14 +176,6 @@ const wchar_t kUserDataDirname[] = L"User Data";
 #endif
 
 const float kMaxShareOfExtensionProcesses = 0.30f;
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-const char kProfileDirPrefix[] = "u-";
-const char kLegacyProfileDir[] = "user";
-const char kTestUserProfileDir[] = "test-user";
-const char kLockScreenAppProfile[] = "LockScreenAppsProfile";
-const char kLockScreenProfile[] = "LockScreenProfile";
-#endif
 
 // This GUID is associated with any 'don't ask me again' settings that the
 // user can select for different file types.

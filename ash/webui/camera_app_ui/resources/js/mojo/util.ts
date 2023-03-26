@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@ addUnloadCallback(() => {
   windowUnload.signal();
 });
 
-const NEVER_SETTLED_PROMISE: Promise<never> = new Promise(
+const NEVER_SETTLED_PROMISE = new Promise<never>(
     () => {
         // This doesn't call the resolve function so the Promise will never
         // be resolved or rejected.
@@ -48,7 +48,8 @@ const mojoResponseHandler: ProxyHandler<MojoEndpoint> = {
           // would be uncaught exception if we try to call the mojo function.
           return NEVER_SETTLED_PROMISE;
         }
-        return wrapMojoResponse(Reflect.apply(val, target, args));
+        return wrapMojoResponse(
+            Reflect.apply(val, target, args) as Promise<unknown>| undefined);
       };
     }
     return val;
@@ -58,6 +59,7 @@ const mojoResponseHandler: ProxyHandler<MojoEndpoint> = {
 /**
  * Closes the given mojo endpoint once the page is unloaded.
  * Reference b/176139064.
+ *
  * @param endpoint The mojo endpoint.
  */
 function closeWhenUnload(endpoint: MojoEndpoint) {
@@ -66,6 +68,7 @@ function closeWhenUnload(endpoint: MojoEndpoint) {
 
 /**
  * Returns a mojo |endpoint| and returns a proxy of it.
+ *
  * @return The proxy of the given endpoint.
  */
 export function wrapEndpoint<T extends MojoEndpoint>(endpoint: T): T {

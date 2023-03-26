@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,8 @@ import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.widget.LinearLayout;
+
+import org.chromium.ui.base.ViewUtils;
 
 /**
  * A LinearLayout that can be constrained to a maximum size or percentage of the screen size.
@@ -33,6 +35,7 @@ public class BoundedLinearLayout extends LinearLayout {
     private final int mMaxHeight;
 
     private boolean mIgnoreWidthConstraints;
+    private boolean mIgnoreHeightConstraints;
 
     /**
      * Constructor for inflating from XML.
@@ -55,10 +58,14 @@ public class BoundedLinearLayout extends LinearLayout {
     /**
      * @param ignoreWidthConstraints A boolean indicating whether we should ignore width constraints
      *         to support a full-screen type view.
+     * @param ignoreHeightConstraint A boolean indicating whether we should ignore the maxHeight
+     *        constraint to support a full-screen type view.
      */
-    public void setIgnoreWidthConstraints(boolean ignoreWidthConstraints) {
+    public void setIgnoreConstraints(
+            boolean ignoreWidthConstraints, boolean ignoreHeightConstraint) {
         mIgnoreWidthConstraints = ignoreWidthConstraints;
-        requestLayout();
+        mIgnoreHeightConstraints = ignoreHeightConstraint;
+        ViewUtils.requestLayout(this, "BoundedLinearLayout.setIgnoreConstraints");
     }
 
     @Override
@@ -84,7 +91,8 @@ public class BoundedLinearLayout extends LinearLayout {
 
         // Limit the height.
         int heightSize = MeasureSpec.getSize(heightMeasureSpec);
-        if (mMaxHeight != NOT_SPECIFIED && heightSize > mMaxHeight) {
+        if (mMaxHeight != NOT_SPECIFIED && heightSize > mMaxHeight
+                && !areHeightConstraintsIgnored()) {
             heightMeasureSpec = makeMeasureSpec(heightMeasureSpec, mMaxHeight);
         }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
@@ -101,5 +109,12 @@ public class BoundedLinearLayout extends LinearLayout {
      */
     private boolean isWidthConstraintsIgnored() {
         return mIgnoreWidthConstraints;
+    }
+
+    /**
+     * When true, {@code app:maxHeight} is ignored.
+     */
+    private boolean areHeightConstraintsIgnored() {
+        return mIgnoreHeightConstraints;
     }
 }

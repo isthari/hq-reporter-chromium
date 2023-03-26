@@ -1,10 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef BASE_FILES_SAFE_BASE_NAME_H_
 #define BASE_FILES_SAFE_BASE_NAME_H_
 
+#include "base/base_export.h"
 #include "base/files/file_path.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 

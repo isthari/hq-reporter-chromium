@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,12 +39,6 @@ enum class MessagePumpType {
   // OSX and IOS.
   NS_RUNLOOP,
 #endif  // BUILDFLAG(IS_APPLE)
-
-#if BUILDFLAG(IS_WIN)
-  // This type of pump supports WM_QUIT messages in addition to other native
-  // UI events. This is only for use on windows.
-  UI_WITH_WM_QUIT_SUPPORT,
-#endif  // BUILDFLAG(IS_WIN)
 };
 
 }  // namespace base

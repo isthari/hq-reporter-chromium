@@ -1,13 +1,15 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_return_to_recent_tab_view.h"
 
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_return_to_recent_tab_item.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
+#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_feature.h"
+#import "ios/chrome/browser/ui/content_suggestions/ntp_home_constant.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ios/chrome/common/ui/table_view/table_view_cells_constants.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -26,14 +28,18 @@ const CGFloat kIconWidth = 32.0f;
 - (instancetype)initWithFrame:(CGRect)frame {
   self = [super initWithFrame:frame];
   if (self) {
-    [self.layer
-        setBorderColor:[UIColor colorNamed:kTertiaryBackgroundColor].CGColor];
-    self.backgroundColor = [UIColor colorNamed:kGrey100Color];
+    if (IsContentSuggestionsUIModuleRefreshEnabled()) {
+      [self.layer setBorderColor:ntp_home::NTPBackgroundColor().CGColor];
+    } else {
+      [self.layer
+          setBorderColor:[UIColor colorNamed:kTertiaryBackgroundColor].CGColor];
+    }
     [self.layer setBorderWidth:kContentViewBorderWidth];
     self.layer.cornerRadius = kContentViewCornerRadius;
     self.layer.masksToBounds = YES;
 
     _titleLabel = [[UILabel alloc] init];
+    _titleLabel.isAccessibilityElement = NO;
     _titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
     _titleLabel.adjustsFontForContentSizeCategory = YES;
     _titleLabel.textColor = [UIColor colorNamed:kTextPrimaryColor];
@@ -114,8 +120,12 @@ const CGFloat kIconWidth = 32.0f;
   if (self.traitCollection.userInterfaceStyle !=
       previousTraitCollection.userInterfaceStyle) {
     // CGColors are static RGB, so the border color needs to be reset.
-    [self.layer
-        setBorderColor:[UIColor colorNamed:kTertiaryBackgroundColor].CGColor];
+    if (IsContentSuggestionsUIModuleRefreshEnabled()) {
+      [self.layer setBorderColor:ntp_home::NTPBackgroundColor().CGColor];
+    } else {
+      [self.layer
+          setBorderColor:[UIColor colorNamed:kTertiaryBackgroundColor].CGColor];
+    }
   }
 }
 

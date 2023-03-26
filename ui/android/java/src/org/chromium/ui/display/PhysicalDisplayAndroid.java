@@ -1,10 +1,9 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.ui.display;
 
-import android.annotation.TargetApi;
 import android.content.ComponentCallbacks;
 import android.content.Context;
 import android.content.res.Configuration;
@@ -19,7 +18,7 @@ import android.view.WindowManager;
 import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
-import org.chromium.base.compat.ApiHelperForM;
+import org.chromium.base.StrictModeContext;
 import org.chromium.base.compat.ApiHelperForO;
 import org.chromium.base.compat.ApiHelperForR;
 import org.chromium.base.compat.ApiHelperForS;
@@ -140,8 +139,11 @@ import java.util.List;
         super(display.getDisplayId());
         if (USE_CONFIGURATION) {
             Context appContext = ContextUtils.getApplicationContext();
-            mWindowContext = ApiHelperForS.createWindowContext(
-                    appContext, display, WindowManager.LayoutParams.TYPE_APPLICATION, null);
+            // `createWindowContext` on some devices writes to disk. See crbug.com/1408587.
+            try (StrictModeContext ignored = StrictModeContext.allowAllThreadPolicies()) {
+                mWindowContext = ApiHelperForS.createWindowContext(
+                        appContext, display, WindowManager.LayoutParams.TYPE_APPLICATION, null);
+            }
             assert display.getDisplayId()
                     == ApiHelperForR.getDisplay(mWindowContext).getDisplayId();
             mComponentCallbacks = new ComponentCallbacks() {
@@ -161,13 +163,19 @@ import java.util.List;
         }
     }
 
+    @Override
+    public Context getWindowContext() {
+        return mWindowContext;
+    }
+
     private void updateFromConfiguration() {
         Point size = new Point();
         WindowManager windowManager = mWindowContext.getSystemService(WindowManager.class);
         Rect rect = ApiHelperForR.getMaximumWindowMetricsBounds(windowManager);
         size.set(rect.width(), rect.height());
         DisplayMetrics displayMetrics = mWindowContext.getResources().getDisplayMetrics();
-        updateCommon(size, displayMetrics.density, ApiHelperForR.getDisplay(mWindowContext));
+        updateCommon(size, displayMetrics.density, displayMetrics.xdpi, displayMetrics.ydpi,
+                ApiHelperForR.getDisplay(mWindowContext));
     }
 
     /* package */ void onDisplayRemoved() {
@@ -177,7 +185,6 @@ import java.util.List;
     }
 
     @SuppressWarnings("deprecation")
-    @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
     /* package */ void updateFromDisplay(Display display) {
         if (USE_CONFIGURATION) {
             assert display.getDisplayId()
@@ -195,10 +202,11 @@ import java.util.List;
             display.getSize(size);
             display.getMetrics(displayMetrics);
         }
-        updateCommon(size, displayMetrics.density, display);
+        updateCommon(
+                size, displayMetrics.density, displayMetrics.xdpi, displayMetrics.ydpi, display);
     }
 
-    private void updateCommon(Point size, float density, Display display) {
+    private void updateCommon(Point size, float density, float xdpi, float ydpi, Display display) {
         if (hasForcedDIPScale()) density = sForcedDIPScale.floatValue();
         boolean isWideColorGamut = false;
         // Although this API was added in Android O, it was buggy.
@@ -207,23 +215,19 @@ import java.util.List;
             isWideColorGamut = ApiHelperForO.isWideColorGamut(display);
         }
 
-        // JellyBean MR1 and later always uses RGBA_8888.
-        int pixelFormatId = (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR1)
-                ? display.getPixelFormat()
-                : PixelFormat.RGBA_8888;
+        int pixelFormatId = PixelFormat.RGBA_8888;
 
-        Display.Mode currentMode = null;
+        // Note: getMode() and getSupportedModes() can return null in some situations - see
+        // crbug.com/1401322.
+        Display.Mode currentMode = display.getMode();
+        Display.Mode[] modes = display.getSupportedModes();
         List<Display.Mode> supportedModes = null;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            currentMode = ApiHelperForM.getDisplayMode(display);
-            supportedModes = Arrays.asList(ApiHelperForM.getDisplaySupportedModes(display));
-            assert currentMode != null;
-            assert supportedModes != null;
-            assert supportedModes.size() > 0;
+        if (modes != null && modes.length > 0) {
+            supportedModes = Arrays.asList(modes);
         }
 
-        super.update(size, density, bitsPerPixel(pixelFormatId), bitsPerComponent(pixelFormatId),
-                display.getRotation(), isWideColorGamut, null, display.getRefreshRate(),
-                currentMode, supportedModes);
+        super.update(size, density, xdpi, ydpi, bitsPerPixel(pixelFormatId),
+                bitsPerComponent(pixelFormatId), display.getRotation(), isWideColorGamut, null,
+                display.getRefreshRate(), currentMode, supportedModes);
     }
 }

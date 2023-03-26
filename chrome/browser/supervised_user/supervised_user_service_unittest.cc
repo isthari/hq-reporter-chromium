@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,13 +14,17 @@
 #include "base/run_loop.h"
 #include "base/scoped_observation.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/test/gtest_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_test_environment_profile_adaptor.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
+#include "chrome/common/pref_names.h"
+#include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/prefs/pref_service.h"
 #include "components/version_info/version_info.h"
@@ -118,31 +122,46 @@ class SupervisedUserURLFilterObserver
 
 class SupervisedUserServiceTest : public ::testing::Test {
  public:
-  SupervisedUserServiceTest() {}
+  SupervisedUserServiceTest() {
+    // The testing browser process may be deleted following a crash.
+    // Re-instantiate it before its use in testing profile creation.
+    if (!g_browser_process) {
+      TestingBrowserProcess::CreateInstance();
+    }
 
-  void SetUp() override {
-    profile_ = IdentityTestEnvironmentProfileAdaptor::
-        CreateProfileForIdentityTestEnvironment({});
-    identity_test_environment_adaptor_ =
-        std::make_unique<IdentityTestEnvironmentProfileAdaptor>(profile_.get());
-    supervised_user_service_ =
+    // Build supervised profile.
+    TestingProfile::Builder builder;
+    builder.AddTestingFactory(SyncServiceFactory::GetInstance(),
+                              SyncServiceFactory::GetDefaultFactory());
+    builder.SetIsSupervisedProfile();
+    profile_ = builder.Build();
+
+    SupervisedUserService* service =
         SupervisedUserServiceFactory::GetForProfile(profile_.get());
+    service->Init();
   }
-
-  void TearDown() override {
-    identity_test_environment_adaptor_.reset();
-    profile_.reset();
-  }
-
-  ~SupervisedUserServiceTest() override {}
 
  protected:
-  std::unique_ptr<IdentityTestEnvironmentProfileAdaptor>
-      identity_test_environment_adaptor_;
   content::BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestingProfile> profile_;
-  raw_ptr<SupervisedUserService> supervised_user_service_;
 };
+
+// TODO(crbug.com/1364589): Failing consistently on linux-chromeos-dbg
+// due to failed timezone conversion assertion.
+#if BUILDFLAG(IS_CHROMEOS)
+#define MAYBE_DeprecatedFilterPolicy DISABLED_DeprecatedFilterPolicy
+#else
+#define MAYBE_DeprecatedFilterPolicy DeprecatedFilterPolicy
+#endif
+TEST_F(SupervisedUserServiceTest, MAYBE_DeprecatedFilterPolicy) {
+  PrefService* prefs = profile_->GetPrefs();
+  EXPECT_EQ(prefs->GetInteger(prefs::kDefaultSupervisedUserFilteringBehavior),
+            SupervisedUserURLFilter::ALLOW);
+
+  ASSERT_DCHECK_DEATH(
+      prefs->SetInteger(prefs::kDefaultSupervisedUserFilteringBehavior,
+                        /* SupervisedUserURLFilter::WARN */ 1));
+}
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 class SupervisedUserServiceExtensionTestBase
@@ -169,7 +188,7 @@ class SupervisedUserServiceExtensionTestBase
 
     SupervisedUserURLFilter* url_filter = service->GetURLFilter();
     url_filter->SetBlockingTaskRunnerForTesting(
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
     url_filter_observer_.Init(url_filter);
   }
 
@@ -180,10 +199,10 @@ class SupervisedUserServiceExtensionTestBase
 
  protected:
   scoped_refptr<const extensions::Extension> MakeThemeExtension() {
-    std::unique_ptr<base::DictionaryValue> source(new base::DictionaryValue());
-    source->SetString(extensions::manifest_keys::kName, "Theme");
-    source->SetKey(extensions::manifest_keys::kTheme, base::DictionaryValue());
-    source->SetString(extensions::manifest_keys::kVersion, "1.0");
+    base::Value::Dict source;
+    source.Set(extensions::manifest_keys::kName, "Theme");
+    source.Set(extensions::manifest_keys::kTheme, base::Value::Dict());
+    source.Set(extensions::manifest_keys::kVersion, "1.0");
     extensions::ExtensionBuilder builder;
     scoped_refptr<const extensions::Extension> extension =
         builder.SetManifest(std::move(source)).Build();

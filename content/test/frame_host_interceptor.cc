@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -51,14 +51,17 @@ class FrameHostInterceptor::FrameAgent
       mojo::PendingRemote<blink::mojom::BlobURLToken> blob_url_token,
       mojo::PendingAssociatedRemote<mojom::NavigationClient> navigation_client,
       mojo::PendingRemote<blink::mojom::PolicyContainerHostKeepAliveHandle>
-          initiator_policy_container_keep_alive_handle) override {
+          initiator_policy_container_keep_alive_handle,
+      mojo::PendingReceiver<mojom::NavigationRendererCancellationListener>
+          renderer_cancellation_listener) override {
     if (interceptor_->WillDispatchBeginNavigation(
             rfhi_, &common_params, &begin_params, &blob_url_token,
             &navigation_client)) {
       GetForwardingInterface()->BeginNavigation(
           std::move(common_params), std::move(begin_params),
           std::move(blob_url_token), std::move(navigation_client),
-          std::move(initiator_policy_container_keep_alive_handle));
+          std::move(initiator_policy_container_keep_alive_handle),
+          std::move(renderer_cancellation_listener));
     }
   }
 
@@ -71,13 +74,11 @@ class FrameHostInterceptor::FrameAgent
 
 FrameHostInterceptor::FrameHostInterceptor(WebContents* web_contents)
     : WebContentsObserver(web_contents) {
-  web_contents->ForEachRenderFrameHost(base::BindRepeating(
-      [](FrameHostInterceptor* interceptor,
-         RenderFrameHost* render_frame_host) {
+  web_contents->ForEachRenderFrameHost(
+      [this](RenderFrameHost* render_frame_host) {
         if (render_frame_host->IsRenderFrameLive())
-          interceptor->RenderFrameCreated(render_frame_host);
-      },
-      this));
+          RenderFrameCreated(render_frame_host);
+      });
 }
 
 FrameHostInterceptor::~FrameHostInterceptor() = default;

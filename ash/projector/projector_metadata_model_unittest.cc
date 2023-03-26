@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,6 +37,64 @@ constexpr char kSerializedHypothesisPartTemplate[] = R"({
   "text": %s,
   "offset": %i
 })";
+
+constexpr char kCompleteMetadataTemplate[] = R"({
+    "captions": [
+      {
+        "endOffset": 3000,
+        "hypothesisParts": [
+          {
+            "offset": 1000,
+            "text": [
+              "transcript"
+            ]
+          },
+          {
+            "offset": 2000,
+            "text": [
+              "text"
+            ]
+          }
+        ],
+        "startOffset": 1000,
+        "text": "transcript text"
+      },
+      {
+        "endOffset": 5000,
+        "hypothesisParts": [
+          {
+            "offset": 3200,
+            "text": [
+              "transcript"
+            ]
+          },
+          {
+            "offset": 4200,
+            "text": [
+              "text"
+            ]
+          },
+          {
+            "offset": 4500,
+            "text": [
+              "2"
+            ]
+          }
+        ],
+        "startOffset": 3000,
+        "text": "transcript text 2"
+      }
+    ],
+    "captionLanguage": "en",
+    "recognitionStatus": %i,
+    "tableOfContent": [
+      {
+        "endOffset": 5000,
+        "startOffset": 3000,
+        "text": ""
+      }
+    ]
+  })";
 
 void AssertSerializedString(const std::string& expected,
                             const std::string& actual) {
@@ -165,63 +223,6 @@ class ProjectorMetadataTest : public testing::Test {
 };
 
 TEST_F(ProjectorMetadataTest, Serialize) {
-  const char kExpectedMetaData[] = R"({
-    "captions": [
-      {
-        "endOffset": 3000,
-        "hypothesisParts": [
-          {
-            "offset": 1000,
-            "text": [
-              "transcript"
-            ]
-          },
-          {
-            "offset": 2000,
-            "text": [
-              "text"
-            ]
-          }
-        ],
-        "startOffset": 1000,
-        "text": "transcript text"
-      },
-      {
-        "endOffset": 5000,
-        "hypothesisParts": [
-          {
-            "offset": 3200,
-            "text": [
-              "transcript"
-            ]
-          },
-          {
-            "offset": 4200,
-            "text": [
-              "text"
-            ]
-          },
-          {
-            "offset": 4500,
-            "text": [
-              "2"
-            ]
-          }
-        ],
-        "startOffset": 3000,
-        "text": "transcript text 2"
-      }
-    ],
-    "captionLanguage": "en",
-    "tableOfContent": [
-      {
-        "endOffset": 5000,
-        "startOffset": 3000,
-        "text": ""
-      }
-    ]
-  })";
-
   ProjectorMetadata metadata;
   metadata.SetCaptionLanguage("en");
 
@@ -251,7 +252,23 @@ TEST_F(ProjectorMetadataTest, Serialize) {
       /*end_time=*/base::Milliseconds(5000), "transcript text 2",
       std::move(second_transcript)));
 
-  AssertSerializedString(kExpectedMetaData, metadata.Serialize());
+  metadata.SetSpeechRecognitionStatus(RecognitionStatus::kIncomplete);
+  AssertSerializedString(
+      base::StringPrintf(kCompleteMetadataTemplate,
+                         static_cast<int>(RecognitionStatus::kIncomplete)),
+      metadata.Serialize());
+
+  metadata.SetSpeechRecognitionStatus(RecognitionStatus::kComplete);
+  AssertSerializedString(
+      base::StringPrintf(kCompleteMetadataTemplate,
+                         static_cast<int>(RecognitionStatus::kComplete)),
+      metadata.Serialize());
+
+  metadata.SetSpeechRecognitionStatus(RecognitionStatus::kError);
+  AssertSerializedString(
+      base::StringPrintf(kCompleteMetadataTemplate,
+                         static_cast<int>(RecognitionStatus::kError)),
+      metadata.Serialize());
 }
 
 }  // namespace ash

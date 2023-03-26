@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@
 #include "ash/components/arc/arc_prefs.h"
 #include "ash/components/arc/enterprise/arc_data_remove_requested_pref_handler.h"
 #include "ash/components/arc/session/arc_data_remover.h"
-#include "ash/components/cryptohome/cryptohome_parameters.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
+#include "chromeos/ash/components/cryptohome/cryptohome_parameters.h"
 #include "components/prefs/testing_pref_service.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"

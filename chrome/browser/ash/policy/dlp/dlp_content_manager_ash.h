@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,8 @@
 #include <utility>
 
 #include "ash/public/cpp/capture_mode/capture_mode_delegate.h"
-#include "base/callback.h"
 #include "base/containers/flat_map.h"
-#include "base/memory/weak_ptr.h"
+#include "base/functional/callback.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/policy/dlp/dlp_window_observer.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_confidential_contents.h"
@@ -24,8 +23,6 @@
 #include "content/public/browser/media_stream_request.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
-
-struct ScreenshotArea;
 
 namespace aura {
 class Window;
@@ -54,18 +51,11 @@ class DlpContentManagerAsh : public DlpContentManager,
   // DlpWindowObserver::Delegate overrides:
   void OnWindowOcclusionChanged(aura::Window* window) override;
   void OnWindowDestroying(aura::Window* window) override;
-
-  // Returns which restrictions are applied to the |web_contents| according to
-  // the policy.
-  DlpContentRestrictionSet GetConfidentialRestrictions(
-      content::WebContents* web_contents) const;
+  void OnWindowTitleChanged(aura::Window* window) override;
 
   // Returns which restrictions are applied to the WebContents which are
   // currently visible.
   DlpContentRestrictionSet GetOnScreenPresentRestrictions() const;
-
-  // Returns whether screenshots should be restricted for extensions API.
-  virtual bool IsScreenshotApiRestricted(const ScreenshotArea& area);
 
   // Checks whether screenshots of |area| are restricted or not advised.
   // Depending on the result, calls |callback| and passes an indicator whether
@@ -73,11 +63,6 @@ class DlpContentManagerAsh : public DlpContentManager,
   void CheckScreenshotRestriction(
       const ScreenshotArea& area,
       ash::OnCaptureModeDlpRestrictionChecked callback);
-
-  // Returns whether screen capture of the defined content should be restricted.
-  // TODO(crbug.com/1257493): Remove when it won't be used anymore.
-  virtual bool IsScreenCaptureRestricted(
-      const content::DesktopMediaID& media_id);
 
   // Called when video capturing for |area| is started.
   void OnVideoCaptureStarted(const ScreenshotArea& area);
@@ -102,34 +87,24 @@ class DlpContentManagerAsh : public DlpContentManager,
       const content::DesktopMediaID& media_id,
       const std::u16string& application_title,
       OnDlpRestrictionCheckedCallback callback) override;
-  void OnScreenCaptureStarted(
+  void OnScreenShareStarted(
       const std::string& label,
-      std::vector<content::DesktopMediaID> screen_capture_ids,
+      std::vector<content::DesktopMediaID> screen_share_ids,
       const std::u16string& application_title,
       base::RepeatingClosure stop_callback,
-      content::MediaStreamUI::StateChangeCallback state_change_callback)
-      override;
-  void OnScreenCaptureStopped(const std::string& label,
-                              const content::DesktopMediaID& media_id) override;
+      content::MediaStreamUI::StateChangeCallback state_change_callback,
+      content::MediaStreamUI::SourceCallback source_callback) override;
+  void OnScreenShareStopped(const std::string& label,
+                            const content::DesktopMediaID& media_id) override;
 
   // Called when an updated restrictions are received for Lacros window.
   void OnWindowRestrictionChanged(aura::Window* window,
                                   const DlpContentRestrictionSet& restrictions);
 
-  // The caller (test) should manage |dlp_content_manager| lifetime.
-  // Reset doesn't delete the object.
-  // Please use ScopedDlpContentManagerAshForTesting instead of these methods,
-  // if possible.
-  static void SetDlpContentManagerAshForTesting(
-      DlpContentManagerAsh* dlp_content_manager);
-  static void ResetDlpContentManagerAshForTesting();
-
  private:
-  friend class DlpContentManagerAshTestHelper;
   friend class DlpContentManagerTestHelper;
   friend class DlpContentObserver;
   friend class DlpContentTabHelper;
-  friend class MockDlpContentManagerAsh;
 
   // Structure to keep track of a running video capture.
   struct VideoCaptureInfo {
@@ -137,13 +112,12 @@ class DlpContentManagerAsh : public DlpContentManager,
 
     const ScreenshotArea area;
     DlpConfidentialContents confidential_contents;
-    // For a single video capture there should be sent at most one reporting
-    // event. This flag informs if we already sent an event for the report mode.
-    bool was_reported = false;
-    // Analogous to `was_reported` flag. `was_reported_warning_proceeded` flag
-    // informs if we already sent a warning proceeded event for the warning
-    // mode.
-    bool was_reported_warning_proceeded = false;
+    // Contents reported during a video capture, after the start of a capture.
+    DlpConfidentialContents reported_confidential_contents;
+    // Flag that indicates that there was some content with warn level
+    // restriction captured. Used to indicate that the warn UMA should be
+    // logged, even if no warning is shown.
+    bool had_warning_restriction = false;
   };
 
   DlpContentManagerAsh();
@@ -156,7 +130,9 @@ class DlpContentManagerAsh : public DlpContentManager,
   void OnVisibilityChanged(content::WebContents* web_contents) override;
   void RemoveFromConfidential(content::WebContents* web_contents) override;
   ConfidentialContentsInfo GetScreenShareConfidentialContentsInfo(
-      const content::DesktopMediaID& media_id) const override;
+      const content::DesktopMediaID& media_id,
+      content::WebContents* web_contents) const override;
+  void TabLocationMaybeChanged(content::WebContents* web_contents) override;
 
   // Updates |on_screen_restrictions_| and calls
   // OnScreenRestrictionsChanged() if needed.
@@ -204,23 +180,16 @@ class DlpContentManagerAsh : public DlpContentManager,
   // Map of observers for currently known Lacros Windows.
   base::flat_map<aura::Window*, std::unique_ptr<DlpWindowObserver>>
       window_observers_;
+  // Map of observers for Lacros surfaces that are being notified for visibility
+  // changes.
+  base::flat_map<aura::Window*, std::unique_ptr<DlpWindowObserver>>
+      surface_observers_;
 
   // Set of restriction applied to the currently visible content.
   DlpContentRestrictionSet on_screen_restrictions_;
 
   // Information about the currently running video capture area if any.
   absl::optional<VideoCaptureInfo> running_video_capture_info_;
-};
-
-// Helper class to call SetDlpContentManagerAshForTesting and
-// ResetDlpContentManagerAshForTesting automically.
-// The caller (test) should manage `test_dlp_content_manager` lifetime.
-// This class does not own it.
-class ScopedDlpContentManagerAshForTesting {
- public:
-  explicit ScopedDlpContentManagerAshForTesting(
-      DlpContentManagerAsh* test_dlp_content_manager);
-  ~ScopedDlpContentManagerAshForTesting();
 };
 
 }  // namespace policy

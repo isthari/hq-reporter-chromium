@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,9 +38,6 @@ void SaveUpdateAddressProfileMessageController::DisplayMessage(
   DCHECK(web_contents);
   DCHECK(save_address_profile_callback);
   DCHECK(primary_action_callback);
-
-  DCHECK(base::FeatureList::IsEnabled(
-      autofill::features::kAutofillAddressProfileSavePrompt));
 
   // Dismiss previous message if it is displayed.
   DismissMessage();

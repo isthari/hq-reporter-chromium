@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@ import androidx.annotation.VisibleForTesting;
 import org.chromium.base.Log;
 import org.chromium.chrome.browser.feed.FeedServiceBridge;
 import org.chromium.chrome.browser.feed.R;
+import org.chromium.chrome.browser.feed.StreamKind;
 import org.chromium.chrome.browser.feed.v2.FeedUserActionType;
 import org.chromium.chrome.browser.feed.webfeed.WebFeedAvailabilityStatus;
 import org.chromium.chrome.browser.feed.webfeed.WebFeedBridge;
@@ -61,7 +62,6 @@ class FollowManagementMediator {
         mModelList.add(listItem);
 
         // Control flow is to refresh the feeds, then get the feed list, then display it.
-        // TODO(https://crbug.com/1197286) Add a spinner while waiting for results.
         WebFeedBridge.refreshFollowedWebFeeds(this::getFollowedWebFeeds);
     }
 
@@ -152,24 +152,26 @@ class FollowManagementMediator {
         // intended new state, so make the reality match the checkbox state.
         if (!subscribed) {
             FeedServiceBridge.reportOtherUserAction(
-                    FeedUserActionType.TAPPED_FOLLOW_ON_MANAGEMENT_SURFACE);
+                    StreamKind.UNKNOWN, FeedUserActionType.TAPPED_FOLLOW_ON_MANAGEMENT_SURFACE);
             // The lambda will set the item as subscribed if the follow operation succeeds.
-            WebFeedBridge.followFromId(id, results -> {
-                reportRequestStatus(results.requestStatus);
-                itemModel.set(FollowManagementItemProperties.SUBSCRIBED_KEY,
-                        results.requestStatus == SUCCESS);
-                itemModel.set(FollowManagementItemProperties.CHECKBOX_ENABLED_KEY, true);
-            });
+            WebFeedBridge.followFromId(
+                    id, /*isDurable=*/false, WebFeedBridge.CHANGE_REASON_MANAGEMENT, results -> {
+                        reportRequestStatus(results.requestStatus);
+                        itemModel.set(FollowManagementItemProperties.SUBSCRIBED_KEY,
+                                results.requestStatus == SUCCESS);
+                        itemModel.set(FollowManagementItemProperties.CHECKBOX_ENABLED_KEY, true);
+                    });
         } else {
             FeedServiceBridge.reportOtherUserAction(
-                    FeedUserActionType.TAPPED_UNFOLLOW_ON_MANAGEMENT_SURFACE);
+                    StreamKind.UNKNOWN, FeedUserActionType.TAPPED_UNFOLLOW_ON_MANAGEMENT_SURFACE);
             // The lambda will set the item as unsubscribed if the unfollow operation succeeds.
-            WebFeedBridge.unfollow(id, results -> {
-                reportRequestStatus(results.requestStatus);
-                itemModel.set(FollowManagementItemProperties.SUBSCRIBED_KEY,
-                        results.requestStatus != SUCCESS);
-                itemModel.set(FollowManagementItemProperties.CHECKBOX_ENABLED_KEY, true);
-            });
+            WebFeedBridge.unfollow(
+                    id, /*isDurable=*/false, WebFeedBridge.CHANGE_REASON_MANAGEMENT, results -> {
+                        reportRequestStatus(results.requestStatus);
+                        itemModel.set(FollowManagementItemProperties.SUBSCRIBED_KEY,
+                                results.requestStatus != SUCCESS);
+                        itemModel.set(FollowManagementItemProperties.CHECKBOX_ENABLED_KEY, true);
+                    });
         }
 
         itemModel.set(FollowManagementItemProperties.CHECKBOX_ENABLED_KEY, false);

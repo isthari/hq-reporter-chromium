@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -175,18 +175,12 @@ bool OncParsedCertificates::ClientCertificate::operator!=(
 }
 
 OncParsedCertificates::OncParsedCertificates()
-    : OncParsedCertificates(base::ListValue()) {}
+    : OncParsedCertificates(base::Value::List()) {}
 
 OncParsedCertificates::OncParsedCertificates(
-    const base::Value& onc_certificates) {
-  if (!onc_certificates.is_list()) {
-    LOG(WARNING) << "Value is not a list";
-    has_error_ = true;
-    return;
-  }
-
-  for (size_t i = 0; i < onc_certificates.GetList().size(); ++i) {
-    const base::Value& onc_certificate = onc_certificates.GetList()[i];
+    const base::Value::List& onc_certificates) {
+  for (size_t i = 0; i < onc_certificates.size(); ++i) {
+    const base::Value& onc_certificate = onc_certificates[i];
     DCHECK(onc_certificate.is_dict());
 
     VLOG(2) << "Parsing certificate at index " << i << ": " << onc_certificate;

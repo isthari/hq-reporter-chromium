@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,16 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/user_action_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "components/autofill/core/browser/ui/suggestion.h"
 #include "components/password_manager/core/browser/fake_form_fetcher.h"
 #include "components/password_manager/core/browser/mock_password_store_interface.h"
+#include "components/password_manager/core/browser/mock_webauthn_credentials_delegate.h"
 #include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_form_manager.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
@@ -48,6 +50,8 @@ class FakePasswordManagerClient : public StubPasswordManagerClient {
             features::kPasswordReuseDetectionEnabled)) {
       return;
     }
+    ON_CALL(webauthn_credentials_delegate_, GetWebAuthnSuggestions)
+        .WillByDefault(testing::ReturnRef(webauthn_suggestions_));
 
     // Initializes and configures prefs.
     prefs_ = std::make_unique<TestingPrefServiceSimple>();
@@ -76,6 +80,10 @@ class FakePasswordManagerClient : public StubPasswordManagerClient {
   signin::IdentityManager* GetIdentityManager() override {
     return identity_manager_;
   }
+  MockWebAuthnCredentialsDelegate* GetWebAuthnCredentialsDelegateForDriver(
+      password_manager::PasswordManagerDriver*) override {
+    return &webauthn_credentials_delegate_;
+  }
 
   void set_last_committed_entry_url(base::StringPiece url_spec) {
     last_committed_origin_ = url::Origin::Create(GURL(url_spec));
@@ -91,6 +99,8 @@ class FakePasswordManagerClient : public StubPasswordManagerClient {
   url::Origin last_committed_origin_;
   scoped_refptr<testing::NiceMock<MockPasswordStoreInterface>> password_store_ =
       new testing::NiceMock<MockPasswordStoreInterface>;
+  MockWebAuthnCredentialsDelegate webauthn_credentials_delegate_;
+  absl::optional<std::vector<autofill::Suggestion>> webauthn_suggestions_;
   bool is_incognito_ = false;
   raw_ptr<signin::IdentityManager> identity_manager_;
   std::unique_ptr<TestingPrefServiceSimple> prefs_;

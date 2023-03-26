@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,11 +12,13 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
+#include "base/time/time.h"
 #include "chrome/browser/notifications/win/fake_notification_image_retainer.h"
 #include "chrome/browser/notifications/win/notification_launch_id.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/grit/chromium_strings.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/l10n/l10n_util_win.h"
 #include "ui/message_center/public/cpp/notification.h"
 
@@ -67,7 +69,7 @@ class NotificationTemplateBuilderTest : public ::testing::Test {
     GURL origin_url(kNotificationOrigin);
     message_center::Notification notification(
         message_center::NOTIFICATION_TYPE_SIMPLE, kNotificationId,
-        kNotificationTitle, kNotificationMessage, gfx::Image() /* icon */,
+        kNotificationTitle, kNotificationMessage, ui::ImageModel() /* icon */,
         std::u16string() /* display_source */, origin_url,
         NotifierId(origin_url), RichNotificationData(), nullptr /* delegate */);
     // Set a fixed timestamp, to avoid having to test against current timestamp.
@@ -369,7 +371,8 @@ TEST_F(NotificationTemplateBuilderTest, Images) {
   icon.allocN32Pixels(64, 64);
   icon.eraseARGB(255, 100, 150, 200);
 
-  notification.set_icon(gfx::Image::CreateFrom1xBitmap(icon));
+  notification.set_icon(
+      ui::ImageModel::FromImage(gfx::Image::CreateFrom1xBitmap(icon)));
   notification.set_image(gfx::Image::CreateFrom1xBitmap(icon));
 
   std::vector<message_center::ButtonInfo> buttons;
@@ -555,6 +558,75 @@ TEST_F(NotificationTemplateBuilderTest, NoSettings) {
   </binding>
  </visual>
  <actions/>
+</toast>
+)";
+
+  ASSERT_NO_FATAL_FAILURE(VerifyXml(notification, kExpectedXml));
+}
+
+TEST_F(NotificationTemplateBuilderTest, IncomingCallFromWebApp) {
+  message_center::Notification notification = BuildNotification();
+  notification.set_scenario(
+      message_center::NotificationScenario::INCOMING_CALL);
+
+  std::vector<message_center::ButtonInfo> buttons;
+  message_center::ButtonInfo acknowledge_button(u"Acknowledge");
+  acknowledge_button.type = message_center::ButtonType::ACKNOWLEDGE;
+  buttons.push_back(acknowledge_button);
+  message_center::ButtonInfo dismiss_button(u"Close");
+  dismiss_button.type = message_center::ButtonType::DISMISS;
+  buttons.push_back(dismiss_button);
+  notification.set_buttons(buttons);
+
+  const wchar_t kExpectedXml[] =
+      LR"(<toast launch="0|0|Default|0|https://example.com/|notification_id" scenario="incomingCall" useButtonStyle="true" displayTimestamp="1998-09-04T01:02:03Z">
+ <visual>
+  <binding template="ToastGeneric">
+   <text>My Title</text>
+   <text>My Message</text>
+   <text placement="attribution">example.com</text>
+  </binding>
+ </visual>
+ <actions>
+  <action activationType="foreground" hint-buttonStyle="Success" content="Acknowledge" arguments="1|0|0|Default|0|https://example.com/|notification_id"/>
+  <action activationType="background" hint-buttonStyle="Critical" content="Close" arguments="3|0|Default|0|https://example.com/|notification_id"/>
+  <action content="settings" placement="contextMenu" activationType="foreground" arguments="2|0|Default|0|https://example.com/|notification_id"/>
+ </actions>
+</toast>
+)";
+
+  ASSERT_NO_FATAL_FAILURE(VerifyXml(notification, kExpectedXml));
+}
+
+TEST_F(NotificationTemplateBuilderTest, IncomingCallFromNonInstalledOrigin) {
+  message_center::Notification notification = BuildNotification();
+
+  std::vector<message_center::ButtonInfo> buttons;
+  message_center::ButtonInfo acknowledge_button(u"Acknowledge");
+  acknowledge_button.type = message_center::ButtonType::ACKNOWLEDGE;
+  buttons.push_back(acknowledge_button);
+  message_center::ButtonInfo dismiss_button(u"Close");
+  dismiss_button.type = message_center::ButtonType::DISMISS;
+  buttons.push_back(dismiss_button);
+  notification.set_buttons(buttons);
+
+  // In this case, the toast wont' have the "scenario" and "useButtonStyle"
+  // arguments being set. Thus, even if the action buttons have the
+  // "hint-buttonStyle" argument set, it should not take effect.
+  const wchar_t kExpectedXml[] =
+      LR"(<toast launch="0|0|Default|0|https://example.com/|notification_id" displayTimestamp="1998-09-04T01:02:03Z">
+ <visual>
+  <binding template="ToastGeneric">
+   <text>My Title</text>
+   <text>My Message</text>
+   <text placement="attribution">example.com</text>
+  </binding>
+ </visual>
+ <actions>
+  <action activationType="foreground" hint-buttonStyle="Success" content="Acknowledge" arguments="1|0|0|Default|0|https://example.com/|notification_id"/>
+  <action activationType="background" hint-buttonStyle="Critical" content="Close" arguments="3|0|Default|0|https://example.com/|notification_id"/>
+  <action content="settings" placement="contextMenu" activationType="foreground" arguments="2|0|Default|0|https://example.com/|notification_id"/>
+ </actions>
 </toast>
 )";
 

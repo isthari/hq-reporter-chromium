@@ -1,35 +1,41 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/ui/settings/password/password_settings_app_interface.h"
+#import "ios/chrome/browser/ui/settings/password/password_settings_app_interface.h"
 
 #import <MaterialComponents/MaterialSnackbar.h>
 
-#include "base/strings/stringprintf.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/strings/utf_string_conversions.h"
+#import "base/mac/foundation_util.h"
+#import "base/strings/stringprintf.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/strings/utf_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#include "components/keyed_service/core/service_access_type.h"
-#include "components/password_manager/core/browser/password_form.h"
-#include "components/password_manager/core/browser/password_store_consumer.h"
-#include "components/password_manager/core/browser/password_store_interface.h"
-#include "components/password_manager/core/common/password_manager_pref_names.h"
-#include "components/prefs/pref_service.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/passwords/ios_chrome_password_store_factory.h"
+#import "base/time/time.h"
+#import "components/keyed_service/core/service_access_type.h"
+#import "components/password_manager/core/browser/password_form.h"
+#import "components/password_manager/core/browser/password_manager_features_util.h"
+#import "components/password_manager/core/browser/password_store_consumer.h"
+#import "components/password_manager/core/browser/password_store_interface.h"
+#import "components/password_manager/core/common/password_manager_pref_names.h"
+#import "components/prefs/pref_service.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/passwords/ios_chrome_password_store_factory.h"
+#import "ios/chrome/browser/sync/sync_service_factory.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
 #import "ios/chrome/test/app/password_test_util.h"
-#include "url/gurl.h"
-#include "url/origin.h"
+#import "url/gurl.h"
+#import "url/origin.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-using password_manager::PasswordForm;
 using chrome_test_util::SetUpAndReturnMockReauthenticationModule;
 using chrome_test_util::SetUpAndReturnMockReauthenticationModuleForExport;
+using chrome_test_util::
+    SetUpAndReturnMockReauthenticationModuleForExportFromSettings;
+using password_manager::PasswordForm;
 
 namespace {
 
@@ -59,9 +65,10 @@ class FakeStoreConsumer : public password_manager::PasswordStoreConsumer {
     results_.clear();
     ResetObtained();
     GetPasswordStore()->GetAllLogins(weak_ptr_factory_.GetWeakPtr());
-    bool responded = base::test::ios::WaitUntilConditionOrTimeout(2.0, ^bool {
-      return !AreObtainedReset();
-    });
+    bool responded =
+        base::test::ios::WaitUntilConditionOrTimeout(base::Seconds(2), ^bool {
+          return !AreObtainedReset();
+        });
     if (responded) {
       AppendObtainedToResults();
     }
@@ -73,14 +80,14 @@ class FakeStoreConsumer : public password_manager::PasswordStoreConsumer {
   }
 
  private:
-  // Puts |obtained_| in a known state not corresponding to any PasswordStore
+  // Puts `obtained_` in a known state not corresponding to any PasswordStore
   // state.
   void ResetObtained() {
     obtained_.clear();
     obtained_.emplace_back(nullptr);
   }
 
-  // Returns true if |obtained_| are in the reset state.
+  // Returns true if `obtained_` are in the reset state.
   bool AreObtainedReset() { return obtained_.size() == 1 && !obtained_[0]; }
 
   void AppendObtainedToResults() {
@@ -99,11 +106,11 @@ class FakeStoreConsumer : public password_manager::PasswordStoreConsumer {
   base::WeakPtrFactory<FakeStoreConsumer> weak_ptr_factory_{this};
 };
 
-// Saves |form| to the password store and waits until the async processing is
+// Saves `form` to the password store and waits until the async processing is
 // done.
 bool SaveToPasswordStore(const PasswordForm& form) {
   GetPasswordStore()->AddLogin(form);
-  // When we retrieve the form from the store, |in_store| should be set.
+  // When we retrieve the form from the store, `in_store` should be set.
   password_manager::PasswordForm expected_form = form;
   expected_form.in_store = password_manager::PasswordForm::Store::kProfileStore;
 
@@ -119,7 +126,7 @@ bool SaveToPasswordStore(const PasswordForm& form) {
   return false;
 }
 
-// Creates a PasswordForm with |index| being part of the username, password,
+// Creates a PasswordForm with `index` being part of the username, password,
 // origin and realm.
 PasswordForm CreateSampleFormWithIndex(int index) {
   PasswordForm form;
@@ -147,9 +154,15 @@ bool ClearPasswordStore() {
 @implementation PasswordSettingsAppInterface
 
 static MockReauthenticationModule* _mockReauthenticationModule;
+static std::unique_ptr<ScopedPasswordSettingsReauthModuleOverride>
+    _scopedReauthOverride;
 
 + (void)setUpMockReauthenticationModule {
   _mockReauthenticationModule = SetUpAndReturnMockReauthenticationModule();
+}
+
++ (void)setUpMockReauthenticationModuleForAddPassword {
+  _mockReauthenticationModule = SetUpAndReturnMockReauthenticationModule(true);
 }
 
 + (void)setUpMockReauthenticationModuleForExport {
@@ -159,11 +172,28 @@ static MockReauthenticationModule* _mockReauthenticationModule;
 
 + (void)mockReauthenticationModuleExpectedResult:
     (ReauthenticationResult)expectedResult {
-  _mockReauthenticationModule.expectedResult = expectedResult;
+  if (_mockReauthenticationModule) {
+    _mockReauthenticationModule.expectedResult = expectedResult;
+  }
+  if (_scopedReauthOverride) {
+    MockReauthenticationModule* mockModule =
+        base::mac::ObjCCastStrict<MockReauthenticationModule>(
+            _scopedReauthOverride->module);
+    mockModule.expectedResult = expectedResult;
+  }
 }
 
 + (void)mockReauthenticationModuleCanAttempt:(BOOL)canAttempt {
   _mockReauthenticationModule.canAttempt = canAttempt;
+}
+
++ (void)setUpMockReauthenticationModuleForExportFromSettings {
+  _scopedReauthOverride =
+      SetUpAndReturnMockReauthenticationModuleForExportFromSettings();
+}
+
++ (void)removeMockReauthenticationModuleForExportFromSettings {
+  _scopedReauthOverride = nullptr;
 }
 
 + (void)dismissSnackBar {
@@ -238,6 +268,15 @@ static MockReauthenticationModule* _mockReauthenticationModule;
       chrome_test_util::GetOriginalBrowserState();
   return browserState->GetPrefs()->GetBoolean(
       password_manager::prefs::kCredentialsEnableService);
+}
+
++ (BOOL)isOptedInForAccountStorage {
+  ChromeBrowserState* browserState =
+      chrome_test_util::GetOriginalBrowserState();
+  syncer::SyncService* syncService =
+      SyncServiceFactory::GetForBrowserState(browserState);
+  return password_manager::features_util::IsOptedInForAccountStorage(
+      browserState->GetPrefs(), syncService);
 }
 
 @end

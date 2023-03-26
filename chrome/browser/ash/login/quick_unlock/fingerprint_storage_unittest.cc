@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "ash/constants/ash_pref_names.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/time/time.h"
 #include "chrome/browser/ash/login/quick_unlock/quick_unlock_factory.h"
 #include "chrome/browser/ash/login/quick_unlock/quick_unlock_storage.h"
 #include "chrome/browser/ash/login/quick_unlock/quick_unlock_utils.h"
@@ -37,9 +38,10 @@ class FingerprintStorageUnitTest : public testing::Test {
   ~FingerprintStorageUnitTest() override {}
 
   // testing::Test:
-  void SetUp() override { EnabledForTesting(true); }
-
-  void TearDown() override { EnabledForTesting(false); }
+  void SetUp() override {
+    test_api_ = std::make_unique<TestApi>(/*override_quick_unlock=*/true);
+    test_api_->EnableFingerprintByPolicy(Purpose::kAny);
+  }
 
   void SetRecords(int records_number) {
     profile_->GetPrefs()->SetInteger(prefs::kQuickUnlockFingerprintRecord,
@@ -48,6 +50,7 @@ class FingerprintStorageUnitTest : public testing::Test {
 
   content::BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestingProfile> profile_;
+  std::unique_ptr<TestApi> test_api_;
 };
 
 }  // namespace
@@ -64,7 +67,7 @@ class FingerprintStorageTestApi {
       : fingerprint_storage_(fingerprint_storage) {}
 
   bool IsFingerprintAvailable() const {
-    return fingerprint_storage_->IsFingerprintAvailable();
+    return fingerprint_storage_->IsFingerprintAvailable(Purpose::kAny);
   }
 
  private:
@@ -81,13 +84,91 @@ TEST_F(FingerprintStorageUnitTest, UnlockAttemptCount) {
 
   EXPECT_EQ(0, fingerprint_storage->unlock_attempt_count());
 
-  fingerprint_storage->AddUnlockAttempt();
-  fingerprint_storage->AddUnlockAttempt();
-  fingerprint_storage->AddUnlockAttempt();
+  fingerprint_storage->AddUnlockAttempt(base::TimeTicks::Now());
+  fingerprint_storage->AddUnlockAttempt(base::TimeTicks::Now());
+  fingerprint_storage->AddUnlockAttempt(base::TimeTicks::Now());
   EXPECT_EQ(3, fingerprint_storage->unlock_attempt_count());
 
   fingerprint_storage->ResetUnlockAttemptCount();
   EXPECT_EQ(0, fingerprint_storage->unlock_attempt_count());
+}
+
+// Verifies that initial repeated unlock attempt count is zero.
+TEST_F(FingerprintStorageUnitTest, InitialRecentUnlockAttemptCountIsZero) {
+  FingerprintStorage* fingerprint_storage =
+      QuickUnlockFactory::GetForProfile(profile_.get())->fingerprint_storage();
+
+  EXPECT_EQ(0, fingerprint_storage->GetRecentUnlockAttemptCount(
+                   base::TimeTicks::Now()));
+}
+
+// Verify that recent unlock attempts correctly increases unlock attempt count.
+TEST_F(FingerprintStorageUnitTest,
+       RecentUnlockAttemptCountIsOneAfterOneAttempt) {
+  FingerprintStorage* fingerprint_storage =
+      QuickUnlockFactory::GetForProfile(profile_.get())->fingerprint_storage();
+
+  base::TimeTicks test_start = base::TimeTicks::Now();
+  fingerprint_storage->AddUnlockAttempt(test_start);
+  EXPECT_EQ(1, fingerprint_storage->GetRecentUnlockAttemptCount(
+                   test_start + base::Seconds(2)));
+}
+
+// Verify that recent unlock attempts correctly increases unlock attempt count.
+TEST_F(FingerprintStorageUnitTest,
+       RecentUnlockAttemptCountIncreasesWithRepeatedAttempts) {
+  FingerprintStorage* fingerprint_storage =
+      QuickUnlockFactory::GetForProfile(profile_.get())->fingerprint_storage();
+
+  base::TimeTicks test_start = base::TimeTicks::Now();
+  fingerprint_storage->AddUnlockAttempt(test_start);
+  fingerprint_storage->AddUnlockAttempt(test_start + base::Seconds(1));
+  fingerprint_storage->AddUnlockAttempt(test_start + base::Seconds(2));
+  EXPECT_EQ(3, fingerprint_storage->GetRecentUnlockAttemptCount(
+                   test_start + base::Seconds(3)));
+}
+
+// Verify that recent unlock attempts is zero after explicit reset call
+TEST_F(FingerprintStorageUnitTest, RecentUnlockAttemptCountIsZeroAfterReset) {
+  FingerprintStorage* fingerprint_storage =
+      QuickUnlockFactory::GetForProfile(profile_.get())->fingerprint_storage();
+
+  base::TimeTicks test_start = base::TimeTicks::Now();
+  fingerprint_storage->AddUnlockAttempt(test_start);
+  ASSERT_EQ(1, fingerprint_storage->GetRecentUnlockAttemptCount(
+                   test_start + base::Seconds(1)));
+
+  fingerprint_storage->ResetUnlockAttemptCount();
+  EXPECT_EQ(0, fingerprint_storage->GetRecentUnlockAttemptCount(
+                   test_start + base::Seconds(2)));
+}
+
+// Verify that dated attempts are not counted in recent unlock attempt count.
+TEST_F(FingerprintStorageUnitTest,
+       RecentUnlockAttemptCountExcludesDatedAttempts) {
+  FingerprintStorage* fingerprint_storage =
+      QuickUnlockFactory::GetForProfile(profile_.get())->fingerprint_storage();
+
+  base::TimeTicks test_start = base::TimeTicks::Now();
+  fingerprint_storage->AddUnlockAttempt(test_start);
+  fingerprint_storage->AddUnlockAttempt(test_start + base::Seconds(1));
+  fingerprint_storage->AddUnlockAttempt(test_start + base::Seconds(2));
+  EXPECT_EQ(0, fingerprint_storage->GetRecentUnlockAttemptCount(
+                   test_start + base::Seconds(10)));
+}
+
+// Verify that dated attempts are not counted in recent unlock attempt count.
+TEST_F(FingerprintStorageUnitTest,
+       RecentUnlockAttemptCountExcludesSomeAttempts) {
+  FingerprintStorage* fingerprint_storage =
+      QuickUnlockFactory::GetForProfile(profile_.get())->fingerprint_storage();
+
+  base::TimeTicks test_start = base::TimeTicks::Now();
+  fingerprint_storage->AddUnlockAttempt(test_start);
+  fingerprint_storage->AddUnlockAttempt(test_start + base::Seconds(1));
+  fingerprint_storage->AddUnlockAttempt(test_start + base::Seconds(5));
+  EXPECT_EQ(1, fingerprint_storage->GetRecentUnlockAttemptCount(
+                   test_start + base::Seconds(7)));
 }
 
 // Verifies that authentication is not available when
@@ -115,7 +196,7 @@ TEST_F(FingerprintStorageUnitTest, AuthenticationUnAvailable) {
   // Too many authentication attempts make fingerprint authentication
   // unavailable.
   for (int i = 0; i < FingerprintStorage::kMaximumUnlockAttempts; ++i) {
-    fingerprint_storage->AddUnlockAttempt();
+    fingerprint_storage->AddUnlockAttempt(base::TimeTicks::Now());
   }
   EXPECT_FALSE(test_api.IsFingerprintAvailable());
   fingerprint_storage->ResetUnlockAttemptCount();
@@ -127,11 +208,10 @@ TEST_F(FingerprintStorageUnitTest, TestScanResultIsSentToUma) {
       QuickUnlockFactory::GetForProfile(profile_.get())->fingerprint_storage();
   base::HistogramTester histogram_tester;
   base::flat_map<std::string, std::vector<std::string>> empty_matches;
-  device::mojom::FingerprintMessagePtr msg =
-      device::mojom::FingerprintMessage::New();
-
-  msg->set_scan_result(device::mojom::ScanResult::SUCCESS);
-  fingerprint_storage->OnAuthScanDone(std::move(msg), empty_matches);
+  fingerprint_storage->OnAuthScanDone(
+      device::mojom::FingerprintMessage::NewScanResult(
+          device::mojom::ScanResult::SUCCESS),
+      empty_matches);
 
   EXPECT_THAT(
       histogram_tester.GetAllSamples(kUmaAuthScanResult),
@@ -146,12 +226,10 @@ TEST_F(FingerprintStorageUnitTest, TestFingerprintErrorIsSentToUma) {
       QuickUnlockFactory::GetForProfile(profile_.get())->fingerprint_storage();
   base::HistogramTester histogram_tester;
   base::flat_map<std::string, std::vector<std::string>> empty_matches;
-  device::mojom::FingerprintMessagePtr msg =
-      device::mojom::FingerprintMessage::New();
-
-  msg->set_fingerprint_error(
-      device::mojom::FingerprintError::UNABLE_TO_PROCESS);
-  fingerprint_storage->OnAuthScanDone(std::move(msg), empty_matches);
+  fingerprint_storage->OnAuthScanDone(
+      device::mojom::FingerprintMessage::NewFingerprintError(
+          device::mojom::FingerprintError::UNABLE_TO_PROCESS),
+      empty_matches);
 
   EXPECT_TRUE(histogram_tester.GetAllSamples(kUmaAuthScanResult).empty());
 

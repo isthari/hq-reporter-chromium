@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,13 @@
 
 #include "base/check_op.h"
 #include "base/notreached.h"
+#include "build/build_config.h"
 #include "ui/gfx/buffer_format_util.h"
 #include "ui/gfx/half_float.h"
 #include "ui/gl/init/gl_factory.h"
 #include "ui/gl/test/gl_surface_test_support.h"
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 #include "base/run_loop.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/ozone/public/ozone_platform.h"
@@ -34,9 +35,9 @@ void rgb_to_yuv(uint8_t r, uint8_t g, uint8_t b, T* y, T* u, T* v) {
 }  // namespace
 
 // static
-void GLImageTestSupport::InitializeGL(
+GLDisplay* GLImageTestSupport::InitializeGL(
     absl::optional<GLImplementationParts> prefered_impl) {
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   ui::OzonePlatform::InitParams params;
   params.single_process = true;
   ui::OzonePlatform::InitializeForGPU(params);
@@ -50,17 +51,19 @@ void GLImageTestSupport::InitializeGL(
       prefered_impl ? *prefered_impl : allowed_impls[0];
   DCHECK(impl.IsAllowed(allowed_impls));
 
-  GLSurfaceTestSupport::InitializeOneOffImplementation(impl, true);
-#if defined(USE_OZONE)
+  GLDisplay* display =
+      GLSurfaceTestSupport::InitializeOneOffImplementation(impl, true);
+#if BUILDFLAG(IS_OZONE)
   // Make sure all the tasks posted to the current task runner by the
   // initialization functions are run before running the tests.
   base::RunLoop().RunUntilIdle();
 #endif
+  return display;
 }
 
 // static
-void GLImageTestSupport::CleanupGL() {
-  init::ShutdownGL(false);
+void GLImageTestSupport::CleanupGL(GLDisplay* display) {
+  GLSurfaceTestSupport::ShutdownGL(display);
 }
 
 // static
@@ -257,6 +260,36 @@ void GLImageTestSupport::SetBufferDataToColor(int width,
       }
       return;
     }
+    case gfx::BufferFormat::YUVA_420_TRIPLANAR: {
+      DCHECK_LT(plane, 3);
+      DCHECK_EQ(0, height % 2);
+      DCHECK_EQ(0, width % 2);
+      uint8_t yuv[4] = {};
+      rgb_to_yuv(color[0], color[1], color[2], &yuv[0], &yuv[1], &yuv[2]);
+      yuv[3] = color[3];
+
+      if (plane == 0) {
+        for (int y = 0; y < height; ++y) {
+          for (int x = 0; x < width; ++x) {
+            data[stride * y + x] = yuv[0];
+          }
+        }
+      } else if (plane == 1) {
+        for (int y = 0; y < height / 2; ++y) {
+          for (int x = 0; x < width / 2; ++x) {
+            data[stride * y + x * 2] = yuv[1];
+            data[stride * y + x * 2 + 1] = yuv[2];
+          }
+        }
+      } else {
+        for (int y = 0; y < height; ++y) {
+          for (int x = 0; x < width; ++x) {
+            data[stride * y + x] = yuv[3];
+          }
+        }
+      }
+      return;
+    }
     case gfx::BufferFormat::P010: {
       DCHECK_LT(plane, 3);
       DCHECK_EQ(0, height % 2);
@@ -284,5 +317,4 @@ void GLImageTestSupport::SetBufferDataToColor(int width,
   }
   NOTREACHED();
 }
-
 }  // namespace gl

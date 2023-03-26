@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,16 @@
 
 #include <string>
 
+#include "ash/ash_export.h"
 #include "ash/system/tray/tray_detailed_view.h"
 #include "base/containers/flat_map.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 
 namespace ash {
-namespace tray {
 
 // The detailed view to show when the locale feature button is clicked.
-class LocaleDetailedView : public TrayDetailedView {
+// The view shows a list of languages which can be used for demo mode.
+class ASH_EXPORT LocaleDetailedView : public TrayDetailedView {
  public:
   METADATA_HEADER(LocaleDetailedView);
 
@@ -27,6 +28,8 @@ class LocaleDetailedView : public TrayDetailedView {
   // TrayDetailedView:
   void HandleViewClicked(views::View* view) override;
 
+  views::View* GetScrollContentForTest();
+
  private:
   void CreateItems();
 
@@ -34,7 +37,6 @@ class LocaleDetailedView : public TrayDetailedView {
   base::flat_map<int, std::string> id_to_locale_;
 };
 
-}  // namespace tray
 }  // namespace ash
 
 #endif  // ASH_SYSTEM_LOCALE_LOCALE_DETAILED_VIEW_H_

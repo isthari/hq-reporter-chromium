@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,15 +18,15 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.test.params.ParameterAnnotations;
 import org.chromium.base.test.params.ParameterizedRunner;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.DisableIf;
+import org.chromium.base.test.util.DoNotBatch;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.compositor.bottombar.contextualsearch.RelatedSearchesControl;
 import org.chromium.chrome.browser.contextualsearch.ContextualSearchFakeServer.FakeResolveSearch;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
+import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 /**
@@ -36,10 +36,11 @@ import org.chromium.content_public.browser.test.util.TestThreadUtils;
 @RunWith(ParameterizedRunner.class)
 @ParameterAnnotations.UseRunnerDelegate(ChromeJUnit4RunnerDelegate.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
-        ContextualSearchFieldTrial.ONLINE_DETECTION_DISABLED,
-        "disable-features=" + ChromeFeatureList.CONTEXTUAL_SEARCH_ML_TAP_SUPPRESSION + ","
-                + ChromeFeatureList.CONTEXTUAL_SEARCH_THIN_WEB_VIEW_IMPLEMENTATION})
+        "disable-features=" + ChromeFeatureList.CONTEXTUAL_SEARCH_THIN_WEB_VIEW_IMPLEMENTATION})
+@EnableFeatures({ChromeFeatureList.CONTEXTUAL_SEARCH_DISABLE_ONLINE_DETECTION})
 @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
+// TODO(crbug.com/1338223):update the tests to be batched.
+@DoNotBatch(reason = "Tests cannot runn batched due to RecordHistogram#forgetHistogram method.")
 public class ContextualSearchUnbatchedTest extends ContextualSearchInstrumentationBase {
     @Override
     @Before
@@ -125,7 +126,7 @@ public class ContextualSearchUnbatchedTest extends ContextualSearchInstrumentati
                             + "that tracks which suggestion was selected!",
                     1,
                     RecordHistogram.getHistogramValueCountForTesting(
-                            "Search.RelatedSearches.SelectedSuggestionIndex", whichSuggestion + 1));
+                            "Search.RelatedSearches.SelectedSuggestionIndex", whichSuggestion));
         }
         Assert.assertEquals(
                 "Failed to log that Related Searches were shown but none selected in the "
@@ -192,25 +193,27 @@ public class ContextualSearchUnbatchedTest extends ContextualSearchInstrumentati
     @Test
     @SmallTest
     @Feature({"ContextualSearch"})
-    @ParameterAnnotations.UseMethodParameter(ContextualSearchManagerTest.FeatureParamProvider.class)
+    @ParameterAnnotations.UseMethodParameter(FeatureParamProvider.class)
     public void testTapWithLanguage(@EnabledFeature int enabledFeature) throws Exception {
         // Resolving a German word should trigger translation.
+        mFakeServer.setExpectations("german",
+                new ResolvedSearchTerm.Builder(false, 200, "Deutsche", "Deutsche")
+                        .setContextLanguage("de")
+                        .build());
         simulateResolveSearch("german");
 
         // Make sure we tried to trigger translate.
         Assert.assertTrue("Translation was not forced with the current request URL: "
                         + mManager.getRequest().getSearchUrl(),
                 mManager.getRequest().isTranslationForced());
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramTotalCountForTesting(
-                        "Search.ContextualSearch.TranslationNeeded"));
     }
 
     @Test
     @SmallTest
-    @DisableIf.Build(message = "crbug.com/1240342")
     @Feature({"ContextualSearch"})
-    public void testRelatedSearchesItemNotSelected() throws Exception {
+    @ParameterAnnotations.UseMethodParameter(FeatureParamProvider.class)
+    public void testRelatedSearchesItemNotSelected(@EnabledFeature int enabledFeature)
+            throws Exception {
         FeatureList.setTestFeatures(ENABLE_RELATED_SEARCHES_IN_BAR);
         mPolicy.overrideAllowSendingPageUrlForTesting(true);
         FakeResolveSearch fakeSearch = simulateResolveSearch("intelligence");
@@ -220,7 +223,7 @@ public class ContextualSearchUnbatchedTest extends ContextualSearchInstrumentati
         Assert.assertTrue("Related Searches results should have been returned but were not!",
                 !resolvedSearchTerm.relatedSearchesJson().isEmpty());
         // Expand the panel and assert that it ends up in the right place.
-        tapPeekingBarToExpandAndAssert();
+        expandPanelAndAssert();
 
         // Don't select any Related Searches suggestion, and close the panel
         closePanel();
@@ -230,8 +233,6 @@ public class ContextualSearchUnbatchedTest extends ContextualSearchInstrumentati
     @Test
     @SmallTest
     @Feature({"ContextualSearch"})
-    @FlakyTest(message = "https://crbug.com/1182040")
-    @DisableIf.Build(supported_abis_includes = "arm64-v8a", message = "crbug.com/1240342")
     public void testRelatedSearchesItemSelected() throws Exception {
         FeatureList.setTestFeatures(ENABLE_RELATED_SEARCHES_IN_BAR);
         mFakeServer.reset();
@@ -240,11 +241,11 @@ public class ContextualSearchUnbatchedTest extends ContextualSearchInstrumentati
         Assert.assertTrue("Related Searches results should have been returned but were not!",
                 !resolvedSearchTerm.relatedSearchesJson().isEmpty());
         // Expand the panel and assert that it ends up in the right place.
-        tapPeekingBarToExpandAndAssert();
+        expandPanelAndAssert();
 
         // Select a Related Searches suggestion.
         RelatedSearchesControl relatedSearchesControl = mPanel.getRelatedSearchesInBarControl();
-        final int chipToSelect = 2;
+        final int chipToSelect = 3;
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> relatedSearchesControl.selectChipForTest(chipToSelect));
         Assert.assertEquals("The Related Searches query was not shown in the Bar!",

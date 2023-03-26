@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/supports_user_data.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/traced_value.h"
 #include "cc/base/math_util.h"
 #include "components/viz/common/features.h"
@@ -29,7 +30,6 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
-#include "content/public/common/use_zoom_for_dsf_policy.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
@@ -194,7 +194,7 @@ gfx::Rect BrowserViewRenderer::ComputeTileRectAndUpdateMemoryPolicy() {
       external_draw_constraints_.transform;
 
   gfx::Rect viewport_rect_for_tile_priority_in_view_space;
-  gfx::Transform screen_to_view(gfx::Transform::kSkipInitialization);
+  gfx::Transform screen_to_view;
   if (transform_for_tile_priority.GetInverse(&screen_to_view)) {
     // Convert from screen space to view space.
     viewport_rect_for_tile_priority_in_view_space =
@@ -328,7 +328,8 @@ bool BrowserViewRenderer::OnDrawHardware() {
   std::unique_ptr<ChildFrame> child_frame = std::make_unique<ChildFrame>(
       std::move(future), frame_sink_id_, viewport_size_for_tile_priority,
       external_draw_constraints_.transform, offscreen_pre_raster_, dip_scale_,
-      std::move(requests), did_invalidate);
+      std::move(requests), did_invalidate,
+      begin_frame_source_->LastDispatchedBeginFrameArgs());
 
   ReturnUnusedResource(
       current_compositor_frame_consumer_->SetFrameOnUI(std::move(child_frame)));
@@ -369,6 +370,11 @@ bool BrowserViewRenderer::DoUpdateParentDrawData() {
 void BrowserViewRenderer::OnViewTreeForceDarkStateChanged(
     bool view_tree_force_dark_state) {
   client_->OnViewTreeForceDarkStateChanged(view_tree_force_dark_state);
+}
+
+void BrowserViewRenderer::ChildSurfaceWasEvicted() {
+  if (compositor_)
+    compositor_->WasEvicted();
 }
 
 void BrowserViewRenderer::RemoveCompositorFrameConsumer(
@@ -653,11 +659,8 @@ void BrowserViewRenderer::SetDipScale(float dip_scale) {
 
 gfx::Point BrowserViewRenderer::max_scroll_offset() const {
   DCHECK_GT(dip_scale_, 0.f);
-  float scale = content::IsUseZoomForDSFEnabled()
-                    ? page_scale_factor_
-                    : dip_scale_ * page_scale_factor_;
   return gfx::ToCeiledPoint(
-      gfx::ScalePoint(max_scroll_offset_unscaled_, scale));
+      gfx::ScalePoint(max_scroll_offset_unscaled_, page_scale_factor_));
 }
 
 void BrowserViewRenderer::ScrollTo(const gfx::Point& scroll_offset) {
@@ -774,8 +777,7 @@ void BrowserViewRenderer::UpdateRootLayerState(
     return;
 
   gfx::SizeF scrollable_size_dip = scrollable_size;
-  if (content::IsUseZoomForDSFEnabled())
-    scrollable_size_dip.Scale(1 / dip_scale_);
+  scrollable_size_dip.Scale(1 / dip_scale_);
 
   TRACE_EVENT_INSTANT1(
       "android_webview", "BrowserViewRenderer::UpdateRootLayerState",
@@ -885,6 +887,17 @@ void BrowserViewRenderer::ReturnResourcesFromViz(
     std::vector<viz::ReturnedResource> resources) {
   ReturnUsedResources(std::move(resources), frame_sink_id,
                       layer_tree_frame_sink_id);
+}
+
+void BrowserViewRenderer::OnCompositorFrameTransitionDirectiveProcessed(
+    viz::FrameSinkId frame_sink_id,
+    uint32_t layer_tree_frame_sink_id,
+    uint32_t sequence_id) {
+  content::SynchronousCompositor* compositor = FindCompositor(frame_sink_id);
+  if (compositor) {
+    compositor->OnCompositorFrameTransitionDirectiveProcessed(
+        layer_tree_frame_sink_id, sequence_id);
+  }
 }
 
 void BrowserViewRenderer::OnInputEvent() {

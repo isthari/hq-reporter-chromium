@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/files/file_path.h"
 #include "base/i18n/rtl.h"
 #include "base/path_service.h"
+#include "base/process/current_process.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task/single_thread_task_executor.h"
@@ -57,6 +58,10 @@
 #include <stdlib.h>
 #endif
 
+#if BUILDFLAG(IS_MAC)
+#include "base/system/sys_info.h"
+#endif
+
 #if BUILDFLAG(IS_WIN)
 sandbox::TargetServices* g_target_services = NULL;
 #else
@@ -68,6 +73,12 @@ namespace content {
 // Main function for starting the PPAPI plugin process.
 int PpapiPluginMain(MainFunctionParams parameters) {
   const base::CommandLine& command_line = *parameters.command_line;
+
+#if BUILDFLAG(IS_MAC)
+  // Specified when launching the process in
+  // PpapiPluginSandboxedProcessLauncherDelegate::EnableCpuSecurityMitigations.
+  base::SysInfo::SetIsCpuSecurityMitigationsEnabled(true);
+#endif
 
 #if BUILDFLAG(IS_WIN)
   // https://crbug.com/1139752 Premature unload of shell32 caused process to
@@ -128,7 +139,8 @@ int PpapiPluginMain(MainFunctionParams parameters) {
 
   base::SingleThreadTaskExecutor main_thread_task_executor;
   base::PlatformThread::SetName("CrPPAPIMain");
-  base::trace_event::TraceLog::GetInstance()->set_process_name("PPAPI Process");
+  base::CurrentProcess::GetInstance().SetProcessType(
+      base::CurrentProcessType::PROCESS_PPAPI_PLUGIN);
   base::trace_event::TraceLog::GetInstance()->SetProcessSortIndex(
       kTraceEventPpapiProcessSortIndex);
 

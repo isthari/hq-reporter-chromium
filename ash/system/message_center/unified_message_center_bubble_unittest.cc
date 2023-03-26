@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include "ash/constants/ash_pref_names.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
-#include "ash/system/message_center/unified_message_center_view.h"
+#include "ash/system/notification_center/notification_center_view.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/unified/unified_system_tray.h"
 #include "ash/system/unified/unified_system_tray_bubble.h"
@@ -60,7 +60,7 @@ class UnifiedMessageCenterBubbleTest
     std::string id = base::NumberToString(id_++);
     MessageCenter::Get()->AddNotification(std::make_unique<Notification>(
         message_center::NOTIFICATION_TYPE_SIMPLE, id, u"title", u"message",
-        gfx::Image(), std::u16string(), GURL(),
+        ui::ImageModel(), std::u16string(), GURL(),
         message_center::NotifierId(GURL(u"example.com"), u"webpagetitle"),
         message_center::RichNotificationData(), /*delegate=*/nullptr));
     return id;
@@ -69,8 +69,8 @@ class UnifiedMessageCenterBubbleTest
   std::string AddNotification() {
     std::string id = base::NumberToString(id_++);
     MessageCenter::Get()->AddNotification(std::make_unique<Notification>(
-        message_center::NOTIFICATION_TYPE_BASE_FORMAT, id, u"test title",
-        u"test message", gfx::Image(), std::u16string(), GURL(),
+        message_center::NOTIFICATION_TYPE_SIMPLE, id, u"test title",
+        u"test message", ui::ImageModel(), std::u16string(), GURL(),
         message_center::NotifierId(), message_center::RichNotificationData(),
         new message_center::NotificationDelegate()));
     return id;
@@ -80,8 +80,8 @@ class UnifiedMessageCenterBubbleTest
     message_center::MessageCenter::Get()->RemoveAllNotifications(
         /*by_user=*/true, MessageCenter::RemoveType::ALL);
     GetMessageCenterBubble()
-        ->message_center_view()
-        ->message_list_view()
+        ->notification_center_view()
+        ->notification_list_view()
         ->ResetBounds();
   }
 
@@ -104,56 +104,55 @@ class UnifiedMessageCenterBubbleTest
   }
 
   bool IsMessageCenterCollapsed() {
-    return GetMessageCenterBubble()->message_center_view()->collapsed();
+    return GetMessageCenterBubble()->notification_center_view()->collapsed();
   }
 
   bool IsQuickSettingsCollapsed() {
-    return !GetSystemTrayBubble()->controller_for_test()->IsExpanded();
+    return !GetSystemTrayBubble()
+                ->unified_system_tray_controller()
+                ->IsExpanded();
   }
 
   // Helper functions for focus cycle testing.
-  void DoTab() {
-    PressAndReleaseKey(ui::KeyboardCode::VKEY_TAB, ui::EventFlags::EF_NONE);
-  }
+  void DoTab() { PressAndReleaseKey(ui::KeyboardCode::VKEY_TAB, ui::EF_NONE); }
 
   void DoShiftTab() {
-    PressAndReleaseKey(ui::KeyboardCode::VKEY_TAB,
-                       ui::EventFlags::EF_SHIFT_DOWN);
+    PressAndReleaseKey(ui::KeyboardCode::VKEY_TAB, ui::EF_SHIFT_DOWN);
   }
 
   void DoAltShiftN() {
-    PressAndReleaseKey(
-        ui::KeyboardCode::VKEY_N,
-        ui::EventFlags::EF_SHIFT_DOWN | ui::EventFlags::EF_ALT_DOWN);
+    PressAndReleaseKey(ui::KeyboardCode::VKEY_N,
+                       ui::EF_SHIFT_DOWN | ui::EF_ALT_DOWN);
   }
 
   void DoEsc() { PressAndReleaseKey(ui::KeyboardCode::VKEY_ESCAPE); }
 
   void ToggleExpanded() {
-    GetSystemTrayBubble()->controller_for_test()->ToggleExpanded();
+    GetSystemTrayBubble()->unified_system_tray_controller()->ToggleExpanded();
   }
 
   void WaitForAnimation() {
     // Some animations do not complete without checking is_animating();
     do {
       base::RunLoop().RunUntilIdle();
-    } while (GetSystemTrayBubble() &&
-             GetSystemTrayBubble()->controller_for_test() &&
-             GetSystemTrayBubble()->controller_for_test()->animation_ &&
-             GetSystemTrayBubble()
-                 ->controller_for_test()
-                 ->animation_->is_animating());
+    } while (
+        GetSystemTrayBubble() &&
+        GetSystemTrayBubble()->unified_system_tray_controller() &&
+        GetSystemTrayBubble()->unified_system_tray_controller()->animation_ &&
+        GetSystemTrayBubble()
+            ->unified_system_tray_controller()
+            ->animation_->is_animating());
   }
 
   views::View* GetFirstMessageCenterFocusable() {
     return GetMessageCenterBubble()
-        ->message_center_view()
+        ->notification_center_view()
         ->GetFirstFocusableChild();
   }
 
   views::View* GetLastMessageCenterFocusable() {
     return GetMessageCenterBubble()
-        ->message_center_view()
+        ->notification_center_view()
         ->GetLastFocusableChild();
   }
 
@@ -334,45 +333,52 @@ TEST_P(UnifiedMessageCenterBubbleTest, FocusCycleWithNoNotifications) {
 }
 
 TEST_P(UnifiedMessageCenterBubbleTest, BubbleBounds) {
-  // Set display size where the message center is not collapsed.
-  UpdateDisplay("0+0-1280×1024");
+  std::vector<std::string> displays = {"0+0-1200x800", "0+0-1280x1080",
+                                       "0+0-1600x1440"};
 
-  // Ensure message center is not collapsed.
-  GetPrimaryUnifiedSystemTray()->ShowBubble();
-  ASSERT_FALSE(GetMessageCenterBubble()->IsMessageCenterCollapsed());
+  for (auto display : displays) {
+    // Set display size where the message center is not collapsed.
+    UpdateDisplay(display);
 
-  // Add enough notifications so that the scroll bar is visible.
-  while (!GetMessageCenterBubble()->message_center_view()->IsScrollBarVisible())
-    AddNotification();
+    // Ensure message center is not collapsed.
+    GetPrimaryUnifiedSystemTray()->ShowBubble();
+    ASSERT_FALSE(GetMessageCenterBubble()->IsMessageCenterCollapsed());
 
-  // The message center bubble should be positioned above the system tray
-  // bubble.
-  GetPrimaryUnifiedSystemTray()->ShowBubble();
-  EXPECT_LT(GetMessageCenterBubble()->GetBoundsInScreen().bottom(),
-            GetSystemTrayBubble()->GetBoundsInScreen().y());
-  GetPrimaryUnifiedSystemTray()->CloseBubble();
+    // Add enough notifications so that the scroll bar is visible.
+    while (!GetMessageCenterBubble()
+                ->notification_center_view()
+                ->IsScrollBarVisible())
+      AddNotification();
 
-  // Go into overview mode, check bounds again.
-  EnterOverview();
-  GetPrimaryUnifiedSystemTray()->ShowBubble();
-  EXPECT_LT(GetMessageCenterBubble()->GetBoundsInScreen().bottom(),
-            GetSystemTrayBubble()->GetBoundsInScreen().y());
-  GetPrimaryUnifiedSystemTray()->CloseBubble();
-  ExitOverview();
+    // The message center bubble should be positioned above the system tray
+    // bubble.
+    GetPrimaryUnifiedSystemTray()->ShowBubble();
+    EXPECT_LT(GetMessageCenterBubble()->GetBoundsInScreen().bottom(),
+              GetSystemTrayBubble()->GetBoundsInScreen().y());
+    GetPrimaryUnifiedSystemTray()->CloseBubble();
 
-  // Go into tablet mode, check bounds again.
-  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
-  GetPrimaryUnifiedSystemTray()->ShowBubble();
-  EXPECT_LT(GetMessageCenterBubble()->GetBoundsInScreen().bottom(),
-            GetSystemTrayBubble()->GetBoundsInScreen().y());
-  GetPrimaryUnifiedSystemTray()->CloseBubble();
+    // Go into overview mode, check bounds again.
+    EnterOverview();
+    GetPrimaryUnifiedSystemTray()->ShowBubble();
+    EXPECT_LT(GetMessageCenterBubble()->GetBoundsInScreen().bottom(),
+              GetSystemTrayBubble()->GetBoundsInScreen().y());
+    GetPrimaryUnifiedSystemTray()->CloseBubble();
+    ExitOverview();
 
-  // Go into overview mode inside tablet mode, check bounds again.
-  EnterOverview();
-  GetPrimaryUnifiedSystemTray()->ShowBubble();
-  EXPECT_LT(GetMessageCenterBubble()->GetBoundsInScreen().bottom(),
-            GetSystemTrayBubble()->GetBoundsInScreen().y());
-  GetPrimaryUnifiedSystemTray()->CloseBubble();
+    // Go into tablet mode, check bounds again.
+    Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
+    GetPrimaryUnifiedSystemTray()->ShowBubble();
+    EXPECT_LT(GetMessageCenterBubble()->GetBoundsInScreen().bottom(),
+              GetSystemTrayBubble()->GetBoundsInScreen().y());
+    GetPrimaryUnifiedSystemTray()->CloseBubble();
+
+    // Go into overview mode inside tablet mode, check bounds again.
+    EnterOverview();
+    GetPrimaryUnifiedSystemTray()->ShowBubble();
+    EXPECT_LT(GetMessageCenterBubble()->GetBoundsInScreen().bottom(),
+              GetSystemTrayBubble()->GetBoundsInScreen().y());
+    GetPrimaryUnifiedSystemTray()->CloseBubble();
+  }
 }
 
 TEST_P(UnifiedMessageCenterBubbleTest, HandleAccelerators) {

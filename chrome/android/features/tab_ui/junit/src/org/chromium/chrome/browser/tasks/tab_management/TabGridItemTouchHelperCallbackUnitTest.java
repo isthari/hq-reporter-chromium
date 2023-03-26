@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -116,6 +116,8 @@ public class TabGridItemTouchHelperCallbackUnitTest {
     Tracker mTracker;
     @Mock
     GridLayoutManager mGridLayoutManager;
+    @Mock
+    TabGridItemTouchHelperCallback.OnLongPressTabItemEventListener mOnLongPressTabItemEventListener;
 
     private SimpleRecyclerViewAdapter.ViewHolder mMockViewHolder1;
     private SimpleRecyclerViewAdapter.ViewHolder mMockViewHolder2;
@@ -201,7 +203,8 @@ public class TabGridItemTouchHelperCallbackUnitTest {
     private void setupItemTouchHelperCallback(boolean isDialog) {
         mItemTouchHelperCallback = new TabGridItemTouchHelperCallback(
                 ContextUtils.getApplicationContext(), mModel, mTabModelSelector, mTabClosedListener,
-                isDialog ? mTabGridDialogHandler : null, "", !isDialog, TabListMode.GRID);
+                isDialog ? mTabGridDialogHandler : null, "", !isDialog, TabListMode.GRID,
+                mOnLongPressTabItemEventListener);
         mItemTouchHelperCallback.setupCallback(THRESHOLD, THRESHOLD, THRESHOLD, mProfile);
         mItemTouchHelperCallback.getMovementFlags(mRecyclerView, mMockViewHolder1);
     }
@@ -761,36 +764,6 @@ public class TabGridItemTouchHelperCallbackUnitTest {
     }
 
     @Test
-    public void newTabTileNotDraggable() {
-        when(mMockViewHolder1.getItemViewType()).thenReturn(TabProperties.UiType.NEW_TAB_TILE);
-        setupItemTouchHelperCallback(false);
-        assertFalse(
-                mItemTouchHelperCallback.hasDragFlagForTesting(mRecyclerView, mMockViewHolder1));
-    }
-
-    @Test
-    public void newTabTileNotSwipeable() {
-        when(mMockViewHolder1.getItemViewType()).thenReturn(TabProperties.UiType.NEW_TAB_TILE);
-        setupItemTouchHelperCallback(false);
-        assertFalse(mItemTouchHelperCallback.hasSwipeFlag(mRecyclerView, mMockViewHolder1));
-    }
-
-    @Test
-    public void newTabTileNotDropable() {
-        when(mMockViewHolder1.getItemViewType()).thenReturn(TabProperties.UiType.NEW_TAB_TILE);
-        setupItemTouchHelperCallback(false);
-        assertFalse(mItemTouchHelperCallback.canDropOver(
-                mRecyclerView, mMockViewHolder2, mMockViewHolder1));
-    }
-
-    @Test(expected = AssertionError.class)
-    public void newTabTileOnMoveFail() {
-        when(mMockViewHolder1.getItemViewType()).thenReturn(TabProperties.UiType.NEW_TAB_TILE);
-        setupItemTouchHelperCallback(false);
-        mItemTouchHelperCallback.onMove(mRecyclerView, mMockViewHolder1, mMockViewHolder2);
-    }
-
-    @Test
     public void largeMessageItemNotDraggable() {
         when(mMockViewHolder1.getItemViewType()).thenReturn(TabProperties.UiType.LARGE_MESSAGE);
         setupItemTouchHelperCallback(false);
@@ -818,6 +791,43 @@ public class TabGridItemTouchHelperCallbackUnitTest {
         when(mMockViewHolder1.getItemViewType()).thenReturn(TabProperties.UiType.LARGE_MESSAGE);
         setupItemTouchHelperCallback(false);
         mItemTouchHelperCallback.onMove(mRecyclerView, mMockViewHolder1, mMockViewHolder2);
+    }
+
+    @Test
+    @Features.EnableFeatures({ChromeFeatureList.TAB_SELECTION_EDITOR_V2})
+    public void onLongPress_triggerTabSelectionEditor() {
+        TabUiFeatureUtilities.ENABLE_TAB_SELECTION_EDITOR_V2_LONGPRESS_ENTRY.setForTesting(true);
+
+        initAndAssertAllProperties();
+
+        // Simulate the selection of card#1 in TabListModel.
+        mItemTouchHelperCallback.setSelectedTabIndexForTesting(POSITION1);
+
+        mItemTouchHelperCallback.onSelectedChanged(
+                mMockViewHolder1, ItemTouchHelper.ACTION_STATE_IDLE);
+
+        verify(mOnLongPressTabItemEventListener).onLongPressEvent(TAB1_ID);
+        TabUiFeatureUtilities.ENABLE_TAB_SELECTION_EDITOR_V2_LONGPRESS_ENTRY.setForTesting(false);
+    }
+
+    @Test
+    @Features.EnableFeatures({ChromeFeatureList.TAB_SELECTION_EDITOR_V2})
+    public void onLongPress_preventTriggerTabSelectionEditor() {
+        TabUiFeatureUtilities.ENABLE_TAB_SELECTION_EDITOR_V2_LONGPRESS_ENTRY.setForTesting(true);
+
+        initAndAssertAllProperties();
+
+        // Simulate the selection of card#1 in TabListModel.
+        mItemTouchHelperCallback.setSelectedTabIndexForTesting(POSITION1);
+
+        // Simulate hovering on card#2.
+        mItemTouchHelperCallback.setHoveredTabIndexForTesting(POSITION2);
+
+        mItemTouchHelperCallback.onSelectedChanged(
+                mMockViewHolder1, ItemTouchHelper.ACTION_STATE_IDLE);
+
+        verify(mOnLongPressTabItemEventListener, never()).onLongPressEvent(TAB1_ID);
+        TabUiFeatureUtilities.ENABLE_TAB_SELECTION_EDITOR_V2_LONGPRESS_ENTRY.setForTesting(false);
     }
 
     private void verifyDrag(

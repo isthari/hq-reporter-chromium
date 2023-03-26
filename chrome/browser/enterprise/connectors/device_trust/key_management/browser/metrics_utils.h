@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,12 +11,12 @@
 
 namespace enterprise_connectors {
 
-// Contains all known key generation trust levels (generated via TPM or not).
-// These values are persisted to logs and should not be renumbered. Please
+// Contains all known key generation trust levels (generated via hardware or
+// not). These values are persisted to logs and should not be renumbered. Please
 // update the DTKeyTrustLevel enum in enums.xml when adding a new step here.
 enum class DTKeyTrustLevel {
   kUnspecified = 0,
-  kTpm = 1,
+  kHw = 1,
   kOs = 2,
   kMaxValue = kOs,
 };
@@ -38,7 +38,22 @@ enum class DTKeyRotationResult {
   kSucceeded = 0,
   kFailed = 1,
   kTimedOut = 2,
-  kMaxValue = kTimedOut,
+  kFailedKeyConflict = 3,
+  kFailedOSRestriction = 4,
+  kFailedInvalidPermissions = 5,
+  kFailedInvalidInstallation = 6,
+  kMaxValue = kFailedInvalidInstallation,
+};
+
+// Possible client errors that can happen during key synchronization.
+// Please update DTSynchronizationError enum in enums.xml when adding a new
+// value here.
+enum class DTSynchronizationError {
+  kMissingKeyPair = 0,
+  kInvalidDmToken = 1,
+  kInvalidServerUrl = 2,
+  kCannotBuildRequest = 3,
+  kMaxValue = kCannotBuildRequest
 };
 
 // Logs the `key_metadata` trust level and type. If it is not defined
@@ -49,6 +64,9 @@ void LogKeyLoadingResult(
 // Logs the key rotation result based on the value of `status`. Also, if
 // `had_nonce` is false, it will be logged as a key creation flow.
 void LogKeyRotationResult(bool had_nonce, KeyRotationCommand::Status status);
+
+// Logs the key synchronization `error`.
+void LogSynchronizationError(DTSynchronizationError error);
 
 }  // namespace enterprise_connectors
 

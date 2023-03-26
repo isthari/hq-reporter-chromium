@@ -290,6 +290,8 @@ class CORE_EXPORT ContainerNode : public Node {
                                    Node* node_after_change);
   void RecalcDescendantStyles(const StyleRecalcChange,
                               const StyleRecalcContext&);
+  void RecalcSubsequentSiblingStyles(const StyleRecalcChange,
+                                     const StyleRecalcContext&);
   void RebuildChildrenLayoutTrees(WhitespaceAttacher&);
   void RebuildLayoutTreeForChild(Node* child, WhitespaceAttacher&);
 
@@ -306,6 +308,7 @@ class CORE_EXPORT ContainerNode : public Node {
     kTextChanged
   };
   enum class ChildrenChangeSource : uint8_t { kAPI, kParser };
+  enum class ChildrenChangeAffectsElements : uint8_t { kNo, kYes };
   struct ChildrenChange {
     STACK_ALLOCATED();
 
@@ -314,15 +317,17 @@ class CORE_EXPORT ContainerNode : public Node {
                                        Node* unchanged_previous,
                                        Node* unchanged_next,
                                        ChildrenChangeSource by_parser) {
-      ChildrenChange change = {node.IsElementNode()
-                                   ? ChildrenChangeType::kElementInserted
-                                   : ChildrenChangeType::kNonElementInserted,
-                               by_parser,
-                               &node,
-                               unchanged_previous,
-                               unchanged_next,
-                               {},
-                               String()};
+      ChildrenChange change = {
+          node.IsElementNode() ? ChildrenChangeType::kElementInserted
+                               : ChildrenChangeType::kNonElementInserted,
+          by_parser,
+          node.IsElementNode() ? ChildrenChangeAffectsElements::kYes
+                               : ChildrenChangeAffectsElements::kNo,
+          &node,
+          unchanged_previous,
+          unchanged_next,
+          {},
+          String()};
       return change;
     }
 
@@ -330,15 +335,17 @@ class CORE_EXPORT ContainerNode : public Node {
                                      Node* previous_sibling,
                                      Node* next_sibling,
                                      ChildrenChangeSource by_parser) {
-      ChildrenChange change = {node.IsElementNode()
-                                   ? ChildrenChangeType::kElementRemoved
-                                   : ChildrenChangeType::kNonElementRemoved,
-                               by_parser,
-                               &node,
-                               previous_sibling,
-                               next_sibling,
-                               {},
-                               String()};
+      ChildrenChange change = {
+          node.IsElementNode() ? ChildrenChangeType::kElementRemoved
+                               : ChildrenChangeType::kNonElementRemoved,
+          by_parser,
+          node.IsElementNode() ? ChildrenChangeAffectsElements::kYes
+                               : ChildrenChangeAffectsElements::kNo,
+          &node,
+          previous_sibling,
+          next_sibling,
+          {},
+          String()};
       return change;
     }
 
@@ -359,6 +366,7 @@ class CORE_EXPORT ContainerNode : public Node {
 
     ChildrenChangeType type;
     ChildrenChangeSource by_parser;
+    ChildrenChangeAffectsElements affects_elements;
     Node* sibling_changed = nullptr;
     // |siblingBeforeChange| is
     //  - siblingChanged.previousSibling before node removal
@@ -397,10 +405,12 @@ class CORE_EXPORT ContainerNode : public Node {
   // a descendant LayoutBox.
   virtual LayoutBox* GetLayoutBoxForScrolling() const;
 
+  Element* GetAutofocusDelegate() const;
+
   void Trace(Visitor*) const override;
 
  protected:
-  ContainerNode(TreeScope*, ConstructionType = kCreateContainer);
+  ContainerNode(TreeScope*, ConstructionType);
 
   // |attr_name| and |owner_element| are only used for element attribute
   // modifications. |ChildrenChange| is either nullptr or points to a

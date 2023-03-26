@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,10 @@
 #include <string>
 #include <utility>
 
-#include "ash/components/proximity_auth/screenlock_bridge.h"
 #include "ash/constants/ash_switches.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/notreached.h"
 #include "base/power_monitor/power_monitor.h"
@@ -23,7 +22,9 @@
 #include "chrome/browser/ash/login/login_pref_names.h"
 #include "chrome/browser/ash/login/reauth_stats.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chromeos/ash/components/proximity_auth/screenlock_bridge.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/session_manager/core/session_manager_observer.h"
@@ -108,6 +109,10 @@ void OfflineSigninLimiter::SignedIn(UserContext::AuthFlow auth_flow) {
 
 base::WallClockTimer* OfflineSigninLimiter::GetTimerForTesting() {
   return offline_signin_limit_timer_.get();
+}
+
+base::WallClockTimer* OfflineSigninLimiter::GetLockscreenTimerForTesting() {
+  return offline_lock_screen_signin_limit_timer_.get();
 }
 
 void OfflineSigninLimiter::Shutdown() {
@@ -262,11 +267,6 @@ void OfflineSigninLimiter::UpdateLockScreenLimit() {
 }
 
 absl::optional<base::TimeDelta> OfflineSigninLimiter::GetGaiaNoSamlTimeLimit() {
-  // TODO(crbug.com/1177416): Clean up this override once testing is complete.
-  auto override_val = GetTimeLimitOverrideForTesting();
-  if (override_val.has_value())
-    return override_val;
-
   int no_saml_offline_limit =
       profile_->GetPrefs()->GetInteger(prefs::kGaiaOfflineSigninTimeLimitDays);
   if (no_saml_offline_limit <= constants::kOfflineSigninTimeLimitNotSet)
@@ -277,11 +277,6 @@ absl::optional<base::TimeDelta> OfflineSigninLimiter::GetGaiaNoSamlTimeLimit() {
 }
 
 absl::optional<base::TimeDelta> OfflineSigninLimiter::GetGaiaSamlTimeLimit() {
-  // TODO(crbug.com/1177416): Clean up this override once testing is complete.
-  auto override_val = GetTimeLimitOverrideForTesting();
-  if (override_val.has_value())
-    return override_val;
-
   const int saml_offline_limit =
       profile_->GetPrefs()->GetInteger(prefs::kSAMLOfflineSigninTimeLimit);
   if (saml_offline_limit <= constants::kOfflineSigninTimeLimitNotSet)
@@ -293,11 +288,6 @@ absl::optional<base::TimeDelta> OfflineSigninLimiter::GetGaiaSamlTimeLimit() {
 
 absl::optional<base::TimeDelta>
 OfflineSigninLimiter::GetGaiaNoSamlLockScreenTimeLimit() {
-  // TODO(crbug.com/1177416): Clean up this override once testing is complete.
-  auto override_val = GetTimeLimitOverrideForTesting();
-  if (override_val.has_value())
-    return override_val;
-
   int no_saml_lock_screen_offline_limit = profile_->GetPrefs()->GetInteger(
       prefs::kGaiaLockScreenOfflineSigninTimeLimitDays);
 
@@ -318,11 +308,6 @@ OfflineSigninLimiter::GetGaiaNoSamlLockScreenTimeLimit() {
 
 absl::optional<base::TimeDelta>
 OfflineSigninLimiter::GetGaiaSamlLockScreenTimeLimit() {
-  // TODO(crbug.com/1177416): Clean up this override once testing is complete.
-  auto override_val = GetTimeLimitOverrideForTesting();
-  if (override_val.has_value())
-    return override_val;
-
   int saml_lock_screen_offline_limit = profile_->GetPrefs()->GetInteger(
       prefs::kSamlLockScreenOfflineSigninTimeLimitDays);
 
@@ -341,24 +326,6 @@ OfflineSigninLimiter::GetGaiaSamlLockScreenTimeLimit() {
       base::Days(saml_lock_screen_offline_limit));
 }
 
-absl::optional<base::TimeDelta>
-OfflineSigninLimiter::GetTimeLimitOverrideForTesting() {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kOfflineSignInTimeLimitInSecondsOverrideForTesting)) {
-    const std::string ascii_value =
-        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-            switches::kOfflineSignInTimeLimitInSecondsOverrideForTesting);
-    int numeric_val = 0;
-    if (base::StringToInt(ascii_value, &numeric_val) && numeric_val >= 0) {
-      return absl::make_optional<base::TimeDelta>(base::Seconds(numeric_val));
-    }
-    LOG(WARNING)
-        << "Manual offline signin time limit override requested but failed.";
-  }
-
-  return absl::nullopt;
-}
-
 void OfflineSigninLimiter::ForceOnlineLogin() {
   const user_manager::User* user =
       ProfileHelper::Get()->GetUserByProfile(profile_);
@@ -367,9 +334,9 @@ void OfflineSigninLimiter::ForceOnlineLogin() {
   user_manager::UserManager::Get()->SaveForceOnlineSignin(user->GetAccountId(),
                                                           true);
   if (user->using_saml())
-    RecordReauthReason(user->GetAccountId(), ReauthReason::SAML_REAUTH_POLICY);
+    RecordReauthReason(user->GetAccountId(), ReauthReason::kSamlReauthPolicy);
   else
-    RecordReauthReason(user->GetAccountId(), ReauthReason::GAIA_REAUTH_POLICY);
+    RecordReauthReason(user->GetAccountId(), ReauthReason::kGaiaReauthPolicy);
   offline_signin_limit_timer_->Stop();
 }
 
@@ -392,10 +359,10 @@ void OfflineSigninLimiter::ForceOnlineLockScreenReauth() {
 
   if (user->using_saml()) {
     RecordReauthReason(user->GetAccountId(),
-                       ReauthReason::SAML_LOCK_SCREEN_REAUTH_POLICY);
+                       ReauthReason::kSamlLockScreenReauthPolicy);
   } else {
     RecordReauthReason(user->GetAccountId(),
-                       ReauthReason::GAIA_LOCK_SCREEN_REAUTH_POLICY);
+                       ReauthReason::kGaiaLockScreenReauthPolicy);
   }
   offline_lock_screen_signin_limit_timer_->Stop();
 }
@@ -410,8 +377,9 @@ void OfflineSigninLimiter::UpdateOnlineSigninData(
     return;
   }
 
-  user_manager::known_user::SetLastOnlineSignin(user->GetAccountId(), time);
-  user_manager::known_user::SetOfflineSigninLimit(user->GetAccountId(), limit);
+  user_manager::KnownUser known_user(g_browser_process->local_state());
+  known_user.SetLastOnlineSignin(user->GetAccountId(), time);
+  known_user.SetOfflineSigninLimit(user->GetAccountId(), limit);
 }
 
 }  // namespace ash

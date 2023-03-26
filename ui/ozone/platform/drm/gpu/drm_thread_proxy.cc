@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,14 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/gfx/linux/gbm_wrapper.h"
 #include "ui/ozone/platform/drm/gpu/drm_device.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_generator.h"
+#include "ui/ozone/platform/drm/gpu/drm_thread.h"
 #include "ui/ozone/platform/drm/gpu/drm_window_proxy.h"
 #include "ui/ozone/platform/drm/gpu/gbm_pixmap.h"
 #include "ui/ozone/platform/drm/gpu/proxy_helpers.h"
@@ -106,7 +108,8 @@ void DrmThreadProxy::CreateBufferAsync(gfx::AcceleratedWidget widget,
       &DrmThread::CreateBufferAsync, base::Unretained(&drm_thread_), widget,
       size, format, usage, flags,
       base::BindOnce(OnBufferCreatedOnDrmThread,
-                     base::ThreadTaskRunnerHandle::Get(), std::move(callback)));
+                     base::SingleThreadTaskRunner::GetCurrentDefault(),
+                     std::move(callback)));
   drm_thread_.task_runner()->PostTask(
       FROM_HERE,
       base::BindOnce(&DrmThread::RunTaskAfterDeviceReady,
@@ -130,13 +133,13 @@ void DrmThreadProxy::CreateBufferFromHandle(
                               base::Unretained(&drm_thread_), std::move(task)));
 }
 
-void DrmThreadProxy::SetClearOverlayCacheCallback(
+void DrmThreadProxy::SetDisplaysConfiguredCallback(
     base::RepeatingClosure callback) {
   DCHECK(drm_thread_.task_runner());
 
   drm_thread_.task_runner()->PostTask(
       FROM_HERE,
-      base::BindOnce(&DrmThread::SetClearOverlayCacheCallback,
+      base::BindOnce(&DrmThread::SetDisplaysConfiguredCallback,
                      base::Unretained(&drm_thread_),
                      CreateSafeRepeatingCallback(std::move(callback))));
 }
@@ -170,6 +173,20 @@ std::vector<OverlayStatus> DrmThreadProxy::CheckOverlayCapabilitiesSync(
                base::BindOnce(&DrmThread::RunTaskAfterDeviceReady,
                               base::Unretained(&drm_thread_), std::move(task)));
   return result;
+}
+
+void DrmThreadProxy::GetHardwareCapabilities(
+    gfx::AcceleratedWidget widget,
+    const HardwareCapabilitiesCallback& receive_callback) {
+  TRACE_EVENT0("drm", "DrmThreadProxy::GetHardwareCapabilities");
+  DCHECK(drm_thread_.task_runner());
+  base::RepeatingClosure task = base::BindRepeating(
+      &DrmThread::GetHardwareCapabilities, base::Unretained(&drm_thread_),
+      widget, CreateSafeRepeatingCallback(receive_callback));
+  drm_thread_.task_runner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&DrmThread::RunTaskAfterDeviceReady,
+                     base::Unretained(&drm_thread_), std::move(task), nullptr));
 }
 
 void DrmThreadProxy::AddDrmDeviceReceiver(

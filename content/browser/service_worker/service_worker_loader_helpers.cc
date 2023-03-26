@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -213,7 +213,8 @@ network::ResourceRequest CreateRequestForServiceWorkerScript(
       &browser_context, &renderer_preferences);
   UpdateAdditionalHeadersForBrowserInitiatedRequest(
       &request.headers, &browser_context,
-      /*should_update_existing_headers=*/false, renderer_preferences);
+      /*should_update_existing_headers=*/false, renderer_preferences,
+      /*is_for_worker_script=*/true);
 
   // Set the accept header to '*/*'.
   // https://fetch.spec.whatwg.org/#concept-fetch

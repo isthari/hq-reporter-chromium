@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,10 @@ namespace ash {
 enum class FingerprintState;
 
 namespace quick_unlock {
+enum class Purpose;
 
-FingerprintState GetFingerprintStateForUser(const user_manager::User* user);
+FingerprintState GetFingerprintStateForUser(const user_manager::User* user,
+                                            Purpose purpose);
 
 }  // namespace quick_unlock
 }  // namespace ash

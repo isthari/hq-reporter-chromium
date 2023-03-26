@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "components/heavy_ad_intervention/heavy_ad_service.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/language/core/browser/language_prefs.h"
+#include "components/origin_trials/browser/origin_trials.h"
 #include "components/payments/core/payment_prefs.h"
 #include "components/permissions/permission_manager.h"
 #include "components/pref_registry/pref_registry_syncable.h"
@@ -23,6 +24,7 @@
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/pref_service_factory.h"
+#include "components/reduce_accept_language/browser/reduce_accept_language_service.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/security_interstitials/content/stateful_ssl_host_state_delegate.h"
 #include "components/site_isolation/pref_names.h"
@@ -38,6 +40,7 @@
 #include "content/public/browser/download_request_utils.h"
 #include "content/public/browser/resource_context.h"
 #include "content/public/browser/storage_partition.h"
+#include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "weblayer/browser/background_fetch/background_fetch_delegate_factory.h"
 #include "weblayer/browser/background_fetch/background_fetch_delegate_impl.h"
 #include "weblayer/browser/background_sync/background_sync_controller_factory.h"
@@ -45,14 +48,18 @@
 #include "weblayer/browser/browsing_data_remover_delegate_factory.h"
 #include "weblayer/browser/client_hints_factory.h"
 #include "weblayer/browser/heavy_ad_service_factory.h"
+#include "weblayer/browser/origin_trials_factory.h"
 #include "weblayer/browser/permissions/permission_manager_factory.h"
+#include "weblayer/browser/reduce_accept_language_factory.h"
 #include "weblayer/browser/stateful_ssl_host_state_delegate_factory.h"
 #include "weblayer/public/common/switches.h"
 
 #if BUILDFLAG(IS_ANDROID)
 #include "base/android/path_utils.h"
+#include "components/browser_ui/accessibility/android/font_size_prefs_android.h"
 #include "components/cdm/browser/media_drm_storage_impl.h"  // nogncheck
 #include "components/permissions/contexts/geolocation_permission_context_android.h"
+#include "components/site_engagement/content/site_engagement_service.h"
 #include "components/unified_consent/pref_names.h"
 #elif BUILDFLAG(IS_WIN)
 #include <windows.h>
@@ -119,6 +126,10 @@ BrowserContextImpl::BrowserContextImpl(ProfileImpl* profile_impl,
   }
 
   site_isolation::SiteIsolationPolicy::ApplyPersistedIsolatedOrigins(this);
+
+  // Ensure the delegate is initialized early to give it time to load its
+  // persistence.
+  GetOriginTrialsControllerDelegate();
 }
 
 BrowserContextImpl::~BrowserContextImpl() {
@@ -217,10 +228,20 @@ BrowserContextImpl::GetBrowsingDataRemoverDelegate() {
   return BrowsingDataRemoverDelegateFactory::GetForBrowserContext(this);
 }
 
-download::InProgressDownloadManager*
-BrowserContextImpl::RetriveInProgressDownloadManager() {
+content::ReduceAcceptLanguageControllerDelegate*
+BrowserContextImpl::GetReduceAcceptLanguageControllerDelegate() {
+  return ReduceAcceptLanguageFactory::GetForBrowserContext(this);
+}
+
+content::OriginTrialsControllerDelegate*
+BrowserContextImpl::GetOriginTrialsControllerDelegate() {
+  return OriginTrialsFactory::GetForBrowserContext(this);
+}
+
+std::unique_ptr<download::InProgressDownloadManager>
+BrowserContextImpl::RetrieveInProgressDownloadManager() {
   // Override this to provide a connection to the wake lock service.
-  auto* download_manager = new download::InProgressDownloadManager(
+  auto download_manager = std::make_unique<download::InProgressDownloadManager>(
       nullptr, path_,
       path_.empty() ? nullptr
                     : GetDefaultStoragePartition()->GetProtoDatabaseProvider(),
@@ -288,11 +309,20 @@ void BrowserContextImpl::RegisterPrefs(
       translate::prefs::kOfferTranslateEnabled, true,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
 #if BUILDFLAG(IS_ANDROID)
+  site_engagement::SiteEngagementService::RegisterProfilePrefs(pref_registry);
   cdm::MediaDrmStorageImpl::RegisterProfilePrefs(pref_registry);
   permissions::GeolocationPermissionContextAndroid::RegisterProfilePrefs(
       pref_registry);
   pref_registry->RegisterBooleanPref(
       unified_consent::prefs::kUrlKeyedAnonymizedDataCollectionEnabled, false);
+
+  pref_registry->RegisterDoublePref(browser_ui::prefs::kWebKitFontScaleFactor,
+                                    1.0);
+  blink::web_pref::WebPreferences pref_defaults;
+  pref_registry->RegisterBooleanPref(browser_ui::prefs::kWebKitForceEnableZoom,
+                                     pref_defaults.force_enable_zoom);
+  pref_registry->SetDefaultPrefValue(::prefs::kSafeBrowsingEnhanced,
+                                     base::Value(true));
 #endif
 
   BrowserContextDependencyManager::GetInstance()

@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -249,10 +249,9 @@ class MessagePopupCollectionTest : public views::ViewsTestBase,
   std::unique_ptr<Notification> CreateNotification(const std::string& id,
                                                    const std::string& title) {
     return std::make_unique<Notification>(
-        NOTIFICATION_TYPE_BASE_FORMAT, id, base::UTF8ToUTF16(title),
-        u"test message", gfx::Image(), std::u16string() /* display_source */,
-        GURL(), NotifierId(), RichNotificationData(),
-        new NotificationDelegate());
+        NOTIFICATION_TYPE_SIMPLE, id, base::UTF8ToUTF16(title), u"test message",
+        ui::ImageModel(), std::u16string() /* display_source */, GURL(),
+        NotifierId(), RichNotificationData(), new NotificationDelegate());
   }
 
   std::string AddNotification() {
@@ -445,7 +444,8 @@ TEST_F(MessagePopupCollectionTest, UpdateContents) {
   EXPECT_TRUE(GetPopup(id)->updated());
 }
 
-TEST_F(MessagePopupCollectionTest, UpdateContentsCausesPopupClose) {
+// TODO(crbug.com/1403996): Flaky on all platforms.
+TEST_F(MessagePopupCollectionTest, DISABLED_UpdateContentsCausesPopupClose) {
   std::string id = AddNotification();
   AnimateToEnd();
   RunPendingMessages();

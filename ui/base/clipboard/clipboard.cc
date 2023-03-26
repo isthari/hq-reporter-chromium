@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,9 +14,13 @@
 #include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
 #include "base/notreached.h"
+#include "base/ranges/algorithm.h"
+#include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "net/base/mime_util.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/clipboard/clipboard_constants.h"
 #include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
 
@@ -27,7 +31,7 @@ bool Clipboard::IsSupportedClipboardBuffer(ClipboardBuffer buffer) {
   // Use lambda instead of local helper function in order to access private
   // member IsSelectionBufferAvailable().
   static auto IsSupportedSelectionClipboard = []() -> bool {
-#if defined(USE_OZONE) && !BUILDFLAG(IS_CHROMEOS)
+#if BUILDFLAG(IS_OZONE) && !BUILDFLAG(IS_CHROMEOS)
     ui::Clipboard* clipboard = ui::Clipboard::GetForCurrentThread();
     CHECK(clipboard);
     return clipboard->IsSelectionBufferAvailable();
@@ -57,8 +61,7 @@ void Clipboard::SetAllowedThreads(
   base::AutoLock lock(ClipboardMapLock());
 
   AllowedThreads().clear();
-  std::copy(allowed_threads.begin(), allowed_threads.end(),
-            std::back_inserter(AllowedThreads()));
+  base::ranges::copy(allowed_threads, std::back_inserter(AllowedThreads()));
 }
 
 // static
@@ -151,8 +154,20 @@ std::map<std::string, std::string> Clipboard::ExtractCustomPlatformNames(
       if (json_val.has_value()) {
         for (const auto it : json_val->DictItems()) {
           const std::string* custom_format_name = it.second.GetIfString();
-          if (custom_format_name)
-            custom_format_names.emplace(it.first, *custom_format_name);
+          if (custom_format_name) {
+            // Prepend "web " prefix to the custom format.
+            std::string web_top_level_mime_type;
+            std::string web_mime_sub_type;
+            std::string web_format = it.first;
+            if (net::ParseMimeTypeWithoutParameter(
+                    web_format, &web_top_level_mime_type, &web_mime_sub_type)) {
+              std::string web_custom_format_string = base::StrCat(
+                  {kWebClipboardFormatPrefix, web_top_level_mime_type, "/",
+                   web_mime_sub_type});
+              custom_format_names.emplace(std::move(web_custom_format_string),
+                                          *custom_format_name);
+            }
+          }
         }
       }
     }
@@ -182,9 +197,8 @@ Clipboard::ReadAvailableStandardAndCustomFormatNames(
       ExtractCustomPlatformNames(buffer, data_dst);
   for (const auto& items : custom_format_names)
     format_names.push_back(base::ASCIIToUTF16(items.first));
-  for (const auto& item : GetStandardFormats(buffer, data_dst)) {
+  for (const auto& item : GetStandardFormats(buffer, data_dst))
     format_names.push_back(item);
-  }
   return format_names;
 }
 

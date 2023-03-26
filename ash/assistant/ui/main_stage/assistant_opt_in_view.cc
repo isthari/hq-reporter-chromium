@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "ash/assistant/ui/assistant_view_delegate.h"
 #include "ash/assistant/ui/assistant_view_ids.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/canvas.h"
@@ -40,8 +40,7 @@ views::StyledLabel::RangeStyleInfo CreateStyleInfo(
 }
 
 std::u16string GetAction(int consent_status) {
-  return consent_status ==
-                 chromeos::assistant::prefs::ConsentStatus::kUnauthorized
+  return consent_status == assistant::prefs::ConsentStatus::kUnauthorized
              ? l10n_util::GetStringUTF16(
                    IDS_ASH_ASSISTANT_OPT_IN_ASK_ADMINISTRATOR)
              : l10n_util::GetStringUTF16(IDS_ASH_ASSISTANT_OPT_IN_GET_STARTED);
@@ -134,7 +133,7 @@ void AssistantOptInView::InitLayout() {
   layout_manager =
       container_->SetLayoutManager(std::make_unique<views::BoxLayout>(
           views::BoxLayout::Orientation::kHorizontal,
-          gfx::Insets(0, assistant::ui::GetHorizontalPadding())));
+          gfx::Insets::VH(0, assistant::ui::kHorizontalPadding)));
 
   layout_manager->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kCenter);
@@ -146,7 +145,7 @@ void AssistantOptInView::InitLayout() {
   label_->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_CENTER);
 
   UpdateLabel(AssistantState::Get()->consent_status().value_or(
-      chromeos::assistant::prefs::ConsentStatus::kUnknown));
+      assistant::prefs::ConsentStatus::kUnknown));
 }
 
 void AssistantOptInView::UpdateLabel(int consent_status) {

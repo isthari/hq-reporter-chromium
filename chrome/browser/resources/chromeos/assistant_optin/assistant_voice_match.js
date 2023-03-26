@@ -1,6 +1,34 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+/**
+ * @fileoverview Polymer element for displaying material design assistant
+ * voice match screen.
+ */
+
+import '//resources/cr_elements/cr_lottie/cr_lottie.js';
+import '//resources/cr_elements/icons.html.js';
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '../components/buttons/oobe_next_button.js';
+import '../components/buttons/oobe_text_button.js';
+import '../components/common_styles/oobe_dialog_host_styles.css.js';
+import '../components/dialogs/oobe_adaptive_dialog.js';
+import '../components/oobe_cr_lottie.js';
+import './assistant_common_styles.css.js';
+import './assistant_icons.html.js';
+import './voice_match_entry.js';
+
+import {loadTimeData} from '//resources/ash/common/load_time_data.m.js';
+import {announceAccessibleMessage} from '//resources/ash/common/util.js';
+import {afterNextRender, html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {MultiStepBehavior, MultiStepBehaviorInterface} from '../components/behaviors/multi_step_behavior.js';
+import {OobeDialogHostBehavior} from '../components/behaviors/oobe_dialog_host_behavior.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../components/behaviors/oobe_i18n_behavior.js';
+
+import {BrowserProxyImpl} from './browser_proxy.js';
+
 
 /** Maximum recording index. */
 const MAX_INDEX = 4;
@@ -19,62 +47,97 @@ const VoiceMatchUIState = {
 };
 
 /**
- * @fileoverview Polymer element for displaying material design assistant
- * voice match screen.
- *
+ * @constructor
+ * @extends {PolymerElement}
+ * @implements {MultiStepBehaviorInterface}
  */
-Polymer({
-  is: 'assistant-voice-match',
+const AssistantVoiceMatchBase =
+    mixinBehaviors([OobeI18nBehavior, MultiStepBehavior], PolymerElement);
 
-  behaviors: [OobeI18nBehavior, MultiStepBehavior],
+/**
+ * @polymer
+ */
+class AssistantVoiceMatch extends AssistantVoiceMatchBase {
+  static get is() {
+    return 'assistant-voice-match';
+  }
 
-  properties: {
+  static get template() {
+    return html`{__html_template__}`;
+  }
+
+  static get properties() {
+    return {
+      /**
+       * Indicates whether to use same design for accept/decline buttons.
+       */
+      equalWeightButtons_: {
+        type: Boolean,
+        value: false,
+      },
+
+      /**
+       * The given name of the user, if a child account is in use; otherwise,
+       * this is an empty string.
+       */
+      childName_: {
+        type: String,
+        value: '',
+      },
+
+      /**
+       * Whether the {prefers-color-scheme: dark}
+       * @private {boolean}
+       */
+      isDarkModeActive_: {
+        type: Boolean,
+        value: false,
+      },
+
+      /**
+       * @private {boolean}
+       */
+      isTabletMode_: {
+        type: Boolean,
+        value: false,
+      },
+    };
+  }
+
+  constructor() {
+    super();
+
     /**
-     * Indicates whether to use same design for accept/decline buttons.
+     * Whether voice match is the first screen of the flow.
+     * @type {boolean}
      */
-    equalWeightButtons_: {
-      type: Boolean,
-      value: false,
-    },
+    this.isFirstScreen = false;
 
     /**
-     * The given name of the user, if a child account is in use; otherwise,
-     * this is an empty string.
+     * Current recording index.
+     * @type {number}
+     * @private
      */
-    childName_: {
-      type: String,
-      value: '',
-    },
-  },
+    this.currentIndex_ = 0;
 
-  /**
-   * Whether voice match is the first screen of the flow.
-   * @type {boolean}
-   */
-  isFirstScreen: false,
+    /**
+     * The delay in ms between speaker ID enrollment finishes and the
+     * voice-match-done action is reported to chrome.
+     * @private {number}
+     */
+    this.doneActionDelayMs_ = 3000;
 
-  /**
-   * Current recording index.
-   * @type {number}
-   * @private
-   */
-  currentIndex_: 0,
-
-  /**
-   * The delay in ms between speaker ID enrollment finishes and the
-   * voice-match-done action is reported to chrome.
-   * @private {number}
-   */
-  doneActionDelayMs_: 3000,
-
-  /** @private {?assistant.BrowserProxy} */
-  browserProxy_: null,
+    /** @private {?BrowserProxy} */
+    this.browserProxy_ = BrowserProxyImpl.getInstance();
+  }
 
   defaultUIStep() {
     return VoiceMatchUIState.INTRO;
-  },
+  }
 
-  UI_STEPS: VoiceMatchUIState,
+  get UI_STEPS() {
+    return VoiceMatchUIState;
+  }
 
   /**
    * Overrides the default delay for sending voice-match-done action.
@@ -82,7 +145,7 @@ Polymer({
    */
   setDoneActionDelayForTesting(delay) {
     this.doneActionDelayMs_ = delay;
-  },
+  }
 
   /**
    * On-tap event handler for skip button.
@@ -90,9 +153,9 @@ Polymer({
    * @private
    */
   onSkipTap_() {
-    this.$['voice-match-lottie'].setPlay(false);
+    this.$['voice-match-lottie'].playing = false;
     this.browserProxy_.userActed(VOICE_MATCH_SCREEN_ID, ['skip-pressed']);
-  },
+  }
 
   /**
    * On-tap event handler for agree button.
@@ -101,9 +164,10 @@ Polymer({
    */
   onAgreeTap_() {
     this.setUIStep(VoiceMatchUIState.RECORDING);
-    this.fire('loading');
+    this.dispatchEvent(
+        new CustomEvent('loading', {bubbles: true, composed: true}));
     this.browserProxy_.userActed(VOICE_MATCH_SCREEN_ID, ['record-pressed']);
-  },
+  }
 
   /**
    * Reset the status of page elements.
@@ -117,17 +181,12 @@ Polymer({
     this.$['later-button'].hidden = false;
     this.$['loading-animation'].hidden = true;
 
-    for (var i = 0; i < MAX_INDEX; ++i) {
-      var entry = this.$['voice-entry-' + i];
+    for (let i = 0; i < MAX_INDEX; ++i) {
+      const entry = this.$['voice-entry-' + i];
       entry.removeAttribute('active');
       entry.removeAttribute('completed');
     }
-  },
-
-  /** @override */
-  created() {
-    this.browserProxy_ = assistant.BrowserProxyImpl.getInstance();
-  },
+  }
 
   /**
    * Reload the page with the given settings data.
@@ -135,7 +194,8 @@ Polymer({
   reloadContent(data) {
     this.equalWeightButtons_ = data['equalWeightButtons'];
     this.childName_ = data['childName'];
-  },
+    this.isTabletMode_ = data['isTabletMode'];
+  }
 
   /**
    * Reloads voice match flow.
@@ -145,29 +205,31 @@ Polymer({
     this.$['agree-button'].focus();
     this.resetElements_();
     this.browserProxy_.userActed(VOICE_MATCH_SCREEN_ID, ['reload-requested']);
-    this.fire('loaded');
-  },
+    this.dispatchEvent(
+        new CustomEvent('loaded', {bubbles: true, composed: true}));
+  }
 
   /**
    * Called when the server is ready to listening for hotword.
    */
   listenForHotword() {
     if (this.currentIndex_ == 0) {
-      this.fire('loaded');
+      this.dispatchEvent(
+          new CustomEvent('loaded', {bubbles: true, composed: true}));
       announceAccessibleMessage(
           loadTimeData.getString('assistantVoiceMatchRecording'));
       announceAccessibleMessage(
           loadTimeData.getString('assistantVoiceMatchA11yMessage'));
     }
-    var currentEntry = this.$['voice-entry-' + this.currentIndex_];
+    const currentEntry = this.$['voice-entry-' + this.currentIndex_];
     currentEntry.setAttribute('active', true);
-  },
+  }
 
   /**
    * Called when the server has detected and processing hotword.
    */
   processingHotword() {
-    var currentEntry = this.$['voice-entry-' + this.currentIndex_];
+    const currentEntry = this.$['voice-entry-' + this.currentIndex_];
     currentEntry.removeAttribute('active');
     currentEntry.setAttribute('completed', true);
     this.currentIndex_++;
@@ -181,10 +243,11 @@ Polymer({
       announceAccessibleMessage(
           loadTimeData.getString('assistantVoiceMatchComplete'));
     }
-  },
+  }
 
   voiceMatchDone() {
-    this.fire('loaded');
+    this.dispatchEvent(
+        new CustomEvent('loaded', {bubbles: true, composed: true}));
     announceAccessibleMessage(
         loadTimeData.getString('assistantVoiceMatchCompleted'));
     if (this.currentIndex_ != MAX_INDEX) {
@@ -196,10 +259,10 @@ Polymer({
     }
 
     window.setTimeout(() => {
-      this.$['voice-match-lottie'].setPlay(false);
+      this.$['voice-match-lottie'].playing = false;
       this.browserProxy_.userActed(VOICE_MATCH_SCREEN_ID, ['voice-match-done']);
     }, this.doneActionDelayMs_);
-  },
+  }
 
   /**
    * Signal from host to show the screen.
@@ -208,15 +271,18 @@ Polymer({
     if (this.isFirstScreen) {
       // If voice match is the first screen, slightly delay showing the content
       // for the lottie animations to load.
-      this.fire('loading');
-      window.setTimeout(() => this.fire('loaded'), 100);
+      this.dispatchEvent(
+          new CustomEvent('loading', {bubbles: true, composed: true}));
+      window.setTimeout(() => {
+        this.dispatchEvent(
+            new CustomEvent('loaded', {bubbles: true, composed: true}));
+      }, 100);
     }
 
     this.browserProxy_.screenShown(VOICE_MATCH_SCREEN_ID);
-    this.$['voice-match-lottie'].setPlay(true);
-    Polymer.RenderStatus.afterNextRender(
-        this, () => this.$['agree-button'].focus());
-  },
+    this.$['voice-match-lottie'].playing = true;
+    afterNextRender(this, () => this.$['agree-button'].focus());
+  }
 
   /**
    * Returns the text for dialog title.
@@ -233,7 +299,7 @@ Polymer({
     } else if (uiStep === VoiceMatchUIState.COMPLETED) {
       return this.i18n('assistantVoiceMatchCompleted');
     }
-  },
+  }
 
   /**
    * Returns the text for subtitle.
@@ -250,5 +316,17 @@ Polymer({
       return this.i18nAdvanced(
           'assistantVoiceMatchFooterForChild', {substitutions: [childName]});
     }
-  },
-});
+  }
+
+  getReadyImgUrl_(isDarkMode) {
+    return './assistant_optin/assistant_ready_' + (isDarkMode ? 'dm' : 'lm') +
+        '.json';
+  }
+
+  getVoiceMatchAnimationUrl_(isDarkMode, isTabletMode) {
+    return './assistant_optin/voice_' + (isTabletMode ? 'tablet' : 'laptop') +
+        '_' + (isDarkMode ? 'dm' : 'lm') + '.json';
+  }
+}
+
+customElements.define(AssistantVoiceMatch.is, AssistantVoiceMatch);

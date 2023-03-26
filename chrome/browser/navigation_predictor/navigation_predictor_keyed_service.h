@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,10 @@
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/observer_list.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "chrome/browser/navigation_predictor/search_engine_preconnector.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -54,7 +56,9 @@ class NavigationPredictorKeyedService : public KeyedService {
     // The WebContents from where the navigation may happen. Do not use this
     // pointer outside the observer's call stack unless its destruction is also
     // observed.
-    content::WebContents* web_contents_;
+    // This field is not a raw_ptr<> because it was filtered by the rewriter
+    // for: #union
+    RAW_PTR_EXCLUSION content::WebContents* web_contents_;
 
     // TODO(spelchat): this no longer needs to be optional. Optionality was
     // required because external app predictions didn't provide this field, but

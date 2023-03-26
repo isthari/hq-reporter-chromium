@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,6 +47,7 @@ class SharingIconView : public PageActionIconView {
   void UpdateImpl() override;
   const gfx::VectorIcon& GetVectorIcon() const override;
   std::u16string GetTextForTooltipAndAccessibleName() const override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
   // gfx::AnimationDelegate:
   void AnimationProgressed(const gfx::Animation* animation) override;
@@ -58,7 +59,7 @@ class SharingIconView : public PageActionIconView {
   void UpdateOpacity();
 
  private:
-  raw_ptr<SharingUiController> last_controller_ = nullptr;
+  raw_ptr<SharingUiController, DanglingUntriaged> last_controller_ = nullptr;
   bool loading_animation_ = false;
   bool should_show_error_ = false;
   GetControllerCallback get_controller_callback_;

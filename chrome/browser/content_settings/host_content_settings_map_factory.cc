@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 #include "chrome/common/buildflags.h"
 #include "components/content_settings/core/browser/content_settings_pref_provider.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/permissions/features.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/buildflags/buildflags.h"
@@ -46,13 +45,20 @@
 #include "chrome/browser/sessions/exit_type_service_factory.h"
 #endif
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/profiles/profile_helper.h"
+#endif
+
 HostContentSettingsMapFactory::HostContentSettingsMapFactory()
-    : RefcountedBrowserContextKeyedServiceFactory(
-        "HostContentSettingsMap",
-        BrowserContextDependencyManager::GetInstance()) {
+    : RefcountedProfileKeyedServiceFactory(
+          "HostContentSettingsMap",
+          ProfileSelections::BuildForRegularAndIncognito()) {
   DependsOn(LastTabStandingTrackerFactory::GetInstance());
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
   DependsOn(SupervisedUserSettingsServiceFactory::GetInstance());
+#endif
+#if BUILDFLAG(IS_ANDROID)
+  DependsOn(TemplateURLServiceFactory::GetInstance());
 #endif
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   DependsOn(extensions::ContentSettingsService::GetFactoryInstance());
@@ -96,11 +102,21 @@ scoped_refptr<RefcountedKeyedService>
   if (profile->IsOffTheRecord() && !profile->IsGuestSession())
     GetForProfile(original_profile);
 
+  bool should_record_metrics = profile->IsRegularProfile();
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // ChromeOS creates various irregular profiles (login, lock screen...); they
+  // are of type kRegular (returns true for `Profile::IsRegular()`), that aren't
+  // used to browse the web and users can't configure. Don't collect metrics
+  // about them.
+  should_record_metrics =
+      should_record_metrics && ash::ProfileHelper::IsUserProfile(profile);
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
   scoped_refptr<HostContentSettingsMap> settings_map(new HostContentSettingsMap(
       profile->GetPrefs(),
       profile->IsOffTheRecord() || profile->IsGuestSession(),
-      /*store_last_modified=*/true,
-      profile->ShouldRestoreOldSessionCookies()));
+      /*store_last_modified=*/true, profile->ShouldRestoreOldSessionCookies(),
+      should_record_metrics));
 
   auto allowlist_provider = std::make_unique<WebUIAllowlistProvider>(
       WebUIAllowlist::GetOrCreate(profile));
@@ -168,9 +184,4 @@ scoped_refptr<RefcountedKeyedService>
   }
 #endif  // defined (OS_ANDROID)
   return settings_map;
-}
-
-content::BrowserContext* HostContentSettingsMapFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  return context;
 }

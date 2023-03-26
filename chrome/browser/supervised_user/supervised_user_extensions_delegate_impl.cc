@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,12 @@
 #include <memory>
 #include <utility>
 
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/supervised_user/supervised_user_extensions_metrics_recorder.h"
 #include "chrome/browser/supervised_user/supervised_user_service.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
-#include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/extensions/extensions_dialogs.h"
 #include "chrome/browser/ui/supervised_user/parent_permission_dialog.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_dialog_auto_confirm.h"
@@ -124,13 +124,13 @@ void SupervisedUserExtensionsDelegateImpl::
           kFailedToEnable);
   if (ScopedTestDialogAutoConfirm::GetAutoConfirmValue() !=
       ScopedTestDialogAutoConfirm::NONE) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  std::move(done_callback));
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, std::move(done_callback));
     return;
   }
-  chrome::ShowExtensionInstallBlockedByParentDialog(
-      chrome::ExtensionInstalledBlockedByParentDialogAction::kEnable,
-      &extension, contents, std::move(done_callback));
+  ShowExtensionInstallBlockedByParentDialog(
+      ExtensionInstalledBlockedByParentDialogAction::kEnable, &extension,
+      contents, std::move(done_callback));
 }
 
 }  // namespace extensions

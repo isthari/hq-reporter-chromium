@@ -1,10 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/vr/elements/url_text.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "cc/paint/skia_paint_canvas.h"
 #include "chrome/browser/vr/elements/omnibox_formatting.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,13 @@
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "ash/style/ash_color_provider.h"
-#include "ash/system/accessibility/tray_accessibility.h"
+#include "ash/style/ash_color_id.h"
+#include "ash/system/accessibility/accessibility_detailed_view.h"
 #include "ash/system/tray/tray_background_view.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/wm/collision_detection/collision_detection_utils.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/models/image_model.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/paint_vector_icon.h"
@@ -69,28 +70,31 @@ void FloatingAccessibilityDetailedController::Show(
     return;
 
   TrayBubbleView::InitParams init_params;
-  init_params.delegate = this;
+  init_params.delegate = GetWeakPtr();
   init_params.parent_window = Shell::GetContainer(
       Shell::GetPrimaryRootWindow(), kShellWindowId_SettingBubbleContainer);
   init_params.anchor_mode = TrayBubbleView::AnchorMode::kRect;
   init_params.anchor_rect = anchor_rect;
-  init_params.insets = gfx::Insets(0, kBubbleMenuPadding, kBubbleMenuPadding,
-                                   kBubbleMenuPadding);
+  init_params.insets = gfx::Insets::TLBR(
+      0, kBubbleMenuPadding, kBubbleMenuPadding, kBubbleMenuPadding);
   init_params.close_on_deactivate = false;
-  init_params.corner_radius = kBubbleCornerRadius;
-  init_params.has_shadow = false;
   init_params.translucent = true;
 
   bubble_view_ = new DetailedBubbleView(init_params);
   bubble_view_->SetArrowWithoutResizing(alignment);
 
   detailed_view_ = bubble_view_->AddChildView(
-      std::make_unique<tray::AccessibilityDetailedView>(this));
+      std::make_unique<AccessibilityDetailedView>(this));
   bubble_view_->SetPreferredSize(
       gfx::Size(kTrayMenuWidth, kDetailedViewHeightDip));
   bubble_view_->SetFocusBehavior(ActionableView::FocusBehavior::ALWAYS);
-  detailed_view_->SetPaintToLayer();
-  detailed_view_->layer()->SetFillsBoundsOpaquely(false);
+
+  // In dark light mode, we switch TrayBubbleView to use a textured layer
+  // instead of solid color layer, so no need to create an extra layer here.
+  if (!features::IsDarkLightModeEnabled()) {
+    detailed_view_->SetPaintToLayer();
+    detailed_view_->layer()->SetFillsBoundsOpaquely(false);
+  }
 
   bubble_widget_ = views::BubbleDialogDelegateView::CreateBubble(bubble_view_);
   bubble_view_->SetCanActivate(true);
@@ -136,11 +140,9 @@ views::Button* FloatingAccessibilityDetailedController::CreateBackButton(
     views::Button::PressedCallback callback) {
   views::ImageButton* button = static_cast<views::ImageButton*>(
       DetailedViewDelegate::CreateBackButton(std::move(callback)));
-  gfx::ImageSkia image = gfx::CreateVectorIcon(
-      kAutoclickCloseIcon,
-      AshColorProvider::Get()->GetContentLayerColor(
-          AshColorProvider::ContentLayerType::kIconColorPrimary));
-  button->SetImage(views::Button::STATE_NORMAL, image);
+  ui::ImageModel image = ui::ImageModel::FromVectorIcon(
+      kAutoclickCloseIcon, kColorAshIconColorPrimary);
+  button->SetImageModel(views::Button::STATE_NORMAL, image);
   button->SetTooltipText(l10n_util::GetStringUTF16(
       IDS_ASH_FLOATING_ACCESSIBILITY_DETAILED_MENU_CLOSE));
 

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,8 @@
 
 #include "ash/components/arc/mojom/auth.mojom.h"
 #include "ash/components/arc/session/connection_observer.h"
-#include "base/callback.h"
 #include "base/containers/flat_set.h"
+#include "base/functional/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ash/account_manager/account_apps_availability.h"
@@ -90,7 +90,6 @@ class ArcAuthService : public KeyedService,
   void ReportMetrics(mojom::MetricsType metrics_type, int32_t value) override;
   void ReportAccountCheckStatus(mojom::AccountCheckStatus status) override;
   void ReportAccountReauthReason(mojom::ReauthReason reason) override;
-  void ReportAndroidIdSource(mojom::AndroidIdSource source) override;
   void ReportManagementChangeStatus(
       mojom::ManagementChangeStatus status) override;
   void RequestPrimaryAccountInfo(

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,7 +67,7 @@ class CheckActiveWebContentsMenuModel : public ui::SimpleMenuModel {
   ~CheckActiveWebContentsMenuModel() override = default;
 
   // ui::SimpleMenuModel:
-  int GetItemCount() const override {
+  size_t GetItemCount() const override {
     EXPECT_TRUE(tab_strip_model_->GetActiveWebContents());
     return 0;
   }
@@ -108,7 +108,7 @@ TEST_F(ToolbarButtonViewsTest, NoDefaultLayoutInsets) {
 
 TEST_F(ToolbarButtonViewsTest, SetLayoutInsets) {
   ToolbarButton button;
-  gfx::Insets new_insets(2, 3, 4, 5);
+  auto new_insets = gfx::Insets::TLBR(2, 3, 4, 5);
   button.SetLayoutInsets(new_insets);
   EXPECT_EQ(new_insets, button.GetLayoutInsets());
   EXPECT_EQ(new_insets, button.GetInsets());

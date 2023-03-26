@@ -1,9 +1,10 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/message_center/inactive_user_notification_blocker.h"
 
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/test/shell_test_api.h"
 #include "ash/session/test_session_controller_client.h"
 #include "ash/shell.h"
@@ -89,7 +90,7 @@ class InactiveUserNotificationBlockerTest
 
     message_center::Notification notification(
         message_center::NOTIFICATION_TYPE_SIMPLE, "popup-id", u"popup-title",
-        u"popup-message", gfx::Image(), u"popup-source", GURL(),
+        u"popup-message", ui::ImageModel(), u"popup-source", GURL(),
         id_with_profile, message_center::RichNotificationData(), nullptr);
 
     if (notifier_id.id == kNotifierSystemPriority)
@@ -105,7 +106,7 @@ class InactiveUserNotificationBlockerTest
 
     message_center::Notification notification(
         message_center::NOTIFICATION_TYPE_SIMPLE, "notification-id",
-        u"notification-title", u"notification-message", gfx::Image(),
+        u"notification-title", u"notification-message", ui::ImageModel(),
         u"notification-source", GURL(), id_with_profile,
         message_center::RichNotificationData(), nullptr);
 
@@ -131,11 +132,12 @@ TEST_P(InactiveUserNotificationBlockerTest, Basic) {
   // System priority notifiers should always show regardless of fullscreen
   // or lock state.
   message_center::NotifierId ash_system_notifier(
-      message_center::NotifierType::SYSTEM_COMPONENT, kNotifierSystemPriority);
+      message_center::NotifierType::SYSTEM_COMPONENT, kNotifierSystemPriority,
+      NotificationCatalogName::kTestCatalogName);
   // Other system notifiers should be treated as same as a normal notifier.
   message_center::NotifierId random_system_notifier(
       message_center::NotifierType::SYSTEM_COMPONENT,
-      "ash.some-other-component");
+      "ash.some-other-component", NotificationCatalogName::kTestCatalogName);
 
   // Notifications are not blocked before login.
   const std::string kEmptyUserId;

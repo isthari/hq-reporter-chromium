@@ -1,9 +1,9 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
+import {webUIListenerCallback} from 'chrome://resources/js/cr.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {NtpExtension, OnStartupBrowserProxy, OnStartupBrowserProxyImpl, SettingsOnStartupPageElement} from 'chrome://settings/settings.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
@@ -49,9 +49,9 @@ suite('OnStartupPage', function() {
 
   const ntpExtension = {id: 'id', name: 'name', canBeDisabled: true};
 
-  function initPage(): Promise<void> {
+  async function initPage(): Promise<void> {
     onStartupBrowserProxy.reset();
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     testElement = document.createElement('settings-on-startup-page');
     testElement.prefs = {
       session: {
@@ -62,9 +62,8 @@ suite('OnStartupPage', function() {
       },
     };
     document.body.appendChild(testElement);
-    return onStartupBrowserProxy.whenCalled('getNtpExtension').then(function() {
-      flush();
-    });
+    await onStartupBrowserProxy.whenCalled('getNtpExtension');
+    flush();
   }
 
   function getSelectedOptionLabel(): string {
@@ -77,10 +76,10 @@ suite('OnStartupPage', function() {
                     .selected)!.label;
   }
 
-  setup(function() {
+  setup(async function() {
     onStartupBrowserProxy = new TestOnStartupBrowserProxy();
     OnStartupBrowserProxyImpl.setInstance(onStartupBrowserProxy);
-    return initPage();
+    await initPage();
   });
 
   teardown(function() {
@@ -116,17 +115,18 @@ suite('OnStartupPage', function() {
         'extension-controlled-indicator');
   }
 
-  test('given ntp extension, extension indicator always exists', function() {
-    onStartupBrowserProxy.setNtpExtension(ntpExtension);
-    return onStartupBrowserProxy.whenCalled('getNtpExtension').then(function() {
-      flush();
-      assertTrue(extensionControlledIndicatorExists());
-      Object.values(RestoreOnStartupEnum).forEach(function(option) {
-        testElement.set('prefs.session.restore_on_startup.value', option);
+  test(
+      'given ntp extension, extension indicator always exists',
+      async function() {
+        onStartupBrowserProxy.setNtpExtension(ntpExtension);
+        await onStartupBrowserProxy.whenCalled('getNtpExtension');
+        flush();
         assertTrue(extensionControlledIndicatorExists());
+        Object.values(RestoreOnStartupEnum).forEach(function(option) {
+          testElement.set('prefs.session.restore_on_startup.value', option);
+          assertTrue(extensionControlledIndicatorExists());
+        });
       });
-    });
-  });
 
   test(
       'extension indicator not shown when no ntp extension enabled',
@@ -138,12 +138,11 @@ suite('OnStartupPage', function() {
         });
       });
 
-  test('ntp extension updated, extension indicator added', function() {
+  test('ntp extension updated, extension indicator added', async function() {
     assertFalse(extensionControlledIndicatorExists());
     onStartupBrowserProxy.setNtpExtension(ntpExtension);
-    return onStartupBrowserProxy.whenCalled('getNtpExtension').then(function() {
-      flush();
-      assertTrue(extensionControlledIndicatorExists());
-    });
+    await onStartupBrowserProxy.whenCalled('getNtpExtension');
+    flush();
+    assertTrue(extensionControlledIndicatorExists());
   });
 });

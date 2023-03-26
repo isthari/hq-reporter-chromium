@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,14 +33,14 @@ TEST(ClipboardDataTest, BitmapTest) {
 // Tests that two ClipboardData objects won't be equal if they don't have the
 // same data source.
 TEST(ClipboardDataTest, DataSrcTest) {
-  url::Origin origin(url::Origin::Create(GURL("www.example.com")));
+  GURL url("www.example.com");
   ClipboardData data1;
-  data1.set_source(std::make_unique<DataTransferEndpoint>(origin));
+  data1.set_source(std::make_unique<DataTransferEndpoint>(url));
 
   ClipboardData data2;
   EXPECT_NE(data1, data2);
 
-  data2.set_source(std::make_unique<DataTransferEndpoint>(origin));
+  data2.set_source(std::make_unique<DataTransferEndpoint>(url));
   EXPECT_EQ(data1, data2);
 }
 

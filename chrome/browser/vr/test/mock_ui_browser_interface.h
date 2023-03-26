@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,7 +40,6 @@ class MockUiBrowserInterface : public UiBrowserInterface {
   MOCK_METHOD1(OnUnsupportedMode, void(UiUnsupportedMode mode));
   MOCK_METHOD2(OnExitVrPromptResult,
                void(ExitVrPromptChoice choice, UiUnsupportedMode reason));
-  MOCK_METHOD1(OnContentScreenBoundsChanged, void(const gfx::SizeF& bounds));
   MOCK_METHOD1(SetVoiceSearchActive, void(bool active));
   MOCK_METHOD1(StartAutocomplete, void(const AutocompleteRequest& request));
   MOCK_METHOD0(StopAutocomplete, void());

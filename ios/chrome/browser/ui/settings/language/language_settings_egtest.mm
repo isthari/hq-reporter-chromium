@@ -1,24 +1,24 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <XCTest/XCTest.h>
 
-#include <memory>
+#import <memory>
 
-#include "components/translate/core/browser/translate_pref_names.h"
+#import "components/translate/core/browser/translate_pref_names.h"
 #import "ios/chrome/browser/ui/settings/language/language_settings_app_interface.h"
 #import "ios/chrome/browser/ui/settings/language/language_settings_ui_constants.h"
 #import "ios/chrome/browser/ui/settings/settings_root_table_constants.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ios/chrome/test/earl_grey/accessibility_util.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/test/earl_grey/accessibility_util.h"
 #import "ios/chrome/test/earl_grey/chrome_actions.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#include "ui/strings/grit/ui_strings.h"
+#import "ui/strings/grit/ui_strings.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -94,7 +94,7 @@ id<GREYMatcher> SearchBarScrim() {
 }
 
 // Matcher for a language entry with the given accessibility label. Matches a
-// button if |tappable| is true.
+// button if `tappable` is true.
 id<GREYMatcher> LanguageEntry(NSString* label, BOOL tappable = YES) {
   return grey_allOf(tappable ? ButtonWithAccessibilityLabel(label)
                              : grey_accessibilityLabel(label),
@@ -116,7 +116,7 @@ id<GREYMatcher> OfferToTranslateButton() {
 }
 
 // Matcher for an element with or without the
-// UIAccessibilityTraitSelected accessibility trait depending on |selected|.
+// UIAccessibilityTraitSelected accessibility trait depending on `selected`.
 id<GREYMatcher> ElementIsSelected(BOOL selected) {
   return selected
              ? grey_accessibilityTrait(UIAccessibilityTraitSelected)
@@ -128,15 +128,6 @@ id<GREYMatcher> ElementIsSelected(BOOL selected) {
 id<GREYMatcher> LanguageEntryDeleteButton() {
   return grey_allOf(grey_accessibilityLabel(@"Delete"),
                     grey_sufficientlyVisible(), nil);
-}
-
-// Matcher for the nav bar's edit button.
-id<GREYMatcher> NavigationBarEditButton() {
-  return grey_allOf(
-      ButtonWithAccessibilityLabelId(IDS_IOS_NAVIGATION_BAR_EDIT_BUTTON),
-      grey_not(TabGridEditButton()), grey_kindOfClass([UIButton class]),
-      grey_ancestor(grey_kindOfClass([UINavigationBar class])),
-      grey_sufficientlyVisible(), nil);
 }
 
 // Matcher for the toolbar's edit button.
@@ -502,13 +493,8 @@ id<GREYMatcher> SettingToolbarEditButton() {
   [ChromeEarlGreyUI tapSettingsMenuButton:LanguageSettingsButton()];
 
   // Switch on edit mode.
-  if ([ChromeEarlGrey isAddCredentialsInSettingsEnabled]) {
-    [[EarlGrey selectElementWithMatcher:SettingToolbarEditButton()]
-        performAction:grey_tap()];
-  } else {
-    [[EarlGrey selectElementWithMatcher:NavigationBarEditButton()]
-        performAction:grey_tap()];
-  }
+  [[EarlGrey selectElementWithMatcher:SettingToolbarEditButton()]
+      performAction:grey_tap()];
 
   // Verify that the Add Language button is disabled.
   [[EarlGrey selectElementWithMatcher:AddLanguageButton()]

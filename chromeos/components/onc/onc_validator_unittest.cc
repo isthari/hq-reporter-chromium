@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 
 #include "base/check.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/values.h"
 #include "chromeos/components/onc/onc_signature.h"
 #include "chromeos/components/onc/onc_test_utils.h"
@@ -100,7 +101,7 @@ struct OncParams {
         onc_source(onc_source) {}
 
   std::string location;
-  const OncValueSignature* signature;
+  raw_ptr<const OncValueSignature> signature;
   bool is_managed;
   ::onc::ONCSource onc_source;
 };
@@ -179,6 +180,11 @@ INSTANTIATE_TEST_SUITE_P(
                   &kToplevelConfigurationSignature,
                   true,
                   ::onc::ONC_SOURCE_DEVICE_POLICY),
+        // AllowCellularSimLock is only allowed for device policies.
+        OncParams("managed_toplevel_with_cellular_sim_lock.onc",
+                  &kToplevelConfigurationSignature,
+                  true,
+                  ::onc::ONC_SOURCE_DEVICE_POLICY),
         OncParams("managed_toplevel_l2tpipsec.onc",
                   &kToplevelConfigurationSignature,
                   true),
@@ -241,6 +247,9 @@ INSTANTIATE_TEST_SUITE_P(
         OncParams("translation_of_shill_cellular_with_state.onc",
                   &kNetworkWithStateSignature,
                   false),
+        OncParams("ikev2_cert.onc", &kNetworkConfigurationSignature, false),
+        OncParams("ikev2_eap.onc", &kNetworkConfigurationSignature, false),
+        OncParams("ikev2_psk.onc", &kNetworkConfigurationSignature, false),
         OncParams("valid_openvpn_with_cert_pems.onc",
                   &kNetworkConfigurationSignature,
                   false),
@@ -488,6 +497,12 @@ INSTANTIATE_TEST_SUITE_P(
                                  true),
                        ExpectBothNotValid("toplevel-repaired",
                                           "toplevel-repaired")),
+        std::make_pair(
+            OncParams("toplevel-multiple-ethernet-configs",
+                      &kToplevelConfigurationSignature,
+                      true),
+            ExpectBothNotValid("toplevel-multiple-ethernet-configs-repaired",
+                               "toplevel-multiple-ethernet-configs-repaired")),
         // Ignore recommended arrays in unmanaged ONC.
         std::make_pair(OncParams("network-with-illegal-recommended",
                                  &kNetworkConfigurationSignature,

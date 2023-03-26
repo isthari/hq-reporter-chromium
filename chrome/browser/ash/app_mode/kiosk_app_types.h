@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,13 +40,9 @@ class KioskAppId {
   KioskAppId(KioskAppType type, const AccountId& account_id);
 };
 
-}  // namespace ash
+// Overload << operator to allow logging of KioskAppId.
+std::ostream& operator<<(std::ostream& stream, const KioskAppId& app_id);
 
-// TODO(https://crbug.com/1164001): remove when the //chrome/browser/chromeos
-// source code migration is finished.
-namespace chromeos {
-using ::ash::KioskAppId;
-using ::ash::KioskAppType;
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_APP_MODE_KIOSK_APP_TYPES_H_

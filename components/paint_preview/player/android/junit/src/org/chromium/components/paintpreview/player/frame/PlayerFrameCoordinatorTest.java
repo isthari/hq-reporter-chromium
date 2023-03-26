@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,11 +30,11 @@ public class PlayerFrameCoordinatorTest {
         PlayerFrameCoordinator rootCoordinator = new PlayerFrameCoordinator(
                 RuntimeEnvironment.systemContext, Mockito.mock(PlayerCompositorDelegate.class),
                 Mockito.mock(UnguessableToken.class), 100, 2000, 0, 0, 0f, true, null,
-                Mockito.mock(PlayerGestureListener.class), null, null, null, true);
+                Mockito.mock(PlayerGestureListener.class), null, null, null);
         PlayerFrameCoordinator childCoordinator = new PlayerFrameCoordinator(
                 RuntimeEnvironment.systemContext, Mockito.mock(PlayerCompositorDelegate.class),
                 Mockito.mock(UnguessableToken.class), 100, 200, 0, 0, 0f, true, null,
-                Mockito.mock(PlayerGestureListener.class), null, null, null, true);
+                Mockito.mock(PlayerGestureListener.class), null, null, null);
         rootCoordinator.addSubFrame(childCoordinator, new Rect(10, 20, 35, 40));
 
         rootCoordinator.getMediator().setLayoutDimensions(100, 200);

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,12 +11,13 @@
 #include <memory>
 #include <utility>
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/synchronization/waitable_event.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/platform_thread.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/timer/timer.h"
 #include "base/trace_event/trace_event.h"
@@ -39,7 +40,6 @@ AudioOutputDevice::AudioOutputDevice(
       state_(IDLE),
       session_id_(sink_params.session_id),
       device_id_(sink_params.device_id),
-      processing_id_(sink_params.processing_id),
       stopping_hack_(false),
       did_receive_auth_(base::WaitableEvent::ResetPolicy::MANUAL,
                         base::WaitableEvent::InitialState::NOT_SIGNALED),
@@ -53,12 +53,19 @@ AudioOutputDevice::AudioOutputDevice(
 void AudioOutputDevice::Initialize(const AudioParameters& params,
                                    RenderCallback* callback) {
   io_task_runner_->PostTask(
-      FROM_HERE, base::BindOnce(&AudioOutputDevice::InitializeOnIOThread, this,
-                                params, callback));
+      FROM_HERE,
+      base::BindOnce(&AudioOutputDevice::InitializeOnIOThread, this, params,
+                     // The lifecycle of `callback` is controlled by the owner
+                     // who is responsible for calling Stop before deallocating
+                     // it. InitializeOnIOThread verifies this before using
+                     // callback and we would not want to try to persist the
+                     // object here as it would break the ownership model.
+                     base::UnsafeDangling(callback)));
 }
 
-void AudioOutputDevice::InitializeOnIOThread(const AudioParameters& params,
-                                             RenderCallback* callback) {
+void AudioOutputDevice::InitializeOnIOThread(
+    const AudioParameters& params,
+    MayBeDangling<RenderCallback> callback) {
   DCHECK(!callback_) << "Calling Initialize() twice?";
   DCHECK(params.IsValid());
   DVLOG(1) << __func__ << ": " << params.AsHumanReadableString();
@@ -112,6 +119,7 @@ void AudioOutputDevice::Start() {
 void AudioOutputDevice::Stop() {
   TRACE_EVENT0("audio", "AudioOutputDevice::Stop");
   {
+    base::ScopedAllowBaseSyncPrimitives allow;
     base::AutoLock auto_lock(audio_thread_lock_);
     audio_thread_.reset();
     stopping_hack_ = true;
@@ -172,7 +180,7 @@ void AudioOutputDevice::GetOutputDeviceInfoAsync(OutputDeviceInfoCB info_cb) {
   // on a powerful desktop, we haven't received device authorization by this
   // point when AOD construction and GetOutputDeviceInfoAsync() happen back to
   // back (which is the most common use case).
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(info_cb), GetOutputDeviceInfo_Signaled()));
 }
@@ -228,7 +236,7 @@ void AudioOutputDevice::CreateStreamOnIOThread() {
   if (state_ == IDLE && !(did_receive_auth_.IsSignaled() && device_id_.empty()))
     RequestDeviceAuthorizationOnIOThread();
 
-  ipc_->CreateStream(this, audio_parameters_, processing_id_);
+  ipc_->CreateStream(this, audio_parameters_);
   // By default, start playing right away.
   ipc_->PlayStream();
   state_ = STREAM_CREATION_REQUESTED;
@@ -419,7 +427,7 @@ void AudioOutputDevice::OnStreamCreated(
       audio_callback_->InitializePlayStartTime();
     audio_thread_ = std::make_unique<AudioDeviceThread>(
         audio_callback_.get(), std::move(socket_handle), "AudioOutputDevice",
-        base::ThreadPriority::REALTIME_AUDIO);
+        base::ThreadType::kRealtimeAudio);
   }
 }
 

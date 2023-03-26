@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,19 +8,20 @@
 #include "ash/constants/ash_pref_names.h"
 #include "ash/constants/ash_switches.h"
 #include "ash/shell.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/ash/accessibility/magnification_manager.h"
 #include "chrome/browser/ash/login/helper.h"
-#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile_test_util.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/testing_profile.h"
+#include "chromeos/ash/components/browser_context_helper/browser_context_helper.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/user_prefs/user_prefs.h"
@@ -90,17 +91,24 @@ void PrepareNonNewProfile(const AccountId& account_id) {
   // To prepare a non-new profile for tests, we must ensure the profile
   // directory and the preference files are created, because that's what
   // Profile::IsNewProfile() checks. CreateSession(), however, does not yet
-  // create the profile directory until GetProfileByUserIdHashForTest() is
-  // called.
-  ProfileHelper::Get()->GetProfileByUserIdHashForTest(
-      account_id.GetUserEmail());
+  // create the profile directory, so create the profile actually here.
+  profiles::testing::CreateProfileSync(
+      g_browser_process->profile_manager(),
+      BrowserContextHelper::Get()->GetBrowserContextPathByUserIdHash(
+          user_manager::UserManager::Get()
+              ->FindUser(account_id)
+              ->username_hash()));
 }
 
 // Simulates how UserSessionManager starts a user session by loading user
 // profile, notify user profile is loaded, and mark session as started.
 void StartUserSession(const AccountId& account_id) {
-  ProfileHelper::GetProfileByUserIdHashForTest(
-      user_manager::UserManager::Get()->FindUser(account_id)->username_hash());
+  profiles::testing::CreateProfileSync(
+      g_browser_process->profile_manager(),
+      BrowserContextHelper::Get()->GetBrowserContextPathByUserIdHash(
+          user_manager::UserManager::Get()
+              ->FindUser(account_id)
+              ->username_hash()));
 
   auto* session_manager = session_manager::SessionManager::Get();
   session_manager->NotifyUserProfileLoaded(account_id);
@@ -160,6 +168,7 @@ class MagnificationManagerTest : public InProcessBrowserTest {
     command_line->AppendSwitch(switches::kLoginManager);
     command_line->AppendSwitchASCII(switches::kLoginProfile,
                                     TestingProfile::kTestUserProfileDir);
+    command_line->AppendSwitch(switches::kAllowFailedPolicyFetchForTest);
   }
 
   void SetUpOnMainThread() override {

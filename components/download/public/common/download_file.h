@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include <memory>
 #include <string>
 
-#include "base/callback_forward.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback_forward.h"
 #include "build/build_config.h"
 #include "components/download/public/common/base_file.h"
 #include "components/download/public/common/download_export.h"
@@ -115,23 +115,9 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadFile {
   virtual void Resume() = 0;
 
 #if BUILDFLAG(IS_ANDROID)
-  // Renames the download file to an intermediate URI. If current_path is a
-  // content URI, it will be used for the renaming. Otherwise, A new
-  // intermediate URI will be created to write the download file. Once
-  // completes, |callback| is called with a content URI to be written into.
-  virtual void RenameToIntermediateUri(const GURL& original_url,
-                                       const GURL& referrer_url,
-                                       const base::FilePath& file_name,
-                                       const std::string& mime_type,
-                                       const base::FilePath& current_path,
-                                       RenameCompletionCallback callback) = 0;
-
   // Publishes the download to public. Once completes, |callback| is called with
   // the final content URI.
   virtual void PublishDownload(RenameCompletionCallback callback) = 0;
-
-  // Returns the suggested file path from the system.
-  virtual base::FilePath GetDisplayName() = 0;
 #endif  // BUILDFLAG(IS_ANDROID)
 };
 

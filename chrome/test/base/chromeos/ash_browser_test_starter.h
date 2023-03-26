@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,7 @@ class AshBrowserTestStarter {
   // Returns whether the --lacros-chrome-path is provided.
   // If returns false, we should not do any Lacros related testing
   // because the Lacros instance is not provided.
-  bool HasLacrosArgument();
+  bool HasLacrosArgument() const;
 
   // Prepares ash so it can work with Lacros. You should call this
   // in SetUpInProcessBrowserTestFixture().

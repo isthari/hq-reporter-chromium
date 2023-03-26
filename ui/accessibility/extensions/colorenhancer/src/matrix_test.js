@@ -1,12 +1,13 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-/** Test fixture for matrix.js */
-Matrix3x3UnitTest = class extends testing.Test {};
+GEN_INCLUDE(['matrix.js']);
 
-/** @override */
-Matrix3x3UnitTest.prototype.extraLibraries = ['matrix.js'];
+GEN_INCLUDE(['../../webstore_extension_test_base.js']);
+
+/** Test fixture for matrix.js. */
+Matrix3x3UnitTest = class extends WebstoreExtensionTest {};
 
 /**
  * @param {!Array<!Array<number>>} expected

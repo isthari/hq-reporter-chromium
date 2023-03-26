@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/task/common/task_annotator.h"
 #include "build/build_config.h"
+#include "content/browser/renderer_host/frame_tree.h"
 #include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/browser/renderer_host/navigation_entry_impl.h"
 #include "content/browser/renderer_host/page_impl.h"
@@ -66,9 +67,6 @@ void WebContentsObserverConsistencyChecker::RenderFrameCreated(
                  << Format(render_frame_host);
   }
 
-  CHECK(render_frame_host->IsRenderFrameCreated())
-      << "RenderFrameCreated was called for a RenderFrameHost that has not been"
-         "marked created.";
   CHECK(render_frame_host->GetProcess()->IsInitializedAndNotDead())
       << "RenderFrameCreated was called for a RenderFrameHost whose render "
          "process is not currently live, so there's no way for the RenderFrame "
@@ -95,9 +93,6 @@ void WebContentsObserverConsistencyChecker::RenderFrameCreated(
 void WebContentsObserverConsistencyChecker::RenderFrameDeleted(
     RenderFrameHost* render_frame_host) {
   CHECK(!web_contents_destroyed_);
-  CHECK(!render_frame_host->IsRenderFrameCreated())
-      << "RenderFrameDeleted was called for a RenderFrameHost that is"
-         "(still) marked as created.";
   CHECK(!render_frame_host->IsRenderFrameLive())
       << "RenderFrameDeleted was called for a RenderFrameHost that is"
          "still live.";
@@ -167,11 +162,7 @@ void WebContentsObserverConsistencyChecker::RenderFrameHostChanged(
         (new_host->GetFrameOwnerElementType() !=
              blink::FrameOwnerElementType::kPortal &&
          new_host->GetFrameOwnerElementType() !=
-             blink::FrameOwnerElementType::kFencedframe) ||
-        (new_host->GetFrameOwnerElementType() ==
-             blink::FrameOwnerElementType::kFencedframe &&
-         blink::features::kFencedFramesImplementationTypeParam.Get() ==
-             blink::features::FencedFramesImplementationType::kShadowDOM);
+             blink::FrameOwnerElementType::kFencedframe);
     if (is_render_frame_created_needed_for_child) {
       AssertRenderFrameExists(new_host);
     }
@@ -180,26 +171,7 @@ void WebContentsObserverConsistencyChecker::RenderFrameHostChanged(
   }
 
   GlobalRoutingID routing_pair = GetRoutingPair(new_host);
-  bool host_exists = !current_hosts_.insert(routing_pair).second;
-  // TODO(https://crbug.com/1179683): Figure out a better way to deal with
-  // MPArch.
-  if (host_exists && !blink::features::IsPrerender2Enabled()) {
-    CHECK(false)
-        << "RenderFrameHostChanged called more than once for routing pair:"
-        << Format(new_host);
-  }
-
-  // If |new_host| is restored from the BackForwardCache, it can contain
-  // iframes, otherwise it has just been created and can't contain iframes for
-  // the moment.
-  //
-  // TODO(https://crbug.com/1179683): Figure out a better way to deal with
-  // handling the new RenderFrameHost coming from a prerendered activation
-  // rather than an ordinary activation.
-  if (!IsBackForwardCacheEnabled() && !blink::features::IsPrerender2Enabled()) {
-    CHECK(!HasAnyChildren(new_host))
-        << "A frame should not have children before it is committed.";
-  }
+  current_hosts_.insert(routing_pair);
 }
 
 void WebContentsObserverConsistencyChecker::FrameDeleted(
@@ -218,7 +190,7 @@ void WebContentsObserverConsistencyChecker::FrameDeleted(
   if (!render_frame_host) {
     DCHECK_NE(FrameTreeNode::GloballyFindByID(frame_tree_node_id)
                   ->frame_tree()
-                  ->type(),
+                  .type(),
               FrameTree::Type::kPrimary);
     return;
   }
@@ -454,7 +426,7 @@ void WebContentsObserverConsistencyChecker::AssertRenderFrameExists(
 }
 
 void WebContentsObserverConsistencyChecker::AssertMainFrameExists() {
-  AssertRenderFrameExists(web_contents()->GetMainFrame());
+  AssertRenderFrameExists(web_contents()->GetPrimaryMainFrame());
 }
 
 std::string WebContentsObserverConsistencyChecker::Format(

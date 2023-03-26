@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,16 +12,16 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/posix/eintr_wrapper.h"
+#include "base/task/single_thread_task_runner.h"
 
 namespace remoting {
 
 namespace {
 
-const int kSampleBytesPerSecond = AudioPipeReader::kSamplingRate *
+const int kSampleBytesPerSecond = int{AudioPipeReader::kSamplingRate} *
                                   AudioPipeReader::kChannels *
                                   AudioPipeReader::kBytesPerSample;
 
@@ -53,8 +53,7 @@ AudioPipeReader::AudioPipeReader(
     const base::FilePath& pipe_path)
     : task_runner_(task_runner),
       pipe_path_(pipe_path),
-      observers_(new base::ObserverListThreadSafe<StreamObserver>()) {
-}
+      observers_(new base::ObserverListThreadSafe<StreamObserver>()) {}
 
 AudioPipeReader::~AudioPipeReader() = default;
 
@@ -158,12 +157,13 @@ void AudioPipeReader::DoCapture() {
 
   while (pos < data.size()) {
     int read_result =
-        pipe_.ReadAtCurrentPos(base::data(data) + pos, data.size() - pos);
+        pipe_.ReadAtCurrentPos(std::data(data) + pos, data.size() - pos);
     if (read_result > 0) {
       pos += read_result;
     } else {
-      if (read_result < 0 && errno != EWOULDBLOCK && errno != EAGAIN)
+      if (read_result < 0 && errno != EWOULDBLOCK && errno != EAGAIN) {
         PLOG(ERROR) << "read";
+      }
       break;
     }
   }
@@ -176,7 +176,7 @@ void AudioPipeReader::DoCapture() {
 
   // Save any incomplete samples we've read for later. Each packet should
   // contain integer number of samples.
-  int incomplete_samples_bytes = pos % (kChannels * kBytesPerSample);
+  int incomplete_samples_bytes = pos % (int{kChannels} * kBytesPerSample);
   left_over_bytes_.assign(data, pos - incomplete_samples_bytes,
                           incomplete_samples_bytes);
   data.resize(pos - incomplete_samples_bytes);
@@ -186,13 +186,14 @@ void AudioPipeReader::DoCapture() {
   // to read |bytes_to_read| bytes, but in case it's misbehaving we need to make
   // sure that |stream_position_bytes| doesn't go out of sync with the current
   // stream position.
-  if (stream_position_bytes - last_capture_position_ > pipe_buffer_size_)
+  if (stream_position_bytes - last_capture_position_ > pipe_buffer_size_) {
     last_capture_position_ = stream_position_bytes - pipe_buffer_size_;
+  }
   DCHECK_LE(last_capture_position_, stream_position_bytes);
 
   // Dispatch asynchronous notification to the stream observers.
   scoped_refptr<base::RefCountedString> data_ref =
-      base::RefCountedString::TakeString(&data);
+      base::MakeRefCounted<base::RefCountedString>(std::move(data));
   observers_->Notify(FROM_HERE, &StreamObserver::OnDataRead, data_ref);
 }
 

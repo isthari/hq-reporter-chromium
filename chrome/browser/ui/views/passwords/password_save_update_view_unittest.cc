@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,7 @@
 #include "components/password_manager/core/browser/mock_password_feature_manager.h"
 #include "components/password_manager/core/browser/mock_password_store_interface.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
-#include "components/sync/driver/test_sync_service.h"
+#include "components/sync/test/test_sync_service.h"
 #include "content/public/test/navigation_simulator.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -122,7 +122,7 @@ TEST_F(PasswordSaveUpdateViewTest, ShouldShowAccountPicker) {
   SimulateSignIn();
   CreateViewAndShow();
   ASSERT_TRUE(account_picker());
-  EXPECT_EQ(0, account_picker()->GetSelectedIndex());
+  EXPECT_EQ(0u, account_picker()->GetSelectedIndex());
 }
 
 TEST_F(PasswordSaveUpdateViewTest, ShouldSelectAccountStoreByDefault) {
@@ -137,11 +137,11 @@ TEST_F(PasswordSaveUpdateViewTest, ShouldSelectAccountStoreByDefault) {
   CreateViewAndShow();
 
   ASSERT_TRUE(account_picker());
-  EXPECT_EQ(0, account_picker()->GetSelectedIndex());
-  EXPECT_EQ(
-      l10n_util::GetStringUTF16(
-          IDS_PASSWORD_MANAGER_DESTINATION_DROPDOWN_SAVE_TO_ACCOUNT),
-      account_picker()->GetTextForRow(account_picker()->GetSelectedIndex()));
+  EXPECT_EQ(0u, account_picker()->GetSelectedIndex());
+  EXPECT_EQ(l10n_util::GetStringUTF16(
+                IDS_PASSWORD_MANAGER_DESTINATION_DROPDOWN_SAVE_TO_ACCOUNT),
+            account_picker()->GetTextForRow(
+                account_picker()->GetSelectedIndex().value()));
 }
 
 TEST_F(PasswordSaveUpdateViewTest, ShouldSelectProfileStoreByDefault) {
@@ -153,11 +153,11 @@ TEST_F(PasswordSaveUpdateViewTest, ShouldSelectProfileStoreByDefault) {
   SimulateSignIn();
   CreateViewAndShow();
   ASSERT_TRUE(account_picker());
-  EXPECT_EQ(1, account_picker()->GetSelectedIndex());
-  EXPECT_EQ(
-      l10n_util::GetStringUTF16(
-          IDS_PASSWORD_MANAGER_DESTINATION_DROPDOWN_SAVE_TO_DEVICE),
-      account_picker()->GetTextForRow(account_picker()->GetSelectedIndex()));
+  EXPECT_EQ(1u, account_picker()->GetSelectedIndex());
+  EXPECT_EQ(l10n_util::GetStringUTF16(
+                IDS_PASSWORD_MANAGER_DESTINATION_DROPDOWN_SAVE_TO_DEVICE),
+            account_picker()->GetTextForRow(
+                account_picker()->GetSelectedIndex().value()));
 }
 
 // This is a regression test for crbug.com/1093290
@@ -167,7 +167,7 @@ TEST_F(PasswordSaveUpdateViewTest,
   url::Origin kOrigin = url::Origin::Create(kURL);
   ON_CALL(*model_delegate_mock(), GetOrigin).WillByDefault(Return(kOrigin));
   content::NavigationSimulator::NavigateAndCommitFromDocument(
-      kURL, web_contents()->GetMainFrame());
+      kURL, web_contents()->GetPrimaryMainFrame());
 
   // Set the federation_origin to force a Federated Credentials bubble.
   pending_password_.federation_origin = kOrigin;

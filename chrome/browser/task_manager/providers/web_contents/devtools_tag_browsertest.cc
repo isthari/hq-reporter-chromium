@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,12 +58,12 @@ class DevToolsTagTest : public InProcessBrowserTest {
   }
 
  private:
-  raw_ptr<DevToolsWindow> devtools_window_;
+  raw_ptr<DevToolsWindow, DanglingUntriaged> devtools_window_;
 };
 
 // Tests that opening a DevToolsWindow will result in tagging its main
 // WebContents and that tag will be recorded by the TagsManager.
-IN_PROC_BROWSER_TEST_F(DevToolsTagTest, TagsManagerRecordsATag) {
+IN_PROC_BROWSER_TEST_F(DevToolsTagTest, DISABLED_TagsManagerRecordsATag) {
   // Browser tests start with a single tab.
   EXPECT_EQ(1U, tags_manager()->tracked_tags().size());
 
@@ -128,12 +128,10 @@ IN_PROC_BROWSER_TEST_F(DevToolsTagTest, DevToolsTaskIsProvided) {
   }
   EXPECT_NE(task_manager.tasks()[0]->title(),
             task_manager.tasks()[1]->title());
-  // If same-site back-forward cache is enabled, the task for the previous page
+  // If back/forward cache is enabled, the task for the previous page
   // will still be around.
   EXPECT_EQ(
-      content::BackForwardCache::IsSameSiteBackForwardCacheFeatureEnabled()
-          ? 3U
-          : 2U,
+      content::BackForwardCache::IsBackForwardCacheFeatureEnabled() ? 3U : 2U,
       task_manager.tasks().size());
 
   // Close the DevTools window.
@@ -141,9 +139,7 @@ IN_PROC_BROWSER_TEST_F(DevToolsTagTest, DevToolsTaskIsProvided) {
   EXPECT_EQ(1U, tags_manager()->tracked_tags().size());
 
   EXPECT_EQ(
-      content::BackForwardCache::IsSameSiteBackForwardCacheFeatureEnabled()
-          ? 2U
-          : 1U,
+      content::BackForwardCache::IsBackForwardCacheFeatureEnabled() ? 2U : 1U,
       task_manager.tasks().size());
 }
 

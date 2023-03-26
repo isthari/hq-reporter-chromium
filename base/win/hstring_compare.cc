@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,13 @@
 #include <winstring.h>
 
 #include "base/native_library.h"
-#include "base/win/windows_version.h"
 
-namespace base {
-namespace win {
+namespace base::win {
 
 HRESULT HStringCompare(HSTRING string1, HSTRING string2, INT32* result) {
   using CompareStringFunc = decltype(&::WindowsCompareStringOrdinal);
 
   static const auto compare_string_func = []() -> CompareStringFunc {
-    if (GetVersion() < Version::WIN8)
-      return nullptr;
-
     NativeLibraryLoadError load_error;
     NativeLibrary combase_module =
         PinSystemLibrary(FILE_PATH_LITERAL("combase.dll"), &load_error);
@@ -36,5 +31,4 @@ HRESULT HStringCompare(HSTRING string1, HSTRING string2, INT32* result) {
   return compare_string_func(string1, string2, result);
 }
 
-}  // namespace win
-}  // namespace base
+}  // namespace base::win

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -10,10 +10,10 @@
 
 #include "base/memory/raw_ptr.h"
 #include "net/base/net_export.h"
-#include "net/third_party/quiche/src/quic/core/quic_alarm_factory.h"
-#include "net/third_party/quiche/src/quic/core/quic_clock.h"
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/core/quic_time.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_alarm_factory.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_clock.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_packets.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_time.h"
 
 namespace base {
 class SequencedTaskRunner;

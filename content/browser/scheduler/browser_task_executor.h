@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,8 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_executor.h"
 #include "build/build_config.h"
 #include "content/browser/scheduler/browser_io_thread_delegate.h"
@@ -84,6 +86,7 @@ class CONTENT_EXPORT BrowserTaskExecutor : public BaseBrowserTaskExecutor {
   // Creates and registers a BrowserTaskExecutor on the current thread which
   // owns a BrowserUIThreadScheduler. This facilitates posting tasks to a
   // BrowserThread via //base/task/post_task.h.
+  // TODO(crbug.com/1026641): Clean this up now that post_task.h is deprecated.
   // All BrowserThread::UI task queues except best effort ones are also enabled.
   // TODO(carlscab): These queues should be enabled in
   // BrowserMainLoop::InitializeMainThread() but some Android tests fail if we
@@ -103,20 +106,22 @@ class CONTENT_EXPORT BrowserTaskExecutor : public BaseBrowserTaskExecutor {
   //
   // Browser task queues will initially be disabled, that is tasks posted to
   // them will not run. But the default task runner of the thread (the one you
-  // get via ThreadTaskRunnerHandle::Get()) will be active. This is the same
-  // task runner you get by calling BrowserProcessIOThread::task_runner(). The
-  // queues can be initialized by calling InitializeIOThread which is done
-  // during Chromium starup in BrowserMainLoop::CreateThreads.
+  // get via SingleThreadTaskRunner::GetCurrentDefault()) will be active. This
+  // is the same task runner you get by calling
+  // BrowserProcessIOThread::task_runner(). The queues can be initialized by
+  // calling InitializeIOThread which is done during Chromium startup in
+  // BrowserMainLoop::CreateThreads.
   //
   // Early on during Chromium startup we initialize the ServiceManager and it
   // needs to run tasks immediately. The ServiceManager itself does not know
   // about the IO thread (it does not use the browser task traits), it only uses
   // the task runner provided to it during initialization and possibly
-  // ThreadTaskRunnerHandle::Get() from tasks it posts. But we currently run it
-  // on the IO thread so we need the default task runner to be active for its
-  // tasks to run. Note that since tasks posted via the browser task traits will
-  // not run they won't be able to access the default task runner either, so for
-  // those tasks the default task queue is also "disabled".
+  // SingleThreadTaskRunner::GetCurrentDefault() from tasks it posts. But we
+  // currently run it on the IO thread so we need the default task runner to be
+  // active for its tasks to run. Note that since tasks posted via the browser
+  // task traits will not run they won't be able to access the default task
+  // runner either, so for those tasks the default task queue is also
+  // "disabled".
   //
   // Attention: This method can only be called once (as there must be only one
   // IO thread).
@@ -128,9 +133,10 @@ class CONTENT_EXPORT BrowserTaskExecutor : public BaseBrowserTaskExecutor {
   // BrowserMainLoop::CreateThreads.
   static void InitializeIOThread();
 
-  // Enables all queues on all threads.
+  // Informs BrowserTaskExecutor that startup is complete.
+  // It will communicate that to UI and IO thread BrowserTaskQueues.
   // Can be called multiple times.
-  static void EnableAllQueues();
+  static void OnStartupComplete();
 
   // Helpers to statically call into BaseBrowserTaskExecutor::GetTaskRunner()
   // from browser_thread_impl.cc. Callers should use browser_thread.h's

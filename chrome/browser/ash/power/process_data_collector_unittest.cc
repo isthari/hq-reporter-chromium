@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,16 +14,15 @@
 #include <unordered_set>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/files/file.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/format_macros.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/test/task_environment.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
@@ -484,8 +483,8 @@ void ProcessDataCollectorTest::CheckProcessUsages(
   for (const auto& process : process_list) {
     pid_t pid = process.process_data.pid;
 
-    EXPECT_DOUBLE_EQ(process.power_usage_fraction,
-                     timestep_info.expected_averages.at(pid))
+    EXPECT_NEAR(process.power_usage_fraction,
+                timestep_info.expected_averages.at(pid), 0.000000001)
         << "For PID " << pid
         << " the expected and calculated average CPU "
            "usages didn't match.";

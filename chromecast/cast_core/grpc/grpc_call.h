@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,19 @@ class GrpcCall {
   using AsyncInterface = typename TGrpcStub::AsyncInterface;
   using Request = TRequest;
 
+  // Client call context valid only through duration of the call.
+  class Context {
+   public:
+    explicit Context(grpc::ClientContext* grpc_context)
+        : grpc_context_(grpc_context) {}
+
+    // Try cancelling the call.
+    void Cancel() { grpc_context_->TryCancel(); }
+
+   private:
+    grpc::ClientContext* grpc_context_;
+  };
+
   explicit GrpcCall(SyncInterface* stub) : GrpcCall(stub, Request()) {}
 
   GrpcCall(SyncInterface* stub, Request request)
@@ -41,9 +54,7 @@ class GrpcCall {
   Request&& request() && { return std::move(request_); }
 
   // Sets a deadline for gRPC call.
-  void SetDeadline(const base::TimeDelta& deadline) {
-    options_.SetDeadline(deadline);
-  }
+  void SetDeadline(int64_t deadline_ms) { options_.SetDeadline(deadline_ms); }
 
  protected:
   SyncInterface* sync() && {

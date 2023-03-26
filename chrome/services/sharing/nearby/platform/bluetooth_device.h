@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,8 @@
 #include "base/time/time.h"
 #include "device/bluetooth/public/mojom/adapter.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/nearby/src/cpp/platform/api/bluetooth_classic.h"
+#include "third_party/nearby/src/internal/platform/implementation/bluetooth_classic.h"
 
-namespace location {
 namespace nearby {
 namespace chrome {
 
@@ -48,6 +47,5 @@ class BluetoothDevice : public api::BluetoothDevice {
 
 }  // namespace chrome
 }  // namespace nearby
-}  // namespace location
 
 #endif  // CHROME_SERVICES_SHARING_NEARBY_PLATFORM_BLUETOOTH_DEVICE_H_

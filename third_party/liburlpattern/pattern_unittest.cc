@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by an MIT-style license that can be
 // found in the LICENSE file or at https://opensource.org/licenses/MIT.
 
@@ -446,7 +446,8 @@ TEST(PatternStringTest, CaseFromFuzzer) {
 struct DirectMatchCase {
   absl::string_view input;
   bool expected_match = true;
-  std::vector<std::pair<absl::string_view, absl::string_view>> expected_groups;
+  std::vector<std::pair<absl::string_view, absl::optional<absl::string_view>>>
+      expected_groups;
 };
 
 void RunDirectMatchTest(absl::string_view input,
@@ -458,7 +459,8 @@ void RunDirectMatchTest(absl::string_view input,
   auto& pattern = result.value();
   EXPECT_TRUE(pattern.CanDirectMatch());
   for (const auto& c : case_list) {
-    std::vector<std::pair<absl::string_view, absl::string_view>> matched_groups;
+    std::vector<std::pair<absl::string_view, absl::optional<absl::string_view>>>
+        matched_groups;
     EXPECT_EQ(c.expected_match, pattern.DirectMatch(c.input, &matched_groups));
     ASSERT_EQ(c.expected_groups.size(), matched_groups.size());
     for (size_t i = 0; i < matched_groups.size(); ++i) {

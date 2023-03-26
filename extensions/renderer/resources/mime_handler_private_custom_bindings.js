@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,8 +27,8 @@ function handleRequestWithPromiseDoNotUse(
   binding.setHandleRequest(methodName, function() {
     logActivity.LogAPICall(extensionId, fullName, $Array.slice(arguments));
     var stack = exceptionHandler.getExtensionStackTrace();
-    var callback = arguments[arguments.length - 1];
-    var args = $Array.slice(arguments, 0, arguments.length - 1);
+    var callback = arguments[arguments.length - 2];
+    var args = $Array.slice(arguments, 0, arguments.length - 2);
     var keepAlive = require('keep_alive').createKeepAlive();
     $Function.apply(customizedFunction, this, args).then(function(result) {
       if (callback) {

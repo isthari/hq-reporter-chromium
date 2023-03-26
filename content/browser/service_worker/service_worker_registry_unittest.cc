@@ -1,12 +1,13 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/browser/service_worker/service_worker_registry.h"
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_test_utils.h"
@@ -30,6 +31,9 @@ namespace content {
 
 namespace {
 
+using ::testing::Eq;
+using ::testing::Pointee;
+
 struct ReadResponseHeadResult {
   int result;
   network::mojom::URLResponseHeadPtr response_head;
@@ -44,8 +48,8 @@ struct GetStorageUsageForStorageKeyResult {
 storage::mojom::ServiceWorkerResourceRecordPtr
 CreateResourceRecord(int64_t resource_id, const GURL& url, int64_t size_bytes) {
   EXPECT_TRUE(url.is_valid());
-  return storage::mojom::ServiceWorkerResourceRecord::New(resource_id, url,
-                                                          size_bytes);
+  return storage::mojom::ServiceWorkerResourceRecord::New(
+      resource_id, url, size_bytes, /*sha256_checksum=*/"");
 }
 
 storage::mojom::ServiceWorkerRegistrationDataPtr CreateRegistrationData(
@@ -129,7 +133,7 @@ int WriteBasicResponse(
     int64_t id) {
   const char kHttpHeaders[] = "HTTP/1.0 200 HONKYDORY\0Content-Length: 5\0\0";
   const char kHttpBody[] = "Hello";
-  std::string headers(kHttpHeaders, base::size(kHttpHeaders));
+  std::string headers(kHttpHeaders, std::size(kHttpHeaders));
   return WriteStringResponse(storage, id, headers, std::string(kHttpBody));
 }
 
@@ -168,19 +172,25 @@ bool VerifyBasicResponse(
   storage->CreateResourceReader(id, reader.BindNewPipeAndPassReceiver());
 
   const int kBigEnough = 512;
-  MockServiceWorkerDataPipeStateNotifier notifier;
   mojo::ScopedDataPipeConsumerHandle data_consumer;
   base::RunLoop loop;
-  reader->ReadData(
-      kBigEnough, notifier.BindNewPipeAndPassRemote(),
+  reader->PrepareReadData(
+      kBigEnough,
       base::BindLambdaForTesting([&](mojo::ScopedDataPipeConsumerHandle pipe) {
         data_consumer = std::move(pipe);
         loop.Quit();
       }));
   loop.Run();
 
+  int32_t rv;
+  base::RunLoop loop2;
+  reader->ReadData(base::BindLambdaForTesting([&](int32_t status) {
+    rv = status;
+    loop2.Quit();
+  }));
+
   std::string body = ReadDataPipe(std::move(data_consumer));
-  int rv = notifier.WaitUntilComplete();
+  loop2.Run();
 
   EXPECT_EQ(static_cast<int>(kExpectedHttpBody.size()), rv);
   if (rv <= 0)
@@ -410,12 +420,11 @@ class ServiceWorkerRegistryTest : public testing::Test {
   }
 
   blink::ServiceWorkerStatusCode DeleteRegistration(
-      scoped_refptr<ServiceWorkerRegistration> registration,
-      const blink::StorageKey& key) {
+      scoped_refptr<ServiceWorkerRegistration> registration) {
     blink::ServiceWorkerStatusCode result;
     base::RunLoop loop;
     registry()->DeleteRegistration(
-        registration, key,
+        registration,
         base::BindLambdaForTesting([&](blink::ServiceWorkerStatusCode status) {
           result = status;
           loop.Quit();
@@ -445,6 +454,21 @@ class ServiceWorkerRegistryTest : public testing::Test {
     registry()->UpdateLastUpdateCheckTime(
         registration->id(), registration->key(),
         registration->last_update_check(),
+        base::BindLambdaForTesting([&](blink::ServiceWorkerStatusCode status) {
+          result = status;
+          loop.Quit();
+        }));
+    loop.Run();
+    return result;
+  }
+
+  blink::ServiceWorkerStatusCode UpdateFetchHandlerType(
+      const ServiceWorkerRegistration* registration,
+      ServiceWorkerVersion::FetchHandlerType fetch_handler_type) {
+    base::RunLoop loop;
+    blink::ServiceWorkerStatusCode result;
+    registry()->UpdateFetchHandlerType(
+        registration->id(), registration->key(), fetch_handler_type,
         base::BindLambdaForTesting([&](blink::ServiceWorkerStatusCode status) {
           result = status;
           loop.Quit();
@@ -626,7 +650,7 @@ TEST_F(ServiceWorkerRegistryTest, CreateNewRegistration) {
 
   base::RunLoop loop;
   registry()->CreateNewRegistration(
-      std::move(options), kKey,
+      std::move(options), kKey, blink::mojom::AncestorFrameType::kNormalFrame,
       base::BindLambdaForTesting(
           [&](scoped_refptr<ServiceWorkerRegistration> new_registration) {
             EXPECT_EQ(new_registration->scope(), kScope);
@@ -660,7 +684,7 @@ TEST_F(ServiceWorkerRegistryTest, GetOrCreateBucketError) {
 
   base::RunLoop loop;
   registry()->CreateNewRegistration(
-      std::move(options), kKey,
+      std::move(options), kKey, blink::mojom::AncestorFrameType::kNormalFrame,
       base::BindLambdaForTesting(
           [&](scoped_refptr<ServiceWorkerRegistration> new_registration) {
             EXPECT_EQ(new_registration, nullptr);
@@ -704,8 +728,7 @@ TEST_F(ServiceWorkerRegistryTest, StoreFindUpdateDeleteRegistration) {
 
   // Because nothing was found we shouldn't have notified the quota manager
   // about any accesses.
-  EXPECT_EQ(0,
-            helper()->quota_manager_proxy()->notify_storage_accessed_count());
+  EXPECT_EQ(0, helper()->quota_manager_proxy()->notify_bucket_accessed_count());
 
   std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> resources;
   resources.push_back(CreateResourceRecord(1, kResource1, kResource1Size));
@@ -715,15 +738,17 @@ TEST_F(ServiceWorkerRegistryTest, StoreFindUpdateDeleteRegistration) {
   blink::mojom::ServiceWorkerRegistrationOptions options;
   options.scope = kScope;
   scoped_refptr<ServiceWorkerRegistration> live_registration =
-      new ServiceWorkerRegistration(options, kKey, kRegistrationId,
-                                    context()->AsWeakPtr());
-  scoped_refptr<ServiceWorkerVersion> live_version = new ServiceWorkerVersion(
-      live_registration.get(), kResource1, blink::mojom::ScriptType::kClassic,
-      kVersionId,
-      mojo::PendingRemote<storage::mojom::ServiceWorkerLiveVersionRef>(),
-      context()->AsWeakPtr());
-  live_version->set_fetch_handler_existence(
-      ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
+      base::MakeRefCounted<ServiceWorkerRegistration>(
+          options, kKey, kRegistrationId, context()->AsWeakPtr(),
+          blink::mojom::AncestorFrameType::kNormalFrame);
+  scoped_refptr<ServiceWorkerVersion> live_version =
+      base::MakeRefCounted<ServiceWorkerVersion>(
+          live_registration.get(), kResource1,
+          blink::mojom::ScriptType::kClassic, kVersionId,
+          mojo::PendingRemote<storage::mojom::ServiceWorkerLiveVersionRef>(),
+          context()->AsWeakPtr());
+  live_version->set_fetch_handler_type(
+      ServiceWorkerVersion::FetchHandlerType::kNotSkippable);
   live_version->SetStatus(ServiceWorkerVersion::INSTALLED);
   live_version->script_cache_map()->SetResources(resources);
   live_version->set_used_features(
@@ -731,25 +756,24 @@ TEST_F(ServiceWorkerRegistryTest, StoreFindUpdateDeleteRegistration) {
   network::CrossOriginEmbedderPolicy coep_require_corp;
   coep_require_corp.value =
       network::mojom::CrossOriginEmbedderPolicyValue::kRequireCorp;
-  live_version->set_cross_origin_embedder_policy(coep_require_corp);
+  auto policy_container_host = base::MakeRefCounted<PolicyContainerHost>();
+  policy_container_host->set_cross_origin_embedder_policy(coep_require_corp);
+  live_version->set_policy_container_host(std::move(policy_container_host));
   live_registration->SetWaitingVersion(live_version);
   live_registration->set_last_update_check(kYesterday);
   EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
             StoreRegistration(live_registration, live_version));
 
   // Should have notified for the store.
-  EXPECT_EQ(1,
-            helper()->quota_manager_proxy()->notify_storage_modified_count());
+  EXPECT_EQ(1, helper()->quota_manager_proxy()->notify_bucket_modified_count());
   // Still shouldn't have notified any accesses.
-  EXPECT_EQ(0,
-            helper()->quota_manager_proxy()->notify_storage_accessed_count());
+  EXPECT_EQ(0, helper()->quota_manager_proxy()->notify_bucket_accessed_count());
 
   // Now we should find it and get the live ptr back immediately.
   EXPECT_EQ(
       blink::ServiceWorkerStatusCode::kOk,
       FindRegistrationForClientUrl(kDocumentUrl, kKey, found_registration));
-  EXPECT_EQ(1,
-            helper()->quota_manager_proxy()->notify_storage_accessed_count());
+  EXPECT_EQ(1, helper()->quota_manager_proxy()->notify_bucket_accessed_count());
   EXPECT_EQ(live_registration, found_registration);
   EXPECT_EQ(kResource1Size + kResource2Size,
             live_registration->resources_total_size_bytes());
@@ -757,24 +781,22 @@ TEST_F(ServiceWorkerRegistryTest, StoreFindUpdateDeleteRegistration) {
             found_registration->resources_total_size_bytes());
   EXPECT_EQ(used_features,
             found_registration->waiting_version()->used_features());
-  EXPECT_EQ(
+  EXPECT_THAT(
       found_registration->waiting_version()->cross_origin_embedder_policy(),
-      coep_require_corp);
+      Pointee(Eq(coep_require_corp)));
   found_registration = nullptr;
 
   // But FindRegistrationForScope is always async.
   EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
             FindRegistrationForScope(kScope, kKey, found_registration));
-  EXPECT_EQ(2,
-            helper()->quota_manager_proxy()->notify_storage_accessed_count());
+  EXPECT_EQ(2, helper()->quota_manager_proxy()->notify_bucket_accessed_count());
   EXPECT_EQ(live_registration, found_registration);
   found_registration = nullptr;
 
   // Can be found by id too.
   EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
             FindRegistrationForId(kRegistrationId, kKey, found_registration));
-  EXPECT_EQ(3,
-            helper()->quota_manager_proxy()->notify_storage_accessed_count());
+  EXPECT_EQ(3, helper()->quota_manager_proxy()->notify_bucket_accessed_count());
   ASSERT_TRUE(found_registration.get());
   EXPECT_EQ(kRegistrationId, found_registration->id());
   EXPECT_EQ(live_registration, found_registration);
@@ -783,8 +805,7 @@ TEST_F(ServiceWorkerRegistryTest, StoreFindUpdateDeleteRegistration) {
   // Can be found by just the id too.
   EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
             FindRegistrationForIdOnly(kRegistrationId, found_registration));
-  EXPECT_EQ(4,
-            helper()->quota_manager_proxy()->notify_storage_accessed_count());
+  EXPECT_EQ(4, helper()->quota_manager_proxy()->notify_bucket_accessed_count());
   ASSERT_TRUE(found_registration.get());
   EXPECT_EQ(kRegistrationId, found_registration->id());
   EXPECT_EQ(live_registration, found_registration);
@@ -797,8 +818,7 @@ TEST_F(ServiceWorkerRegistryTest, StoreFindUpdateDeleteRegistration) {
   EXPECT_EQ(
       blink::ServiceWorkerStatusCode::kOk,
       FindRegistrationForClientUrl(kDocumentUrl, kKey, found_registration));
-  EXPECT_EQ(5,
-            helper()->quota_manager_proxy()->notify_storage_accessed_count());
+  EXPECT_EQ(5, helper()->quota_manager_proxy()->notify_bucket_accessed_count());
   ASSERT_TRUE(found_registration.get());
   EXPECT_EQ(kRegistrationId, found_registration->id());
   EXPECT_TRUE(found_registration->HasOneRef());
@@ -839,8 +859,7 @@ TEST_F(ServiceWorkerRegistryTest, StoreFindUpdateDeleteRegistration) {
   // And FindRegistrationForScope is always async.
   EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
             FindRegistrationForScope(kScope, kKey, found_registration));
-  EXPECT_EQ(6,
-            helper()->quota_manager_proxy()->notify_storage_accessed_count());
+  EXPECT_EQ(6, helper()->quota_manager_proxy()->notify_bucket_accessed_count());
   ASSERT_TRUE(found_registration.get());
   EXPECT_EQ(kRegistrationId, found_registration->id());
   EXPECT_TRUE(found_registration->HasOneRef());
@@ -859,14 +878,20 @@ TEST_F(ServiceWorkerRegistryTest, StoreFindUpdateDeleteRegistration) {
   EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
             UpdateToActiveState(found_registration.get()));
   found_registration->set_last_update_check(kToday);
-  UpdateLastUpdateCheckTime(found_registration.get());
+  ASSERT_EQ(UpdateLastUpdateCheckTime(found_registration.get()),
+            blink::ServiceWorkerStatusCode::kOk);
+  ASSERT_EQ(UpdateFetchHandlerType(
+                found_registration.get(),
+                ServiceWorkerVersion::FetchHandlerType::kEmptyFetchHandler),
+            blink::ServiceWorkerStatusCode::kOk);
 
   found_registration = nullptr;
 
   // Trying to update a unstored registration to active should fail.
   scoped_refptr<ServiceWorkerRegistration> unstored_registration =
-      new ServiceWorkerRegistration(options, kKey, kRegistrationId + 1,
-                                    context()->AsWeakPtr());
+      new ServiceWorkerRegistration(
+          options, kKey, kRegistrationId + 1, context()->AsWeakPtr(),
+          blink::mojom::AncestorFrameType::kNormalFrame);
   EXPECT_EQ(blink::ServiceWorkerStatusCode::kErrorNotFound,
             UpdateToActiveState(unstored_registration.get()));
   unstored_registration = nullptr;
@@ -876,8 +901,7 @@ TEST_F(ServiceWorkerRegistryTest, StoreFindUpdateDeleteRegistration) {
   EXPECT_EQ(
       blink::ServiceWorkerStatusCode::kOk,
       FindRegistrationForClientUrl(kDocumentUrl, kKey, found_registration));
-  EXPECT_EQ(7,
-            helper()->quota_manager_proxy()->notify_storage_accessed_count());
+  EXPECT_EQ(7, helper()->quota_manager_proxy()->notify_bucket_accessed_count());
   ASSERT_TRUE(found_registration.get());
   EXPECT_EQ(kRegistrationId, found_registration->id());
   EXPECT_TRUE(found_registration->HasOneRef());
@@ -886,10 +910,11 @@ TEST_F(ServiceWorkerRegistryTest, StoreFindUpdateDeleteRegistration) {
   EXPECT_EQ(ServiceWorkerVersion::ACTIVATED,
             found_registration->active_version()->status());
   EXPECT_EQ(kToday, found_registration->last_update_check());
+  EXPECT_EQ(ServiceWorkerVersion::FetchHandlerType::kEmptyFetchHandler,
+            found_registration->active_version()->fetch_handler_type());
 
   // Confirm that we only notified a modification once.
-  EXPECT_EQ(1,
-            helper()->quota_manager_proxy()->notify_storage_modified_count());
+  EXPECT_EQ(1, helper()->quota_manager_proxy()->notify_bucket_modified_count());
 }
 
 TEST_F(ServiceWorkerRegistryTest, InstallingRegistrationsAreFindable) {
@@ -1034,8 +1059,7 @@ TEST_F(ServiceWorkerRegistryTest, InstallingRegistrationsAreFindable) {
   EXPECT_TRUE(registrations_for_storage_key.empty());
 
   // Installing registrations should not trigger accessed count
-  EXPECT_EQ(0,
-            helper()->quota_manager_proxy()->notify_storage_accessed_count());
+  EXPECT_EQ(0, helper()->quota_manager_proxy()->notify_bucket_accessed_count());
 }
 
 TEST_F(ServiceWorkerRegistryTest, FindRegistration_LongestScopeMatch) {
@@ -1074,8 +1098,7 @@ TEST_F(ServiceWorkerRegistryTest, FindRegistration_LongestScopeMatch) {
 
   // Registrations in the installing state shouldn't trigger a modified
   // notification.
-  EXPECT_EQ(0,
-            helper()->quota_manager_proxy()->notify_storage_modified_count());
+  EXPECT_EQ(0, helper()->quota_manager_proxy()->notify_bucket_modified_count());
 
   // Find a registration among installing ones.
   EXPECT_EQ(
@@ -1088,18 +1111,15 @@ TEST_F(ServiceWorkerRegistryTest, FindRegistration_LongestScopeMatch) {
   EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
             StoreRegistration(live_registration1,
                               live_registration1->waiting_version()));
-  EXPECT_EQ(1,
-            helper()->quota_manager_proxy()->notify_storage_modified_count());
+  EXPECT_EQ(1, helper()->quota_manager_proxy()->notify_bucket_modified_count());
   EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
             StoreRegistration(live_registration2,
                               live_registration2->waiting_version()));
-  EXPECT_EQ(2,
-            helper()->quota_manager_proxy()->notify_storage_modified_count());
+  EXPECT_EQ(2, helper()->quota_manager_proxy()->notify_bucket_modified_count());
   EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
             StoreRegistration(live_registration3,
                               live_registration3->waiting_version()));
-  EXPECT_EQ(3,
-            helper()->quota_manager_proxy()->notify_storage_modified_count());
+  EXPECT_EQ(3, helper()->quota_manager_proxy()->notify_bucket_modified_count());
 
   // Notify storage of installations no longer happening.
   registry()->NotifyDoneInstallingRegistration(
@@ -1109,16 +1129,75 @@ TEST_F(ServiceWorkerRegistryTest, FindRegistration_LongestScopeMatch) {
   registry()->NotifyDoneInstallingRegistration(
       live_registration3.get(), nullptr, blink::ServiceWorkerStatusCode::kOk);
 
-  EXPECT_EQ(0,
-            helper()->quota_manager_proxy()->notify_storage_accessed_count());
+  EXPECT_EQ(0, helper()->quota_manager_proxy()->notify_bucket_accessed_count());
 
   // Find a registration among installed ones.
   EXPECT_EQ(
       blink::ServiceWorkerStatusCode::kOk,
       FindRegistrationForClientUrl(kDocumentUrl, kKey, found_registration));
-  EXPECT_EQ(1,
-            helper()->quota_manager_proxy()->notify_storage_accessed_count());
+  EXPECT_EQ(1, helper()->quota_manager_proxy()->notify_bucket_accessed_count());
   EXPECT_EQ(live_registration2, found_registration);
+}
+
+class ServiceWorkerRegistryMergeTest
+    : public ServiceWorkerRegistryTest,
+      public testing::WithParamInterface<bool> {};
+
+INSTANTIATE_TEST_SUITE_P(All, ServiceWorkerRegistryMergeTest, testing::Bool());
+
+TEST_P(ServiceWorkerRegistryMergeTest, MergeDuplicateFindRegistrationCalls) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  if (GetParam()) {
+    scoped_feature_list.InitAndEnableFeature(
+        kServiceWorkerMergeFindRegistrationForClientUrl);
+  } else {
+    scoped_feature_list.InitAndDisableFeature(
+        kServiceWorkerMergeFindRegistrationForClientUrl);
+  }
+  const GURL kScope("http://www.example.com/scope/");
+  const GURL kScript("http://www.example.com/script.js");
+  const blink::StorageKey kKey(url::Origin::Create(kScope));
+  scoped_refptr<ServiceWorkerRegistration> registration =
+      CreateServiceWorkerRegistrationAndVersion(context(), kScope, kScript,
+                                                kKey,
+                                                /*resource_id=*/1);
+
+  ServiceWorkerVersion* version = registration->waiting_version();
+  EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
+            StoreRegistration(registration, version));
+
+  const int kCallCount = 3;
+  int done_count = 0;
+  base::RunLoop loop;
+  for (int i = 0; i < kCallCount; i++) {
+    registry()->FindRegistrationForClientUrl(
+        kScope, kKey,
+        base::BindLambdaForTesting(
+            [&](blink::ServiceWorkerStatusCode status,
+                scoped_refptr<ServiceWorkerRegistration> found_registration) {
+              EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk, status);
+              EXPECT_EQ(registration, found_registration);
+              done_count++;
+              if (done_count == kCallCount) {
+                loop.Quit();
+              }
+            }));
+  }
+  if (GetParam()) {
+    // When kServiceWorkerMergeFindRegistrationForClientUrl is enabled,
+    // Even when FindRegistrationForClientUrl is called 3 times, the in-flight
+    // calls of FindRegistrationForClientUrl must be merged into one internally.
+    // The following check expects that the
+    // `registry()->FindRegistrationForClientUrl()` implementation keeps track
+    // of `inflight_call_count()` synchronously.
+    EXPECT_EQ(inflight_call_count(), 1U);
+  } else {
+    // When kServiceWorkerMergeFindRegistrationForClientUrl is disabled,
+    // FindRegistrationForClientUrl will never be merged. So
+    // inflight_call_count() returns 3 (= kCallCount).
+    EXPECT_EQ(int(inflight_call_count()), kCallCount);
+  }
+  loop.Run();
 }
 
 // Tests that fields of ServiceWorkerRegistrationInfo are filled correctly.
@@ -1560,7 +1639,7 @@ TEST_F(ServiceWorkerRegistryTest, RetryInflightCalls) {
   {
     base::RunLoop loop;
     registry()->DeleteRegistration(
-        registration2, kKey2,
+        registration2,
         base::BindLambdaForTesting([&](blink::ServiceWorkerStatusCode status) {
           EXPECT_EQ(status, blink::ServiceWorkerStatusCode::kOk);
           loop.Quit();
@@ -1701,7 +1780,7 @@ TEST_F(ServiceWorkerRegistryTest,
 
     base::RunLoop loop;
     registry()->CreateNewRegistration(
-        std::move(options), kKey,
+        std::move(options), kKey, blink::mojom::AncestorFrameType::kNormalFrame,
         base::BindLambdaForTesting(
             [&](scoped_refptr<ServiceWorkerRegistration> new_registration) {
               EXPECT_EQ(new_registration->scope(), kScope);
@@ -2138,8 +2217,9 @@ TEST_F(ServiceWorkerRegistryOriginTrialsTest, FromMainScript) {
   blink::mojom::ServiceWorkerRegistrationOptions options;
   options.scope = kScope;
   scoped_refptr<ServiceWorkerRegistration> registration =
-      new ServiceWorkerRegistration(options, kKey, kRegistrationId,
-                                    context()->AsWeakPtr());
+      new ServiceWorkerRegistration(
+          options, kKey, kRegistrationId, context()->AsWeakPtr(),
+          blink::mojom::AncestorFrameType::kNormalFrame);
   scoped_refptr<ServiceWorkerVersion> version = new ServiceWorkerVersion(
       registration.get(), kScript, blink::mojom::ScriptType::kClassic,
       kVersionId,
@@ -2156,33 +2236,43 @@ TEST_F(ServiceWorkerRegistryOriginTrialsTest, FromMainScript) {
 
   const std::string kHTTPHeaderLine("HTTP/1.1 200 OK\n\n");
   const std::string kOriginTrial("Origin-Trial");
+  // Test features declared in runtime_enabled_features.json5
+  const std::string kFeature1Name("Frobulate");
+  const std::string kFeature2Name("FrobulateDeprecation");
+  const std::string kFeature3Name("FrobulateThirdParty");
   // Token for Feature1 which expires 2033-05-18.
-  // generate_token.py valid.example.com Feature1 --expire-timestamp=2000000000
+  // generate_token.py valid.example.com Frobulate --expire-timestamp=2000000000
   // TODO(horo): Generate this sample token during the build.
   const std::string kFeature1Token(
-      "AtiUXksymWhTv5ipBE7853JytiYb0RMj3wtEBjqu3PeufQPwV1oEaNjHt4R/oEBfcK0UiWlA"
-      "P2b9BE2/eThqcAYAAABYeyJvcmlnaW4iOiAiaHR0cHM6Ly92YWxpZC5leGFtcGxlLmNvbTo0"
-      "NDMiLCAiZmVhdHVyZSI6ICJGZWF0dXJlMSIsICJleHBpcnkiOiAyMDAwMDAwMDAwfQ==");
+      "A3hKfIvnlYdXEp9a7ikD4hSZoQgqQhJIP3HF3ny2Faoeu7HNSnhstN7lcQM1N81y9OkxIT6b"
+      "mSXYFpoMRZ862AoAAABZeyJvcmlnaW4iOiAiaHR0cHM6Ly92YWxpZC5leGFtcGxlLmNvbTo0"
+      "NDMiLCAiZmVhdHVyZSI6ICJGcm9idWxhdGUiLCAiZXhwaXJ5IjogMjAwMDAwMDAwMH0=");
   // Token for Feature2 which expires 2033-05-18.
-  // generate_token.py valid.example.com Feature2 --expire-timestamp=2000000000
+  // generate_token.py valid.example.com FrobulateDeprecation
+  // --expire-timestamp=2000000000
   // TODO(horo): Generate this sample token during the build.
   const std::string kFeature2Token1(
-      "ApmHVC6Dpez0KQNBy13o6cGuoB5AgzOLN0keQMyAN5mjebCwR0MA8/IyjKQIlyom2RuJVg/u"
-      "LmnqEpldfewkbA8AAABYeyJvcmlnaW4iOiAiaHR0cHM6Ly92YWxpZC5leGFtcGxlLmNvbTo0"
-      "NDMiLCAiZmVhdHVyZSI6ICJGZWF0dXJlMiIsICJleHBpcnkiOiAyMDAwMDAwMDAwfQ==");
+      "AzkSdDq68kCktuJuhqg9LRcN7ytUGZHibfhTUV8Sa7TEUv/9HOP1tKAYvQPaCEv0chewHpgh"
+      "iAVci8x2guhMNgkAAABkeyJvcmlnaW4iOiAiaHR0cHM6Ly92YWxpZC5leGFtcGxlLmNvbTo0"
+      "NDMiLCAiZmVhdHVyZSI6ICJGcm9idWxhdGVEZXByZWNhdGlvbiIsICJleHBpcnkiOiAyMDAw"
+      "MDAwMDAwfQ==");
   // Token for Feature2 which expires 2036-07-18.
-  // generate_token.py valid.example.com Feature2 --expire-timestamp=2100000000
+  // generate_token.py valid.example.com FrobulateDeprecation
+  // --expire-timestamp=2100000000
   // TODO(horo): Generate this sample token during the build.
   const std::string kFeature2Token2(
-      "AmV2SSxrYstE2zSwZToy7brAbIJakd146apC/6+VDflLmc5yDfJlHGILe5+ZynlcliG7clOR"
-      "fHhXCzS5Lh1v4AAAAABYeyJvcmlnaW4iOiAiaHR0cHM6Ly92YWxpZC5leGFtcGxlLmNvbTo0"
-      "NDMiLCAiZmVhdHVyZSI6ICJGZWF0dXJlMiIsICJleHBpcnkiOiAyMTAwMDAwMDAwfQ==");
+      "AzO+RDF5GwnZ+9OzbhWrpNV3+Gnx9ce4si8EdVded/1V5rreParDE+Q/mBGl+vb3YYA6uis1"
+      "zpQXSxoVTp1prAYAAABkeyJvcmlnaW4iOiAiaHR0cHM6Ly92YWxpZC5leGFtcGxlLmNvbTo0"
+      "NDMiLCAiZmVhdHVyZSI6ICJGcm9idWxhdGVEZXByZWNhdGlvbiIsICJleHBpcnkiOiAyMTAw"
+      "MDAwMDAwfQ==");
   // Token for Feature3 which expired 2001-09-09.
-  // generate_token.py valid.example.com Feature3 --expire-timestamp=1000000000
+  // generate_token.py valid.example.com FrobulateThirdParty
+  // --expire-timestamp=1000000000
   const std::string kFeature3ExpiredToken(
-      "AtSAc03z4qvid34W4MHMxyRFUJKlubZ+P5cs5yg6EiBWcagVbnm5uBgJMJN34pag7D5RywGV"
-      "ol2RFf+4Sdm1hQ4AAABYeyJvcmlnaW4iOiAiaHR0cHM6Ly92YWxpZC5leGFtcGxlLmNvbTo0"
-      "NDMiLCAiZmVhdHVyZSI6ICJGZWF0dXJlMyIsICJleHBpcnkiOiAxMDAwMDAwMDAwfQ==");
+      "A4qtahM+1dC9dllCTPmjAHG8WJpDIcJuhYRM+lwfpd+7OBYQntbKpi1RXMNdDSldi974UrYW"
+      "5gEr+86Z9I+9BwQAAABjeyJvcmlnaW4iOiAiaHR0cHM6Ly92YWxpZC5leGFtcGxlLmNvbTo0"
+      "NDMiLCAiZmVhdHVyZSI6ICJGcm9idWxhdGVUaGlyZFBhcnR5IiwgImV4cGlyeSI6IDEwMDAw"
+      "MDAwMDB9");
   response_head.headers = base::MakeRefCounted<net::HttpResponseHeaders>("");
   response_head.headers->AddHeader(kOriginTrial, kFeature1Token);
   response_head.headers->AddHeader(kOriginTrial, kFeature2Token1);
@@ -2195,18 +2285,18 @@ TEST_F(ServiceWorkerRegistryOriginTrialsTest, FromMainScript) {
   const blink::TrialTokenValidator::FeatureToTokensMap& tokens =
       *version->origin_trial_tokens();
   ASSERT_EQ(2UL, tokens.size());
-  ASSERT_EQ(1UL, tokens.at("Feature1").size());
-  EXPECT_EQ(kFeature1Token, tokens.at("Feature1")[0]);
-  ASSERT_EQ(2UL, tokens.at("Feature2").size());
-  EXPECT_EQ(kFeature2Token1, tokens.at("Feature2")[0]);
-  EXPECT_EQ(kFeature2Token2, tokens.at("Feature2")[1]);
+  ASSERT_EQ(1UL, tokens.at(kFeature1Name).size());
+  EXPECT_EQ(kFeature1Token, tokens.at(kFeature1Name)[0]);
+  ASSERT_EQ(2UL, tokens.at(kFeature2Name).size());
+  EXPECT_EQ(kFeature2Token1, tokens.at(kFeature2Name)[0]);
+  EXPECT_EQ(kFeature2Token2, tokens.at(kFeature2Name)[1]);
 
   std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> records;
-  records.push_back(
-      storage::mojom::ServiceWorkerResourceRecord::New(1, kScript, 100));
+  records.push_back(storage::mojom::ServiceWorkerResourceRecord::New(
+      1, kScript, 100, /*sha256_checksum=*/""));
   version->script_cache_map()->SetResources(records);
-  version->set_fetch_handler_existence(
-      ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
+  version->set_fetch_handler_type(
+      ServiceWorkerVersion::FetchHandlerType::kNotSkippable);
   version->SetStatus(ServiceWorkerVersion::INSTALLED);
   registration->SetActiveVersion(version);
 
@@ -2224,11 +2314,11 @@ TEST_F(ServiceWorkerRegistryOriginTrialsTest, FromMainScript) {
   const blink::TrialTokenValidator::FeatureToTokensMap& found_tokens =
       *found_registration->active_version()->origin_trial_tokens();
   ASSERT_EQ(2UL, found_tokens.size());
-  ASSERT_EQ(1UL, found_tokens.at("Feature1").size());
-  EXPECT_EQ(kFeature1Token, found_tokens.at("Feature1")[0]);
-  ASSERT_EQ(2UL, found_tokens.at("Feature2").size());
-  EXPECT_EQ(kFeature2Token1, found_tokens.at("Feature2")[0]);
-  EXPECT_EQ(kFeature2Token2, found_tokens.at("Feature2")[1]);
+  ASSERT_EQ(1UL, found_tokens.at(kFeature1Name).size());
+  EXPECT_EQ(kFeature1Token, found_tokens.at(kFeature1Name)[0]);
+  ASSERT_EQ(2UL, found_tokens.at(kFeature2Name).size());
+  EXPECT_EQ(kFeature2Token1, found_tokens.at(kFeature2Name)[0]);
+  EXPECT_EQ(kFeature2Token2, found_tokens.at(kFeature2Name)[1]);
 }
 
 class ServiceWorkerRegistryResourceTest : public ServiceWorkerRegistryTest {
@@ -2253,8 +2343,8 @@ class ServiceWorkerRegistryResourceTest : public ServiceWorkerRegistryTest {
         CreateNewServiceWorkerRegistration(registry(), options, key_);
     scoped_refptr<ServiceWorkerVersion> version = CreateNewServiceWorkerVersion(
         registry(), registration_.get(), script_, options.type);
-    version->set_fetch_handler_existence(
-        ServiceWorkerVersion::FetchHandlerExistence::DOES_NOT_EXIST);
+    version->set_fetch_handler_type(
+        ServiceWorkerVersion::FetchHandlerType::kNoHandler);
     version->SetStatus(ServiceWorkerVersion::INSTALLED);
 
     std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> resources;
@@ -2397,8 +2487,7 @@ TEST_F(ServiceWorkerRegistryResourceTest, DeleteRegistration_NoLiveVersion) {
   base::RunLoop loop;
   storage_control()->SetPurgingCompleteCallbackForTest(loop.QuitClosure());
   EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
-            DeleteRegistration(registration_,
-                               blink::StorageKey(url::Origin::Create(scope_))));
+            DeleteRegistration(registration_));
   // At this point registration_->waiting_version() has a remote reference, so
   // the resources should be in the purgeable list.
   EXPECT_EQ(2u, GetPurgeableResourceIds().size());
@@ -2418,8 +2507,7 @@ TEST_F(ServiceWorkerRegistryResourceTest, DeleteRegistration_WaitingVersion) {
   // purgeable list and then doomed in the disk cache and removed from that
   // list.
   EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
-            DeleteRegistration(registration_,
-                               blink::StorageKey(url::Origin::Create(scope_))));
+            DeleteRegistration(registration_));
   EXPECT_EQ(2u, GetPurgeableResourceIds().size());
 
   EXPECT_TRUE(VerifyBasicResponse(storage_control(), resource_id1_, false));
@@ -2454,8 +2542,7 @@ TEST_F(ServiceWorkerRegistryResourceTest, DeleteRegistration_ActiveVersion) {
   // Deleting the registration should move the resources to the purgeable list
   // but keep them available.
   EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
-            DeleteRegistration(registration_,
-                               blink::StorageKey(url::Origin::Create(scope_))));
+            DeleteRegistration(registration_));
   EXPECT_EQ(2u, GetPurgeableResourceIds().size());
 
   EXPECT_TRUE(VerifyBasicResponse(storage_control(), resource_id1_, true));
@@ -2498,8 +2585,8 @@ TEST_F(ServiceWorkerRegistryResourceTest, UpdateRegistration) {
   std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> records;
   records.push_back(CreateResourceRecord(10, live_version->script_url(), 100));
   live_version->script_cache_map()->SetResources(records);
-  live_version->set_fetch_handler_existence(
-      ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
+  live_version->set_fetch_handler_type(
+      ServiceWorkerVersion::FetchHandlerType::kNotSkippable);
 
   // Writing the registration should move the old version's resources to the
   // purgeable list but keep them available.
@@ -2544,8 +2631,8 @@ TEST_F(ServiceWorkerRegistryResourceTest, UpdateRegistration_NoLiveVersion) {
   std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> records;
   records.push_back(CreateResourceRecord(10, live_version->script_url(), 100));
   live_version->script_cache_map()->SetResources(records);
-  live_version->set_fetch_handler_existence(
-      ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
+  live_version->set_fetch_handler_type(
+      ServiceWorkerVersion::FetchHandlerType::kNotSkippable);
 
   // Writing the registration should purge the old version's resources,
   // since it's not live.
@@ -2585,8 +2672,7 @@ TEST_F(ServiceWorkerRegistryResourceTest, CleanupOnRestart) {
   // Deleting the registration should move the resources to the purgeable list
   // but keep them available.
   EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
-            DeleteRegistration(registration_,
-                               blink::StorageKey(url::Origin::Create(scope_))));
+            DeleteRegistration(registration_));
   std::vector<int64_t> verify_ids = GetPurgeableResourceIds();
   EXPECT_EQ(2u, verify_ids.size());
 
@@ -2644,8 +2730,7 @@ TEST_F(ServiceWorkerRegistryResourceTest, Restart_LiveVersion) {
 
   // Delete the registration. The resources should be on the purgeable list but
   // should not be purged yet.
-  ASSERT_EQ(DeleteRegistration(registration_,
-                               blink::StorageKey(url::Origin::Create(scope_))),
+  ASSERT_EQ(DeleteRegistration(registration_),
             blink::ServiceWorkerStatusCode::kOk);
 
   EXPECT_THAT(GetPurgeableResourceIds(), testing::UnorderedElementsAreArray(

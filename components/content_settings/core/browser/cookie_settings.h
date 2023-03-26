@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@
 #include "components/content_settings/core/common/cookie_settings_base.h"
 #include "components/keyed_service/core/refcounted_keyed_service.h"
 #include "components/prefs/pref_change_registrar.h"
+#include "net/cookies/cookie_setting_override.h"
 
 class GURL;
 class PrefService;
@@ -51,6 +52,7 @@ class CookieSettings : public CookieSettingsBase,
                        public content_settings::Observer,
                        public RefcountedKeyedService {
  public:
+  using QueryReason = CookieSettingsBase::QueryReason;
   class Observer : public base::CheckedObserver {
    public:
     virtual void OnThirdPartyCookieBlockingChanged(
@@ -80,11 +82,10 @@ class CookieSettings : public CookieSettingsBase,
   ContentSetting GetDefaultCookieSetting(std::string* provider_id) const;
 
   // Returns all patterns with a non-default cookie setting, mapped to their
-  // actual settings, in the precedence order of the setting rules. |settings|
-  // must be a non-nullptr outparam.
+  // actual settings, in the precedence order of the setting rules.
   //
   // This may be called on any thread.
-  void GetCookieSettings(ContentSettingsForOneType* settings) const;
+  ContentSettingsForOneType GetCookieSettings() const;
 
   // Sets the default content setting (CONTENT_SETTING_ALLOW,
   // CONTENT_SETTING_BLOCK, or CONTENT_SETTING_SESSION_ONLY) for cookies.
@@ -108,7 +109,8 @@ class CookieSettings : public CookieSettingsBase,
   //
   // This should only be called on the UI thread.
   bool IsThirdPartyAccessAllowed(const GURL& first_party_url,
-                                 content_settings::SettingSource* source);
+                                 content_settings::SettingSource* source,
+                                 QueryReason query_reason);
 
   // Sets the cookie setting for the site and third parties embedded in it.
   //
@@ -129,8 +131,8 @@ class CookieSettings : public CookieSettingsBase,
   virtual bool ShouldBlockThirdPartyCookies() const;
 
   // content_settings::CookieSettingsBase:
-  void GetSettingForLegacyCookieAccess(const std::string& cookie_domain,
-                                       ContentSetting* setting) const override;
+  ContentSetting GetSettingForLegacyCookieAccess(
+      const std::string& cookie_domain) const override;
   bool ShouldIgnoreSameSiteRestrictions(
       const GURL& url,
       const net::SiteForCookies& site_for_cookies) const override;
@@ -166,7 +168,9 @@ class CookieSettings : public CookieSettingsBase,
       const GURL& url,
       const GURL& first_party_url,
       bool is_third_party_request,
-      content_settings::SettingSource* source) const override;
+      net::CookieSettingOverrides overrides,
+      content_settings::SettingSource* source,
+      QueryReason query_reason) const override;
 
   // content_settings::Observer:
   void OnContentSettingChanged(

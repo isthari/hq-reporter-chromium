@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,15 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/check_op.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/trace_event/trace_event.h"
 #include "base/unguessable_token.h"
-#include "content/browser/media/audio_stream_broker.h"
 #include "content/browser/media/capture/desktop_capture_device_uma_types.h"
 #include "content/browser/media/forwarding_audio_stream_factory.h"
 #include "content/browser/media/media_devices_permission_checker.h"
@@ -24,6 +24,7 @@
 #include "content/browser/renderer_host/media/audio_input_device_manager.h"
 #include "content/browser/renderer_host/media/media_devices_manager.h"
 #include "content/browser/renderer_host/media/media_stream_manager.h"
+#include "content/public/browser/audio_stream_broker.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/media_device_id.h"
@@ -123,7 +124,8 @@ class RenderFrameAudioInputStreamFactory::Core final
       const base::UnguessableToken& session_id,
       const media::AudioParameters& audio_params,
       bool automatic_gain_control,
-      uint32_t shared_memory_count) final;
+      uint32_t shared_memory_count,
+      media::mojom::AudioProcessingConfigPtr processing_config) final;
 
   void AssociateInputAndOutputForAec(
       const base::UnguessableToken& input_stream_id,
@@ -177,8 +179,7 @@ RenderFrameAudioInputStreamFactory::~RenderFrameAudioInputStreamFactory() {
   // causes issues in unit tests where the UI thread and the IO thread are the
   // same.
   GetIOThreadTaskRunner({})->PostTask(
-      FROM_HERE,
-      base::BindOnce([](std::unique_ptr<Core>) {}, std::move(core_)));
+      FROM_HERE, base::DoNothingWithBoundArgs(std::move(core_)));
 }
 
 RenderFrameAudioInputStreamFactory::Core::Core(
@@ -228,7 +229,8 @@ void RenderFrameAudioInputStreamFactory::Core::CreateStream(
     const base::UnguessableToken& session_id,
     const media::AudioParameters& audio_params,
     bool automatic_gain_control,
-    uint32_t shared_memory_count) {
+    uint32_t shared_memory_count,
+    media::mojom::AudioProcessingConfigPtr processing_config) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   TRACE_EVENT1("audio", "RenderFrameAudioInputStreamFactory::CreateStream",
                "session id", session_id.ToString());
@@ -271,7 +273,8 @@ void RenderFrameAudioInputStreamFactory::Core::CreateStream(
   } else {
     forwarding_factory_->CreateInputStream(
         process_id_, frame_id_, device->id, audio_params, shared_memory_count,
-        automatic_gain_control, std::move(client));
+        automatic_gain_control, std::move(processing_config),
+        std::move(client));
 
     // Only count for captures from desktop media picker dialog and system loop
     // back audio.

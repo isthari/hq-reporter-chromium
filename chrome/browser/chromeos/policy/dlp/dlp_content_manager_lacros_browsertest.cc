@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chromeos/crosapi/mojom/dlp.mojom.h"
 #include "chromeos/lacros/lacros_service.h"
+#include "chromeos/startup/browser_init_params.h"
 #include "content/public/test/browser_test.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -80,11 +81,10 @@ class DlpContentManagerLacrosBrowserTest : public InProcessBrowserTest {
 
   void SetDlpInterfaceVersion(int version) {
     crosapi::mojom::BrowserInitParamsPtr init_params =
-        chromeos::LacrosService::Get()->init_params()->Clone();
+        chromeos::BrowserInitParams::GetForTests()->Clone();
     init_params->interface_versions.value()[crosapi::mojom::Dlp::Uuid_] =
         version;
-    chromeos::LacrosService::Get()->SetInitParamsForTests(
-        std::move(init_params));
+    chromeos::BrowserInitParams::SetInitParamsForTests(std::move(init_params));
   }
 
   DlpContentManagerLacros* manager() {
@@ -208,12 +208,13 @@ IN_PROC_BROWSER_TEST_F(DlpContentManagerLacrosBrowserTest,
 
   // Call DLP manager and expect stop callback.
   base::RunLoop stopped_run_loop;
-  manager()->OnScreenCaptureStarted(
+  manager()->OnScreenShareStarted(
       kScreenShareLabel,
       {content::DesktopMediaID(content::DesktopMediaID::TYPE_SCREEN,
                                content::DesktopMediaID::kFakeId)},
       kAppId, base::BindLambdaForTesting([&]() { stopped_run_loop.Quit(); }),
-      base::DoNothing());
+      /*state_change_callback=*/base::DoNothing(),
+      /*source_callback=*/base::DoNothing());
 
   // Bind remote delegate.
   bound_loop.Run();
@@ -258,8 +259,9 @@ IN_PROC_BROWSER_TEST_F(DlpContentManagerLacrosBrowserTest,
   base::RunLoop resumed_run_loop;
   content::DesktopMediaID media_id(content::DesktopMediaID::TYPE_SCREEN,
                                    content::DesktopMediaID::kFakeId);
-  manager()->OnScreenCaptureStarted(
-      kScreenShareLabel, {media_id}, kAppId, base::DoNothing(),
+  manager()->OnScreenShareStarted(
+      kScreenShareLabel, {media_id}, kAppId,
+      /*stop_callback=*/base::DoNothing(),
       base::BindLambdaForTesting(
           [&](const content::DesktopMediaID& in_media_id,
               blink::mojom::MediaStreamStateChange new_state) {
@@ -272,7 +274,8 @@ IN_PROC_BROWSER_TEST_F(DlpContentManagerLacrosBrowserTest,
             } else {
               NOTREACHED();
             }
-          }));
+          }),
+      /*source_callback=*/base::DoNothing());
 
   // Bind remote delegate.
   bound_loop.Run();
