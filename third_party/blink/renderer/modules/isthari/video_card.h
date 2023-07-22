@@ -55,6 +55,7 @@ public:
     int64_t audioChannels();
     long getModeCount() { return (long) modes_.size(); }
     VideoCardMode* getMode(long index); 
+    long duplexMode();
 
     // Input
     void enableVideoInput(ExecutionContext*, 
@@ -101,6 +102,7 @@ private:
     int64_t persistentId_;
     int64_t subDeviceIndex_;
     int64_t audioChannels_;
+    int64_t duplexMode_;
     
     // no se usa de momento
     BMDTimeValue frameDuration_;

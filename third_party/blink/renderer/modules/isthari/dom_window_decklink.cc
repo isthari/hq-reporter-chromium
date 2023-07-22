@@ -44,12 +44,12 @@ long DOMWindowDecklink::videoCardList(LocalDOMWindow& window, V8VideoCardGetCall
         int counter=0;
         IDeckLink *deckLink;
         while (iterator->Next(&deckLink) == S_OK) {
-                VLOG(0) << "DeckLink card " << counter++;
-		VideoCard *card = MakeGarbageCollected<VideoCard>(deckLink); 
-		auto qtf = callback->handleCard(nullptr, card);
-		if (qtf.IsJust()) {
+            VLOG(0) << "DeckLink card " << counter++;
+			VideoCard *card = MakeGarbageCollected<VideoCard>(deckLink); 
+			auto qtf = callback->handleCard(nullptr, card);
+			if (qtf.IsJust()) {
 	            VLOG(0) << "isjust";
-		}
+			}
         }
 
         iterator->Release();
