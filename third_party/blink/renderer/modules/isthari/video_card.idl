@@ -8,6 +8,7 @@
     readonly attribute long subDeviceIndex;
     readonly attribute DOMString identifier;
     readonly attribute long audioChannels;
+    readonly attribute long duplexMode;
 
     [CallWith=ExecutionContext] void enableVideoInput(
         long mode,

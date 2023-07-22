@@ -46,8 +46,16 @@ VideoCard::VideoCard(IDeckLink *deckLink)
     deckLink->QueryInterface(IID_IDeckLinkProfileAttributes, (void**) &deckLinkAttributes);
 
     deckLinkAttributes->GetInt(BMDDeckLinkPersistentID, &persistentId_);
-    deckLinkAttributes->GetInt(BMDDeckLinkSubDeviceIndex, &subDeviceIndex_);
+    deckLinkAttributes->GetInt(BMDDeckLinkSubDeviceIndex, &subDeviceIndex_);    
     deckLinkAttributes->GetInt(BMDDeckLinkMaximumAudioChannels, &audioChannels_);
+
+    deckLinkAttributes->GetInt(BMDDeckLinkDuplex, &duplexMode_);
+    switch(duplexMode_) {
+        case bmdDuplexInactive: VLOG(0) << "Duplex mode bmdDuplexInactive"; break;
+        case bmdDuplexFull: VLOG(0) << "Duplex mode bmdDuplexFull"; break;
+        case bmdDuplexSimplex: VLOG(0) << "Duplex mode bmdDuplexSimplex"; break;
+        case bmdDuplexHalf: VLOG(0) << "Duplex mode bmdDuplexHalf"; break;
+    }    
 
     deckLinkAttributes->Release();
 
@@ -61,12 +69,22 @@ String VideoCard::identifier() {
     return String(ss.str()); 
 }	
 
+long VideoCard::duplexMode() {    
+    switch(duplexMode_) {
+        case bmdDuplexInactive: return 0;
+        case bmdDuplexFull: return 1;
+        case bmdDuplexSimplex: return 2;
+        case bmdDuplexHalf: return 3;
+    }    
+    return -1;
+}
+
 /**
  * Comprueba si soporta entrada / salida
  */
 void VideoCard::checkIO() {
     // TODO añadir duplex
-    // check output support
+    // check output support    
     HRESULT oResult = this->deckLink_->QueryInterface(IID_IDeckLinkOutput, (void**) &this->deckLinkOutput_);
     if (oResult != S_OK) {
         VLOG(0) << "Card " << modelName_ << " does not support playback ";
@@ -83,7 +101,7 @@ void VideoCard::checkIO() {
     HRESULT iResult = deckLink_->QueryInterface(IID_IDeckLinkInput, (void**) &deckLinkInput_);
     if (iResult != S_OK) {
         VLOG(0) << "Card " << modelName_ << " does not support capture";
-	isInput_ = false;
+	    isInput_ = false;
     } else {
         // hacer un disable por si ha recargado la pagina
         VLOG(0) << "Disable video input IGNORE";
